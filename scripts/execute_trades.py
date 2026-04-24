@@ -336,7 +336,8 @@ if __name__ == "__main__":
         result = run_execution(dry_run=True)
         print(f"\nDry run complete. Would buy: {len(result['buys'])}, Would sell: {len(result['sells'])}")
         for b in result["buys"]:
-            print(f"  {b['symbol']}: {b['action']} — {b.get('reason', f'qty={b.get(\"qty\")} @ ${b.get(\"price\", 0):.2f}')}")
+            reason = b.get('reason', f"qty={b.get('qty')} @ ${b.get('price', 0):.2f}")
+            print(f"  {b['symbol']}: {b['action']} — {reason}")
 
     elif cmd == "candidates":
         buys = get_buy_candidates()
