@@ -46,18 +46,18 @@ jobs:
         env:
           CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_KEY }}
           CLICKUP_LIST_ID: ${{ secrets.CLICKUP_LIST_ID }}
-        run: python3 -c "
+        run: |
+          python3 -c "
           from notify import send_weekly_report
           from utils import load_json, PERFORMANCE_STATE
           perf = load_json(PERFORMANCE_STATE)
-          summary = (
-              f\"Weekly P&L: \${perf.get('weekly_pnl', 0):,.2f} ({perf.get('weekly_pnl_pct', 0):+.2f}%)\n\"
-              f\"Monthly P&L: \${perf.get('monthly_pnl', 0):,.2f} ({perf.get('monthly_pnl_pct', 0):+.2f}%)\n\"
-              f\"Equity: \${perf.get('equity', 0):,.2f}\n\"
-              f\"Positions: {perf.get('num_positions', 0)}\n\"
-              f\"Risk Tier: {perf.get('risk_tier', 'NORMAL')}\"
-          )
-          send_weekly_report(summary)
+          parts = []
+          parts.append('Weekly P&L: \$' + f'{perf.get(\"weekly_pnl\", 0):,.2f} ({perf.get(\"weekly_pnl_pct\", 0):+.2f}%)')
+          parts.append('Monthly P&L: \$' + f'{perf.get(\"monthly_pnl\", 0):,.2f} ({perf.get(\"monthly_pnl_pct\", 0):+.2f}%)')
+          parts.append('Equity: \$' + f'{perf.get(\"equity\", 0):,.2f}')
+          parts.append('Positions: ' + str(perf.get('num_positions', 0)))
+          parts.append('Risk Tier: ' + perf.get('risk_tier', 'NORMAL'))
+          send_weekly_report(chr(10).join(parts))
           "
 
       - name: Commit and push state
