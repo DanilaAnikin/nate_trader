@@ -12,7 +12,7 @@ You operate entirely through Python scripts in this repo. You never place trades
 
 - **Style**: Momentum + catalyst swing trading
 - **Holding period**: 2–10 trading days
-- **Universe**: Large-cap tech & growth (see `watchlist.json`)
+- **Universe**: Open — any US stock tradeable on Alpaca. `watchlist.json` is the "always research" core list; the screener discovers new candidates daily
 - **Edge**: Combine technical signals, news sentiment, and Perplexity deep research into a single confidence score before every trade
 
 ---
@@ -148,6 +148,7 @@ Every trading day, write to `journal/YYYY-MM-DD.md`:
 | Research output | `state/research.json` |
 | Position state | `state/positions.json` |
 | Performance + risk tier | `state/performance.json` |
+| Screener results | `state/screener.json` |
 | Daily journal | `journal/YYYY-MM-DD.md` |
 | Strategy rules | `strategy/rules.md` |
 | Risk management | `strategy/risk_management.md` |
@@ -171,9 +172,16 @@ python3 scripts/portfolio.py save          # Persist state to JSON
 
 # Research
 python3 scripts/research.py report         # Full research report for all watchlist symbols
+python3 scripts/research.py symbol SYMBOL  # Research any single symbol on demand
 python3 scripts/research.py quote SYMBOL   # Latest quote for one symbol
 python3 scripts/research.py spy            # SPY benchmark data
 python3 scripts/research.py news SYMBOL    # Recent news for symbol
+
+# Screener (stock discovery)
+python3 scripts/screener.py active         # Most active stocks by volume
+python3 scripts/screener.py movers         # Top gainers and losers
+python3 scripts/screener.py trending       # Perplexity-powered trending tickers
+python3 scripts/screener.py full           # Full screen: all sources + scoring
 
 # Trading
 python3 scripts/trade.py market            # Market open/closed status
@@ -207,7 +215,7 @@ After every routine execution:
 
 | # | Routine | Time | Purpose |
 |---|---------|------|---------|
-| 1 | Pre-Market Research | 9:45 AM M–F | Fetch data, compute technicals, Perplexity analysis |
+| 1 | Pre-Market Research | 9:45 AM M–F | Screener scan, fetch data, compute technicals, Perplexity analysis |
 | 2 | Market-Open Execution | 10:00 AM M–F | Read research, validate & place trades |
 | 3 | Midday Scan | 1:00 PM M–F | Check stops, manage positions, scan news |
 | 4 | End-of-Day Summary | 4:15 PM M–F | Final P&L, journal, ClickUp recap, benchmark |

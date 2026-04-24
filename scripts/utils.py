@@ -28,6 +28,7 @@ WATCHLIST_PATH = PROJECT_ROOT / "watchlist.json"
 RESEARCH_STATE = STATE_DIR / "research.json"
 POSITIONS_STATE = STATE_DIR / "positions.json"
 PERFORMANCE_STATE = STATE_DIR / "performance.json"
+SCREENER_STATE = STATE_DIR / "screener.json"
 
 # Timezone: approximate EDT (UTC-4)
 EDT = timezone(timedelta(hours=-4))

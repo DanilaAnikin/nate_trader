@@ -280,6 +280,44 @@ def get_spy_benchmark() -> dict:
     }
 
 
+def research_symbol(symbol: str) -> dict:
+    """Research any single symbol on demand. Returns full analysis dict."""
+    log.info(f"Researching {symbol}...")
+    try:
+        df = get_bars(symbol, days=60)
+        technicals = compute_technicals(df)
+        if "error" in technicals:
+            return {"symbol": symbol, "error": technicals["error"]}
+
+        try:
+            news = get_news(symbol, limit=5)
+            n_score = score_news(news)
+            news_headlines = [a["headline"] for a in news[:3]]
+        except Exception as e:
+            log.warning(f"News fetch failed for {symbol}: {e}")
+            news = []
+            n_score = 5
+            news_headlines = []
+
+        confidence = compute_confidence_score(technicals, n_score)
+
+        result = {
+            "symbol": symbol,
+            "technicals": technicals,
+            "news_score": n_score,
+            "news_headlines": news_headlines,
+            "confidence": confidence,
+            "info": get_symbol_info(symbol),
+            "updated_at": get_now_str(),
+        }
+        log.info(f"  {symbol}: ${technicals['price']:.2f} | Score: {confidence['total']} ({confidence['action']})")
+        return result
+
+    except Exception as e:
+        log.error(f"Error researching {symbol}: {e}")
+        return {"symbol": symbol, "error": str(e)}
+
+
 def build_research_report() -> dict:
     """Build full research report for all watchlist symbols."""
     log.info("Building research report...")
@@ -349,6 +387,25 @@ if __name__ == "__main__":
                 t = data["technicals"]
                 print(f"  {sym}: ${t['price']:.2f} | Score: {c['total']} ({c['action']}) | RSI: {t.get('rsi_14', 0):.1f}")
 
+    elif cmd == "symbol" and len(sys.argv) > 2:
+        symbol = sys.argv[2].upper()
+        result = research_symbol(symbol)
+        if "error" in result:
+            print(f"\n{symbol}: ERROR - {result['error']}")
+        else:
+            c = result["confidence"]
+            t = result["technicals"]
+            print(f"\n{symbol} Research:")
+            print(f"  Price:   ${t['price']:.2f}")
+            print(f"  SMA20:   ${t['sma_20']:.2f}" if t.get('sma_20') else "  SMA20:   N/A")
+            print(f"  SMA50:   ${t['sma_50']:.2f}" if t.get('sma_50') else "  SMA50:   N/A")
+            print(f"  RSI:     {t.get('rsi_14', 0):.1f}")
+            print(f"  VolRatio:{t.get('volume_ratio', 0):.2f}")
+            print(f"  5d Ret:  {t.get('five_day_return', 0):+.2f}%")
+            print(f"  Score:   {c['total']} ({c['action']})")
+            print(f"    Tech:  {c['technical_score']}/35")
+            print(f"    News:  {c['news_score']}/35")
+
     elif cmd == "quote" and len(sys.argv) > 2:
         symbol = sys.argv[2].upper()
         quote = get_latest_quote(symbol)
@@ -377,4 +434,4 @@ if __name__ == "__main__":
             print(f"    {article['created_at']}")
 
     else:
-        print("Usage: python3 research.py [report|quote SYMBOL|spy|news SYMBOL]")
+        print("Usage: python3 research.py [report|symbol SYMBOL|quote SYMBOL|spy|news SYMBOL]")

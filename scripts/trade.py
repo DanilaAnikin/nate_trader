@@ -88,9 +88,15 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
     if daily_pnl_pct <= -3.0 and side.lower() == "buy":
         reasons.append(f"Daily loss halt triggered ({daily_pnl_pct:.2f}% today)")
 
-    # 7. Symbol must be tradeable
-    if symbol not in get_tradeable_symbols():
-        reasons.append(f"{symbol} is not in the tradeable watchlist")
+    # 7. Symbol must be a valid, tradeable asset on Alpaca
+    try:
+        asset = client.get_asset(symbol)
+        if not asset.tradable:
+            reasons.append(f"{symbol} exists but is not currently tradeable on Alpaca")
+        if asset.status == "inactive":
+            reasons.append(f"{symbol} is inactive on Alpaca")
+    except Exception:
+        reasons.append(f"{symbol} is not a valid asset on Alpaca")
 
     valid = len(reasons) == 0
     return {
