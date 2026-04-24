@@ -203,11 +203,21 @@ python3 scripts/notify.py test             # Send test ClickUp task
 
 ## Git Workflow
 
+**CRITICAL: Always push directly to `main`. Never create feature branches, never create `claude/` branches, never open pull requests. All routine work commits directly to the `main` branch.**
+
 After every routine execution:
-1. Save state: `python3 scripts/portfolio.py save`
-2. Stage state + journal: `git add state/ journal/ memory/ watchlist.json`
-3. Commit: `git commit -m "routine: <routine-name> YYYY-MM-DD"`
-4. Push: `git push origin main`
+1. Make sure you are on the `main` branch: `git checkout main`
+2. Pull latest: `git pull origin main`
+3. Save state: `python3 scripts/portfolio.py save`
+4. Stage state + journal: `git add state/ journal/ memory/ watchlist.json`
+5. Commit: `git commit -m "routine: <routine-name> YYYY-MM-DD"`
+6. Push directly to main: `git push origin main`
+
+**Rules:**
+- Never use `git checkout -b` to create new branches
+- Never push to any branch other than `main`
+- Never create pull requests
+- If on a branch other than `main`, switch back with `git checkout main` first
 
 ---
 
