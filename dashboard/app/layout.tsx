@@ -30,8 +30,8 @@ export default function RootLayout({
     >
       <body className="min-h-screen flex bg-background text-foreground">
         <Sidebar />
-        <main className="flex-1 overflow-auto">
-          <div className="max-w-7xl mx-auto p-6">{children}</div>
+        <main className="flex-1 overflow-auto dot-pattern">
+          <div className="max-w-[1600px] mx-auto p-6">{children}</div>
         </main>
       </body>
     </html>

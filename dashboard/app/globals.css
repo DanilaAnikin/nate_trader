@@ -5,7 +5,9 @@
   --bg-secondary: #111827;
   --bg-card: #1a2332;
   --bg-hover: #1e293b;
+  --bg-surface: #141c2b;
   --border: #1e293b;
+  --border-glow: rgba(59, 130, 246, 0.15);
   --text-primary: #f1f5f9;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
@@ -14,6 +16,7 @@
   --accent-blue: #3b82f6;
   --accent-amber: #f59e0b;
   --accent-purple: #a855f7;
+  --accent-cyan: #06b6d4;
 }
 
 @theme inline {
@@ -21,6 +24,7 @@
   --color-foreground: var(--text-primary);
   --color-card: var(--bg-card);
   --color-card-hover: var(--bg-hover);
+  --color-surface: var(--bg-surface);
   --color-border: var(--border);
   --color-muted: var(--text-muted);
   --color-secondary: var(--text-secondary);
@@ -29,6 +33,7 @@
   --color-blue: var(--accent-blue);
   --color-amber: var(--accent-amber);
   --color-purple: var(--accent-purple);
+  --color-cyan: var(--accent-cyan);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -36,4 +41,65 @@
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
+}
+
+/* Glassmorphism card */
+.glass-card {
+  background: rgba(26, 35, 50, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Entry animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out both;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.4s ease-out both;
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Dot pattern background */
+.dot-pattern {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
 }

@@ -122,3 +122,12 @@ export interface ScreenerData {
   trending: string[];
   scored_candidates: Record<string, SymbolResearch>;
 }
+
+export interface ComputedMetrics {
+  cashReserveOk: boolean;
+  maxPositionsOk: boolean;
+  positionCount: number;
+  maxPositionSize: number;
+  portfolioUtilization: number;
+  totalUnrealizedPl: number;
+}
