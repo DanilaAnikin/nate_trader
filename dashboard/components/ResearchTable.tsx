@@ -9,49 +9,39 @@ interface ResearchTableProps {
 
 function ActionBadge({ action }: { action: string }) {
   const styles: Record<string, string> = {
-    BUY: "bg-green/15 text-green",
-    HOLD: "bg-amber/15 text-amber",
-    SELL: "bg-red/15 text-red",
+    BUY: "bg-green/15 text-green border-green/20",
+    HOLD: "bg-amber/15 text-amber border-amber/20",
+    SELL: "bg-red/15 text-red border-red/20",
   };
   return (
-    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${styles[action] || ""}`}>
+    <span className={`inline-block px-2.5 py-1 rounded border text-xs font-bold tracking-wide ${styles[action] || ""}`}>
       {action}
     </span>
   );
 }
 
-function ScoreBar({ value, max, color }: { value: number; max: number; color: string }) {
+function ScoreBar({ value, max, color, label }: { value: number; max: number; color: string; label: string }) {
   const pct = max > 0 ? (value / max) * 100 : 0;
   return (
-    <div className="flex items-center gap-2">
-      <div className="w-14 h-1.5 bg-border/50 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+    <div className="min-w-[120px]">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] text-muted uppercase tracking-wider">{label}</span>
+        <span className="text-xs font-semibold text-secondary tabular-nums">{value}<span className="text-muted font-normal">/{max}</span></span>
       </div>
-      <span className="text-xs text-secondary tabular-nums">{value}/{max}</span>
+      <div className="w-full h-2 bg-white/[0.04] rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }
 
-function ConfidenceGauge({ score }: { score: number }) {
-  const radius = 16;
-  const circumference = 2 * Math.PI * radius;
-  const pct = Math.min(score / 100, 1);
-  const offset = circumference * (1 - pct);
-  const color = score >= 65 ? "var(--accent-green)" : score >= 40 ? "var(--accent-amber)" : "var(--accent-red)";
+function ConfidenceScore({ score }: { score: number }) {
+  const color = score >= 65 ? "text-green" : score >= 40 ? "text-amber" : "text-red";
+  const bg = score >= 65 ? "bg-green/10 border-green/20" : score >= 40 ? "bg-amber/10 border-amber/20" : "bg-red/10 border-red/20";
 
   return (
-    <div className="relative inline-flex items-center justify-center">
-      <svg width="40" height="40" viewBox="0 0 40 40">
-        <circle cx="20" cy="20" r={radius} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="3" />
-        <circle
-          cx="20" cy="20" r={radius} fill="none" stroke={color} strokeWidth="3"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          transform="rotate(-90 20 20)"
-        />
-      </svg>
-      <span className="absolute text-xs font-bold" style={{ color }}>{score}</span>
+    <div className={`inline-flex items-center justify-center w-12 h-12 rounded-xl border ${bg}`}>
+      <span className={`text-lg font-bold tabular-nums ${color}`}>{score}</span>
     </div>
   );
 }
@@ -81,183 +71,170 @@ export default function ResearchTable({ symbols }: ResearchTableProps) {
 
   const filtered = filter === "ALL" ? entries : entries.filter(([, d]) => d.confidence?.action === filter);
 
-  const filters: { key: FilterAction; label: string; count: number }[] = [
-    { key: "ALL", label: "All", count: entries.length },
-    { key: "BUY", label: "Buy", count: entries.filter(([, d]) => d.confidence?.action === "BUY").length },
-    { key: "HOLD", label: "Hold", count: entries.filter(([, d]) => d.confidence?.action === "HOLD").length },
-    { key: "SELL", label: "Sell", count: entries.filter(([, d]) => d.confidence?.action === "SELL").length },
+  const filters: { key: FilterAction; label: string; count: number; activeClass: string }[] = [
+    { key: "ALL", label: "All", count: entries.length, activeClass: "bg-blue/15 text-blue border-blue/25" },
+    { key: "BUY", label: "Buy", count: entries.filter(([, d]) => d.confidence?.action === "BUY").length, activeClass: "bg-green/15 text-green border-green/25" },
+    { key: "HOLD", label: "Hold", count: entries.filter(([, d]) => d.confidence?.action === "HOLD").length, activeClass: "bg-amber/15 text-amber border-amber/25" },
+    { key: "SELL", label: "Sell", count: entries.filter(([, d]) => d.confidence?.action === "SELL").length, activeClass: "bg-red/15 text-red border-red/25" },
   ];
 
   return (
     <div className="glass-card rounded-lg overflow-hidden">
       {/* Filter buttons */}
-      <div className="px-4 py-3 border-b border-white/5 flex items-center gap-2">
+      <div className="px-5 py-3 border-b border-white/5 flex items-center gap-2">
         {filters.map((f) => (
           <button
             key={f.key}
             onClick={() => setFilter(f.key)}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
               filter === f.key
-                ? f.key === "BUY" ? "bg-green/15 text-green"
-                  : f.key === "SELL" ? "bg-red/15 text-red"
-                  : f.key === "HOLD" ? "bg-amber/15 text-amber"
-                  : "bg-blue/15 text-blue"
-                : "text-muted hover:text-secondary hover:bg-white/[0.03]"
+                ? f.activeClass
+                : "border-transparent text-muted hover:text-secondary hover:bg-white/[0.03]"
             }`}
           >
-            {f.label} ({f.count})
+            {f.label} <span className="opacity-60 ml-0.5">{f.count}</span>
           </button>
         ))}
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs text-muted uppercase tracking-wider border-b border-white/5">
-              <th className="text-left px-4 py-2.5">Symbol</th>
-              <th className="text-right px-4 py-2.5">Price</th>
-              <th className="text-left px-4 py-2.5">Technical</th>
-              <th className="text-left px-4 py-2.5">News</th>
-              <th className="text-left px-4 py-2.5">Perplexity</th>
-              <th className="text-center px-4 py-2.5">Score</th>
-              <th className="text-center px-4 py-2.5">Action</th>
-              <th className="text-right px-4 py-2.5">RSI</th>
-              <th className="text-right px-4 py-2.5">5d Ret</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(([symbol, data]) => {
-              const c = data.confidence;
-              const t = data.technicals;
-              const isExpanded = expanded === symbol;
-              return (
-                <tr key={symbol} className="border-b border-white/[0.03] group">
-                  <td colSpan={9} className="p-0">
-                    <div
-                      className="grid hover:bg-white/[0.02] cursor-pointer transition-colors items-center"
-                      style={{ gridTemplateColumns: "1fr auto auto auto auto auto auto auto auto" }}
-                      onClick={() => setExpanded(isExpanded ? null : symbol)}
-                    >
-                      <span className="px-4 py-3 font-medium flex items-center gap-2">
-                        {symbol}
-                        <svg
-                          width="12" height="12" viewBox="0 0 12 12"
-                          className={`text-muted transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
-                        >
-                          <path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      </span>
-                      <span className="px-4 py-3 text-right">${t.price.toFixed(2)}</span>
-                      <span className="px-4 py-3">
-                        <ScoreBar value={c.technical_score} max={35} color="bg-blue" />
-                      </span>
-                      <span className="px-4 py-3">
-                        <ScoreBar value={c.news_score} max={35} color="bg-purple" />
-                      </span>
-                      <span className="px-4 py-3">
-                        <ScoreBar value={c.perplexity_score} max={30} color="bg-cyan" />
-                      </span>
-                      <span className="px-4 py-3 text-center">
-                        <ConfidenceGauge score={c.total} />
-                      </span>
-                      <span className="px-4 py-3 text-center">
-                        <ActionBadge action={c.action} />
-                      </span>
-                      <span className="px-4 py-3 text-right text-secondary">
-                        {t.rsi_14?.toFixed(1) ?? "N/A"}
-                      </span>
-                      <span
-                        className={`px-4 py-3 text-right ${
-                          t.five_day_return >= 0 ? "text-green" : "text-red"
-                        }`}
+      {/* Card-based rows instead of table */}
+      <div className="divide-y divide-white/[0.04]">
+        {filtered.map(([symbol, data]) => {
+          const c = data.confidence;
+          const t = data.technicals;
+          const isExpanded = expanded === symbol;
+          return (
+            <div key={symbol}>
+              <div
+                className="px-5 py-4 hover:bg-white/[0.015] cursor-pointer transition-colors"
+                onClick={() => setExpanded(isExpanded ? null : symbol)}
+              >
+                {/* Top row: symbol, price, action, confidence */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base font-bold">{symbol}</span>
+                      <svg
+                        width="14" height="14" viewBox="0 0 14 14"
+                        className={`text-muted transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
                       >
-                        {t.five_day_return >= 0 ? "+" : ""}
-                        {t.five_day_return.toFixed(2)}%
-                      </span>
+                        <path d="M3.5 5.5l3.5 3.5 3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     </div>
-                    {/* Expanded detail */}
-                    <div
-                      className={`overflow-hidden transition-all duration-300 ${
-                        isExpanded ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
-                      }`}
-                    >
-                      <div className="px-4 py-4 bg-surface border-t border-white/[0.03] text-xs">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          {/* Technical Details */}
-                          <div className="space-y-1.5">
-                            <p className="text-muted uppercase tracking-wider font-medium mb-2">Technicals</p>
-                            <div className="flex justify-between">
-                              <span className="text-muted">SMA 20:</span>
-                              <span className="text-secondary">
-                                {t.sma_20 ? `$${t.sma_20.toFixed(2)}` : "N/A"}
-                                {t.above_sma20 != null && (
-                                  <span className={t.above_sma20 ? "text-green ml-1" : "text-red ml-1"}>
-                                    {t.above_sma20 ? "above" : "below"}
-                                  </span>
-                                )}
+                    <span className="text-sm text-secondary font-mono">${t.price.toFixed(2)}</span>
+                    {t.rsi_14 != null && (
+                      <span className="text-xs text-muted">RSI <span className="text-secondary font-medium">{t.rsi_14.toFixed(1)}</span></span>
+                    )}
+                    <span className={`text-xs font-medium ${t.five_day_return >= 0 ? "text-green" : "text-red"}`}>
+                      {t.five_day_return >= 0 ? "+" : ""}{t.five_day_return.toFixed(2)}%
+                      <span className="text-muted font-normal ml-0.5">5d</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <ActionBadge action={c.action} />
+                    <ConfidenceScore score={c.total} />
+                  </div>
+                </div>
+
+                {/* Score bars row */}
+                <div className="grid grid-cols-3 gap-6">
+                  <ScoreBar value={c.technical_score} max={35} color="bg-blue" label="Technical" />
+                  <ScoreBar value={c.news_score} max={35} color="bg-purple" label="News" />
+                  <ScoreBar value={c.perplexity_score} max={30} color="bg-cyan" label="Perplexity" />
+                </div>
+              </div>
+
+              {/* Expanded detail */}
+              <div
+                className={`overflow-hidden transition-all duration-300 ${
+                  isExpanded ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
+                }`}
+              >
+                <div className="px-5 py-4 bg-surface border-t border-white/[0.04] text-xs">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Technical Details */}
+                    <div>
+                      <p className="text-[10px] text-muted uppercase tracking-widest font-semibold mb-3">Technical Indicators</p>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-muted">SMA 20</span>
+                          <span className="text-secondary font-medium">
+                            {t.sma_20 ? `$${t.sma_20.toFixed(2)}` : "N/A"}
+                            {t.above_sma20 != null && (
+                              <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded ${t.above_sma20 ? "bg-green/10 text-green" : "bg-red/10 text-red"}`}>
+                                {t.above_sma20 ? "ABOVE" : "BELOW"}
                               </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-muted">SMA 50:</span>
-                              <span className="text-secondary">{t.sma_50 ? `$${t.sma_50.toFixed(2)}` : "N/A"}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-muted">MACD:</span>
-                              <span className="text-secondary">{t.macd?.toFixed(2) ?? "N/A"} / {t.macd_signal?.toFixed(2) ?? "N/A"}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-muted">Vol Ratio:</span>
-                              <span className="text-secondary">{t.volume_ratio?.toFixed(2) ?? "N/A"}x</span>
-                            </div>
-                          </div>
-
-                          {/* News */}
-                          <div>
-                            <p className="text-muted uppercase tracking-wider font-medium mb-2">Headlines</p>
-                            {data.news_headlines && data.news_headlines.length > 0 ? (
-                              <div className="space-y-1">
-                                {data.news_headlines.slice(0, 3).map((h, i) => (
-                                  <p key={i} className="text-secondary truncate">
-                                    {h}
-                                  </p>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-muted/60">No recent headlines</p>
                             )}
-                          </div>
-
-                          {/* Perplexity */}
-                          <div>
-                            <p className="text-muted uppercase tracking-wider font-medium mb-2">Perplexity Analysis</p>
-                            {data.perplexity ? (
-                              <div className="space-y-1.5">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-muted">Sentiment:</span>
-                                  <span className={
-                                    data.perplexity.sentiment === "bullish" ? "text-green"
-                                    : data.perplexity.sentiment === "bearish" ? "text-red"
-                                    : "text-amber"
-                                  }>
-                                    {data.perplexity.sentiment}
-                                  </span>
-                                </div>
-                                <p className="text-secondary">{data.perplexity.key_catalyst}</p>
-                                <p className="text-red/70">Risk: {data.perplexity.risk}</p>
-                              </div>
-                            ) : (
-                              <p className="text-muted/60">Not yet analyzed</p>
-                            )}
-                          </div>
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted">SMA 50</span>
+                          <span className="text-secondary font-medium">{t.sma_50 ? `$${t.sma_50.toFixed(2)}` : "N/A"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted">MACD / Signal</span>
+                          <span className="text-secondary font-medium">{t.macd?.toFixed(2) ?? "N/A"} / {t.macd_signal?.toFixed(2) ?? "N/A"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted">Volume Ratio</span>
+                          <span className={`font-medium ${(t.volume_ratio ?? 0) >= 1.2 ? "text-green" : "text-secondary"}`}>
+                            {t.volume_ratio?.toFixed(2) ?? "N/A"}x
+                          </span>
                         </div>
                       </div>
                     </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+
+                    {/* News */}
+                    <div>
+                      <p className="text-[10px] text-muted uppercase tracking-widest font-semibold mb-3">Recent Headlines</p>
+                      {data.news_headlines && data.news_headlines.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {data.news_headlines.slice(0, 3).map((h, i) => (
+                            <p key={i} className="text-secondary leading-relaxed line-clamp-2">
+                              {h}
+                            </p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-muted/50 italic">No recent headlines</p>
+                      )}
+                    </div>
+
+                    {/* Perplexity */}
+                    <div>
+                      <p className="text-[10px] text-muted uppercase tracking-widest font-semibold mb-3">AI Analysis</p>
+                      {data.perplexity ? (
+                        <div className="space-y-2">
+                          <div>
+                            <span className="text-muted">Sentiment: </span>
+                            <span className={`font-semibold ${
+                              data.perplexity.sentiment === "bullish" ? "text-green"
+                              : data.perplexity.sentiment === "bearish" ? "text-red"
+                              : "text-amber"
+                            }`}>
+                              {data.perplexity.sentiment}
+                            </span>
+                          </div>
+                          <p className="text-secondary leading-relaxed">{data.perplexity.key_catalyst}</p>
+                          <div className="flex items-start gap-1.5 text-red/60">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-0.5 shrink-0">
+                              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                              <line x1="12" y1="9" x2="12" y2="13" />
+                              <line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                            <span>{data.perplexity.risk}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-muted/50 italic">Not yet analyzed</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
