@@ -17,19 +17,19 @@ const accentColors: Record<string, string> = {
 
 export default function MetricCard({ label, value, subValue, trend, accent = "blue", index = 0 }: MetricCardProps) {
   const trendColor =
-    trend === "up" ? "text-green" : trend === "down" ? "text-red" : "text-secondary";
+    trend === "up" ? "text-green" : trend === "down" ? "text-red" : "text-foreground";
 
   return (
     <div
-      className="glass-card rounded-lg p-4 relative overflow-hidden animate-slide-up"
+      className="glass-card p-5 relative overflow-hidden animate-slide-up"
       style={{ animationDelay: `${index * 80}ms` }}
     >
-      <div className={`absolute left-0 top-0 bottom-0 w-1 ${accentColors[accent]}`} />
-      <p className="text-xs text-muted uppercase tracking-wider pl-2">{label}</p>
-      <div className="flex items-center gap-2 mt-1 pl-2">
-        <p className={`text-2xl font-bold ${trendColor}`}>{value}</p>
+      <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-r ${accentColors[accent]}`} />
+      <p className="text-xs text-muted font-medium uppercase tracking-wider pl-3">{label}</p>
+      <div className="flex items-center gap-2 mt-1.5 pl-3">
+        <p className={`text-2xl font-semibold ${trendColor}`}>{value}</p>
         {trend && trend !== "neutral" && (
-          <svg width="16" height="16" viewBox="0 0 16 16" className={trendColor}>
+          <svg width="14" height="14" viewBox="0 0 16 16" className={trendColor}>
             {trend === "up" ? (
               <path d="M8 3l5 7H3z" fill="currentColor" />
             ) : (
@@ -38,7 +38,7 @@ export default function MetricCard({ label, value, subValue, trend, accent = "bl
           </svg>
         )}
       </div>
-      {subValue && <p className="text-xs text-muted mt-1 pl-2">{subValue}</p>}
+      {subValue && <p className="text-xs text-muted mt-1 pl-3">{subValue}</p>}
     </div>
   );
 }

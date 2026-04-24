@@ -19,39 +19,35 @@ export default async function ResearchPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Research Signals</h2>
-          <p className="text-xs text-muted mt-0.5">
-            Last updated: {updatedAt}
-            {perplexityAt && ` | Perplexity: ${perplexityAt}`}
-          </p>
-        </div>
+      <div>
+        <h2 className="text-2xl font-semibold text-foreground">Research Signals</h2>
+        <p className="text-xs text-muted mt-0.5">
+          Last updated: {updatedAt}
+          {perplexityAt && ` | Perplexity: ${perplexityAt}`}
+        </p>
       </div>
 
-      {/* Summary row — compact horizontal strip */}
-      <div className="glass-card rounded-lg p-4">
+      <div className="glass-card p-5">
         <div className="flex items-center gap-6 flex-wrap">
-          {/* SPY Benchmark */}
           {spy && (
-            <div className="flex items-center gap-4 pr-6 border-r border-white/[0.06]">
+            <div className="flex items-center gap-4 pr-6 border-r border-border">
               <div>
                 <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">SPY</p>
-                <p className="text-xl font-bold">${spy.price?.toFixed(2)}</p>
+                <p className="text-xl font-semibold text-foreground">${spy.price?.toFixed(2)}</p>
               </div>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${
                 spy.market_regime === "BULL"
-                  ? "bg-green/15 text-green"
+                  ? "bg-green/8 text-green"
                   : spy.market_regime === "BEAR"
-                  ? "bg-red/15 text-red"
-                  : "bg-amber/15 text-amber"
+                  ? "bg-red/8 text-red"
+                  : "bg-amber/8 text-amber"
               }`}>
                 {spy.market_regime}
               </span>
               <div className="flex gap-3 text-xs">
                 <div className="text-center">
                   <p className="text-muted text-[10px]">RSI</p>
-                  <p className="text-secondary font-semibold">{spy.rsi_14?.toFixed(1) ?? "—"}</p>
+                  <p className="text-foreground font-semibold">{spy.rsi_14?.toFixed(1) ?? "—"}</p>
                 </div>
                 <div className="text-center">
                   <p className="text-muted text-[10px]">5d</p>
@@ -69,30 +65,28 @@ export default async function ResearchPage() {
             </div>
           )}
 
-          {/* Signal counts */}
           <div className="flex items-center gap-5">
             <div className="text-center">
-              <p className="text-lg font-bold">{symbolEntries.length}</p>
+              <p className="text-lg font-semibold text-foreground">{symbolEntries.length}</p>
               <p className="text-[10px] text-muted uppercase tracking-wider">Symbols</p>
             </div>
             <div className="text-center">
-              <p className="text-lg font-bold text-green">{buyCount}</p>
+              <p className="text-lg font-semibold text-green">{buyCount}</p>
               <p className="text-[10px] text-muted uppercase tracking-wider">Buy</p>
             </div>
             <div className="text-center">
-              <p className="text-lg font-bold text-amber">{holdCount}</p>
+              <p className="text-lg font-semibold text-amber">{holdCount}</p>
               <p className="text-[10px] text-muted uppercase tracking-wider">Hold</p>
             </div>
             <div className="text-center">
-              <p className="text-lg font-bold text-red">{sellCount}</p>
+              <p className="text-lg font-semibold text-red">{sellCount}</p>
               <p className="text-[10px] text-muted uppercase tracking-wider">Sell</p>
             </div>
           </div>
 
-          {/* Avg score */}
-          <div className="ml-auto text-center pl-6 border-l border-white/[0.06]">
+          <div className="ml-auto text-center pl-6 border-l border-border">
             <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Avg Score</p>
-            <p className={`text-xl font-bold ${avgScore >= 65 ? "text-green" : avgScore >= 40 ? "text-amber" : "text-red"}`}>{avgScore}</p>
+            <p className={`text-xl font-semibold ${avgScore >= 65 ? "text-green" : avgScore >= 40 ? "text-amber" : "text-red"}`}>{avgScore}</p>
           </div>
         </div>
       </div>

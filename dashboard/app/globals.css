@@ -1,22 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  --bg-primary: #0b0f19;
-  --bg-secondary: #111827;
-  --bg-card: #1a2332;
-  --bg-hover: #1e293b;
-  --bg-surface: #141c2b;
-  --border: #1e293b;
-  --border-glow: rgba(59, 130, 246, 0.15);
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --accent-green: #22c55e;
-  --accent-red: #ef4444;
-  --accent-blue: #3b82f6;
-  --accent-amber: #f59e0b;
-  --accent-purple: #a855f7;
-  --accent-cyan: #06b6d4;
+  --bg-primary: #f5f5f7;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #f9f9fb;
+  --bg-surface: #f0f0f2;
+  --border: #e5e5e7;
+  --border-glow: rgba(0, 122, 255, 0.1);
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-muted: #86868b;
+  --accent-green: #34c759;
+  --accent-red: #ff3b30;
+  --accent-blue: #007aff;
+  --accent-amber: #ff9500;
+  --accent-purple: #af52de;
+  --accent-cyan: #5ac8fa;
 }
 
 @theme inline {
@@ -43,12 +43,11 @@ body {
   color: var(--text-primary);
 }
 
-/* Glassmorphism card */
+/* Apple-style card */
 .glass-card {
-  background: rgba(26, 35, 50, 0.7);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
 }
 
 /* Entry animations */
@@ -58,7 +57,7 @@ body {
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -68,11 +67,11 @@ body {
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.4s ease-out both;
+  animation: fadeIn 0.3s ease-out both;
 }
 
 .animate-slide-up {
-  animation: slideUp 0.4s ease-out both;
+  animation: slideUp 0.35s ease-out both;
 }
 
 .animate-pulse-dot {
@@ -90,16 +89,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: #d2d2d7;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
-
-/* Dot pattern background */
-.dot-pattern {
-  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background: #aeaeb2;
 }

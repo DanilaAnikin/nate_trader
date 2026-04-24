@@ -18,7 +18,6 @@ export default async function PositionsPage() {
   const totalMarketValue = positions.reduce((sum, p) => sum + p.market_value, 0);
   const utilization = equity > 0 ? ((totalMarketValue / equity) * 100) : 0;
 
-  // Rules compliance
   const rules = [
     { label: "Max 10 positions", ok: positions.length <= 10 },
     { label: "Cash reserve ≥ 20%", ok: cashPct >= 20 },
@@ -29,11 +28,10 @@ export default async function PositionsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
-        <h2 className="text-2xl font-bold">Positions</h2>
+        <h2 className="text-2xl font-semibold text-foreground">Positions</h2>
         <p className="text-xs text-muted mt-0.5">Last updated: {updatedAt}</p>
       </div>
 
-      {/* Summary MetricCards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           label="Open Positions"
@@ -70,24 +68,23 @@ export default async function PositionsPage() {
         <div className="lg:col-span-3">
           <PositionsTable positions={positions} equity={equity} />
         </div>
-        {/* Rules compliance card */}
-        <div className="glass-card rounded-lg p-4 h-fit">
+        <div className="glass-card p-5 h-fit">
           <h3 className="text-sm font-medium text-secondary mb-3">Portfolio Rules</h3>
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             {rules.map((rule) => (
               <div key={rule.label} className="flex items-center gap-2.5 text-sm">
                 {rule.ok ? (
-                  <svg width="14" height="14" viewBox="0 0 16 16" className="text-green shrink-0">
-                    <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                    <path d="M5 8l2 2 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <svg width="16" height="16" viewBox="0 0 18 18" className="text-green shrink-0">
+                    <circle cx="9" cy="9" r="8" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M5.5 9l2.5 2.5 4.5-4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 ) : (
-                  <svg width="14" height="14" viewBox="0 0 16 16" className="text-red shrink-0">
-                    <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                    <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  <svg width="16" height="16" viewBox="0 0 18 18" className="text-red shrink-0">
+                    <circle cx="9" cy="9" r="8" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M6 6l6 6M12 6l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                   </svg>
                 )}
-                <span className={`text-xs ${rule.ok ? "text-secondary" : "text-red"}`}>{rule.label}</span>
+                <span className={`text-xs ${rule.ok ? "text-foreground" : "text-red"}`}>{rule.label}</span>
               </div>
             ))}
           </div>

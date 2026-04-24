@@ -8,12 +8,12 @@ interface PositionsTableProps {
 export default function PositionsTable({ positions, equity = 0 }: PositionsTableProps) {
   if (!positions || positions.length === 0) {
     return (
-      <div className="glass-card rounded-lg p-10 text-center">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-4 opacity-40">
+      <div className="glass-card p-10 text-center">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-4 opacity-30">
           <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
           <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2" />
         </svg>
-        <p className="text-secondary font-medium mb-2">No Open Positions</p>
+        <p className="text-foreground font-medium mb-2">No Open Positions</p>
         <p className="text-xs text-muted max-w-sm mx-auto">
           Positions will appear here when the agent opens trades. All entries require a confidence score of 65+ with all five checklist criteria passing.
         </p>
@@ -25,8 +25,8 @@ export default function PositionsTable({ positions, equity = 0 }: PositionsTable
   const totalValue = positions.reduce((sum, p) => sum + p.market_value, 0);
 
   return (
-    <div className="glass-card rounded-lg overflow-hidden">
-      <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center">
+    <div className="glass-card overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-border flex justify-between items-center">
         <h3 className="text-sm font-medium text-secondary">
           Open Positions ({positions.length})
         </h3>
@@ -39,16 +39,16 @@ export default function PositionsTable({ positions, equity = 0 }: PositionsTable
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-xs text-muted uppercase tracking-wider border-b border-white/5">
-              <th className="text-left px-4 py-2.5">Symbol</th>
-              <th className="text-right px-4 py-2.5">Qty</th>
-              <th className="text-right px-4 py-2.5">Avg Cost</th>
-              <th className="text-right px-4 py-2.5">Current</th>
-              <th className="text-right px-4 py-2.5">Weight</th>
-              <th className="text-right px-4 py-2.5">Stop (8%)</th>
-              <th className="text-right px-4 py-2.5">Mkt Value</th>
-              <th className="text-right px-4 py-2.5">P&L</th>
-              <th className="text-right px-4 py-2.5">P&L %</th>
+            <tr className="text-xs text-muted uppercase tracking-wider border-b border-border">
+              <th className="text-left px-5 py-3">Symbol</th>
+              <th className="text-right px-4 py-3">Qty</th>
+              <th className="text-right px-4 py-3">Avg Cost</th>
+              <th className="text-right px-4 py-3">Current</th>
+              <th className="text-right px-4 py-3">Weight</th>
+              <th className="text-right px-4 py-3">Stop (8%)</th>
+              <th className="text-right px-4 py-3">Mkt Value</th>
+              <th className="text-right px-4 py-3">P&L</th>
+              <th className="text-right px-5 py-3">P&L %</th>
             </tr>
           </thead>
           <tbody>
@@ -61,29 +61,23 @@ export default function PositionsTable({ positions, equity = 0 }: PositionsTable
               const barWidth = Math.min(Math.abs(plPct) * 5, 100);
 
               return (
-                <tr key={p.symbol} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
-                  <td className="px-4 py-3 font-medium">{p.symbol}</td>
+                <tr key={p.symbol} className="border-b border-border/50 hover:bg-surface transition-colors">
+                  <td className="px-5 py-3 font-medium text-foreground">{p.symbol}</td>
                   <td className="px-4 py-3 text-right text-secondary">{p.qty}</td>
-                  <td className="px-4 py-3 text-right text-secondary">
-                    ${p.avg_entry_price.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    ${p.current_price.toFixed(2)}
-                  </td>
+                  <td className="px-4 py-3 text-right text-secondary">${p.avg_entry_price.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right text-foreground">${p.current_price.toFixed(2)}</td>
                   <td className="px-4 py-3 text-right">
                     <span className={weight > 5 ? "text-amber font-medium" : "text-secondary"}>
                       {weight.toFixed(1)}%
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right text-muted">
-                    ${stopPrice.toFixed(2)}
-                  </td>
+                  <td className="px-4 py-3 text-right text-muted">${stopPrice.toFixed(2)}</td>
                   <td className="px-4 py-3 text-right text-secondary">
                     ${p.market_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <div className="w-16 h-1.5 bg-border/50 rounded-full overflow-hidden hidden sm:block">
+                      <div className="w-16 h-1.5 bg-surface rounded-full overflow-hidden hidden sm:block">
                         <div
                           className={`h-full rounded-full ${isPositive ? "bg-green" : "bg-red"}`}
                           style={{ width: `${barWidth}%` }}
@@ -94,24 +88,23 @@ export default function PositionsTable({ positions, equity = 0 }: PositionsTable
                       </span>
                     </div>
                   </td>
-                  <td className={`px-4 py-3 text-right font-medium ${plColor}`}>
+                  <td className={`px-5 py-3 text-right font-medium ${plColor}`}>
                     {isPositive ? "+" : ""}{plPct.toFixed(2)}%
                   </td>
                 </tr>
               );
             })}
           </tbody>
-          {/* Summary footer */}
           <tfoot>
-            <tr className="border-t border-white/5 bg-white/[0.02]">
-              <td className="px-4 py-2.5 text-xs text-muted font-medium" colSpan={6}>Total</td>
-              <td className="px-4 py-2.5 text-right text-xs font-medium text-secondary">
+            <tr className="border-t border-border bg-surface/50">
+              <td className="px-5 py-3 text-xs text-muted font-medium" colSpan={6}>Total</td>
+              <td className="px-4 py-3 text-right text-xs font-medium text-secondary">
                 ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </td>
-              <td className={`px-4 py-2.5 text-right text-xs font-medium ${totalPl >= 0 ? "text-green" : "text-red"}`}>
+              <td className={`px-4 py-3 text-right text-xs font-medium ${totalPl >= 0 ? "text-green" : "text-red"}`}>
                 {totalPl >= 0 ? "+" : ""}${totalPl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </td>
-              <td className="px-4 py-2.5" />
+              <td className="px-5 py-3" />
             </tr>
           </tfoot>
         </table>

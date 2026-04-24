@@ -4,9 +4,9 @@ interface RiskBadgeProps {
 }
 
 const config: Record<string, { dot: string; bg: string; text: string; border: string }> = {
-  NORMAL: { dot: "bg-green", bg: "bg-green/10", text: "text-green", border: "border-green/20" },
-  CAUTIOUS: { dot: "bg-amber", bg: "bg-amber/10", text: "text-amber", border: "border-amber/20" },
-  HALT: { dot: "bg-red", bg: "bg-red/10", text: "text-red", border: "border-red/20" },
+  NORMAL: { dot: "bg-green", bg: "bg-green/8", text: "text-green", border: "border-green/20" },
+  CAUTIOUS: { dot: "bg-amber", bg: "bg-amber/8", text: "text-amber", border: "border-amber/20" },
+  HALT: { dot: "bg-red", bg: "bg-red/8", text: "text-red", border: "border-red/20" },
 };
 
 export default function RiskBadge({ tier, size = "sm" }: RiskBadgeProps) {
@@ -15,7 +15,7 @@ export default function RiskBadge({ tier, size = "sm" }: RiskBadgeProps) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded border font-semibold ${c.bg} ${c.text} ${c.border} ${
+      className={`inline-flex items-center gap-1.5 rounded-lg border font-semibold ${c.bg} ${c.text} ${c.border} ${
         isLg ? "px-3 py-1 text-sm" : "px-2.5 py-0.5 text-xs"
       }`}
     >

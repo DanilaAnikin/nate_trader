@@ -17,26 +17,25 @@ export default async function ScreenerPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
-        <h2 className="text-2xl font-bold">Stock Screener</h2>
+        <h2 className="text-2xl font-semibold text-foreground">Stock Screener</h2>
         <p className="text-xs text-muted mt-0.5">Last updated: {updatedAt}</p>
       </div>
 
-      {/* Summary stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="glass-card rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold">{totalCandidates}</p>
+        <div className="glass-card p-4 text-center">
+          <p className="text-2xl font-semibold text-foreground">{totalCandidates}</p>
           <p className="text-xs text-muted uppercase tracking-wider mt-1">Candidates</p>
         </div>
-        <div className="glass-card rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold">{scoredEntries.length}</p>
+        <div className="glass-card p-4 text-center">
+          <p className="text-2xl font-semibold text-foreground">{scoredEntries.length}</p>
           <p className="text-xs text-muted uppercase tracking-wider mt-1">Scored</p>
         </div>
-        <div className="glass-card rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold text-blue">{highestScore}</p>
+        <div className="glass-card p-4 text-center">
+          <p className="text-2xl font-semibold text-blue">{highestScore}</p>
           <p className="text-xs text-muted uppercase tracking-wider mt-1">Highest Score</p>
         </div>
-        <div className="glass-card rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold text-green">{buyThresholdCount}</p>
+        <div className="glass-card p-4 text-center">
+          <p className="text-2xl font-semibold text-green">{buyThresholdCount}</p>
           <p className="text-xs text-muted uppercase tracking-wider mt-1">Above Buy (65+)</p>
         </div>
       </div>

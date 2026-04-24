@@ -50,17 +50,17 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-56 bg-gradient-to-b from-[#0f1520] to-[#0b0f19] border-r border-border flex flex-col min-h-screen">
+    <aside className="w-56 bg-white border-r border-border flex flex-col min-h-screen">
       <div className="p-5 border-b border-border">
         <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-lg bg-blue/15 flex items-center justify-center">
+          <div className="h-8 w-8 rounded-xl bg-blue/10 flex items-center justify-center">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
               <polyline points="16 7 22 7 22 13" />
             </svg>
           </div>
           <div>
-            <h1 className="text-sm font-bold tracking-tight">Nate Trader</h1>
+            <h1 className="text-sm font-semibold text-foreground">Nate Trader</h1>
             <p className="text-[10px] text-muted">Autonomous Agent</p>
           </div>
         </div>
@@ -72,16 +72,13 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all duration-200 relative ${
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 ${
                 active
-                  ? "bg-blue/10 text-blue font-medium"
-                  : "text-secondary hover:text-foreground hover:bg-white/[0.03]"
+                  ? "bg-blue/8 text-blue font-medium"
+                  : "text-secondary hover:text-foreground hover:bg-surface"
               }`}
             >
-              {active && (
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-blue rounded-r" />
-              )}
-              <span className="opacity-80">{item.icon}</span>
+              <span className={active ? "text-blue" : "text-muted"}>{item.icon}</span>
               {item.label}
             </Link>
           );
