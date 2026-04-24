@@ -168,6 +168,8 @@ def update_performance_state() -> None:
         perf["risk_tier"] = "HALT"
     elif weekly_pnl_pct <= -2.0:
         perf["risk_tier"] = "CAUTIOUS"
+    else:
+        perf["risk_tier"] = "NORMAL"
 
     save_json(PERFORMANCE_STATE, perf)
     log.info(f"Updated performance state (risk_tier={perf.get('risk_tier', 'NORMAL')})")

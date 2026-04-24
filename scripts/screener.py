@@ -147,9 +147,28 @@ def run_full_screen() -> dict:
     # Remove symbols already in watchlist (they get researched separately)
     watchlist_symbols = set(get_tradeable_symbols())
     new_symbols = all_symbols - watchlist_symbols
-    # Also remove SPY, common ETFs we don't want to screen
-    exclude = {"SPY", "QQQ", "DIA", "IWM", "VXX", "UVXY", "SQQQ", "TQQQ"}
+    # Remove SPY, common ETFs, and leveraged/inverse products
+    exclude = {
+        # Index ETFs
+        "SPY", "QQQ", "DIA", "IWM",
+        # Volatility products
+        "VXX", "UVXY", "SVXY", "VIXY",
+        # Leveraged / inverse ETFs
+        "SQQQ", "TQQQ", "SPXU", "SPXS", "UPRO", "SPXL",
+        "SOXL", "SOXS", "LABU", "LABD", "FNGU", "FNGD",
+        "TNA", "TZA", "FAS", "FAZ", "NUGT", "DUST",
+        "JNUG", "JDST", "ERX", "ERY", "TECL", "TECS",
+        "UDOW", "SDOW", "YANG", "YINN", "CURE", "DRIP",
+        "GUSH", "UCO", "SCO", "BOIL", "KOLD", "WEBL", "WEBS",
+        "BULZ", "BERZ", "NAIL", "DRV", "TMF", "TMV",
+    }
     new_symbols -= exclude
+
+    # Filter out warrants (symbols ending in W with 4+ chars, e.g. ABCDW)
+    new_symbols = {s for s in new_symbols if not (len(s) >= 4 and s.endswith("W"))}
+
+    # Filter out units and rights (ending in U or R with 4+ chars)
+    new_symbols = {s for s in new_symbols if not (len(s) >= 4 and s[-1] in ("U", "R") and s[:-1].isalpha())}
 
     log.info(f"Unique screener candidates (excluding watchlist): {len(new_symbols)}")
 
@@ -165,6 +184,11 @@ def run_full_screen() -> dict:
 
             technicals = compute_technicals(df)
             if "error" in technicals:
+                continue
+
+            # Skip penny stocks under $5
+            if technicals.get("price", 0) < 5.0:
+                log.info(f"  {symbol}: price ${technicals['price']:.2f} < $5 — skipping")
                 continue
 
             # Get news

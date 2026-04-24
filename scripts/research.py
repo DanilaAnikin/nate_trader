@@ -117,8 +117,14 @@ def compute_technicals(df: pd.DataFrame) -> dict:
     bb_low = ta.volatility.bollinger_lband(close, window=20, window_dev=2)
     bb_mid = ta.volatility.bollinger_mavg(close, window=20)
 
-    # Volume analysis
-    vol_avg_20 = volume.rolling(window=20).mean()
+    # Volume analysis — use previous completed day to avoid partial-day bias
+    if len(volume) >= 2:
+        prev_day_volume = float(volume.iloc[-2])
+        vol_avg_20_completed = volume.iloc[:-1].rolling(window=20).mean()
+        current_vol_avg = float(vol_avg_20_completed.iloc[-1]) if pd.notna(vol_avg_20_completed.iloc[-1]) else None
+    else:
+        prev_day_volume = float(volume.iloc[-1])
+        current_vol_avg = float(volume.mean()) if len(volume) > 0 else None
 
     current_price = float(close.iloc[-1])
     current_volume = float(volume.iloc[-1])
@@ -130,7 +136,6 @@ def compute_technicals(df: pd.DataFrame) -> dict:
     current_bb_high = float(bb_high.iloc[-1]) if pd.notna(bb_high.iloc[-1]) else None
     current_bb_low = float(bb_low.iloc[-1]) if pd.notna(bb_low.iloc[-1]) else None
     current_bb_mid = float(bb_mid.iloc[-1]) if pd.notna(bb_mid.iloc[-1]) else None
-    current_vol_avg = float(vol_avg_20.iloc[-1]) if pd.notna(vol_avg_20.iloc[-1]) else None
 
     # 5-day return
     if len(close) >= 6:
@@ -150,7 +155,7 @@ def compute_technicals(df: pd.DataFrame) -> dict:
         "bb_mid": current_bb_mid,
         "volume": current_volume,
         "vol_avg_20": current_vol_avg,
-        "volume_ratio": current_volume / current_vol_avg if current_vol_avg and current_vol_avg > 0 else None,
+        "volume_ratio": prev_day_volume / current_vol_avg if current_vol_avg and current_vol_avg > 0 else None,
         "five_day_return": five_day_return,
         "above_sma20": current_price > current_sma20 if current_sma20 else None,
         "above_sma50": current_price > current_sma50 if current_sma50 else None,
@@ -321,6 +326,7 @@ def research_symbol(symbol: str) -> dict:
 def build_research_report() -> dict:
     """Build full research report for all watchlist symbols."""
     log.info("Building research report...")
+    existing_research = load_json(RESEARCH_STATE)
     report = {"updated_at": get_now_str(), "spy": {}, "symbols": {}}
 
     # SPY benchmark
@@ -350,21 +356,37 @@ def build_research_report() -> dict:
                 n_score = 5
                 news_headlines = []
 
-            # Confidence score (without Perplexity — that comes later)
-            confidence = compute_confidence_score(technicals, n_score)
+            # Carry over existing Perplexity data if available
+            existing_sym = existing_research.get("symbols", {}).get(symbol, {})
+            existing_perplexity = existing_sym.get("perplexity", {})
+            existing_px_score = existing_perplexity.get("perplexity_score", 0)
 
-            report["symbols"][symbol] = {
+            # Confidence score — include preserved Perplexity score if available
+            confidence = compute_confidence_score(technicals, n_score, existing_px_score)
+
+            sym_data = {
                 "technicals": technicals,
                 "news_score": n_score,
                 "news_headlines": news_headlines,
                 "confidence": confidence,
                 "info": get_symbol_info(symbol),
             }
+
+            # Preserve Perplexity data from previous runs
+            if existing_px_score > 0:
+                sym_data["perplexity"] = existing_perplexity
+                log.info(f"  {symbol}: preserved Perplexity score {existing_px_score}/30")
+
+            report["symbols"][symbol] = sym_data
             log.info(f"  {symbol}: ${technicals['price']:.2f} | Score: {confidence['total']} ({confidence['action']})")
 
         except Exception as e:
             log.error(f"Error researching {symbol}: {e}")
             report["symbols"][symbol] = {"error": str(e)}
+
+    # Carry over perplexity_enhanced_at timestamp from previous run
+    if existing_research.get("perplexity_enhanced_at"):
+        report["perplexity_enhanced_at"] = existing_research["perplexity_enhanced_at"]
 
     # Save to state
     save_json(RESEARCH_STATE, report)

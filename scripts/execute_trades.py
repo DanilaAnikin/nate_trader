@@ -116,7 +116,7 @@ def passes_five_question_checklist(candidate: dict) -> tuple[bool, list[str]]:
 
 def execute_buys(dry_run: bool = False) -> list[dict]:
     """Execute BUY orders for qualifying candidates."""
-    from trade import validate_order, place_limit_order, place_trailing_stop, calculate_position_size
+    from trade import validate_order, place_limit_order, calculate_position_size
     from research import get_latest_quote
     from notify import send_trade_alert
 
@@ -182,14 +182,10 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
             results.append({"symbol": symbol, "action": "DRY_RUN", "qty": qty, "price": price, "score": score})
             continue
 
-        # Place limit order
+        # Place limit order (trailing stop placed later via sync_trailing_stops after fill)
         try:
             order = place_limit_order(symbol, qty, "buy", price)
             log.info(f"  {symbol}: BUY {qty} @ ${price:.2f} — order {order['id']}")
-
-            # Place trailing stop
-            stop = place_trailing_stop(symbol, qty, trail_percent=8.0)
-            log.info(f"  {symbol}: trailing stop placed — {stop['id']}")
 
             # Notify
             send_trade_alert(symbol, "buy", qty, price, f"Score {score} | {candidate['source']}")
@@ -201,7 +197,6 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
                 "price": price,
                 "score": score,
                 "order_id": order["id"],
-                "stop_id": stop["id"],
             })
         except Exception as e:
             log.error(f"  {symbol}: order failed — {e}")
@@ -287,10 +282,15 @@ def run_execution(dry_run: bool = False) -> dict:
     log.info(f"{'='*60}")
 
     # 1. Execute stop-losses first
-    from trade import execute_stop_losses
+    from trade import execute_stop_losses, sync_trailing_stops
     stops = execute_stop_losses()
     if stops:
         log.info(f"Stop-losses triggered: {len(stops)}")
+
+    # 1b. Sync trailing stops for filled positions missing them
+    synced = sync_trailing_stops()
+    if synced:
+        log.info(f"Trailing stops synced: {len(synced)}")
 
     # 2. Execute sells (score < 40)
     sells = execute_sells(dry_run=dry_run)

@@ -74,14 +74,20 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
     if side.lower() == "buy":
         symbol_info = get_symbol_info(symbol)
         target_sector = symbol_info.get("sector", "Unknown")
-        sector_value = order_cost
-        for p in positions:
-            p_info = get_symbol_info(p.symbol)
-            if p_info.get("sector") == target_sector:
-                sector_value += float(p.market_value)
-        sector_pct = (sector_value / equity * 100) if equity > 0 else 0
-        if sector_pct > 25:
-            reasons.append(f"Sector '{target_sector}' would be {sector_pct:.1f}% (max 25%)")
+        if target_sector == "Unknown":
+            # Can't enforce sector limits on unknown sectors, but warn if accumulating
+            unknown_count = sum(1 for p in positions if get_symbol_info(p.symbol).get("sector", "Unknown") == "Unknown")
+            if unknown_count >= 3:
+                log.warning(f"WARNING: {unknown_count} positions with Unknown sector — review manually")
+        else:
+            sector_value = order_cost
+            for p in positions:
+                p_info = get_symbol_info(p.symbol)
+                if p_info.get("sector") == target_sector:
+                    sector_value += float(p.market_value)
+            sector_pct = (sector_value / equity * 100) if equity > 0 else 0
+            if sector_pct > 25:
+                reasons.append(f"Sector '{target_sector}' would be {sector_pct:.1f}% (max 25%)")
 
     # 6. Daily loss check
     daily_pnl_pct = ((float(acct.equity) - float(acct.last_equity)) / float(acct.last_equity) * 100) if float(acct.last_equity) > 0 else 0
@@ -203,6 +209,43 @@ def close_position(symbol: str) -> dict:
         return {"symbol": symbol, "status": "error", "error": str(e)}
 
 
+def sync_trailing_stops() -> list[dict]:
+    """Place trailing stops for any filled positions that don't have one."""
+    positions = client.get_all_positions()
+    if not positions:
+        return []
+
+    # Get all open trailing stop sell orders
+    request = GetOrdersRequest(status=QueryOrderStatus.OPEN)
+    open_orders = client.get_orders(filter=request)
+    symbols_with_stops = set()
+    for o in open_orders:
+        if str(o.side) == "OrderSide.SELL" and str(o.type) == "AssetClass.trailing_stop":
+            symbols_with_stops.add(o.symbol)
+        # Also check by order type string variations
+        if str(o.side).lower().endswith("sell") and "trailing" in str(o.type).lower():
+            symbols_with_stops.add(o.symbol)
+
+    results = []
+    for p in positions:
+        symbol = p.symbol
+        qty = int(float(p.qty))
+        if symbol in symbols_with_stops:
+            continue
+        if qty <= 0:
+            continue
+
+        try:
+            stop = place_trailing_stop(symbol, qty, trail_percent=8.0)
+            log.info(f"Synced trailing stop for {symbol}: {qty} shares @ 8% trail")
+            results.append({"symbol": symbol, "qty": qty, "stop_id": stop["id"]})
+        except Exception as e:
+            log.error(f"Failed to place trailing stop for {symbol}: {e}")
+            results.append({"symbol": symbol, "error": str(e)})
+
+    return results
+
+
 def execute_stop_losses() -> list[dict]:
     """Check and execute manual stop-losses for positions without trailing stops."""
     positions = client.get_all_positions()
@@ -246,6 +289,18 @@ if __name__ == "__main__":
         cancel_all_orders()
         print("All open orders cancelled.")
 
+    elif cmd == "sync-stops":
+        results = sync_trailing_stops()
+        if results:
+            print(f"\nTrailing stops synced:")
+            for r in results:
+                if "error" in r:
+                    print(f"  {r['symbol']}: ERROR — {r['error']}")
+                else:
+                    print(f"  {r['symbol']}: {r['qty']} shares @ 8% trail (ID: {r['stop_id']})")
+        else:
+            print("\nAll positions already have trailing stops.")
+
     elif cmd == "validate" and len(sys.argv) >= 6:
         symbol = sys.argv[2].upper()
         qty = float(sys.argv[3])
@@ -262,4 +317,4 @@ if __name__ == "__main__":
                 print(f"    - {r}")
 
     else:
-        print("Usage: python3 trade.py [market|stops|cancel|validate SYMBOL QTY SIDE PRICE]")
+        print("Usage: python3 trade.py [market|stops|sync-stops|cancel|validate SYMBOL QTY SIDE PRICE]")

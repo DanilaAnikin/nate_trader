@@ -194,6 +194,59 @@ def enhance_research_with_perplexity() -> dict:
     return research
 
 
+def enhance_screener_with_perplexity() -> dict:
+    """Enhance screener.json top candidates with Perplexity scores."""
+    from utils import SCREENER_STATE
+    screener = load_json(SCREENER_STATE)
+    if not screener or "scored_candidates" not in screener:
+        log.warning("No screener data found. Run screener.py full first.")
+        return {}
+
+    # Sort by preliminary score, take top 5 with prelim >= 25
+    candidates = []
+    for symbol, data in screener["scored_candidates"].items():
+        if "error" in data:
+            continue
+        confidence = data.get("confidence", {})
+        prelim_score = confidence.get("technical_score", 0) + confidence.get("news_score", 0)
+        if prelim_score >= 25:
+            candidates.append((symbol, data, prelim_score))
+
+    candidates.sort(key=lambda x: x[2], reverse=True)
+    candidates = candidates[:5]
+
+    if not candidates:
+        log.info("No screener candidates with prelim score >= 25")
+        return screener
+
+    enhanced_count = 0
+    for symbol, data, prelim_score in candidates:
+        log.info(f"Enhancing screener candidate {symbol} (prelim score: {prelim_score})...")
+        catalyst = analyze_stock_catalyst(symbol)
+        data["perplexity"] = catalyst
+
+        # Recompute confidence with Perplexity score
+        from research import compute_confidence_score
+        confidence = data["confidence"]
+        new_confidence = compute_confidence_score(
+            data["technicals"],
+            confidence["news_score"],
+            catalyst["perplexity_score"],
+        )
+        data["confidence"] = new_confidence
+        screener["scored_candidates"][symbol] = data
+        enhanced_count += 1
+
+        log.info(f"  {symbol}: Perplexity={catalyst['perplexity_score']}/30 | "
+                 f"Total={new_confidence['total']} ({new_confidence['action']}) | "
+                 f"{catalyst['sentiment']}")
+
+    screener["perplexity_enhanced_at"] = get_now_str()
+    save_json(SCREENER_STATE, screener)
+    log.info(f"Enhanced {enhanced_count} screener candidates with Perplexity data.")
+    return screener
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "outlook"
 
@@ -235,5 +288,15 @@ if __name__ == "__main__":
                     px = data["perplexity"]
                     print(f"  {sym}: Score={c['total']} ({c['action']}) | Perplexity={px['perplexity_score']}/30 | {px['sentiment']}")
 
+    elif cmd == "enhance-screener":
+        result = enhance_screener_with_perplexity()
+        if result:
+            print(f"\nEnhanced screener saved. Candidates analyzed:")
+            for sym, data in result.get("scored_candidates", {}).items():
+                if "perplexity" in data:
+                    c = data["confidence"]
+                    px = data["perplexity"]
+                    print(f"  {sym}: Score={c['total']} ({c['action']}) | Perplexity={px['perplexity_score']}/30 | {px['sentiment']}")
+
     else:
-        print("Usage: python3 perplexity_research.py [outlook|stock SYMBOL|sector NAME|enhance]")
+        print("Usage: python3 perplexity_research.py [outlook|stock SYMBOL|sector NAME|enhance|enhance-screener]")
