@@ -356,10 +356,23 @@ def build_research_report() -> dict:
                 n_score = 5
                 news_headlines = []
 
-            # Carry over existing Perplexity data if available
+            # Carry over existing Perplexity data if available and fresh (< 3 days)
             existing_sym = existing_research.get("symbols", {}).get(symbol, {})
             existing_perplexity = existing_sym.get("perplexity", {})
             existing_px_score = existing_perplexity.get("perplexity_score", 0)
+
+            # Check staleness — drop Perplexity data older than 3 days
+            if existing_px_score > 0:
+                px_updated = existing_perplexity.get("updated_at", "")
+                if px_updated:
+                    try:
+                        px_age = datetime.now() - datetime.strptime(px_updated, "%Y-%m-%d %H:%M:%S")
+                        if px_age.days >= 3:
+                            log.info(f"  {symbol}: Perplexity data stale ({px_age.days}d old) — dropping")
+                            existing_px_score = 0
+                            existing_perplexity = {}
+                    except ValueError:
+                        pass  # can't parse date, keep it
 
             # Confidence score — include preserved Perplexity score if available
             confidence = compute_confidence_score(technicals, n_score, existing_px_score)
@@ -372,7 +385,7 @@ def build_research_report() -> dict:
                 "info": get_symbol_info(symbol),
             }
 
-            # Preserve Perplexity data from previous runs
+            # Preserve fresh Perplexity data from previous runs
             if existing_px_score > 0:
                 sym_data["perplexity"] = existing_perplexity
                 log.info(f"  {symbol}: preserved Perplexity score {existing_px_score}/30")

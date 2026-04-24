@@ -339,6 +339,41 @@ if __name__ == "__main__":
             reason = b.get('reason', f"qty={b.get('qty')} @ ${b.get('price', 0):.2f}")
             print(f"  {b['symbol']}: {b['action']} — {reason}")
 
+    elif cmd == "midday":
+        from trade import execute_stop_losses, sync_trailing_stops
+        from portfolio import save_positions_state, update_performance_state
+
+        print(f"\nMidday scan — {get_now_str()}")
+
+        # Sync trailing stops for filled positions
+        synced = sync_trailing_stops()
+        if synced:
+            print(f"Trailing stops synced: {len(synced)}")
+            for r in synced:
+                if "error" in r:
+                    print(f"  {r['symbol']}: ERROR — {r['error']}")
+                else:
+                    print(f"  {r['symbol']}: {r['qty']} shares @ 8% trail")
+        else:
+            print("All positions have trailing stops.")
+
+        # Check manual stop-losses
+        stops = execute_stop_losses()
+        if stops:
+            print(f"Stop-losses triggered: {len(stops)}")
+            for s in stops:
+                print(f"  {s['symbol']}: {s.get('reason', 'closed')}")
+
+        # Time stops
+        time_stops = execute_time_stops()
+        if time_stops:
+            print(f"Time stops: {len(time_stops)}")
+
+        # Save state
+        save_positions_state()
+        update_performance_state()
+        print("State saved.")
+
     elif cmd == "candidates":
         buys = get_buy_candidates()
         sells = get_sell_candidates()
@@ -350,4 +385,4 @@ if __name__ == "__main__":
             print(f"  {c['symbol']}: {c['reason']}")
 
     else:
-        print("Usage: python3 execute_trades.py [run|dry-run|candidates]")
+        print("Usage: python3 execute_trades.py [run|dry-run|midday|candidates]")
