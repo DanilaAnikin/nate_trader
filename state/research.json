@@ -1,1 +1,39 @@
-{}
+{
+  "updated_at": "2026-04-24 05:47:00",
+  "spy": {},
+  "symbols": {
+    "QQQ": {
+      "error": "Host not in allowlist"
+    },
+    "NVDA": {
+      "error": "Host not in allowlist"
+    },
+    "AAPL": {
+      "error": "Host not in allowlist"
+    },
+    "MSFT": {
+      "error": "Host not in allowlist"
+    },
+    "META": {
+      "error": "Host not in allowlist"
+    },
+    "AMZN": {
+      "error": "Host not in allowlist"
+    },
+    "GOOGL": {
+      "error": "Host not in allowlist"
+    },
+    "AVGO": {
+      "error": "Host not in allowlist"
+    },
+    "AMD": {
+      "error": "Host not in allowlist"
+    },
+    "TSLA": {
+      "error": "Host not in allowlist"
+    },
+    "CRM": {
+      "error": "Host not in allowlist"
+    }
+  }
+}
