@@ -186,14 +186,22 @@ python3 scripts/screener.py full           # Full screen: all sources + scoring
 # Trading
 python3 scripts/trade.py market            # Market open/closed status
 python3 scripts/trade.py stops             # Execute pending stop-losses
+python3 scripts/trade.py sync-stops        # Place trailing stops for positions missing them
 python3 scripts/trade.py cancel            # Cancel all open orders
 python3 scripts/trade.py validate SYMBOL QTY SIDE PRICE  # Validate a trade
+
+# Execution
+python3 scripts/execute_trades.py run          # Full execution (stops + sells + buys)
+python3 scripts/execute_trades.py dry-run      # Simulate without placing orders
+python3 scripts/execute_trades.py midday       # Midday: sync stops, check stop-losses, save state
+python3 scripts/execute_trades.py candidates   # Show current BUY/SELL candidates
 
 # Perplexity Research
 python3 scripts/perplexity_research.py outlook          # Market outlook
 python3 scripts/perplexity_research.py stock SYMBOL     # Deep dive on one stock
 python3 scripts/perplexity_research.py sector NAME      # Sector analysis
 python3 scripts/perplexity_research.py enhance          # Enhance research.json with Perplexity scores
+python3 scripts/perplexity_research.py enhance-screener # Enhance top screener candidates with Perplexity
 
 # Notifications
 python3 scripts/notify.py test             # Send test ClickUp task
@@ -230,3 +238,24 @@ After every routine execution:
 | 3 | Midday Scan | 1:00 PM M–F | Check stops, manage positions, scan news |
 | 4 | End-of-Day Summary | 4:15 PM M–F | Final P&L, journal, ClickUp recap, benchmark |
 | 5 | Weekly Review | 6:00 PM Friday | Performance grading, strategy review, watchlist updates |
+
+### Routine 1 — Pre-Market Research (9:45 AM)
+```bash
+python3 scripts/screener.py full                        # 1. Discover new candidates
+python3 scripts/research.py report                      # 2. Research watchlist (preserves existing Perplexity scores)
+python3 scripts/perplexity_research.py enhance          # 3. Perplexity scores for watchlist
+python3 scripts/perplexity_research.py enhance-screener # 4. Perplexity scores for top screener candidates
+python3 scripts/portfolio.py save                       # 5. Save state
+```
+
+### Routine 2 — Market-Open Execution (10:00 AM)
+```bash
+python3 scripts/execute_trades.py dry-run               # 1. Preview what would trade
+python3 scripts/execute_trades.py run                    # 2. Execute trades (after review)
+```
+
+### Routine 3 — Midday Scan (1:00 PM)
+```bash
+python3 scripts/execute_trades.py midday                # 1. Sync trailing stops, check stop-losses, save state
+python3 scripts/research.py report                      # 2. Refresh research data
+```
