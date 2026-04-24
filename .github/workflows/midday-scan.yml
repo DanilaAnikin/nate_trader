@@ -1,0 +1,60 @@
+name: Midday Scan
+
+on:
+  schedule:
+    - cron: '0 17 * * 1-5'  # 1:00 PM ET (UTC-4)
+  workflow_dispatch:
+
+jobs:
+  midday:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Pull latest
+        run: git pull --rebase origin main
+        working-directory: .
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+        working-directory: .
+
+      - name: Execute stop-losses
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python3 trade.py stops
+
+      - name: Update research data
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python3 research.py report
+
+      - name: Save portfolio state
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python3 portfolio.py save
+
+      - name: Commit and push state
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add state/ journal/ memory/ watchlist.json
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "routine: midday scan $(date +%Y-%m-%d)"
+          git pull --rebase origin main
+          git push origin main

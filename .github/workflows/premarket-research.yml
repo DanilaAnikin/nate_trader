@@ -1,0 +1,68 @@
+name: Pre-Market Research
+
+on:
+  schedule:
+    - cron: '45 13 * * 1-5'  # 9:45 AM ET (UTC-4)
+  workflow_dispatch:
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Pull latest
+        run: git pull --rebase origin main
+        working-directory: .
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+        working-directory: .
+
+      - name: Run screener (full)
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+        run: python3 screener.py full
+
+      - name: Run research report
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python3 research.py report
+
+      - name: Enhance with Perplexity
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+        run: python3 perplexity_research.py enhance
+
+      - name: Save portfolio state
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python3 portfolio.py save
+
+      - name: Commit and push state
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add state/ journal/ memory/ watchlist.json
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "routine: pre-market research $(date +%Y-%m-%d)"
+          git pull --rebase origin main
+          git push origin main
