@@ -5,6 +5,9 @@ on:
     - cron: '0 17 * * 1-5'  # 1:00 PM ET (UTC-4)
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   midday:
     runs-on: ubuntu-latest
