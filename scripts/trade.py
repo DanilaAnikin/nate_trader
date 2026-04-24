@@ -7,7 +7,7 @@ from alpaca.trading.requests import (
     TrailingStopOrderRequest,
     GetOrdersRequest,
 )
-from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
+from alpaca.trading.enums import OrderSide, OrderType, TimeInForce, QueryOrderStatus
 
 from utils import (
     ALPACA_API_KEY, ALPACA_SECRET_KEY, PERFORMANCE_STATE,
@@ -220,10 +220,7 @@ def sync_trailing_stops() -> list[dict]:
     open_orders = client.get_orders(filter=request)
     symbols_with_stops = set()
     for o in open_orders:
-        if str(o.side) == "OrderSide.SELL" and str(o.type) == "AssetClass.trailing_stop":
-            symbols_with_stops.add(o.symbol)
-        # Also check by order type string variations
-        if str(o.side).lower().endswith("sell") and "trailing" in str(o.type).lower():
+        if o.side == OrderSide.SELL and o.type == OrderType.TRAILING_STOP:
             symbols_with_stops.add(o.symbol)
 
     results = []
