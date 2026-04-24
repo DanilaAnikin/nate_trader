@@ -161,6 +161,10 @@ def run_full_screen() -> dict:
         "UDOW", "SDOW", "YANG", "YINN", "CURE", "DRIP",
         "GUSH", "UCO", "SCO", "BOIL", "KOLD", "WEBL", "WEBS",
         "BULZ", "BERZ", "NAIL", "DRV", "TMF", "TMV",
+        # Single-stock leveraged / inverse ETFs
+        "NVDL", "NVDD", "AMDL", "AMDS", "TSLL", "TSLS",
+        "MSFU", "MSFD", "AAPU", "AAPD", "AMZU", "AMZD",
+        "GOGL", "METV", "CONL", "CONY", "NFLP", "BITO",
     }
     new_symbols -= exclude
 
@@ -170,11 +174,36 @@ def run_full_screen() -> dict:
     # Filter out units and rights (ending in U or R with 4+ chars)
     new_symbols = {s for s in new_symbols if not (len(s) >= 4 and s[-1] in ("U", "R") and s[:-1].isalpha())}
 
+    # Filter out warrants/rights with dot notation (e.g. KCAC.WS, DHY.RT)
+    new_symbols = {s for s in new_symbols if ".WS" not in s and ".RT" not in s and ".WT" not in s}
+
     log.info(f"Unique screener candidates (excluding watchlist): {len(new_symbols)}")
+
+    # Pre-filter: check Alpaca asset name to remove leveraged/inverse ETFs
+    from alpaca.trading.client import TradingClient
+    _tc = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+    filtered_symbols = set()
+    leveraged_keywords = [
+        "2x", "3x", "-2x", "-3x", "leveraged", "inverse", "ultra",
+        "direxion", "proshares", "graniteshares", "microsectors",
+        "short", "bear", "bull 3x", "bull 2x",
+    ]
+    for symbol in sorted(new_symbols):
+        try:
+            asset = _tc.get_asset(symbol)
+            name = (asset.name or "").lower()
+            if any(kw in name for kw in leveraged_keywords):
+                log.info(f"  {symbol}: skipping leveraged/inverse product ({asset.name})")
+                continue
+            filtered_symbols.add(symbol)
+        except Exception:
+            filtered_symbols.add(symbol)  # if API fails, keep it for now
+
+    log.info(f"After leveraged filter: {len(filtered_symbols)} candidates (removed {len(new_symbols) - len(filtered_symbols)})")
 
     # Score top candidates
     scored = {}
-    for symbol in sorted(new_symbols)[:30]:  # cap at 30 to avoid rate limits
+    for symbol in sorted(filtered_symbols)[:30]:  # cap at 30 to avoid rate limits
         try:
             log.info(f"Screening {symbol}...")
             df = get_bars(symbol, days=60)
