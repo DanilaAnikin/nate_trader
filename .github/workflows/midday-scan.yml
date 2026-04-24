@@ -33,11 +33,11 @@ jobs:
         run: pip install -r requirements.txt
         working-directory: .
 
-      - name: Execute stop-losses
+      - name: Midday scan (sync stops + stop-losses + state)
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-        run: python3 trade.py stops
+        run: python3 execute_trades.py midday
 
       - name: Update research data
         env:
