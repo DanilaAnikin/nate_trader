@@ -7,10 +7,10 @@
 |--------|-------|
 | Weekly P&L | $0.00 (+0.00%) |
 | Monthly P&L | $0.00 (+0.00%) |
-| SPY Weekly | +0.47% |
-| SPY Monthly | +8.62% |
-| Weekly Alpha | -0.47% |
-| Monthly Alpha | -8.62% |
+| SPY Weekly | +0.55% |
+| SPY Monthly | +8.71% |
+| Weekly Alpha | -0.55% |
+| Monthly Alpha | -8.71% |
 | Equity | $1,000,000.00 |
 | Risk Tier | NORMAL |
 | Open Positions | 0 |
