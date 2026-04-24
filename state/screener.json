@@ -450,11 +450,21 @@
       "confidence": {
         "technical_score": 25,
         "news_score": 17,
-        "perplexity_score": 0,
-        "total": 42,
-        "action": "HOLD"
+        "perplexity_score": 28,
+        "total": 70,
+        "action": "BUY"
       },
-      "source": "screener"
+      "source": "screener",
+      "perplexity": {
+        "symbol": "CMCSA",
+        "sentiment": "STRONG_POSITIVE",
+        "perplexity_score": 28,
+        "key_catalyst": "Comcast reported Q1 2026 earnings on April 23, 2026, beating EPS estimates of $0.73 with $0.79 (+8.94% surprise) and revenue of $31.457 billion (+2.80% surprise), alongside strong Peacock momentum, improved broadband losses, $3.9 billion free cash flow, and $2.5 billion shareholder returns.[3][5][6]",
+        "risk": "Morningstar assesses CMCSA at a significant 500% premium to its $72 fair value estimate, signaling potential overvaluation risks amid medium uncertainty.[2]",
+        "timeframe": "short-term",
+        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 28,\n  \"KEY_CATALYST\": \"Comcast reported Q1 2026 earnings on April 23, 2026, beating EPS estimates of $0.73 with $0.79 (+8.94% surprise) and revenue of $31.457 billion (+2.80% surprise), alongside strong Peacock momentum, improved broadband losses, $3.9 billion free cash flow, and $2.5 billion shareholder returns.[3][5][6]\",\n  \"RISK\": \"Morningstar assesses CMCSA at a significant 500% premium to its $72 fair value estimate, signaling potentia",
+        "updated_at": "2026-04-24 17:12:15"
+      }
     },
     "ENOV": {
       "technicals": {
@@ -483,11 +493,21 @@
       "confidence": {
         "technical_score": 23,
         "news_score": 13,
-        "perplexity_score": 0,
-        "total": 36,
-        "action": "SELL"
+        "perplexity_score": 12,
+        "total": 48,
+        "action": "HOLD"
       },
-      "source": "screener"
+      "source": "screener",
+      "perplexity": {
+        "symbol": "ENOV",
+        "sentiment": "NEUTRAL",
+        "perplexity_score": 12,
+        "key_catalyst": "Q4 2025 earnings on February 26 showed adjusted EPS of $0.95 beating estimates of $0.81-$0.84 by 13-15%, despite a slight revenue miss, with stock initially flat but later surging 8.47%[1][2][5].",
+        "risk": "Upcoming Q1 2026 earnings on May 7 could pressure the stock given recent negative trends including -72% earnings growth rate, -14.25 EPS over last four quarters, and full-year 2025 revenue guidance 0.7% below estimates[1][2][3].",
+        "timeframe": "medium-term",
+        "raw_response": "{\n  \"SENTIMENT\": \"NEUTRAL\",\n  \"CATALYST_SCORE\": 12,\n  \"KEY_CATALYST\": \"Q4 2025 earnings on February 26 showed adjusted EPS of $0.95 beating estimates of $0.81-$0.84 by 13-15%, despite a slight revenue miss, with stock initially flat but later surging 8.47%[1][2][5].\",\n  \"RISK\": \"Upcoming Q1 2026 earnings on May 7 could pressure the stock given recent negative trends including -72% earnings growth rate, -14.25 EPS over last four quarters, and full-year 2025 revenue guidance 0.7% below estimates[1",
+        "updated_at": "2026-04-24 17:12:20"
+      }
     },
     "GME": {
       "technicals": {
@@ -747,11 +767,21 @@
       "confidence": {
         "technical_score": 26,
         "news_score": 17,
-        "perplexity_score": 0,
-        "total": 43,
-        "action": "HOLD"
+        "perplexity_score": 22,
+        "total": 65,
+        "action": "BUY"
       },
-      "source": "screener"
+      "source": "screener",
+      "perplexity": {
+        "symbol": "NOK",
+        "sentiment": "POSITIVE",
+        "perplexity_score": 22,
+        "key_catalyst": "Nokia reported Q1 2026 earnings on April 23, 2026, meeting EPS consensus at $0.06 with revenue up 2.4% year-over-year and adjusted EPS of EUR0.05 beating estimates of EUR0.04 amid strong demand, driving shares higher.[1][2]",
+        "risk": "Mixed Q1 results indicate potential ongoing challenges in profitability or segment performance despite the earnings beat.[2]",
+        "timeframe": "short-term",
+        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 22,\n  \"KEY_CATALYST\": \"Nokia reported Q1 2026 earnings on April 23, 2026, meeting EPS consensus at $0.06 with revenue up 2.4% year-over-year and adjusted EPS of EUR0.05 beating estimates of EUR0.04 amid strong demand, driving shares higher.[1][2]\",\n  \"RISK\": \"Mixed Q1 results indicate potential ongoing challenges in profitability or segment performance despite the earnings beat.[2]\",\n  \"TIMEFRAME\": \"short-term\"\n}",
+        "updated_at": "2026-04-24 17:12:12"
+      }
     },
     "OGN": {
       "technicals": {
@@ -846,11 +876,21 @@
       "confidence": {
         "technical_score": 30,
         "news_score": 9,
-        "perplexity_score": 0,
-        "total": 39,
-        "action": "SELL"
+        "perplexity_score": 8,
+        "total": 47,
+        "action": "HOLD"
       },
-      "source": "screener"
+      "source": "screener",
+      "perplexity": {
+        "symbol": "SKLZ",
+        "sentiment": "NEGATIVE",
+        "perplexity_score": 8,
+        "key_catalyst": "Skillz reported Q4 and full year 2025 results on March 31, 2026, with revenue of $30.0 million but a net loss of $17.9 million and Adjusted EBITDA loss of $10.0 million, showing continued unprofitability despite some loss reduction trends[1][3][7].",
+        "risk": "A jury verdict statement issued on April 23, 2026, signals potential significant legal risks that could adversely impact the company's financial position and stock price[7].",
+        "timeframe": "short-term (1-5 day)",
+        "raw_response": "{\n  \"SENTIMENT\": \"NEGATIVE\",\n  \"CATALYST_SCORE\": 8,\n  \"KEY_CATALYST\": \"Skillz reported Q4 and full year 2025 results on March 31, 2026, with revenue of $30.0 million but a net loss of $17.9 million and Adjusted EBITDA loss of $10.0 million, showing continued unprofitability despite some loss reduction trends[1][3][7].\",\n  \"RISK\": \"A jury verdict statement issued on April 23, 2026, signals potential significant legal risks that could adversely impact the company's financial position and stock pri",
+        "updated_at": "2026-04-24 17:12:17"
+      }
     },
     "SPXC": {
       "technicals": {
@@ -879,11 +919,22 @@
       "confidence": {
         "technical_score": 25,
         "news_score": 21,
-        "perplexity_score": 0,
-        "total": 46,
+        "perplexity_score": 18,
+        "total": 64,
         "action": "HOLD"
       },
-      "source": "screener"
+      "source": "screener",
+      "perplexity": {
+        "symbol": "SPXC",
+        "sentiment": "POSITIVE",
+        "perplexity_score": 18,
+        "key_catalyst": "Q1 2026 earnings release scheduled for April 30, 2026 with analyst expectations of $1.55 EPS and $558.55M revenue, following strong Q4 2025 beat ($1.88 EPS vs. $1.86 estimate) and raised FY2025 guidance.",
+        "risk": "Q1 2026 represents a sequential decline from Q4 2025's $1.88 EPS, and execution risk exists on achieving the raised FY2026 guidance of $7.60-$8.00 EPS amid potential macro headwinds.",
+        "timeframe": "short-term",
+        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"Q1 2026 earnings release scheduled for April 30, 2026 with analyst expectations of $1.55 EPS and $558.55M revenue, following strong Q4 2025 beat ($1.88 EPS vs. $1.86 estimate) and raised FY2025 guidance.\",\n  \"RISK\": \"Q1 2026 represents a sequential decline from Q4 2025's $1.88 EPS, and execution risk exists on achieving the raised FY2026 guidance of $7.60-$8.00 EPS amid potential macro headwinds.\",\n  \"TIMEFRAME\": \"sh",
+        "updated_at": "2026-04-24 17:12:09"
+      }
     }
-  }
+  },
+  "perplexity_enhanced_at": "2026-04-24 17:12:20"
 }
