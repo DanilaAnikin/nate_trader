@@ -1,626 +1,580 @@
 {
-  "updated_at": "2026-04-27 11:26:18",
+  "updated_at": "2026-04-28 12:00:46",
   "most_active": [
     {
-      "symbol": "ASBP",
-      "volume": 183687793,
-      "trade_count": 177511
-    },
-    {
-      "symbol": "USEG",
-      "volume": 163691284,
-      "trade_count": 392089
+      "symbol": "CTNT",
+      "volume": 224645902,
+      "trade_count": 72076
     },
     {
       "symbol": "SOXS",
-      "volume": 149662013,
-      "trade_count": 324413
+      "volume": 182940849,
+      "trade_count": 471015
     },
     {
-      "symbol": "POET",
-      "volume": 137230277,
-      "trade_count": 615065
+      "symbol": "ATER",
+      "volume": 178150223,
+      "trade_count": 448637
     },
     {
-      "symbol": "CMPX",
-      "volume": 119949310,
-      "trade_count": 334804
+      "symbol": "BIYA",
+      "volume": 165547839,
+      "trade_count": 569473
     },
     {
-      "symbol": "YAAS",
-      "volume": 115915830,
-      "trade_count": 439377
-    },
-    {
-      "symbol": "INTC",
-      "volume": 95082197,
-      "trade_count": 772381
-    },
-    {
-      "symbol": "OGN",
-      "volume": 87009571,
-      "trade_count": 83104
-    },
-    {
-      "symbol": "ONCO",
-      "volume": 81895397,
-      "trade_count": 267125
-    },
-    {
-      "symbol": "NOK",
-      "volume": 72738241,
-      "trade_count": 136279
-    },
-    {
-      "symbol": "NVDA",
-      "volume": 64070323,
-      "trade_count": 837103
+      "symbol": "CLDI",
+      "volume": 142171022,
+      "trade_count": 183538
     },
     {
       "symbol": "TZA",
-      "volume": 59541258,
-      "trade_count": 18589
+      "volume": 115365179,
+      "trade_count": 28010
     },
     {
-      "symbol": "BMNU",
-      "volume": 55478912,
-      "trade_count": 22373
+      "symbol": "NVDA",
+      "volume": 95590516,
+      "trade_count": 1632592
+    },
+    {
+      "symbol": "CHSN",
+      "volume": 92808890,
+      "trade_count": 35849
+    },
+    {
+      "symbol": "NOK",
+      "volume": 88833356,
+      "trade_count": 114246
+    },
+    {
+      "symbol": "SAFX",
+      "volume": 71255330,
+      "trade_count": 100744
+    },
+    {
+      "symbol": "INTC",
+      "volume": 70609177,
+      "trade_count": 513602
     },
     {
       "symbol": "SOXL",
-      "volume": 48065600,
-      "trade_count": 792332
+      "volume": 63306006,
+      "trade_count": 897716
+    },
+    {
+      "symbol": "BMNU",
+      "volume": 61070162,
+      "trade_count": 32217
+    },
+    {
+      "symbol": "POET",
+      "volume": 54960651,
+      "trade_count": 208820
+    },
+    {
+      "symbol": "SBLX",
+      "volume": 52947982,
+      "trade_count": 349898
     },
     {
       "symbol": "TSLL",
-      "volume": 45620484,
-      "trade_count": 178620
+      "volume": 51440703,
+      "trade_count": 147186
     },
     {
-      "symbol": "BYND",
-      "volume": 41017125,
-      "trade_count": 37262
-    },
-    {
-      "symbol": "SGMT",
-      "volume": 38835541,
-      "trade_count": 347158
+      "symbol": "NVD",
+      "volume": 51335192,
+      "trade_count": 18272
     },
     {
       "symbol": "TQQQ",
-      "volume": 33358110,
-      "trade_count": 185951
+      "volume": 49868679,
+      "trade_count": 280449
     },
     {
       "symbol": "BITO",
-      "volume": 32162295,
-      "trade_count": 20254
+      "volume": 48687268,
+      "trade_count": 23004
     },
     {
-      "symbol": "HCWB",
-      "volume": 28326003,
-      "trade_count": 53448
+      "symbol": "SNBR",
+      "volume": 45222144,
+      "trade_count": 226012
     }
   ],
   "top_movers": [
     {
-      "symbol": "VIVK",
-      "change_pct": 7701.72,
-      "price": 2.715,
-      "change": 2.68
+      "symbol": "CHARR",
+      "change_pct": 215.84,
+      "price": 0.1276,
+      "change": 0.0872
     },
     {
-      "symbol": "AREB",
-      "change_pct": 2206.5,
-      "price": 1.49,
-      "change": 1.425
+      "symbol": "MDCXW",
+      "change_pct": 179.21,
+      "price": 0.81,
+      "change": 0.5199
     },
     {
-      "symbol": "ESHAR",
-      "change_pct": 788.89,
-      "price": 0.04,
-      "change": 0.0355
+      "symbol": "BIYA",
+      "change_pct": 98.27,
+      "price": 1.5445,
+      "change": 0.7655
+    },
+    {
+      "symbol": "SBLX",
+      "change_pct": 81.27,
+      "price": 4.5499,
+      "change": 2.04
+    },
+    {
+      "symbol": "GFAIW",
+      "change_pct": 80.72,
+      "price": 0.06,
+      "change": 0.0268
+    },
+    {
+      "symbol": "WLACU",
+      "change_pct": 77.26,
+      "price": 28.38,
+      "change": 12.37
+    },
+    {
+      "symbol": "ATER",
+      "change_pct": 70.6,
+      "price": 1.12,
+      "change": 0.4635
+    },
+    {
+      "symbol": "BNZIW",
+      "change_pct": 47.87,
+      "price": 0.0139,
+      "change": 0.0045
+    },
+    {
+      "symbol": "SNBR",
+      "change_pct": 45.7,
+      "price": 3.22,
+      "change": 1.01
+    },
+    {
+      "symbol": "BFRGW",
+      "change_pct": 44.51,
+      "price": 0.25,
+      "change": 0.077
+    },
+    {
+      "symbol": "KFRC",
+      "change_pct": 40.99,
+      "price": 45.13,
+      "change": 13.12
+    },
+    {
+      "symbol": "LTRYW",
+      "change_pct": 40.91,
+      "price": 0.0155,
+      "change": 0.0045
+    },
+    {
+      "symbol": "POM",
+      "change_pct": 34.03,
+      "price": 0.4049,
+      "change": 0.1028
+    },
+    {
+      "symbol": "AREBW",
+      "change_pct": 32.86,
+      "price": 0.0186,
+      "change": 0.0046
+    },
+    {
+      "symbol": "HUBCZ",
+      "change_pct": 31.58,
+      "price": 0.01,
+      "change": 0.0024
+    },
+    {
+      "symbol": "PLAG",
+      "change_pct": 26.67,
+      "price": 1.71,
+      "change": 0.36
+    },
+    {
+      "symbol": "RVMDW",
+      "change_pct": 24.75,
+      "price": 5.09,
+      "change": 1.01
+    },
+    {
+      "symbol": "BIAF",
+      "change_pct": 24.48,
+      "price": 2.751,
+      "change": 0.541
+    },
+    {
+      "symbol": "SBCWW",
+      "change_pct": 24.28,
+      "price": 0.2237,
+      "change": 0.0437
+    },
+    {
+      "symbol": "CDTTW",
+      "change_pct": 24.19,
+      "price": 0.0077,
+      "change": 0.0015
+    },
+    {
+      "symbol": "SNGX",
+      "change_pct": -67.14,
+      "price": 0.465,
+      "change": -0.95
     },
     {
       "symbol": "HTCO",
-      "change_pct": 139.22,
-      "price": 26.9128,
-      "change": 15.66
+      "change_pct": -65.99,
+      "price": 13,
+      "change": -25.22
     },
     {
-      "symbol": "ZOOZW",
-      "change_pct": 87.04,
-      "price": 0.0505,
-      "change": 0.0235
+      "symbol": "FGIWW",
+      "change_pct": -54.08,
+      "price": 0.0371,
+      "change": -0.0437
     },
     {
-      "symbol": "ORIQW",
-      "change_pct": 83.07,
-      "price": 0.24,
-      "change": 0.1089
+      "symbol": "ERAS",
+      "change_pct": -52.45,
+      "price": 9.105,
+      "change": -10.04
+    },
+    {
+      "symbol": "NXPLW",
+      "change_pct": -49.11,
+      "price": 0.0057,
+      "change": -0.0055
+    },
+    {
+      "symbol": "VISN",
+      "change_pct": -48.21,
+      "price": 10.115,
+      "change": -9.415
+    },
+    {
+      "symbol": "GLND",
+      "change_pct": -40.02,
+      "price": 3.245,
+      "change": -2.165
     },
     {
       "symbol": "YAAS",
-      "change_pct": 55.48,
-      "price": 1.445,
-      "change": 0.5156
+      "change_pct": -37.93,
+      "price": 1.44,
+      "change": -0.88
     },
     {
-      "symbol": "GIPRW",
-      "change_pct": 52.48,
-      "price": 0.0369,
-      "change": 0.0127
+      "symbol": "USGOW",
+      "change_pct": -37.76,
+      "price": 0.2614,
+      "change": -0.1586
     },
     {
-      "symbol": "SWAGW",
-      "change_pct": 45.48,
-      "price": 0.0547,
-      "change": 0.0171
+      "symbol": "INHD",
+      "change_pct": -35.85,
+      "price": 0.0841,
+      "change": -0.047
     },
     {
-      "symbol": "SGMT",
-      "change_pct": 41.21,
-      "price": 8.275,
-      "change": 2.415
+      "symbol": "MIGI",
+      "change_pct": -35.52,
+      "price": 4.12,
+      "change": -2.27
     },
     {
-      "symbol": "MANE",
-      "change_pct": 39.12,
-      "price": 94.38,
-      "change": 26.54
-    },
-    {
-      "symbol": "MMTXW",
-      "change_pct": 38.28,
-      "price": 0.1799,
-      "change": 0.0498
-    },
-    {
-      "symbol": "PAPL",
-      "change_pct": 34.8,
-      "price": 1.2399,
-      "change": 0.3201
-    },
-    {
-      "symbol": "ASBPW",
-      "change_pct": 28.48,
-      "price": 0.0194,
-      "change": 0.0043
-    },
-    {
-      "symbol": "EUDA",
-      "change_pct": 24.76,
-      "price": 13.25,
-      "change": 2.63
-    },
-    {
-      "symbol": "ONCO",
-      "change_pct": 24.71,
-      "price": 0.7327,
-      "change": 0.1452
-    },
-    {
-      "symbol": "WW",
-      "change_pct": 24.16,
-      "price": 11.51,
-      "change": 2.24
-    },
-    {
-      "symbol": "GWH.WS",
-      "change_pct": 23.22,
-      "price": 0.026,
-      "change": 0.0049
-    },
-    {
-      "symbol": "EDSA",
-      "change_pct": 23.14,
-      "price": 8.94,
-      "change": 1.68
-    },
-    {
-      "symbol": "RMAX",
-      "change_pct": 22.78,
-      "price": 9.81,
-      "change": 1.82
-    },
-    {
-      "symbol": "AMPGR",
-      "change_pct": -65.62,
-      "price": 0.024,
-      "change": -0.0458
-    },
-    {
-      "symbol": "CMPX",
-      "change_pct": -59.15,
-      "price": 2.055,
-      "change": -2.975
-    },
-    {
-      "symbol": "TALKW",
-      "change_pct": -54.84,
-      "price": 0.0014,
-      "change": -0.0017
-    },
-    {
-      "symbol": "NVVE",
-      "change_pct": -45.16,
-      "price": 0.271,
-      "change": -0.2232
-    },
-    {
-      "symbol": "POET",
-      "change_pct": -45,
-      "price": 8.305,
-      "change": -6.795
+      "symbol": "NVTX",
+      "change_pct": -35.06,
+      "price": 52.642,
+      "change": -28.42
     },
     {
       "symbol": "DHY.RT",
-      "change_pct": -43.21,
-      "price": 0.0046,
-      "change": -0.0035
+      "change_pct": -34.09,
+      "price": 0.0029,
+      "change": -0.0015
     },
     {
-      "symbol": "ORGNW",
-      "change_pct": -42.42,
-      "price": 0.0019,
-      "change": -0.0014
+      "symbol": "AREB",
+      "change_pct": -34,
+      "price": 0.726,
+      "change": -0.374
     },
     {
-      "symbol": "TJGC",
-      "change_pct": -41.11,
-      "price": 0.9599,
-      "change": -0.6701
+      "symbol": "AIRE",
+      "change_pct": -33.83,
+      "price": 0.177,
+      "change": -0.0905
     },
     {
-      "symbol": "LABT",
-      "change_pct": -40.13,
-      "price": 4.4001,
-      "change": -2.95
+      "symbol": "CSEX",
+      "change_pct": -30.41,
+      "price": 20.4596,
+      "change": -8.94
     },
     {
-      "symbol": "MAXN",
-      "change_pct": -34.17,
-      "price": 0.9809,
-      "change": -0.5091
+      "symbol": "DGNX",
+      "change_pct": -28.43,
+      "price": 2.52,
+      "change": -1.001
     },
     {
-      "symbol": "ILLRW",
-      "change_pct": -34.07,
-      "price": 0.03,
-      "change": -0.0155
+      "symbol": "CHSN",
+      "change_pct": -28.07,
+      "price": 0.0387,
+      "change": -0.0151
     },
     {
-      "symbol": "WALDW",
-      "change_pct": -30.83,
-      "price": 0.0276,
-      "change": -0.0123
+      "symbol": "NIVFW",
+      "change_pct": -27.92,
+      "price": 0.0142,
+      "change": -0.0055
     },
     {
-      "symbol": "FGI",
-      "change_pct": -29.81,
-      "price": 6.5,
-      "change": -2.76
-    },
-    {
-      "symbol": "BGLWW",
-      "change_pct": -27.15,
-      "price": 0.2377,
-      "change": -0.0886
-    },
-    {
-      "symbol": "FLYX.WS",
-      "change_pct": -26.47,
-      "price": 0.25,
-      "change": -0.09
-    },
-    {
-      "symbol": "REAX",
-      "change_pct": -25.75,
-      "price": 1.99,
-      "change": -0.69
-    },
-    {
-      "symbol": "MVSTW",
-      "change_pct": -25.67,
-      "price": 0.0417,
-      "change": -0.0144
-    },
-    {
-      "symbol": "ZSPC",
-      "change_pct": -25.6,
-      "price": 0.3287,
-      "change": -0.1131
-    },
-    {
-      "symbol": "SCNI",
-      "change_pct": -23.99,
-      "price": 0.5602,
-      "change": -0.1768
-    },
-    {
-      "symbol": "EVEX.WS",
-      "change_pct": -23.6,
-      "price": 0.29,
-      "change": -0.0896
+      "symbol": "LCFYW",
+      "change_pct": -27.59,
+      "price": 2.1,
+      "change": -0.8
     }
   ],
   "trending": [
     "NVDA",
-    "AAPL",
-    "TSLA",
-    "NOW",
-    "CDNS",
-    "GME",
+    "META",
+    "FANG",
+    "OKLO",
     "NEE",
-    "MELI",
-    "FDX",
-    "KKR"
+    "MUFG",
+    "VZ",
+    "TTE",
+    "SYK",
+    "CDNS"
   ],
   "scored_candidates": {
     "CDNS": {
       "technicals": {
-        "price": 335.335,
-        "sma_20": 298.19050000000004,
-        "sma_50": 294.86039999999997,
-        "rsi_14": 66.53555884636276,
-        "macd": 11.512152441113642,
-        "macd_signal": 6.684743195998058,
-        "bb_upper": 341.85704633698435,
-        "bb_lower": 254.5239536630157,
-        "bb_mid": 298.19050000000004,
-        "volume": 62019.0,
-        "vol_avg_20": 103425.55,
-        "volume_ratio": 2.057876414483655,
-        "five_day_return": 5.265883977900554,
+        "price": 319.05,
+        "sma_20": 300.64825,
+        "sma_50": 295.27639999999997,
+        "rsi_14": 56.942442590307046,
+        "macd": 11.14478881972235,
+        "macd_signal": 7.68017554835917,
+        "bb_upper": 343.558687573509,
+        "bb_lower": 257.737812426491,
+        "bb_mid": 300.64825,
+        "volume": 159242.0,
+        "vol_avg_20": 111404.9,
+        "volume_ratio": 2.2296505808990448,
+        "five_day_return": -2.089854538758973,
+        "above_sma20": true,
+        "above_sma50": true
+      },
+      "news_score": 25,
+      "news_headlines": [
+        "Wells Fargo Maintains Overweight on Cadence Design Systems, Raises Price Target to $400",
+        "Amazon To Rally More Than 24%? Here Are 10 Top Analyst Forecasts For Tuesday",
+        "Keybanc Maintains Overweight on Cadence Design Systems, Raises Price Target to $425"
+      ],
+      "confidence": {
+        "technical_score": 30,
+        "news_score": 25,
+        "perplexity_score": 28,
+        "total": 83,
+        "action": "BUY"
+      },
+      "source": "screener",
+      "perplexity": {
+        "symbol": "CDNS",
+        "sentiment": "STRONG_POSITIVE",
+        "perplexity_score": 28,
+        "key_catalyst": "Cadence Design Systems reported Q1 2026 earnings on April 27, 2026, with EPS of $1.96 beating consensus estimates of $1.89 by $0.07.[1]",
+        "risk": "High trailing P/E ratio of 93.27 may pressure valuation despite strong earnings growth outlook of 19.78% next year.[1]",
+        "timeframe": "short-term",
+        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 28,\n  \"KEY_CATALYST\": \"Cadence Design Systems reported Q1 2026 earnings on April 27, 2026, with EPS of $1.96 beating consensus estimates of $1.89 by $0.07.[1]\",\n  \"RISK\": \"High trailing P/E ratio of 93.27 may pressure valuation despite strong earnings growth outlook of 19.78% next year.[1]\",\n  \"TIMEFRAME\": \"short-term\"\n}",
+        "updated_at": "2026-04-28 12:01:30"
+      }
+    },
+    "ERAS": {
+      "technicals": {
+        "price": 9.11,
+        "sma_20": 18.18425,
+        "sma_50": 15.8232,
+        "rsi_14": 28.670659476112547,
+        "macd": 0.6639826882154587,
+        "macd_signal": 1.327024408840609,
+        "bb_upper": 24.054992947021255,
+        "bb_lower": 12.313507052978743,
+        "bb_mid": 18.18425,
+        "volume": 1271125.0,
+        "vol_avg_20": 425708.75,
+        "volume_ratio": 2.951189046501863,
+        "five_day_return": -59.41189574515482,
+        "above_sma20": false,
+        "above_sma50": false
+      },
+      "news_score": 13,
+      "news_headlines": [
+        "CommVault, Kforce, AxoGen And Other Big Stocks Moving Higher On Tuesday",
+        "Dow Gains 150 Points; Coca-Cola Posts Upbeat Earnings",
+        "Why Is Cancer Drug Developer Erasca Stock Plunging On Tuesday?"
+      ],
+      "confidence": {
+        "technical_score": 10,
+        "news_score": 13,
+        "perplexity_score": 0,
+        "total": 23,
+        "action": "SELL"
+      },
+      "source": "screener"
+    },
+    "FANG": {
+      "technicals": {
+        "price": 200.24,
+        "sma_20": 190.76500000000001,
+        "sma_50": 185.6691,
+        "rsi_14": 64.4050071998669,
+        "macd": 2.5188309106454483,
+        "macd_signal": 1.7521187452900229,
+        "bb_upper": 201.13347819113298,
+        "bb_lower": 180.39652180886705,
+        "bb_mid": 190.76500000000001,
+        "volume": 43206.0,
+        "vol_avg_20": 147803.35,
+        "volume_ratio": 0.4123587185270158,
+        "five_day_return": 5.511645062704185,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 13,
       "news_headlines": [
-        "Earnings Scheduled For April 27, 2026",
-        "Cadence Design Systems Targets Faster Chip Design Cycles To Keep Pace With AI",
-        "Robinhood To Rally Around 27%? Here Are 10 Top Analyst Forecasts For Monday"
+        "UAE Exits OPEC+: Oil Barely Flinched And These 5 Energy Stocks Ripped",
+        "Scotiabank Maintains Sector Outperform on Diamondback Energy, Raises Price Target to $195",
+        "S&P 500 Eases On Iran Ceasefire Jitters, Crude Soars To $90: Stock Market Today"
       ],
       "confidence": {
-        "technical_score": 26,
+        "technical_score": 25,
         "news_score": 13,
-        "perplexity_score": 18,
-        "total": 57,
+        "perplexity_score": 15,
+        "total": 53,
         "action": "HOLD"
       },
       "source": "screener",
       "perplexity": {
-        "symbol": "CDNS",
-        "sentiment": "POSITIVE",
-        "perplexity_score": 18,
-        "key_catalyst": "Cadence Design Systems reported strong Q4 and FY 2025 earnings with revenue of $1.440 billion (up from $1.356 billion in Q4 2024) and $5.297 billion for the year (up from $4.641 billion in 2024), following a prior quarter's 13.89% EPS beat of $1.64 vs. $1.44 estimate.[2][4][1]",
-        "risk": "Upcoming Q2 2025 earnings (June 2025 quarter consensus $1.57/share) carry potential for missing estimates after recent releases, with historical post-earnings moves averaging 5.2%.[1][6]",
-        "timeframe": "medium-term",
-        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"Cadence Design Systems reported strong Q4 and FY 2025 earnings with revenue of $1.440 billion (up from $1.356 billion in Q4 2024) and $5.297 billion for the year (up from $4.641 billion in 2024), following a prior quarter's 13.89% EPS beat of $1.64 vs. $1.44 estimate.[2][4][1]\",\n  \"RISK\": \"Upcoming Q2 2025 earnings (June 2025 quarter consensus $1.57/share) carry potential for missing estimates after recent releases, with his",
-        "updated_at": "2026-04-27 11:27:05"
+        "symbol": "FANG",
+        "sentiment": "NEUTRAL",
+        "perplexity_score": 15,
+        "key_catalyst": "I cannot provide the comprehensive investment analysis you've requested because the search results lack sufficient current data to support a rigorous assessment.\n\n**Data Limitations:**\n\nThe search res",
+        "risk": "Unable to parse structured response",
+        "timeframe": "unknown",
+        "raw_response": "I cannot provide the comprehensive investment analysis you've requested because the search results lack sufficient current data to support a rigorous assessment.\n\n**Data Limitations:**\n\nThe search results contain only historical earnings information (Q4 2025 reported February 23, 2026) and do not include:\n- Recent announcements or partnerships from the last 2 weeks\n- Current analyst ratings, upgrades/downgrades, or updated price targets\n- Sector-specific macro catalysts or headwinds relevant to ",
+        "updated_at": "2026-04-28 12:01:42"
       }
     },
-    "EDSA": {
+    "HTCO": {
       "technicals": {
-        "price": 8.93,
-        "sma_20": 6.18725,
-        "sma_50": 5.151736,
-        "rsi_14": 68.28668409660665,
-        "macd": 0.6227519061828461,
-        "macd_signal": 0.43683713588953477,
-        "bb_upper": 8.066431936375503,
-        "bb_lower": 4.308068063624496,
-        "bb_mid": 6.18725,
-        "volume": 16059.0,
-        "vol_avg_20": 3519.15,
-        "volume_ratio": 0.5901993379083017,
-        "five_day_return": 31.516936671575845,
-        "above_sma20": true,
-        "above_sma50": true
-      },
-      "news_score": 5,
-      "news_headlines": [
-        "12 Health Care Stocks Moving In Wednesday's Pre-Market Session",
-        "12 Health Care Stocks Moving In Monday's After-Market Session",
-        "Edesa Biotech Reaffirms Enrollment Timeline Guidance For Phase 2 Clinical Study Of EB06 In Moderate-To-Severe Nonsegmental Vitiligo"
-      ],
-      "confidence": {
-        "technical_score": 21,
-        "news_score": 5,
-        "perplexity_score": 0,
-        "total": 26,
-        "action": "SELL"
-      },
-      "source": "screener"
-    },
-    "EUDA": {
-      "technicals": {
-        "price": 13.0,
-        "sma_20": 9.03,
-        "sma_50": 4.9232380000000004,
-        "rsi_14": 72.4686834856769,
-        "macd": 1.2429821294669114,
-        "macd_signal": 1.0330128807442789,
-        "bb_upper": 14.24612308136992,
-        "bb_lower": 3.81387691863008,
-        "bb_mid": 9.03,
-        "volume": 1569.0,
-        "vol_avg_20": 1980.45,
-        "volume_ratio": 0.4291953848872731,
-        "five_day_return": 103.44287949921753,
-        "above_sma20": true,
-        "above_sma50": true
-      },
-      "news_score": 5,
-      "news_headlines": [
-        "EUDA Health Holdings Receives Nasdaq Listing Notice",
-        "12 Health Care Stocks Moving In Friday's Pre-Market Session",
-        "Why MaxLinear Shares Are Trading Higher By Over 34%; Here Are 20 Stocks Moving Premarket"
-      ],
-      "confidence": {
-        "technical_score": 17,
-        "news_score": 5,
-        "perplexity_score": 0,
-        "total": 22,
-        "action": "SELL"
-      },
-      "source": "screener"
-    },
-    "FDX": {
-      "technicals": {
-        "price": 385.92,
-        "sma_20": 373.977,
-        "sma_50": 370.42769999999996,
-        "rsi_14": 58.587013448748124,
-        "macd": 7.940976616270973,
-        "macd_signal": 6.48675791205648,
-        "bb_upper": 403.58625892351915,
-        "bb_lower": 344.3677410764808,
-        "bb_mid": 373.977,
-        "volume": 8313.0,
-        "vol_avg_20": 81557.0,
-        "volume_ratio": 0.5173436982723739,
-        "five_day_return": -1.9686539487387966,
+        "price": 14.65,
+        "sma_20": 11.465250000000001,
+        "sma_50": 10.0197,
+        "rsi_14": 52.63078344973436,
+        "macd": 2.4214550048375827,
+        "macd_signal": 1.103256964199625,
+        "bb_upper": 23.827926682256148,
+        "bb_lower": -0.8974266822561461,
+        "bb_mid": 11.465250000000001,
+        "volume": 2597.0,
+        "vol_avg_20": 6104.3,
+        "volume_ratio": 12.785085923037858,
+        "five_day_return": 45.626242544731596,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 9,
       "news_headlines": [
-        "Live On CNBC, Kevin Simpson Announces Bought More Norfolk Southern; Bought More FedEx",
-        "Congresswoman Discloses Hundreds Of Thousands In Stock Trades, Here's What She Bought",
-        "Viettel Post And FedEx Launch Strategic Partnership In Vietnam To Handle Nearly 2M Shipments And 26,000 Tons Annually Across 220-Plus Countries"
+        "Rambus Posts Downbeat Q1 Earnings, Joins Erasca, Spotify, Amkor Technology And Other Big Stocks Moving Lower In Tuesday's Pre-Market Session",
+        "12 Industrials Stocks Moving In Tuesday's Pre-Market Session",
+        "Why Bed Bath & Beyond Shares Are Trading Higher By Around 23%; Here Are 20 Stocks Moving Premarket"
       ],
       "confidence": {
-        "technical_score": 25,
+        "technical_score": 30,
         "news_score": 9,
-        "perplexity_score": 0,
-        "total": 34,
-        "action": "SELL"
+        "perplexity_score": 8,
+        "total": 47,
+        "action": "HOLD"
       },
-      "source": "screener"
-    },
-    "FGI": {
-      "technicals": {
-        "price": 6.7,
-        "sma_20": 5.845750000000001,
-        "sma_50": 5.0985000000000005,
-        "rsi_14": 52.76316524716069,
-        "macd": 0.9997631231831479,
-        "macd_signal": 0.7003742393501071,
-        "bb_upper": 10.119505111140555,
-        "bb_lower": 1.5719948888594466,
-        "bb_mid": 5.845750000000001,
-        "volume": 3059.0,
-        "vol_avg_20": 2744.75,
-        "volume_ratio": 1.189179342380909,
-        "five_day_return": -30.17196456487754,
-        "above_sma20": true,
-        "above_sma50": true
-      },
-      "news_score": 5,
-      "news_headlines": [
-        "12 Industrials Stocks Moving In Friday's Intraday Session",
-        "12 Industrials Stocks Moving In Wednesday's Intraday Session",
-        "12 Industrials Stocks Moving In Monday's Intraday Session"
-      ],
-      "confidence": {
-        "technical_score": 25,
-        "news_score": 5,
-        "perplexity_score": 0,
-        "total": 30,
-        "action": "SELL"
-      },
-      "source": "screener"
-    },
-    "GME": {
-      "technicals": {
-        "price": 25.52,
-        "sma_20": 23.976,
-        "sma_50": 23.773400000000002,
-        "rsi_14": 61.491433563350824,
-        "macd": 0.49915952708560596,
-        "macd_signal": 0.31692221734173265,
-        "bb_upper": 26.008994343327092,
-        "bb_lower": 21.943005656672906,
-        "bb_mid": 23.976,
-        "volume": 103489.0,
-        "vol_avg_20": 266801.0,
-        "volume_ratio": 0.6009310309931372,
-        "five_day_return": 2.4077046548956593,
-        "above_sma20": true,
-        "above_sma50": true
-      },
-      "news_score": 5,
-      "news_headlines": [
-        "10 Consumer Discretionary Stocks With Whale Alerts In Today's Session",
-        "What's Going On With GameStop Stock Thursday?",
-        "GameStop Stock Jumps 4% Wednesday: What's Driving The Move?"
-      ],
-      "confidence": {
-        "technical_score": 25,
-        "news_score": 5,
-        "perplexity_score": 0,
-        "total": 30,
-        "action": "SELL"
-      },
-      "source": "screener"
-    },
-    "HTCO": {
-      "technicals": {
-        "price": 26.775,
-        "sma_20": 10.645999999999999,
-        "sma_50": 9.6906,
-        "rsi_14": 84.90514404090192,
-        "macd": 1.7241721547068138,
-        "macd_signal": 0.5998898864682551,
-        "bb_upper": 18.30924383012833,
-        "bb_lower": 2.982756169871669,
-        "bb_mid": 10.645999999999999,
-        "volume": 21201.0,
-        "vol_avg_20": 2307.3,
-        "volume_ratio": 1.1212239414033718,
-        "five_day_return": 166.15308151093436,
-        "above_sma20": true,
-        "above_sma50": true
-      },
-      "news_score": 5,
-      "news_headlines": [
-        "High-Trend International Group Shares Halted On Circuit Breaker To The Upside, Stock Now Up 150.31%",
-        "High-Trend International Group Shares Resume Trade",
-        "High-Trend International Group Shares Halted On Circuit Breaker To The Upside, Stock Now Up 106.22%"
-      ],
-      "confidence": {
-        "technical_score": 17,
-        "news_score": 5,
-        "perplexity_score": 0,
-        "total": 22,
-        "action": "SELL"
-      },
-      "source": "screener"
+      "source": "screener",
+      "perplexity": {
+        "symbol": "HTCO",
+        "sentiment": "NEUTRAL",
+        "perplexity_score": 8,
+        "key_catalyst": "HTCO stock has experienced extreme short-term price momentum with a 252.91% weekly gain and 439.83% monthly rise, alongside a 41.72% improvement in net losses to -13.30M USD in the last half-year.[3]",
+        "risk": "The company remains deeply unprofitable with losses accelerating 67.1% per year over 5 years, negative ROE of -159.59%, and no clear path to profitability.[2]",
+        "timeframe": "short-term (1-5 day)",
+        "raw_response": "{\n  \"SENTIMENT\": \"NEUTRAL\",\n  \"CATALYST_SCORE\": 8,\n  \"KEY_CATALYST\": \"HTCO stock has experienced extreme short-term price momentum with a 252.91% weekly gain and 439.83% monthly rise, alongside a 41.72% improvement in net losses to -13.30M USD in the last half-year.[3]\",\n  \"RISK\": \"The company remains deeply unprofitable with losses accelerating 67.1% per year over 5 years, negative ROE of -159.59%, and no clear path to profitability.[2]\",\n  \"TIMEFRAME\": \"short-term (1-5 day)\"\n}",
+        "updated_at": "2026-04-28 12:01:33"
+      }
     },
     "INTC": {
       "technicals": {
-        "price": 83.255,
-        "sma_20": 61.557500000000005,
-        "sma_50": 51.768,
-        "rsi_14": 82.78131956839103,
-        "macd": 7.457138904651941,
-        "macd_signal": 5.680307995985013,
-        "bb_upper": 83.20276749661461,
-        "bb_lower": 39.9122325033854,
-        "bb_mid": 61.557500000000005,
-        "volume": 2532877.0,
-        "vol_avg_20": 3679119.6,
-        "volume_ratio": 1.6855845077719136,
-        "five_day_return": 26.681375532562377,
+        "price": 81.765,
+        "sma_20": 63.673,
+        "sma_50": 52.5022,
+        "rsi_14": 76.58675842552258,
+        "macd": 8.018421516856954,
+        "macd_signal": 6.141049101675404,
+        "bb_upper": 85.23634746740404,
+        "bb_lower": 42.10965253259596,
+        "bb_mid": 63.673,
+        "volume": 1771511.0,
+        "vol_avg_20": 3763316.6,
+        "volume_ratio": 1.2893672033865022,
+        "five_day_return": 23.325791855203626,
+        "above_sma20": true,
+        "above_sma50": true
+      },
+      "news_score": 5,
+      "news_headlines": [
+        "Intel Shares Slide After Hitting Highest Level In 26 Years: What's Driving The Move?",
+        "What Is Going On With Micron Stock On Tuesday",
+        "Jim Cramer Says Nvidia Sellers 'Disappeared' As Stock Pops On Monday: What You Should Know"
+      ],
+      "confidence": {
+        "technical_score": 22,
+        "news_score": 5,
+        "perplexity_score": 0,
+        "total": 27,
+        "action": "SELL"
+      },
+      "source": "screener"
+    },
+    "KFRC": {
+      "technicals": {
+        "price": 45.23,
+        "sma_20": 31.352749999999997,
+        "sma_50": 28.8114,
+        "rsi_14": 82.34259680350375,
+        "macd": 2.0602998612292502,
+        "macd_signal": 1.0633791707641025,
+        "bb_upper": 38.31131772259926,
+        "bb_lower": 24.39418227740073,
+        "bb_mid": 31.352749999999997,
+        "volume": 10376.0,
+        "vol_avg_20": 11098.65,
+        "volume_ratio": 2.2422546886333024,
+        "five_day_return": 36.687821093986074,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 13,
       "news_headlines": [
-        "Barclays Maintains Equal-Weight on Intel, Raises Price Target to $65",
-        "Stock Of The Day: Is The Intel Rally Over?",
-        "'Intel Kicks Off Bond Sale to Help Buy Back Ireland Plant Stake' - Bloomberg"
+        "CommVault, Kforce, AxoGen And Other Big Stocks Moving Higher On Tuesday",
+        "Amazon To Rally More Than 24%? Here Are 10 Top Analyst Forecasts For Tuesday",
+        "Baird Maintains Outperform on Kforce, Raises Price Target to $42"
       ],
       "confidence": {
         "technical_score": 22,
@@ -631,130 +585,64 @@
       },
       "source": "screener",
       "perplexity": {
-        "symbol": "INTC",
+        "symbol": "KFRC",
         "sentiment": "POSITIVE",
         "perplexity_score": 18,
-        "key_catalyst": "Intel beat Q1 2026 earnings expectations significantly with non-GAAP EPS of $0.29 versus consensus of $0.01 and revenue of $13.6B (up 7% YoY), driving 2.31% after-hours stock appreciation.",
-        "risk": "Intel reported a GAAP loss per share of $(0.73) in Q1 2026 and has a trailing net income of -$18.76 billion, indicating substantial profitability challenges despite non-GAAP beat.",
-        "timeframe": "short-term (1-5 day)",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"Intel beat Q1 2026 earnings expectations significantly with non-GAAP EPS of $0.29 versus consensus of $0.01 and revenue of $13.6B (up 7% YoY), driving 2.31% after-hours stock appreciation.\",\n  \"RISK\": \"Intel reported a GAAP loss per share of $(0.73) in Q1 2026 and has a trailing net income of -$18.76 billion, indicating substantial profitability challenges despite non-GAAP beat.\",\n  \"TIMEFRAME\": \"short-term (1-5 day)",
-        "updated_at": "2026-04-27 11:27:15"
+        "key_catalyst": "Kforce beat Q1 2026 earnings expectations with $0.46 EPS versus $0.40 consensus on April 27, 2026, and issued Q2 2026 guidance of $0.67\u2013$0.75 EPS with revenue of $344.0M\u2013$352.0M.",
+        "risk": "Q4 2025 earnings significantly missed analyst estimates ($0.30 actual vs. $0.47 expected), indicating execution volatility and potential guidance credibility concerns.",
+        "timeframe": "medium-term (5-20 day)",
+        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"Kforce beat Q1 2026 earnings expectations with $0.46 EPS versus $0.40 consensus on April 27, 2026, and issued Q2 2026 guidance of $0.67\u2013$0.75 EPS with revenue of $344.0M\u2013$352.0M.\",\n  \"RISK\": \"Q4 2025 earnings significantly missed analyst estimates ($0.30 actual vs. $0.47 expected), indicating execution volatility and potential guidance credibility concerns.\",\n  \"TIMEFRAME\": \"medium-term (5-20 day)\"\n}\n```\n\n**Analysis ",
+        "updated_at": "2026-04-28 12:01:52"
       }
     },
-    "KKR": {
+    "MUFG": {
       "technicals": {
-        "price": 101.42,
-        "sma_20": 97.634,
-        "sma_50": 94.4917,
-        "rsi_14": 57.70870336938559,
-        "macd": 2.7664732713302413,
-        "macd_signal": 2.271233369657322,
-        "bb_upper": 108.88353092355419,
-        "bb_lower": 86.38446907644581,
-        "bb_mid": 97.634,
-        "volume": 55070.0,
-        "vol_avg_20": 330529.1,
-        "volume_ratio": 0.45851030968226403,
-        "five_day_return": -2.4620119253702666,
-        "above_sma20": true,
-        "above_sma50": true
+        "price": 17.515,
+        "sma_20": 17.8235,
+        "sma_50": 17.6572,
+        "rsi_14": 47.707962199593545,
+        "macd": -0.00041478305313802366,
+        "macd_signal": 0.07801598203163196,
+        "bb_upper": 18.75250538211572,
+        "bb_lower": 16.894494617884277,
+        "bb_mid": 17.8235,
+        "volume": 143846.0,
+        "vol_avg_20": 170587.1,
+        "volume_ratio": 1.0123098405448008,
+        "five_day_return": -0.028538812785383616,
+        "above_sma20": false,
+        "above_sma50": false
       },
       "news_score": 9,
       "news_headlines": [
-        "KKR, Capital Group Launch Asia Hybrid Credit Fund During Private Credit Turbulence",
-        "Your Credit Score Is Setting Your Car Insurance Rate \u2014 Lawmakers Want to Stop That",
-        "Thoma Bravo Faces $5 Billion Wipeout As Medallia Heads To Lenders"
+        "Why Are Mitsubishi UFJ Financial Group Shares Sliding On Thursday?",
+        "Applied Digital, Simply Good Foods And Other Big Stocks Moving Lower In Thursday's Pre-Market Session",
+        "'Banks Selling $3 Billion Debt for Meta's Prometheus Data Center' - Bloomberg News"
       ],
       "confidence": {
-        "technical_score": 25,
+        "technical_score": 13,
         "news_score": 9,
         "perplexity_score": 0,
-        "total": 34,
-        "action": "SELL"
-      },
-      "source": "screener"
-    },
-    "MANE": {
-      "technicals": {
-        "price": 94.62,
-        "sma_20": 68.92025,
-        "sma_50": 58.87650000000001,
-        "rsi_14": 73.12012085821952,
-        "macd": 5.643476896825362,
-        "macd_signal": 4.910610784318418,
-        "bb_upper": 86.58050268080838,
-        "bb_lower": 51.25999731919161,
-        "bb_mid": 68.92025,
-        "volume": 91779.0,
-        "vol_avg_20": 21752.65,
-        "volume_ratio": 1.193371842051428,
-        "five_day_return": 28.455063806679348,
-        "above_sma20": true,
-        "above_sma50": true
-      },
-      "news_score": 9,
-      "news_headlines": [
-        "Newly Listed Veradermics Hair Loss Drug Shows Hair Growth Gains",
-        "XOMA Royalty, Oruka Therapeutics, Repay Holdings And Other Big Stocks Moving Higher On Monday",
-        "Veradermics Reports Phase 2/3 Data For VDPHL01; Shows Significant Hair Growth Gains (30-33 hairs/cm\u00b2) And Strong Efficacy Vs Placebo In Pattern Hair Loss Treatment"
-      ],
-      "confidence": {
-        "technical_score": 17,
-        "news_score": 9,
-        "perplexity_score": 0,
-        "total": 26,
-        "action": "SELL"
-      },
-      "source": "screener"
-    },
-    "MELI": {
-      "technicals": {
-        "price": 1862.84,
-        "sma_20": 1794.4737499999999,
-        "sma_50": 1779.2663,
-        "rsi_14": 58.25432213563048,
-        "macd": 26.45764095150139,
-        "macd_signal": 18.332746156881573,
-        "bb_upper": 1930.2869608402927,
-        "bb_lower": 1658.660539159707,
-        "bb_mid": 1794.4737499999999,
-        "volume": 7339.0,
-        "vol_avg_20": 22063.05,
-        "volume_ratio": 0.7709269570616937,
-        "five_day_return": -0.38714921286789883,
-        "above_sma20": true,
-        "above_sma50": true
-      },
-      "news_score": 5,
-      "news_headlines": [
-        "10 Consumer Discretionary Stocks Whale Activity In Today's Session",
-        "Cantor Fitzgerald Maintains Overweight on MercadoLibre, Lowers Price Target to $2350",
-        "Barclays Maintains Overweight on MercadoLibre, Lowers Price Target to $2500"
-      ],
-      "confidence": {
-        "technical_score": 25,
-        "news_score": 5,
-        "perplexity_score": 0,
-        "total": 30,
+        "total": 22,
         "action": "SELL"
       },
       "source": "screener"
     },
     "NEE": {
       "technicals": {
-        "price": 95.2,
-        "sma_20": 92.9125,
-        "sma_50": 92.48010000000001,
-        "rsi_14": 59.88829529334852,
-        "macd": 0.5307786122602636,
-        "macd_signal": 0.23871599239938762,
-        "bb_upper": 96.11494984347917,
-        "bb_lower": 89.71005015652082,
-        "bb_mid": 92.9125,
-        "volume": 136573.0,
-        "vol_avg_20": 406015.25,
-        "volume_ratio": 1.164668075891238,
-        "five_day_return": 3.4782608695652195,
+        "price": 96.51,
+        "sma_20": 93.118,
+        "sma_50": 92.5271,
+        "rsi_14": 63.129191184454754,
+        "macd": 0.7464151375688743,
+        "macd_signal": 0.35523786620230835,
+        "bb_upper": 96.61202833417245,
+        "bb_lower": 89.62397166582754,
+        "bb_mid": 93.118,
+        "volume": 183273.0,
+        "vol_avg_20": 412199.0,
+        "volume_ratio": 0.9071637728378769,
+        "five_day_return": 6.529057895027335,
         "above_sma20": true,
         "above_sma50": true
       },
@@ -776,231 +664,178 @@
         "symbol": "NEE",
         "sentiment": "STRONG_POSITIVE",
         "perplexity_score": 25,
-        "key_catalyst": "NextEra Energy reported Q1 2026 EPS of $1.09 on April 23, 2026, beating analyst estimates of $0.98 by 11.22% and showing 10% year-over-year growth in net income to $2.182 billion.[1][2]",
-        "risk": "Revenue missed estimates at $6.70 billion versus $7.43 billion expected, potentially raising concerns about top-line growth in a high-valuation utility sector with P/E of 27.23.[3][7]",
-        "timeframe": "short-term",
-        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 25,\n  \"KEY_CATALYST\": \"NextEra Energy reported Q1 2026 EPS of $1.09 on April 23, 2026, beating analyst estimates of $0.98 by 11.22% and showing 10% year-over-year growth in net income to $2.182 billion.[1][2]\",\n  \"RISK\": \"Revenue missed estimates at $6.70 billion versus $7.43 billion expected, potentially raising concerns about top-line growth in a high-valuation utility sector with P/E of 27.23.[3][7]\",\n  \"TIMEFRAME\": \"short-term\"\n}",
-        "updated_at": "2026-04-27 11:27:08"
+        "key_catalyst": "NextEra Energy reported Q1 2026 EPS of $1.09 on April 23, 2026, beating consensus estimates of $1.03 by $0.06 and showing 10% year-over-year growth in adjusted EPS.[1][2]",
+        "risk": "Revenue missed estimates by 8.09% in the Q1 2026 report, potentially pressuring margins amid sector scrutiny.[7]",
+        "timeframe": "medium-term (5-20 day)",
+        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 25,\n  \"KEY_CATALYST\": \"NextEra Energy reported Q1 2026 EPS of $1.09 on April 23, 2026, beating consensus estimates of $1.03 by $0.06 and showing 10% year-over-year growth in adjusted EPS.[1][2]\",\n  \"RISK\": \"Revenue missed estimates by 8.09% in the Q1 2026 report, potentially pressuring margins amid sector scrutiny.[7]\",\n  \"TIMEFRAME\": \"medium-term (5-20 day)\"\n}",
+        "updated_at": "2026-04-28 12:01:45"
       }
     },
     "NOK": {
       "technicals": {
-        "price": 10.935,
-        "sma_20": 9.655,
-        "sma_50": 8.6202,
-        "rsi_14": 70.1613431919674,
-        "macd": 0.617802801031841,
-        "macd_signal": 0.5805737357913954,
-        "bb_upper": 11.420230863088449,
-        "bb_lower": 7.88976913691155,
-        "bb_mid": 9.655,
-        "volume": 3990301.0,
-        "vol_avg_20": 5614026.1,
-        "volume_ratio": 1.543431905313016,
-        "five_day_return": 3.111739745403108,
+        "price": 10.995,
+        "sma_20": 9.7985,
+        "sma_50": 8.696,
+        "rsi_14": 70.72911691294195,
+        "macd": 0.6260584684688357,
+        "macd_signal": 0.5845858885320752,
+        "bb_upper": 11.453538066027473,
+        "bb_lower": 8.143461933972528,
+        "bb_mid": 9.7985,
+        "volume": 4256051.0,
+        "vol_avg_20": 5844024.85,
+        "volume_ratio": 1.1874307823999073,
+        "five_day_return": 5.772005772005762,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 13,
       "news_headlines": [
+        "What's Going On With Nokia Stock Tuesday?",
         "XOMA Royalty, Oruka Therapeutics, Repay Holdings And Other Big Stocks Moving Higher On Monday",
-        "This CrowdStrike Analyst Turns Bullish; Here Are Top 5 Upgrades For Monday",
-        "Argus Research Upgrades Nokia to Buy, Announces $15 Price Target"
+        "This CrowdStrike Analyst Turns Bullish; Here Are Top 5 Upgrades For Monday"
       ],
       "confidence": {
-        "technical_score": 22,
+        "technical_score": 17,
         "news_score": 13,
-        "perplexity_score": 12,
-        "total": 47,
-        "action": "HOLD"
-      },
-      "source": "screener",
-      "perplexity": {
-        "symbol": "NOK",
-        "sentiment": "NEUTRAL",
-        "perplexity_score": 12,
-        "key_catalyst": "Nokia reported Q1 2026 earnings on April 24 with EPS of $0.06 hitting consensus estimates, while revenue of $5.27 billion and comparable profit metrics exceeded expectations, driven by fiber optic demand from AI growth.[1]",
-        "risk": "Post-earnings stock reactions show historical volatility, with an average 7.77% gain 4 days after release but potential for tempered upside due to EPS neutrality.[4]",
-        "timeframe": "short-term",
-        "raw_response": "{\n  \"SENTIMENT\": \"NEUTRAL\",\n  \"CATALYST_SCORE\": 12,\n  \"KEY_CATALYST\": \"Nokia reported Q1 2026 earnings on April 24 with EPS of $0.06 hitting consensus estimates, while revenue of $5.27 billion and comparable profit metrics exceeded expectations, driven by fiber optic demand from AI growth.[1]\",\n  \"RISK\": \"Post-earnings stock reactions show historical volatility, with an average 7.77% gain 4 days after release but potential for tempered upside due to EPS neutrality.[4]\",\n  \"TIMEFRAME\": \"short-ter",
-        "updated_at": "2026-04-27 11:27:17"
-      }
-    },
-    "NOW": {
-      "technicals": {
-        "price": 92.52,
-        "sma_20": 96.17125,
-        "sma_50": 104.666,
-        "rsi_14": 44.100176146315874,
-        "macd": -3.59130939207202,
-        "macd_signal": -3.7317623876690376,
-        "bb_upper": 109.53734923463108,
-        "bb_lower": 82.80515076536892,
-        "bb_mid": 96.17125,
-        "volume": 472037.0,
-        "vol_avg_20": 1043147.0,
-        "volume_ratio": 1.1855874579517556,
-        "five_day_return": -7.220216606498198,
-        "above_sma20": false,
-        "above_sma50": false
-      },
-      "news_score": 9,
-      "news_headlines": [
-        "Consumer Tech News (Apr 20-24): U.S. Warns China Over AI Theft, Big Tech Faces Political Scrutiny Over AI & More",
-        "ServiceNow CEO Says AI Fear Is Missing Real Story: Customers Are Spending More",
-        "Benzinga Bulls And Bears: UnitedHealth, Capital One, Lululemon \u2014 And Markets Extend Rally"
-      ],
-      "confidence": {
-        "technical_score": 20,
-        "news_score": 9,
         "perplexity_score": 0,
-        "total": 29,
+        "total": 30,
         "action": "SELL"
       },
       "source": "screener"
     },
-    "OGN": {
+    "OKLO": {
       "technicals": {
-        "price": 13.18,
-        "sma_20": 8.19375,
-        "sma_50": 7.350499999999999,
-        "rsi_14": 79.52025816933283,
-        "macd": 1.1279213106918284,
-        "macd_signal": 0.695215228860177,
-        "bb_upper": 12.126749968217645,
-        "bb_lower": 4.260750031782354,
-        "bb_mid": 8.19375,
-        "volume": 2231602.0,
-        "vol_avg_20": 419438.45,
-        "volume_ratio": 3.5583409198655964,
-        "five_day_return": 42.48648648648648,
+        "price": 70.33,
+        "sma_20": 59.6395,
+        "sma_50": 60.0751,
+        "rsi_14": 58.27715432735471,
+        "macd": 4.469944474652891,
+        "macd_signal": 2.48075633826029,
+        "bb_upper": 80.2729315856573,
+        "bb_lower": 39.00606841434269,
+        "bb_mid": 59.6395,
+        "volume": 119197.0,
+        "vol_avg_20": 262972.0,
+        "volume_ratio": 1.1790951127876732,
+        "five_day_return": 12.402109637206316,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 5,
       "news_headlines": [
-        "XOMA Royalty, Oruka Therapeutics, Repay Holdings And Other Big Stocks Moving Higher On Monday",
-        "Stock Market Today: Dow Futures Fall, S&P 500 Gains As Trump Halts Iran Talks\u2014 Organon, SAP, Cheetah Net Supply Chain Service In Focus (UPDATED)",
-        "12 Health Care Stocks Moving In Monday's Pre-Market Session"
+        "Cathie Wood Bets Big On New IPO: Buys Shares Of Amazon-Backed X-Energy To Expand Nuclear Investments",
+        "Meta Teams Up With Overview Energy To Harness 'First-of-Its-Kind' Space Solar Power For Its Data Centers",
+        "Tigress Financial Initiates Coverage On Oklo with Buy Rating, Announces Price Target of $130"
       ],
       "confidence": {
-        "technical_score": 22,
+        "technical_score": 25,
         "news_score": 5,
         "perplexity_score": 0,
-        "total": 27,
+        "total": 30,
         "action": "SELL"
       },
       "source": "screener"
     },
     "POET": {
       "technicals": {
-        "price": 8.29,
-        "sma_20": 7.824250000000001,
-        "sma_50": 6.8822,
-        "rsi_14": 50.43861336356511,
-        "macd": 1.3677312488176607,
-        "macd_signal": 0.8904556097474031,
-        "bb_upper": 13.002220910501535,
-        "bb_lower": 2.646279089498468,
-        "bb_mid": 7.824250000000001,
-        "volume": 2072220.0,
-        "vol_avg_20": 712221.4,
-        "volume_ratio": 4.684445033524687,
-        "five_day_return": -3.6046511627907063,
-        "above_sma20": true,
+        "price": 7.72,
+        "sma_20": 7.9395,
+        "sma_50": 6.9178999999999995,
+        "rsi_14": 48.83993757189815,
+        "macd": 1.0969977805261113,
+        "macd_signal": 0.9266298868880265,
+        "bb_upper": 12.959736946599241,
+        "bb_lower": 2.9192630534007584,
+        "bb_mid": 7.9395,
+        "volume": 1363714.0,
+        "vol_avg_20": 866705.4,
+        "volume_ratio": 3.8408506512132035,
+        "five_day_return": -24.682926829268293,
+        "above_sma20": false,
         "above_sma50": true
       },
       "news_score": 5,
       "news_headlines": [
-        "POET Technologies Shares Plunge On Marvell Order Cancellation: What Investors Need To Know",
-        "US Stocks Mixed; Nasdaq Falls Over 100 Points",
-        "POET Technologies Announces Cancelation Of All Purchase Orders Made By Celestial AI"
+        "Why POET Technologies Shares Are Crashing This Week",
+        "LightPath Stock Is Plunging Today: What's Going On?",
+        "12 Information Technology Stocks Moving In Monday's Intraday Session"
       ],
       "confidence": {
-        "technical_score": 30,
+        "technical_score": 25,
         "news_score": 5,
-        "perplexity_score": 8,
-        "total": 43,
-        "action": "HOLD"
-      },
-      "source": "screener",
-      "perplexity": {
-        "symbol": "POET",
-        "sentiment": "NEGATIVE",
-        "perplexity_score": 8,
-        "key_catalyst": "Q4 2025 earnings missed consensus EPS estimate by $0.03 on March 31, 2026, with revenue significantly underperforming at $298.4K versus $700.2K estimate.",
-        "risk": "Persistent negative earnings and severe revenue shortfalls indicate fundamental operational challenges that may continue to pressure stock performance.",
-        "timeframe": "medium-term",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"NEGATIVE\",\n  \"CATALYST_SCORE\": 8,\n  \"KEY_CATALYST\": \"Q4 2025 earnings missed consensus EPS estimate by $0.03 on March 31, 2026, with revenue significantly underperforming at $298.4K versus $700.2K estimate.\",\n  \"RISK\": \"Persistent negative earnings and severe revenue shortfalls indicate fundamental operational challenges that may continue to pressure stock performance.\",\n  \"TIMEFRAME\": \"medium-term\",\n  \"ANALYSIS\": {\n    \"recent_earnings\": \"POET Technologies reported Q4 ",
-        "updated_at": "2026-04-27 11:27:23"
-      }
-    },
-    "RMAX": {
-      "technicals": {
-        "price": 9.77,
-        "sma_20": 6.31625,
-        "sma_50": 6.2725,
-        "rsi_14": 87.02804562074822,
-        "macd": 0.4782361937033617,
-        "macd_signal": 0.12649609187029281,
-        "bb_upper": 8.256118230061002,
-        "bb_lower": 4.376381769938997,
-        "bb_mid": 6.31625,
-        "volume": 116261.0,
-        "vol_avg_20": 12291.35,
-        "volume_ratio": 4.08685783091361,
-        "five_day_return": 43.255131964809365,
-        "above_sma20": true,
-        "above_sma50": true
-      },
-      "news_score": 13,
-      "news_headlines": [
-        "Real Brokerage To Acquire RE/MAX In $880 Million Deal",
-        "Domino's Posts Downbeat Q1 Results, Joins Real Brokerage And Other Big Stocks Moving Lower In Monday's Pre-Market Session",
-        "The Real Brokerage To Acquire RE/MAX Holdings For $13.80 Per Share In Cash Or 5.152 Shares Of Real REMAX Group"
-      ],
-      "confidence": {
-        "technical_score": 22,
-        "news_score": 13,
         "perplexity_score": 0,
-        "total": 35,
+        "total": 30,
         "action": "SELL"
       },
       "source": "screener"
     },
-    "SGMT": {
+    "SYK": {
       "technicals": {
-        "price": 8.28,
-        "sma_20": 5.77675,
-        "sma_50": 5.4944,
-        "rsi_14": 74.1058993464166,
-        "macd": 0.40219165793610223,
-        "macd_signal": 0.23197512609346782,
-        "bb_upper": 7.292026459924057,
-        "bb_lower": 4.261473540075943,
-        "bb_mid": 5.77675,
-        "volume": 399139.0,
-        "vol_avg_20": 18390.4,
-        "volume_ratio": 0.49960849138681046,
-        "five_day_return": 28.77138413685847,
-        "above_sma20": true,
-        "above_sma50": true
+        "price": 323.02,
+        "sma_20": 334.64050000000003,
+        "sma_50": 348.89349999999996,
+        "rsi_14": 35.219780411308435,
+        "macd": -4.785107139385673,
+        "macd_signal": -4.194759854474804,
+        "bb_upper": 348.1107998853033,
+        "bb_lower": 321.17020011469674,
+        "bb_mid": 334.64050000000003,
+        "volume": 27294.0,
+        "vol_avg_20": 128610.65,
+        "volume_ratio": 1.14691901487163,
+        "five_day_return": -1.3061611084801306,
+        "above_sma20": false,
+        "above_sma50": false
       },
       "news_score": 5,
       "news_headlines": [
-        "12 Health Care Stocks Moving In Monday's Pre-Market Session",
-        "Sagimet Biosciences Prices Underwritten Offering Of 29,166,700 Shares Of Series A Common Stock At $6/Shr For Gross Proceeds Of ~$175M",
-        "Sagimet Biosciences Plans To Initiate Phase 3 Clinical Trial Of Denifanstat In Moderate To Severe Acne Patients For US In H2 2026"
+        "Stryker Updates Use Instructions For Patient-Fitted TMJ Implants; As Of Dec 4, Stryker Reported One Serious Injury & No Deaths Associated With Patient-Fitted TMJ Implants Issue",
+        "Truist Securities Maintains Hold on Stryker, Lowers Price Target to $380",
+        "BTIG Reiterates Buy on Stryker, Maintains $397 Price Target"
       ],
       "confidence": {
-        "technical_score": 17,
+        "technical_score": 9,
         "news_score": 5,
         "perplexity_score": 0,
-        "total": 22,
+        "total": 14,
+        "action": "SELL"
+      },
+      "source": "screener"
+    },
+    "TTE": {
+      "technicals": {
+        "price": 91.18,
+        "sma_20": 90.1705,
+        "sma_50": 85.5979,
+        "rsi_14": 56.69293866869939,
+        "macd": 0.9720630516308546,
+        "macd_signal": 1.3324243195859384,
+        "bb_upper": 93.7300152759891,
+        "bb_lower": 86.6109847240109,
+        "bb_mid": 90.1705,
+        "volume": 40011.0,
+        "vol_avg_20": 115627.55,
+        "volume_ratio": 0.48760870571070647,
+        "five_day_return": 3.1914893617021267,
+        "above_sma20": true,
+        "above_sma50": true
+      },
+      "news_score": 9,
+      "news_headlines": [
+        "Trump Administration Incentivizes Energy Companies To Swap Wind For 'Affordable, Reliable' Fossil Fuels",
+        "What's Going On With TotalEnergies Stock Friday?",
+        "'Pakistan Buys LNG Supply From Spot Market to Ease Energy Crunch' - Bloomberg"
+      ],
+      "confidence": {
+        "technical_score": 18,
+        "news_score": 9,
+        "perplexity_score": 0,
+        "total": 27,
         "action": "SELL"
       },
       "source": "screener"
     }
   },
-  "perplexity_enhanced_at": "2026-04-27 11:27:23"
+  "perplexity_enhanced_at": "2026-04-28 12:01:52"
 }
