@@ -11,7 +11,7 @@
   "monthly_pnl": 0.0,
   "monthly_pnl_pct": 0.0,
   "num_positions": 0,
-  "updated_at": "2026-04-28 17:20:28",
+  "updated_at": "2026-04-29 11:35:46",
   "daily_history": [
     {
       "date": "2026-04-24",
@@ -27,6 +27,12 @@
     },
     {
       "date": "2026-04-28",
+      "pnl": 0.0,
+      "pnl_pct": 0.0,
+      "equity": 1000000.0
+    },
+    {
+      "date": "2026-04-29",
       "pnl": 0.0,
       "pnl_pct": 0.0,
       "equity": 1000000.0
