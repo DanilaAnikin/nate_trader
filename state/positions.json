@@ -1,34 +1,34 @@
 {
-  "updated_at": "2026-04-30 17:16:44",
+  "updated_at": "2026-05-01 10:42:46",
   "positions": [
     {
       "symbol": "AMZN",
       "qty": 194.0,
       "avg_entry_price": 256.87,
-      "current_price": 264.36,
-      "market_value": 51285.84,
-      "unrealized_pl": 1453.06,
-      "unrealized_plpc": 2.916,
+      "current_price": 270.025,
+      "market_value": 52384.85,
+      "unrealized_pl": 2552.07,
+      "unrealized_plpc": 5.1209999999999996,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "GOOGL",
       "qty": 133.0,
       "avg_entry_price": 374.0,
-      "current_price": 384.92,
-      "market_value": 51194.36,
-      "unrealized_pl": 1452.36,
-      "unrealized_plpc": 2.92,
+      "current_price": 383.04,
+      "market_value": 50944.32,
+      "unrealized_pl": 1202.32,
+      "unrealized_plpc": 2.4170000000000003,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "QCOM",
       "qty": 270.0,
       "avg_entry_price": 182.93,
-      "current_price": 176.98,
-      "market_value": 47784.6,
-      "unrealized_pl": -1606.5,
-      "unrealized_plpc": -3.253,
+      "current_price": 171.68,
+      "market_value": 46353.6,
+      "unrealized_pl": -3037.5,
+      "unrealized_plpc": -6.15,
       "side": "PositionSide.LONG"
     }
   ]
