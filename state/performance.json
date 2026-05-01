@@ -1,17 +1,17 @@
 {
   "risk_tier": "NORMAL",
   "risk_tier_updated": null,
-  "equity": 1001811.5,
+  "equity": 1001958.43,
   "cash": 851034.12,
-  "cash_pct": 84.94952593377097,
-  "daily_pnl": -309.2600000000093,
-  "daily_pnl_pct": -0.030860552175369493,
-  "weekly_pnl": 1811.5,
-  "weekly_pnl_pct": 0.18115,
-  "monthly_pnl": 1811.5,
-  "monthly_pnl_pct": 0.18115,
+  "cash_pct": 84.93706869655261,
+  "daily_pnl": -162.3299999999581,
+  "daily_pnl_pct": -0.016198646558320783,
+  "weekly_pnl": 1958.4300000000512,
+  "weekly_pnl_pct": 0.19584300000000512,
+  "monthly_pnl": 1958.4300000000512,
+  "monthly_pnl_pct": 0.19584300000000512,
   "num_positions": 3,
-  "updated_at": "2026-05-01 17:09:19",
+  "updated_at": "2026-05-01 18:54:35",
   "daily_history": [
     {
       "date": "2026-04-24",
@@ -45,9 +45,9 @@
     },
     {
       "date": "2026-05-01",
-      "pnl": -309.2600000000093,
-      "pnl_pct": -0.030860552175369493,
-      "equity": 1001811.5
+      "pnl": -162.3299999999581,
+      "pnl_pct": -0.016198646558320783,
+      "equity": 1001958.43
     }
   ]
 }
