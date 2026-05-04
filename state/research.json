@@ -1,142 +1,122 @@
 {
-  "updated_at": "2026-05-01 13:51:38",
+  "updated_at": "2026-05-04 11:33:20",
   "spy": {
     "symbol": "SPY",
-    "price": 722.9,
-    "sma_20": 698.5530000000001,
-    "sma_50": 680.2345,
-    "rsi_14": 72.39956715150905,
-    "five_day_return": 1.2507528327520667,
-    "monthly_return": 10.3360908452639,
+    "price": 717.62,
+    "sma_20": 701.36925,
+    "sma_50": 680.7499,
+    "rsi_14": 68.05655256518266,
+    "five_day_return": 0.3432774254892301,
+    "monthly_return": 9.433329266804936,
     "market_regime": "BULL",
-    "updated_at": "2026-05-01 13:51:39"
+    "updated_at": "2026-05-04 11:33:20"
   },
   "symbols": {
     "QQQ": {
       "technicals": {
-        "price": 675.23,
-        "sma_20": 638.22225,
-        "sma_50": 612.6703000000001,
-        "rsi_14": 75.61973921828647,
-        "macd": 18.57295489061596,
-        "macd_signal": 15.886005009865366,
-        "bb_upper": 689.5862552444322,
-        "bb_lower": 586.8582447555679,
-        "bb_mid": 638.22225,
-        "volume": 441603.0,
-        "vol_avg_20": 744861.35,
-        "volume_ratio": 1.1705963801182597,
-        "five_day_return": 1.7035184962043814,
+        "price": 671.6,
+        "sma_20": 642.3257500000001,
+        "sma_50": 613.9023000000001,
+        "rsi_14": 72.90053603730169,
+        "macd": 18.39075214787522,
+        "macd_signal": 16.217329521762675,
+        "bb_upper": 690.0834465812842,
+        "bb_lower": 594.568053418716,
+        "bb_mid": 642.3257500000001,
+        "volume": 139722.0,
+        "vol_avg_20": 748964.45,
+        "volume_ratio": 0.9781051690771171,
+        "five_day_return": 1.1019449629674272,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 13,
+      "news_score": 5,
       "news_headlines": [
-        "S&P 500 ETFs Are Still King\u2014But Flow Data Shows A Barbell Shift Under The Surface",
-        "Blowout Earnings From SanDisk And Western Digital But Stock Reaction Is A Tell; 'Most Popular Ever' iPhone",
-        "Stock Market Today: Apple Earnings Power S&P 500, Nasdaq To Records; Trump Hits EU"
+        "Stock Market Today: Dow, S&P 500 Futures Trip Amid Trump's 'Project Freedom' To Escort Stranded Vessels At Hormuz\u2014 eBay, Nebius In Focus (UPDATED)",
+        "Federal Reserve's New Inflation Data is 'Useless,' Says Otavio Costa: Inside Fed's Pivot To Excuse Lower Rates",
+        "EXCLUSIVE: Top 12 Most-Searched Tickers In April On Benzinga Pro \u2013 Where Do Tesla, Nvidia And Intel Stock Rank?"
       ],
       "confidence": {
         "technical_score": 17,
-        "news_score": 13,
-        "perplexity_score": 12,
-        "total": 42,
-        "action": "HOLD"
+        "news_score": 5,
+        "perplexity_score": 0,
+        "total": 22,
+        "action": "SELL"
       },
       "info": {
         "sector": "Technology",
         "max_allocation_pct": 5,
         "tradeable": true,
         "notes": "Nasdaq 100 ETF \u2014 broad tech exposure"
-      },
-      "perplexity": {
-        "symbol": "QQQ",
-        "sentiment": "NEUTRAL",
-        "perplexity_score": 12,
-        "key_catalyst": "QQQ's aggregate portfolio rating of Moderate Buy from 922 analyst ratings provides baseline support, but search results lack recent earnings surprises, product launches, or analyst upgrades from the past 2 weeks.",
-        "risk": "The most recent concrete data is from August 2025 and Q4 2025, creating significant information gaps; QQQ underperformed the S&P 500 in Q4 2025 (2.42% vs 2.65%), suggesting potential sector headwinds in large-cap tech.",
-        "timeframe": "medium-term (5-20 day)",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"NEUTRAL\",\n  \"CATALYST_SCORE\": 12,\n  \"KEY_CATALYST\": \"QQQ's aggregate portfolio rating of Moderate Buy from 922 analyst ratings provides baseline support, but search results lack recent earnings surprises, product launches, or analyst upgrades from the past 2 weeks.\",\n  \"RISK\": \"The most recent concrete data is from August 2025 and Q4 2025, creating significant information gaps; QQQ underperformed the S&P 500 in Q4 2025 (2.42% vs 2.65%), suggesting potential sector headw",
-        "updated_at": "2026-05-01 10:41:02"
       }
     },
     "NVDA": {
       "technicals": {
-        "price": 199.9,
-        "sma_20": 197.2765,
-        "sma_50": 187.17230000000004,
-        "rsi_14": 54.64221993070278,
-        "macd": 6.491840145574457,
-        "macd_signal": 6.5658015479312635,
-        "bb_upper": 218.67283078357147,
-        "bb_lower": 175.88016921642853,
-        "bb_mid": 197.2765,
-        "volume": 2322941.0,
-        "vol_avg_20": 4242814.55,
-        "volume_ratio": 1.5123760240710968,
-        "five_day_return": -3.9773273129023012,
-        "above_sma20": true,
+        "price": 195.36,
+        "sma_20": 198.0895,
+        "sma_50": 187.2541,
+        "rsi_14": 49.86711847919215,
+        "macd": 5.23370163374301,
+        "macd_signal": 6.11432666095038,
+        "bb_upper": 217.51251364361386,
+        "bb_lower": 178.66648635638612,
+        "bb_mid": 198.0895,
+        "volume": 1901006.0,
+        "vol_avg_20": 4207543.05,
+        "volume_ratio": 0.7344835128900227,
+        "five_day_return": -9.78110279855915,
+        "above_sma20": false,
         "above_sma50": true
       },
-      "news_score": 9,
+      "news_score": 5,
       "news_headlines": [
-        "10 Information Technology Stocks Whale Activity In Today's Session",
-        "Blowout Earnings From SanDisk And Western Digital But Stock Reaction Is A Tell; 'Most Popular Ever' iPhone",
-        "Stock Market Today: Apple Earnings Power S&P 500, Nasdaq To Records; Trump Hits EU"
+        "Palantir Earnings Prediction Market Preview: What Will Alex Karp Say?",
+        "Everyone Is Chasing Nvidia Stock \u2014 BlackRock Is Watching Paint",
+        "Earnings Volatility Watch: 7 AI-Linked Stocks Are Set For Double-Digit Moves This Week"
       ],
       "confidence": {
-        "technical_score": 23,
-        "news_score": 9,
-        "perplexity_score": 22,
-        "total": 54,
-        "action": "HOLD"
+        "technical_score": 13,
+        "news_score": 5,
+        "perplexity_score": 0,
+        "total": 18,
+        "action": "SELL"
       },
       "info": {
         "sector": "Technology",
         "max_allocation_pct": 5,
         "tradeable": true,
         "notes": "AI/GPU leader \u2014 high momentum"
-      },
-      "perplexity": {
-        "symbol": "NVDA",
-        "sentiment": "POSITIVE",
-        "perplexity_score": 22,
-        "key_catalyst": "NVIDIA's Q4 FY2026 earnings reported on February 25, 2026, delivered record revenue of $68.1 billion (up 20% QoQ and 73% YoY) and EPS of $1.62, beating consensus estimates of $1.54 by $0.08[1][2][3][4].",
-        "risk": "Lack of recent product launches, partnerships, or analyst updates in the last two weeks, combined with high forward P/E ratio of 67.24, exposes NVDA to valuation compression amid potential sector slowdowns[3].",
-        "timeframe": "medium-term",
-        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 22,\n  \"KEY_CATALYST\": \"NVIDIA's Q4 FY2026 earnings reported on February 25, 2026, delivered record revenue of $68.1 billion (up 20% QoQ and 73% YoY) and EPS of $1.62, beating consensus estimates of $1.54 by $0.08[1][2][3][4].\",\n  \"RISK\": \"Lack of recent product launches, partnerships, or analyst updates in the last two weeks, combined with high forward P/E ratio of 67.24, exposes NVDA to valuation compression amid potential sector slowdowns[3].\",\n",
-        "updated_at": "2026-04-30 11:30:31"
       }
     },
     "AAPL": {
       "technicals": {
-        "price": 282.025,
-        "sma_20": 266.42925,
-        "sma_50": 261.2435,
-        "rsi_14": 67.67466737689297,
-        "macd": 4.370663097914587,
-        "macd_signal": 3.285401776415906,
-        "bb_upper": 280.17658511448684,
-        "bb_lower": 252.68191488551318,
-        "bb_mid": 266.42925,
-        "volume": 2128915.0,
-        "vol_avg_20": 1136343.55,
-        "volume_ratio": 1.6790423987534402,
-        "five_day_return": 4.052907319952759,
+        "price": 276.5,
+        "sma_20": 267.21500000000003,
+        "sma_50": 261.4408,
+        "rsi_14": 61.24961095709186,
+        "macd": 4.381918510595028,
+        "macd_signal": 3.4531720417109533,
+        "bb_upper": 280.78563963120394,
+        "bb_lower": 253.6443603687961,
+        "bb_mid": 267.21500000000003,
+        "volume": 706214.0,
+        "vol_avg_20": 1240137.85,
+        "volume_ratio": 2.3525408889019874,
+        "five_day_return": 3.3451691272659234,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 17,
+      "news_score": 9,
       "news_headlines": [
-        "10 Information Technology Stocks Whale Activity In Today's Session",
-        "Blowout Earnings From SanDisk And Western Digital But Stock Reaction Is A Tell; 'Most Popular Ever' iPhone",
-        "Stock Market Today: Apple Earnings Power S&P 500, Nasdaq To Records; Trump Hits EU"
+        "Rep. Lizzie Fletcher Has Sold Up to $165K Worth Of Alphabet Stock: Here's What You Should Know",
+        "Exploring The Competitive Space: Apple Versus Industry Peers In Technology Hardware, Storage &amp; Peripherals",
+        "5 Stocks In The Spotlight Last Week:  Wall Street's Most Accurate Analysts Weigh In"
       ],
       "confidence": {
-        "technical_score": 26,
-        "news_score": 17,
-        "perplexity_score": 22,
-        "total": 65,
+        "technical_score": 30,
+        "news_score": 9,
+        "perplexity_score": 28,
+        "total": 67,
         "action": "BUY"
       },
       "info": {
@@ -147,44 +127,44 @@
       },
       "perplexity": {
         "symbol": "AAPL",
-        "sentiment": "POSITIVE",
-        "perplexity_score": 22,
-        "key_catalyst": "Apple\u2019s recent beat on second\u2011quarter revenue and EPS, combined with a $100 billion share\u2011buyback authorization and dividend hike, supports near\u2011term upside and reinforces confidence in its cash\u2011return strategy.",
-        "risk": "Regulatory scrutiny around App Store practices, AI\u2011related data\u2011privacy concerns, and intensifying competition in smartphones and AI\u2011enabled devices could pressure margins and growth expectations.",
-        "timeframe": "medium-term (5-20 day)",
-        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 22,\n  \"KEY_CATALYST\": \"Apple\u2019s recent beat on second\u2011quarter revenue and EPS, combined with a $100 billion share\u2011buyback authorization and dividend hike, supports near\u2011term upside and reinforces confidence in its cash\u2011return strategy.\",\n  \"RISK\": \"Regulatory scrutiny around App Store practices, AI\u2011related data\u2011privacy concerns, and intensifying competition in smartphones and AI\u2011enabled devices could pressure margins and growth expectations.\",\n  \"T",
-        "updated_at": "2026-05-01 10:41:12"
+        "sentiment": "STRONG_POSITIVE",
+        "perplexity_score": 28,
+        "key_catalyst": "Apple's Q2 FY2026 earnings reported on April 30, 2026, delivered revenue of $111.2 billion (up 17% YoY, beating estimates of $109.7 billion) and EPS of $2.01 (up 22% YoY, +4.15% surprise), accompanied by a $100 billion share repurchase authorization and 4% dividend increase.[1][2][3]",
+        "risk": "Uneven regional performance with shortfalls in Americas and Europe, alongside iPhone revenue merely meeting expectations rather than exceeding them.[3]",
+        "timeframe": "short-term (1-5 day)",
+        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 28,\n  \"KEY_CATALYST\": \"Apple's Q2 FY2026 earnings reported on April 30, 2026, delivered revenue of $111.2 billion (up 17% YoY, beating estimates of $109.7 billion) and EPS of $2.01 (up 22% YoY, +4.15% surprise), accompanied by a $100 billion share repurchase authorization and 4% dividend increase.[1][2][3]\",\n  \"RISK\": \"Uneven regional performance with shortfalls in Americas and Europe, alongside iPhone revenue merely meeting expectations ra",
+        "updated_at": "2026-05-04 11:33:31"
       }
     },
     "MSFT": {
       "technicals": {
-        "price": 414.68,
-        "sma_20": 405.5825,
-        "sma_50": 396.1074999999999,
-        "rsi_14": 55.08618813066436,
-        "macd": 9.13289668762792,
-        "macd_signal": 8.916859132150652,
-        "bb_upper": 449.5717669295586,
-        "bb_lower": 361.5932330704414,
-        "bb_mid": 405.5825,
-        "volume": 685217.0,
-        "vol_avg_20": 897730.65,
-        "volume_ratio": 2.6466902962486576,
-        "five_day_return": -2.3340163451800455,
+        "price": 414.86,
+        "sma_20": 407.677,
+        "sma_50": 396.4547,
+        "rsi_14": 55.13835555881483,
+        "macd": 8.338729525873077,
+        "macd_signal": 8.707124139632102,
+        "bb_upper": 449.1298258867836,
+        "bb_lower": 366.22417411321646,
+        "bb_mid": 407.677,
+        "volume": 307516.0,
+        "vol_avg_20": 918312.45,
+        "volume_ratio": 1.030226694628827,
+        "five_day_return": -2.3766942771084265,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 5,
+      "news_score": 9,
       "news_headlines": [
-        "Blowout Earnings From SanDisk And Western Digital But Stock Reaction Is A Tell; 'Most Popular Ever' iPhone",
-        "Stock Market Today: Apple Earnings Power S&P 500, Nasdaq To Records; Trump Hits EU",
-        "Forget Nvidia, Tesla \u2014 BlackRock Just Flagged 'Beyond' AI Trade"
+        "Everyone Is Chasing Nvidia Stock \u2014 BlackRock Is Watching Paint",
+        "Microsoft Stock Edges Higher As Analysts Call Q3 Results A 'Clearing Event'",
+        "'OpenAI Finalizes $10 Billion Joint Venture With PE Firms to Deploy AI' - Bloomberg News"
       ],
       "confidence": {
-        "technical_score": 30,
-        "news_score": 5,
-        "perplexity_score": 18,
-        "total": 53,
+        "technical_score": 18,
+        "news_score": 9,
+        "perplexity_score": 24,
+        "total": 51,
         "action": "HOLD"
       },
       "info": {
@@ -196,44 +176,44 @@
       "perplexity": {
         "symbol": "MSFT",
         "sentiment": "POSITIVE",
-        "perplexity_score": 18,
-        "key_catalyst": "Sustained AI momentum and Azure acceleration driving analyst price target increases of $43-$50, with consensus targets ranging from $565.75 to $626.65.",
-        "risk": "Rising capital expenditure requirements for AI infrastructure and potential hyperscaler caution could pressure margins despite current optimism.",
-        "timeframe": "medium-term (5-20 day)",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"Sustained AI momentum and Azure acceleration driving analyst price target increases of $43-$50, with consensus targets ranging from $565.75 to $626.65.\",\n  \"RISK\": \"Rising capital expenditure requirements for AI infrastructure and potential hyperscaler caution could pressure margins despite current optimism.\",\n  \"TIMEFRAME\": \"medium-term (5-20 day)\",\n  \"ANALYSIS\": {\n    \"earnings_outlook\": \"Earnings expected to grow ",
-        "updated_at": "2026-05-01 10:41:19"
+        "perplexity_score": 24,
+        "key_catalyst": "Microsoft's FY26 Q2 earnings (quarter ended Dec 31, 2025, reported Jan 28, 2026) showed revenue of $81.3B (+17% YoY), operating income of $38.3B (+21% YoY), and net income of $38.5B (+60% YoY GAAP), with prior Q3 FY26 delivering $4.27 EPS (beat estimates by $0.21) and $76.44B revenue (beat by 3.6%).",
+        "risk": "Potential regulatory scrutiny on AI and cloud dominance, alongside competitive pressures from AWS and Google Cloud, could cap upside amid high valuation.",
+        "timeframe": "medium-term",
+        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 24,\n  \"KEY_CATALYST\": \"Microsoft's FY26 Q2 earnings (quarter ended Dec 31, 2025, reported Jan 28, 2026) showed revenue of $81.3B (+17% YoY), operating income of $38.3B (+21% YoY), and net income of $38.5B (+60% YoY GAAP), with prior Q3 FY26 delivering $4.27 EPS (beat estimates by $0.21) and $76.44B revenue (beat by 3.6%).\",\n  \"RISK\": \"Potential regulatory scrutiny on AI and cloud dominance, alongside competitive pressures from AWS and Google Cloud",
+        "updated_at": "2026-05-04 11:33:35"
       }
     },
     "META": {
       "technicals": {
-        "price": 612.19,
-        "sma_20": 647.2625,
-        "sma_50": 630.4015,
-        "rsi_14": 41.30921403589466,
-        "macd": 7.007107482087008,
-        "macd_signal": 12.070123140269718,
-        "bb_upper": 715.5589785695432,
-        "bb_lower": 578.9660214304569,
-        "bb_mid": 647.2625,
-        "volume": 385837.0,
-        "vol_avg_20": 493744.95,
-        "volume_ratio": 3.5068611840991992,
-        "five_day_return": -9.295778821507405,
+        "price": 607.11,
+        "sma_20": 648.7855,
+        "sma_50": 629.3598000000001,
+        "rsi_14": 40.1624203143938,
+        "macd": 3.0671904117562008,
+        "macd_signal": 10.334255583084984,
+        "bb_upper": 711.4708827379238,
+        "bb_lower": 586.1001172620761,
+        "bb_mid": 648.7855,
+        "volume": 214418.0,
+        "vol_avg_20": 500615.55,
+        "volume_ratio": 1.1809401445879977,
+        "five_day_return": -10.522398508485564,
         "above_sma20": false,
         "above_sma50": false
       },
-      "news_score": 5,
+      "news_score": 17,
       "news_headlines": [
-        "Blowout Earnings From SanDisk And Western Digital But Stock Reaction Is A Tell; 'Most Popular Ever' iPhone",
-        "'Meta Acquires Robotics AI Company to Help Build Humanoid Technology' - Bloomberg",
-        "Forget Nvidia, Tesla \u2014 BlackRock Just Flagged 'Beyond' AI Trade"
+        "S&P 500 Delivers Biggest Earnings Beat Since 2021: 3 Magnificent 7 Stocks Did The Heavy Lifting",
+        "Chamath Palihapitiya Warns Power Crunch Could Cripple OpenAI And Anthropic, Says Elon Musk Holds Massive AI Leverage",
+        "David Sacks Says AI Could Drive 75% Of US GDP Growth As Morgan Stanley Sees Big Tech AI Capex Surging Past $800 Billion In 2026"
       ],
       "confidence": {
-        "technical_score": 18,
-        "news_score": 5,
-        "perplexity_score": 12,
-        "total": 35,
-        "action": "SELL"
+        "technical_score": 13,
+        "news_score": 17,
+        "perplexity_score": 28,
+        "total": 58,
+        "action": "HOLD"
       },
       "info": {
         "sector": "Technology",
@@ -243,44 +223,44 @@
       },
       "perplexity": {
         "symbol": "META",
-        "sentiment": "NEUTRAL",
-        "perplexity_score": 12,
-        "key_catalyst": "Meta reported strong Q1 2026 earnings, but the market reaction was negative with shares falling over 10% in early trading, suggesting a sell-the-news dynamic.",
-        "risk": "Recent analyst downgrades following Q1 earnings indicate potential disappointment relative to expectations, despite strong reported results.",
-        "timeframe": "short-term (1-5 day)",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"NEUTRAL\",\n  \"CATALYST_SCORE\": 12,\n  \"KEY_CATALYST\": \"Meta reported strong Q1 2026 earnings, but the market reaction was negative with shares falling over 10% in early trading, suggesting a sell-the-news dynamic.\",\n  \"RISK\": \"Recent analyst downgrades following Q1 earnings indicate potential disappointment relative to expectations, despite strong reported results.\",\n  \"TIMEFRAME\": \"short-term (1-5 day)\"\n}\n```\n\n**Analysis:**\n\nMeta's recent earnings report presents a mixed",
-        "updated_at": "2026-05-01 10:41:25"
+        "sentiment": "STRONG_POSITIVE",
+        "perplexity_score": 28,
+        "key_catalyst": "Meta's Q1 2026 earnings reported revenue of $56.31 billion, up 33% YoY, and EPS of $10.44, beating estimates of $6.65 by 57% and revenue forecasts by 1.42%.[2][3][5]",
+        "risk": "Potential regulatory scrutiny on antitrust issues or data privacy in social media remains a persistent overhang for Meta.[web:0]",
+        "timeframe": "short-term",
+        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 28,\n  \"KEY_CATALYST\": \"Meta's Q1 2026 earnings reported revenue of $56.31 billion, up 33% YoY, and EPS of $10.44, beating estimates of $6.65 by 57% and revenue forecasts by 1.42%.[2][3][5]\",\n  \"RISK\": \"Potential regulatory scrutiny on antitrust issues or data privacy in social media remains a persistent overhang for Meta.[web:0]\",\n  \"TIMEFRAME\": \"short-term\"\n}",
+        "updated_at": "2026-05-04 11:33:38"
       }
     },
     "AMZN": {
       "technicals": {
-        "price": 269.01,
-        "sma_20": 247.40675000000002,
-        "sma_50": 224.8177,
-        "rsi_14": 79.03381555383079,
-        "macd": 12.764330351661869,
-        "macd_signal": 11.618248053047882,
-        "bb_upper": 279.41995356899656,
-        "bb_lower": 215.39354643100347,
-        "bb_mid": 247.40675000000002,
-        "volume": 1461967.0,
-        "vol_avg_20": 1843975.2,
-        "volume_ratio": 1.9232764084896588,
-        "five_day_return": 1.9131686619184851,
+        "price": 272.39,
+        "sma_20": 250.35200000000003,
+        "sma_50": 226.0477,
+        "rsi_14": 80.8029776983727,
+        "macd": 13.141568501289044,
+        "macd_signal": 12.064856234989039,
+        "bb_upper": 279.82828782598,
+        "bb_lower": 220.87571217402007,
+        "bb_mid": 250.35200000000003,
+        "volume": 711576.0,
+        "vol_avg_20": 1903426.4,
+        "volume_ratio": 1.1025196456243331,
+        "five_day_return": 4.345993985711272,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 9,
+      "news_score": 13,
       "news_headlines": [
-        "Blowout Earnings From SanDisk And Western Digital But Stock Reaction Is A Tell; 'Most Popular Ever' iPhone",
-        "Stock Market Today: Apple Earnings Power S&P 500, Nasdaq To Records; Trump Hits EU",
-        "President Trump, On Anthropic, Says They Had Very Good Meeting"
+        "Amazon Web Services Announces U.S. Department Of War Starts Phased Rollout Of Cybersecurity Maturity Model Certification Requirements In Contracts",
+        "S&P 500 Delivers Biggest Earnings Beat Since 2021: 3 Magnificent 7 Stocks Did The Heavy Lifting",
+        "HUMAIN Partners With Amazon Web Services Over Enterprise AI Adoption Globally"
       ],
       "confidence": {
-        "technical_score": 22,
-        "news_score": 9,
-        "perplexity_score": 26,
-        "total": 57,
+        "technical_score": 17,
+        "news_score": 13,
+        "perplexity_score": 24,
+        "total": 54,
         "action": "HOLD"
       },
       "info": {
@@ -291,44 +271,44 @@
       },
       "perplexity": {
         "symbol": "AMZN",
-        "sentiment": "STRONG_POSITIVE",
-        "perplexity_score": 26,
-        "key_catalyst": "Amazon reported Q1 2026 earnings on April 29, 2026, with strong AWS AI revenue exceeding $15 billion annually and a $20 billion run-rate chip business, driving analyst consensus to 110 Buy ratings and median price target of $300-$311.42 (18-24% upside from current $249-$265).",
-        "risk": "Post-earnings volatility with implied swings over 8% and overbought technical levels (elevated RSI) create near-term pullback risk, with some analysts flagging gap-fill opportunities toward $500 as potential profit-taking zones.",
-        "timeframe": "medium-term (5-20 day)",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 26,\n  \"KEY_CATALYST\": \"Amazon reported Q1 2026 earnings on April 29, 2026, with strong AWS AI revenue exceeding $15 billion annually and a $20 billion run-rate chip business, driving analyst consensus to 110 Buy ratings and median price target of $300-$311.42 (18-24% upside from current $249-$265).\",\n  \"RISK\": \"Post-earnings volatility with implied swings over 8% and overbought technical levels (elevated RSI) create near-term pullba",
-        "updated_at": "2026-05-01 10:41:34"
+        "sentiment": "POSITIVE",
+        "perplexity_score": 24,
+        "key_catalyst": "Amazon's Q1 2026 earnings on April 28-29 reported EPS of $2.78 beating estimates of $1.62-$1.64 by ~70%, with revenue of $181.5B exceeding $177B forecasts, driven by AWS growth to $37.6B and a $16.8B gain from Anthropic investment.[1][2][3][4]",
+        "risk": "Elevated AI-related capex remains unchanged with 48% YoY growth in CY26, potentially pressuring margins amid competition and lack of non-AWS AI monetization.[4][8]",
+        "timeframe": "short-term (1-5 day)",
+        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 24,\n  \"KEY_CATALYST\": \"Amazon's Q1 2026 earnings on April 28-29 reported EPS of $2.78 beating estimates of $1.62-$1.64 by ~70%, with revenue of $181.5B exceeding $177B forecasts, driven by AWS growth to $37.6B and a $16.8B gain from Anthropic investment.[1][2][3][4]\",\n  \"RISK\": \"Elevated AI-related capex remains unchanged with 48% YoY growth in CY26, potentially pressuring margins amid competition and lack of non-AWS AI monetization.[4][8]\",\n  \"TI",
+        "updated_at": "2026-05-04 11:33:41"
       }
     },
     "GOOGL": {
       "technicals": {
-        "price": 384.93,
-        "sma_20": 337.009,
-        "sma_50": 315.5026,
-        "rsi_14": 82.40830518765482,
-        "macd": 16.534360373083473,
-        "macd_signal": 11.731954208144339,
-        "bb_upper": 379.35274246568264,
-        "bb_lower": 294.6652575343174,
-        "bb_mid": 337.009,
-        "volume": 962195.0,
-        "vol_avg_20": 833074.45,
-        "volume_ratio": 2.612003044865918,
-        "five_day_return": 11.791014433828018,
+        "price": 381.09,
+        "sma_20": 341.107,
+        "sma_50": 316.8384,
+        "rsi_14": 78.05828283412723,
+        "macd": 17.77644511610731,
+        "macd_signal": 13.067471670541014,
+        "bb_upper": 384.19988217327784,
+        "bb_lower": 298.0141178267222,
+        "bb_mid": 341.107,
+        "volume": 370219.0,
+        "vol_avg_20": 867568.95,
+        "volume_ratio": 1.5339921973924955,
+        "five_day_return": 8.791161735108965,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 13,
+      "news_score": 9,
       "news_headlines": [
-        "Stock Market Today: Apple Earnings Power S&P 500, Nasdaq To Records; Trump Hits EU",
-        "Robotaxis Set To Explode Into $54 Billion Market By 2035: Analyst",
-        "Wells Fargo Maintains Overweight on Alphabet, Raises Price Target to $427"
+        "Rep. Lizzie Fletcher Has Sold Up to $165K Worth Of Alphabet Stock: Here's What You Should Know",
+        "Everyone Is Chasing Nvidia Stock \u2014 BlackRock Is Watching Paint",
+        "Citizens Maintains Market Outperform on Alphabet, Raises Price Target to $515"
       ],
       "confidence": {
         "technical_score": 22,
-        "news_score": 13,
-        "perplexity_score": 26,
-        "total": 61,
+        "news_score": 9,
+        "perplexity_score": 28,
+        "total": 59,
         "action": "HOLD"
       },
       "info": {
@@ -340,29 +320,29 @@
       "perplexity": {
         "symbol": "GOOGL",
         "sentiment": "STRONG_POSITIVE",
-        "perplexity_score": 26,
-        "key_catalyst": "Packed event schedule through mid-May (Google Cloud Next, Q1 earnings on April 29, YouTube Brandcast May 13, Google I/O and Marketing Live May 19-20) with expected product updates across Gemini, Search, YouTube, and Cloud offerings.",
-        "risk": "Competitive pressure from OpenAI's expansion into digital advertising could create near-term ad revenue headwinds if it scales.",
-        "timeframe": "medium-term (5-20 day)",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 26,\n  \"KEY_CATALYST\": \"Packed event schedule through mid-May (Google Cloud Next, Q1 earnings on April 29, YouTube Brandcast May 13, Google I/O and Marketing Live May 19-20) with expected product updates across Gemini, Search, YouTube, and Cloud offerings.\",\n  \"RISK\": \"Competitive pressure from OpenAI's expansion into digital advertising could create near-term ad revenue headwinds if it scales.\",\n  \"TIMEFRAME\": \"medium-term (5-20 day",
-        "updated_at": "2026-05-01 10:41:42"
+        "perplexity_score": 28,
+        "key_catalyst": "Alphabet's Q1 2026 earnings reported a +95.04% EPS surprise and +2.89% revenue surprise, driving strong positive momentum for GOOGL stock.[1][2]",
+        "risk": "Potential regulatory scrutiny on antitrust issues in search and AI remains a significant overhang despite strong earnings.",
+        "timeframe": "short-term (1-5 day)",
+        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 28,\n  \"KEY_CATALYST\": \"Alphabet's Q1 2026 earnings reported a +95.04% EPS surprise and +2.89% revenue surprise, driving strong positive momentum for GOOGL stock.[1][2]\",\n  \"RISK\": \"Potential regulatory scrutiny on antitrust issues in search and AI remains a significant overhang despite strong earnings.\",\n  \"TIMEFRAME\": \"short-term (1-5 day)\"\n}",
+        "updated_at": "2026-05-04 11:33:44"
       }
     },
     "AVGO": {
       "technicals": {
-        "price": 422.84,
-        "sma_20": 390.92224999999996,
-        "sma_50": 349.50159999999994,
-        "rsi_14": 69.9182176698401,
-        "macd": 22.241435882642804,
-        "macd_signal": 21.856207249643546,
-        "bb_upper": 452.16087102260315,
-        "bb_lower": 329.6836289773968,
-        "bb_mid": 390.92224999999996,
-        "volume": 265428.0,
-        "vol_avg_20": 626789.4,
-        "volume_ratio": 0.9216620446995434,
-        "five_day_return": 0.08284219744845167,
+        "price": 412.81,
+        "sma_20": 395.75725,
+        "sma_50": 351.073,
+        "rsi_14": 64.02362574225137,
+        "macd": 20.84924370990302,
+        "macd_signal": 21.362595465106324,
+        "bb_upper": 446.3883868107605,
+        "bb_lower": 345.1261131892395,
+        "bb_mid": 395.75725,
+        "volume": 179926.0,
+        "vol_avg_20": 630081.9,
+        "volume_ratio": 0.6821510029093043,
+        "five_day_return": -1.2959376419673374,
         "above_sma20": true,
         "above_sma50": true
       },
@@ -373,10 +353,10 @@
         "Why Is Broadcom Stock Surging On Thursday?"
       ],
       "confidence": {
-        "technical_score": 21,
+        "technical_score": 18,
         "news_score": 9,
-        "perplexity_score": 22,
-        "total": 52,
+        "perplexity_score": 18,
+        "total": 45,
         "action": "HOLD"
       },
       "info": {
@@ -388,43 +368,43 @@
       "perplexity": {
         "symbol": "AVGO",
         "sentiment": "POSITIVE",
-        "perplexity_score": 22,
-        "key_catalyst": "Wells Fargo upgrade to 'Overweight' with $430 price target, citing AI accelerator orders from hyperscale customers and Google TPU chip adoption as primary drivers.",
-        "risk": "Stock has already appreciated 50.4% over the past year, creating valuation risk if AI infrastructure spending growth disappoints or competitive pressures intensify in custom chip market.",
+        "perplexity_score": 18,
+        "key_catalyst": "Broadcom's most recent quarterly earnings beat estimates with EPS of $2.05 versus $2.03 expected (0.93% surprise) and revenue of $15.95B versus $15.83B expected, alongside strong net margins of 27.4%.[1]",
+        "risk": "Upcoming Q4 2025 earnings on approximately December 11 carry potential for disappointment after a -16.62% sequential drop in net income to $4.14B in the last quarter.[1]",
         "timeframe": "medium-term",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 22,\n  \"KEY_CATALYST\": \"Wells Fargo upgrade to 'Overweight' with $430 price target, citing AI accelerator orders from hyperscale customers and Google TPU chip adoption as primary drivers.\",\n  \"RISK\": \"Stock has already appreciated 50.4% over the past year, creating valuation risk if AI infrastructure spending growth disappoints or competitive pressures intensify in custom chip market.\",\n  \"TIMEFRAME\": \"medium-term\",\n  \"ANALYSIS\": {\n    \"rec",
-        "updated_at": "2026-05-01 10:41:48"
+        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"Broadcom's most recent quarterly earnings beat estimates with EPS of $2.05 versus $2.03 expected (0.93% surprise) and revenue of $15.95B versus $15.83B expected, alongside strong net margins of 27.4%.[1]\",\n  \"RISK\": \"Upcoming Q4 2025 earnings on approximately December 11 carry potential for disappointment after a -16.62% sequential drop in net income to $4.14B in the last quarter.[1]\",\n  \"TIMEFRAME\": \"medium-term\"\n}",
+        "updated_at": "2026-05-04 11:33:46"
       }
     },
     "AMD": {
       "technicals": {
-        "price": 362.335,
-        "sma_20": 284.96549999999996,
-        "sma_50": 235.412,
-        "rsi_14": 80.5698443130887,
-        "macd": 35.34906029670549,
-        "macd_signal": 28.53163971194681,
-        "bb_upper": 374.80352935839585,
-        "bb_lower": 195.1274706416041,
-        "bb_mid": 284.96549999999996,
-        "volume": 452750.0,
-        "vol_avg_20": 672315.75,
-        "volume_ratio": 1.340264600375642,
-        "five_day_return": 4.185117028006213,
+        "price": 340.835,
+        "sma_20": 290.90925000000004,
+        "sma_50": 238.18990000000002,
+        "rsi_14": 69.84788125743523,
+        "macd": 34.30222381676765,
+        "macd_signal": 29.464748178102713,
+        "bb_upper": 378.4272022312425,
+        "bb_lower": 203.39129776875757,
+        "bb_mid": 290.90925000000004,
+        "volume": 484678.0,
+        "vol_avg_20": 666744.5,
+        "volume_ratio": 1.2164554788228474,
+        "five_day_return": 1.9182465163566587,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 13,
       "news_headlines": [
-        "RBC Capital Maintains Sector Perform on Advanced Micro Devices, Raises Price Target to $325",
-        "Intel's Best Month Ever Powers One Of 2026's Biggest ETF Wins",
-        "Semiconductor ETFs SOXX, SMH Just Logged Their Best Month Ever \u2014 What's Driving This Rally?"
+        "What's Going On With Micron Technology Stock Monday?",
+        "Wedbush Maintains Outperform on Advanced Micro Devices, Raises Price Target to $400",
+        "What's Going On With AMD Stock Monday?"
       ],
       "confidence": {
-        "technical_score": 22,
+        "technical_score": 26,
         "news_score": 13,
-        "perplexity_score": 27,
-        "total": 62,
+        "perplexity_score": 15,
+        "total": 54,
         "action": "HOLD"
       },
       "info": {
@@ -435,44 +415,44 @@
       },
       "perplexity": {
         "symbol": "AMD",
-        "sentiment": "STRONG_POSITIVE",
-        "perplexity_score": 27,
-        "key_catalyst": "AMD reports Q1 2026 earnings on May 5, 2026 with expected strong data center GPU revenue driven by OpenAI and Meta contract fulfillment beginning H2 2026, supported by recent analyst upgrades targeting $300-$320.",
-        "risk": "AMD trades at a historically elevated P/E of 107.35x with a $463.8B market cap, creating significant downside risk if Q1 earnings miss expectations or guidance disappoints on AI infrastructure demand.",
-        "timeframe": "short-term",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 27,\n  \"KEY_CATALYST\": \"AMD reports Q1 2026 earnings on May 5, 2026 with expected strong data center GPU revenue driven by OpenAI and Meta contract fulfillment beginning H2 2026, supported by recent analyst upgrades targeting $300-$320.\",\n  \"RISK\": \"AMD trades at a historically elevated P/E of 107.35x with a $463.8B market cap, creating significant downside risk if Q1 earnings miss expectations or guidance disappoints on AI infrastru",
-        "updated_at": "2026-05-01 10:41:57"
+        "sentiment": "NEUTRAL",
+        "perplexity_score": 15,
+        "key_catalyst": "I cannot provide the comprehensive investment analysis you've requested because the search results lack the necessary current data to evaluate AMD's investment catalysts as of May 2026.\n\nThe available",
+        "risk": "Unable to parse structured response",
+        "timeframe": "unknown",
+        "raw_response": "I cannot provide the comprehensive investment analysis you've requested because the search results lack the necessary current data to evaluate AMD's investment catalysts as of May 2026.\n\nThe available information only includes AMD's full-year 2025 results (record revenue of $34.6 billion, net income of $4.3 billion, and diluted EPS of $2.65)[1], but the search results are missing critical information needed for your analysis:\n\n- **Recent earnings or upcoming earnings dates** \u2013 No Q1 2026 results",
+        "updated_at": "2026-05-04 11:33:52"
       }
     },
     "TSLA": {
       "technicals": {
-        "price": 396.925,
-        "sma_20": 372.86675,
-        "sma_50": 383.8222,
-        "rsi_14": 58.9859316614037,
-        "macd": 1.6201065833085977,
-        "macd_signal": -0.4844968502212597,
-        "bb_upper": 409.29439860308776,
-        "bb_lower": 336.4391013969123,
-        "bb_mid": 372.86675,
-        "volume": 515648.0,
-        "vol_avg_20": 931166.55,
-        "volume_ratio": 0.7105624659734608,
-        "five_day_return": 5.499222560367856,
+        "price": 387.59,
+        "sma_20": 374.298,
+        "sma_50": 383.21,
+        "rsi_14": 54.542144972114,
+        "macd": 1.5346398107208188,
+        "macd_signal": -0.33185417055496597,
+        "bb_upper": 409.35672507664873,
+        "bb_lower": 339.2392749233513,
+        "bb_mid": 374.298,
+        "volume": 231468.0,
+        "vol_avg_20": 878826.4,
+        "volume_ratio": 0.88797286927202,
+        "five_day_return": 2.3853550295857895,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 13,
+      "news_score": 9,
       "news_headlines": [
-        "Elon Musk's SpaceX To Launch Falcon 9 As $2 Trillion IPO Roadshow Approaches",
-        "Blowout Earnings From SanDisk And Western Digital But Stock Reaction Is A Tell; 'Most Popular Ever' iPhone",
-        "Stock Market Today: Apple Earnings Power S&P 500, Nasdaq To Records; Trump Hits EU"
+        "Market Analysis: Tesla And Competitors In Automobiles Industry",
+        "Ford CEO Jim Farley Says Industry Must Make EVs 'More Affordable' As New-Car Costs Strain Buyers",
+        "Used EV Sales Surge In US As Iran War Drives Oil Spike\u2014 Americans Snap Up Sub-$25,000 Models"
       ],
       "confidence": {
         "technical_score": 25,
-        "news_score": 13,
+        "news_score": 9,
         "perplexity_score": 18,
-        "total": 56,
+        "total": 52,
         "action": "HOLD"
       },
       "info": {
@@ -485,28 +465,28 @@
         "symbol": "TSLA",
         "sentiment": "POSITIVE",
         "perplexity_score": 18,
-        "key_catalyst": "UBS upgrade from Sell to Hold combined with software updates and AI progress commentary signals improved near-term downside protection after 25% YTD decline.",
-        "risk": "Softening EV demand and Elon Musk's political visibility continue to weigh on sentiment despite technical improvements.",
-        "timeframe": "medium-term (5-20 day)",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"UBS upgrade from Sell to Hold combined with software updates and AI progress commentary signals improved near-term downside protection after 25% YTD decline.\",\n  \"RISK\": \"Softening EV demand and Elon Musk's political visibility continue to weigh on sentiment despite technical improvements.\",\n  \"TIMEFRAME\": \"medium-term (5-20 day)\",\n  \"ANALYSIS\": {\n    \"recent_catalysts\": {\n      \"analyst_action\": \"UBS upgraded TSLA f",
-        "updated_at": "2026-05-01 10:42:05"
+        "key_catalyst": "Tesla reported Q1 2026 earnings with a +13.89% EPS surprise and strong free cash flow of $1.4 billion, exceeding expectations, though gross margins contracted to approximately 19.7%.",
+        "risk": "Historical pattern shows TSLA shares have declined in the immediate aftermath of earnings 8 out of 12 previous reports, with an average first-day drop of -1.4%, and the company is transitioning from automaker to AI/robotics which carries execution uncertainty.",
+        "timeframe": "short-term",
+        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"Tesla reported Q1 2026 earnings with a +13.89% EPS surprise and strong free cash flow of $1.4 billion, exceeding expectations, though gross margins contracted to approximately 19.7%.\",\n  \"RISK\": \"Historical pattern shows TSLA shares have declined in the immediate aftermath of earnings 8 out of 12 previous reports, with an average first-day drop of -1.4%, and the company is transitioning from automaker to AI/robotics ",
+        "updated_at": "2026-05-04 11:33:58"
       }
     },
     "CRM": {
       "technicals": {
-        "price": 183.445,
-        "sma_20": 179.12,
-        "sma_50": 186.6216,
-        "rsi_14": 51.315271979341354,
-        "macd": -1.3327372863733444,
-        "macd_signal": -1.9228077879070402,
-        "bb_upper": 191.31313372353486,
-        "bb_lower": 166.92686627646515,
-        "bb_mid": 179.12,
-        "volume": 324250.0,
-        "vol_avg_20": 503529.55,
-        "volume_ratio": 1.2080105328475756,
-        "five_day_return": 2.989557601616877,
+        "price": 186.615,
+        "sma_20": 179.2185,
+        "sma_50": 186.6566,
+        "rsi_14": 54.04920126250732,
+        "macd": -0.7485964925690212,
+        "macd_signal": -1.7018472611154645,
+        "bb_upper": 191.61215890284234,
+        "bb_lower": 166.82484109715767,
+        "bb_mid": 179.2185,
+        "volume": 210766.0,
+        "vol_avg_20": 513601.0,
+        "volume_ratio": 0.9803193529607613,
+        "five_day_return": 3.5484407945844065,
         "above_sma20": true,
         "above_sma50": false
       },
@@ -517,10 +497,10 @@
         "Jeff Bezos, Tim Cook, Jensen Huang Are 'Deadly Competitors,' Says King Charles"
       ],
       "confidence": {
-        "technical_score": 25,
+        "technical_score": 20,
         "news_score": 5,
-        "perplexity_score": 18,
-        "total": 48,
+        "perplexity_score": 22,
+        "total": 47,
         "action": "HOLD"
       },
       "info": {
@@ -532,14 +512,14 @@
       "perplexity": {
         "symbol": "CRM",
         "sentiment": "POSITIVE",
-        "perplexity_score": 18,
-        "key_catalyst": "Analyst consensus upgraded price targets to ~$330-$338 with supportive 2026 macro outlook, stable IT spending, and AI adoption tailwinds offsetting competitive pressures in CRM and marketing tools.",
-        "risk": "Competitive dynamics in customer engagement and AI-driven marketing tools are eroding margins and market share despite revenue growth expectations.",
+        "perplexity_score": 22,
+        "key_catalyst": "Salesforce's Q4 FY26 earnings on February 25, 2026, delivered revenue of $11.2B (up 12% YoY) and EPS of $3.81 (beating estimates of $3.05 by 24.92%), with emphasis on Agentforce AI platform growth (MarketBeat, Investing.com).",
+        "risk": "Post-earnings stock decline of 1.2% after-hours despite the beat, alongside a high trailing P/E of 37.05 and forward P/E of 34.17, signals potential valuation concerns amid market volatility (MarketBeat, Investing.com).",
         "timeframe": "medium-term (5-20 day)",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"Analyst consensus upgraded price targets to ~$330-$338 with supportive 2026 macro outlook, stable IT spending, and AI adoption tailwinds offsetting competitive pressures in CRM and marketing tools.\",\n  \"RISK\": \"Competitive dynamics in customer engagement and AI-driven marketing tools are eroding margins and market share despite revenue growth expectations.\",\n  \"TIMEFRAME\": \"medium-term (5-20 day)\"\n}\n```\n\n**Analysis S",
-        "updated_at": "2026-05-01 10:42:11"
+        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 22,\n  \"KEY_CATALYST\": \"Salesforce's Q4 FY26 earnings on February 25, 2026, delivered revenue of $11.2B (up 12% YoY) and EPS of $3.81 (beating estimates of $3.05 by 24.92%), with emphasis on Agentforce AI platform growth (MarketBeat, Investing.com).\",\n  \"RISK\": \"Post-earnings stock decline of 1.2% after-hours despite the beat, alongside a high trailing P/E of 37.05 and forward P/E of 34.17, signals potential valuation concerns amid market volatilit",
+        "updated_at": "2026-05-04 11:34:01"
       }
     }
   },
-  "perplexity_enhanced_at": "2026-05-01 10:42:11"
+  "perplexity_enhanced_at": "2026-05-04 11:34:01"
 }
