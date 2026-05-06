@@ -1,84 +1,94 @@
 {
-  "updated_at": "2026-05-05 14:06:31",
+  "updated_at": "2026-05-06 11:53:33",
   "spy": {
     "symbol": "SPY",
-    "price": 724.15,
-    "sma_20": 704.6387500000001,
-    "sma_50": 681.5945000000002,
-    "rsi_14": 71.60191547222318,
-    "five_day_return": 1.7521919964028854,
-    "monthly_return": 9.905370436419103,
+    "price": 731.42,
+    "sma_20": 707.3877500000001,
+    "sma_50": 682.4667,
+    "rsi_14": 74.81757504825026,
+    "five_day_return": 2.7867170702230215,
+    "monthly_return": 10.95065455152222,
     "market_regime": "BULL",
-    "updated_at": "2026-05-05 14:06:31"
+    "updated_at": "2026-05-06 11:53:33"
   },
   "symbols": {
     "QQQ": {
       "technicals": {
-        "price": 682.45,
-        "sma_20": 647.0632499999999,
-        "sma_50": 615.5461,
-        "rsi_14": 76.99448677140427,
-        "macd": 19.10483859185763,
-        "macd_signal": 16.75128787797441,
-        "bb_upper": 691.2878962139615,
-        "bb_lower": 602.8386037860383,
-        "bb_mid": 647.0632499999999,
-        "volume": 293411.0,
-        "vol_avg_20": 747181.1,
-        "volume_ratio": 0.5643544784524127,
-        "five_day_return": 3.7804711142201075,
+        "price": 691.655,
+        "sma_20": 651.302,
+        "sma_50": 617.2027,
+        "rsi_14": 79.49439404202073,
+        "macd": 20.117913349217247,
+        "macd_signal": 17.447954853363445,
+        "bb_upper": 695.2438670973376,
+        "bb_lower": 607.3601329026625,
+        "bb_mid": 651.302,
+        "volume": 278627.0,
+        "vol_avg_20": 731521.45,
+        "volume_ratio": 0.5911350924843011,
+        "five_day_return": 4.544355265345601,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 5,
+      "news_score": 9,
       "news_headlines": [
-        "Nasdaq 100 Tops 28,000, Intel Rallies 13%: Stock Market Today",
-        "Musk Says 'Retirement Is Irrelevant'\u2014But ETF Investors Are Betting Big On Retirement Anyway",
-        "Stock Market Today: Dow, S&P 500, Nasdaq Futures Rise As Traders Monitor US-Iran Ceasefire\u2014 Duolingo, Pinterest, AMD In Focus  (UPDATED)"
+        "Stock Market Today: S&P 500, Dow, Nasdaq Futures Rise As Trump Pauses 'Project Freedom'\u2014 Super Micro Computer, AMD, Intel In Focus  (UPDATED)",
+        "Nasdaq 100 ETF QQQ Records Third-Largest 21-Day Inflows Ever As Investors Rush Back Into US Stocks",
+        "Bonds In Danger Zone; Market Resilient Despite Iran's Ceasefire Violations"
       ],
       "confidence": {
         "technical_score": 17,
-        "news_score": 5,
-        "perplexity_score": 0,
-        "total": 22,
-        "action": "SELL"
+        "news_score": 9,
+        "perplexity_score": 18,
+        "total": 44,
+        "action": "HOLD"
       },
       "info": {
         "sector": "Technology",
         "max_allocation_pct": 5,
         "tradeable": true,
         "notes": "Nasdaq 100 ETF \u2014 broad tech exposure"
+      },
+      "perplexity": {
+        "symbol": "QQQ",
+        "sentiment": "POSITIVE",
+        "perplexity_score": 18,
+        "key_catalyst": "QQQ delivered a strong 20.77% return for calendar year 2025, marking the third consecutive year of over 20% gains and outperforming the S&P 500 by 2.89%, driven by top performers like Micron Technology (+70.75% in Q4 2025) per Invesco's quarterly outlook.",
+        "risk": "Recent price pullback to $673.55 as of May 5, 2026 (down from $689-693 range), with poor Q4 2025 performers like Strategy Inc. (-52.84%) signaling potential volatility in tech holdings.",
+        "timeframe": "medium-term (5-20 day)",
+        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"QQQ delivered a strong 20.77% return for calendar year 2025, marking the third consecutive year of over 20% gains and outperforming the S&P 500 by 2.89%, driven by top performers like Micron Technology (+70.75% in Q4 2025) per Invesco's quarterly outlook.\",\n  \"RISK\": \"Recent price pullback to $673.55 as of May 5, 2026 (down from $689-693 range), with poor Q4 2025 performers like Strategy Inc. (-52.84%) signaling potential vo",
+        "updated_at": "2026-05-06 11:53:40"
       }
     },
     "NVDA": {
       "technicals": {
-        "price": 197.11,
-        "sma_20": 199.1995,
-        "sma_50": 187.42860000000002,
-        "rsi_14": 51.42824431307016,
-        "macd": 4.684439070423508,
-        "macd_signal": 5.810871707528456,
-        "bb_upper": 216.26511159173648,
-        "bb_lower": 182.13388840826352,
-        "bb_mid": 199.1995,
-        "volume": 2877784.0,
-        "vol_avg_20": 4239460.25,
-        "volume_ratio": 0.9597917565095698,
-        "five_day_return": -7.525216983345063,
-        "above_sma20": false,
+        "price": 204.745,
+        "sma_20": 200.30025,
+        "sma_50": 187.65400000000002,
+        "rsi_14": 58.56452002993146,
+        "macd": 4.62612541392906,
+        "macd_signal": 5.584665506028886,
+        "bb_upper": 215.62282826705453,
+        "bb_lower": 184.97767173294548,
+        "bb_mid": 200.30025,
+        "volume": 3267575.0,
+        "vol_avg_20": 4244636.1,
+        "volume_ratio": 0.9481418206851703,
+        "five_day_return": -2.199665631717218,
+        "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 13,
+      "news_score": 1,
       "news_headlines": [
-        "OpenAI Announces Beta Rollout Of New Self-Serve Ad Manager For Advertisers Within ChatGPT",
-        "Broadcom Introduces Unified AI Cloud Infrastructure Solution",
-        "'Big Short' Idol Steve Eisman Warns Iran War Could End Tomorrow, But 'The Financial Event Is Not Ending'"
+        "Simulations Plus Collaborates With Nvidia During AI Drug Modeling Push",
+        "What's Going On With NVIDIA Stock Wednesday?",
+        "Elon Musk Plans To Spend Up To $119 Billion On Chip Plant To Take On TSMC"
       ],
       "confidence": {
-        "technical_score": 13,
-        "news_score": 13,
+        "technical_score": 18,
+        "news_score": 1,
         "perplexity_score": 0,
-        "total": 26,
+        "total": 19,
         "action": "SELL"
       },
       "info": {
@@ -90,33 +100,33 @@
     },
     "AAPL": {
       "technicals": {
-        "price": 283.36,
-        "sma_20": 268.72200000000004,
-        "sma_50": 261.7874,
-        "rsi_14": 66.77325454842216,
-        "macd": 5.084131231183278,
-        "macd_signal": 3.8287696898752372,
-        "bb_upper": 282.55976369215807,
-        "bb_lower": 254.88423630784203,
-        "bb_mid": 268.72200000000004,
-        "volume": 1117725.0,
-        "vol_avg_20": 1285501.65,
-        "volume_ratio": 1.0810993513699496,
-        "five_day_return": 4.64583794962703,
+        "price": 285.295,
+        "sma_20": 270.07925,
+        "sma_50": 262.0659,
+        "rsi_14": 68.08415250632804,
+        "macd": 5.737074523287447,
+        "macd_signal": 4.232089646705052,
+        "bb_upper": 285.0780333756609,
+        "bb_lower": 255.08046662433912,
+        "bb_mid": 270.07925,
+        "volume": 753969.0,
+        "vol_avg_20": 1295440.55,
+        "volume_ratio": 1.1775739149125755,
+        "five_day_return": 5.606144734406815,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 5,
       "news_headlines": [
-        "Nasdaq 100 Tops 28,000, Intel Rallies 13%: Stock Market Today",
-        "UPDATED: 'Apple to Let Users Choose Rival AI Models Across Its iOS 27 Features' - Bloomberg News",
-        "TSMC Stock Holds Firm As $56 Billion AI Expansion Defies Apple Supply Chain Rumors"
+        "U.S. Supreme Court Declines To Pause Order Holding Apple In Contempt In Antitrust Lawsuit By Epic Games Over App Store Fees",
+        "What's Going On With Intel Stock Wednesday?",
+        "FuboTV Loses 500,000 Subscribers In Q2"
       ],
       "confidence": {
         "technical_score": 21,
         "news_score": 5,
-        "perplexity_score": 28,
-        "total": 54,
+        "perplexity_score": 22,
+        "total": 48,
         "action": "HOLD"
       },
       "info": {
@@ -127,38 +137,38 @@
       },
       "perplexity": {
         "symbol": "AAPL",
-        "sentiment": "STRONG_POSITIVE",
-        "perplexity_score": 28,
-        "key_catalyst": "Apple's Q2 FY2026 earnings reported on April 30, 2026, delivered revenue of $111.2 billion (up 17% YoY, beating estimates of $109.7 billion) and EPS of $2.01 (up 22% YoY, +4.15% surprise), accompanied by a $100 billion share repurchase authorization and 4% dividend increase.[1][2][3]",
-        "risk": "Uneven regional performance with shortfalls in Americas and Europe, alongside iPhone revenue merely meeting expectations rather than exceeding them.[3]",
-        "timeframe": "short-term (1-5 day)",
-        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 28,\n  \"KEY_CATALYST\": \"Apple's Q2 FY2026 earnings reported on April 30, 2026, delivered revenue of $111.2 billion (up 17% YoY, beating estimates of $109.7 billion) and EPS of $2.01 (up 22% YoY, +4.15% surprise), accompanied by a $100 billion share repurchase authorization and 4% dividend increase.[1][2][3]\",\n  \"RISK\": \"Uneven regional performance with shortfalls in Americas and Europe, alongside iPhone revenue merely meeting expectations ra",
-        "updated_at": "2026-05-04 11:33:31"
+        "sentiment": "POSITIVE",
+        "perplexity_score": 22,
+        "key_catalyst": "Apple's Q2 FY2026 results (ended March 28, 2026) beat analyst expectations with $111.2B revenue (+17% YoY), $2.01 diluted EPS (+22% YoY), and iPhone sales of $46.84B exceeding estimates, while Services achieved an all-time revenue record with 12% growth.",
+        "risk": "Services revenue of $26.64B slightly missed analyst expectations of $26.72B, and macro headwinds could pressure consumer spending on premium devices in coming quarters.",
+        "timeframe": "medium-term",
+        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 22,\n  \"KEY_CATALYST\": \"Apple's Q2 FY2026 results (ended March 28, 2026) beat analyst expectations with $111.2B revenue (+17% YoY), $2.01 diluted EPS (+22% YoY), and iPhone sales of $46.84B exceeding estimates, while Services achieved an all-time revenue record with 12% growth.\",\n  \"RISK\": \"Services revenue of $26.64B slightly missed analyst expectations of $26.72B, and macro headwinds could pressure consumer spending on premium devices in ",
+        "updated_at": "2026-05-06 11:53:48"
       }
     },
     "MSFT": {
       "technicals": {
-        "price": 410.32,
-        "sma_20": 409.51175,
-        "sma_50": 396.9439,
-        "rsi_14": 52.23449473675873,
-        "macd": 7.134255770012317,
-        "macd_signal": 8.219916366945057,
-        "bb_upper": 447.6451440628158,
-        "bb_lower": 371.3783559371842,
-        "bb_mid": 409.51175,
-        "volume": 459013.0,
-        "vol_avg_20": 933964.7,
-        "volume_ratio": 0.8457503800732512,
-        "five_day_return": -4.443409408476939,
+        "price": 415.175,
+        "sma_20": 411.608,
+        "sma_50": 397.4864,
+        "rsi_14": 55.05803670946651,
+        "macd": 6.744374944082551,
+        "macd_signal": 7.941998374191867,
+        "bb_upper": 446.1765774078135,
+        "bb_lower": 377.0394225921865,
+        "bb_mid": 411.608,
+        "volume": 492892.0,
+        "vol_avg_20": 934807.75,
+        "volume_ratio": 0.6786379338425468,
+        "five_day_return": -2.2657721280602616,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 5,
       "news_headlines": [
-        "OpenAI Announces Beta Rollout Of New Self-Serve Ad Manager For Advertisers Within ChatGPT",
-        "10 Information Technology Stocks With Whale Alerts In Today's Session",
-        "Open AI Announces GPT\u20115.5 Instant"
+        "Microsoft Says \"To Support Customers Running Everything From Core Business Systems To Advanced Analytics And Ai-powered Applications, We Are Significantly Investing In Datacenter Regions Across Europe.\"",
+        "OpenAI Collaborates With Microsoft, AMD, Intel, Nvidia, Broadcom To Roll Multipath Reliable Connection Working Protocol",
+        "'Microsoft May Abandon Its Target for Powering Data Centers With Clean Energy' - Bloomberg"
       ],
       "confidence": {
         "technical_score": 18,
@@ -186,33 +196,33 @@
     },
     "META": {
       "technicals": {
-        "price": 603.97,
-        "sma_20": 650.3862499999999,
-        "sma_50": 628.756,
-        "rsi_14": 39.453701336931175,
-        "macd": -0.1160910818011871,
-        "macd_signal": 8.086994416624018,
-        "bb_upper": 706.82352534839,
-        "bb_lower": 593.9489746516098,
-        "bb_mid": 650.3862499999999,
-        "volume": 448717.0,
-        "vol_avg_20": 509930.2,
-        "volume_ratio": 0.837818587720437,
-        "five_day_return": -10.029792939073435,
+        "price": 613.285,
+        "sma_20": 650.4705,
+        "sma_50": 628.2553,
+        "rsi_14": 42.85919964833648,
+        "macd": -1.8064042870339563,
+        "macd_signal": 6.204984063885635,
+        "bb_upper": 706.6546985704172,
+        "bb_lower": 594.2863014295829,
+        "bb_mid": 650.4705,
+        "volume": 319895.0,
+        "vol_avg_20": 527742.85,
+        "volume_ratio": 1.2353004877280669,
+        "five_day_return": -8.392459706932353,
         "above_sma20": false,
         "above_sma50": false
       },
-      "news_score": 5,
+      "news_score": 0,
       "news_headlines": [
-        "Nasdaq 100 Tops 28,000, Intel Rallies 13%: Stock Market Today",
-        "Ireland's Media Regulator Opens Two Separate Probes Into Meta Platforms Under EU Digital Services Act",
-        "These 3 Telecom Stocks Rallied Over 1,000% In A Year: Nvidia Did 75%"
+        "RedNote Separates China Business, While Texas Chicken Plots Massive China Entry",
+        "Freshworks Cuts 11% Of Workforce As CEO Says 'Over Half Of Our Code Is Written By AI'",
+        "Bernie Sanders Targets Jeff Bezos' $290 Billion Wealth, Luxury Spending\u2014Issues 600,000 Job Loss Warning: 'Reality Of American Life'"
       ],
       "confidence": {
-        "technical_score": 9,
-        "news_score": 5,
+        "technical_score": 18,
+        "news_score": 0,
         "perplexity_score": 28,
-        "total": 42,
+        "total": 46,
         "action": "HOLD"
       },
       "info": {
@@ -234,27 +244,27 @@
     },
     "AMZN": {
       "technicals": {
-        "price": 273.94,
-        "sma_20": 253.344,
-        "sma_50": 227.4147,
-        "rsi_14": 81.49835301261689,
-        "macd": 13.352340657220083,
-        "macd_signal": 12.338507120966506,
-        "bb_upper": 279.31935170118044,
-        "bb_lower": 227.36864829881958,
-        "bb_mid": 253.344,
-        "volume": 1195098.0,
-        "vol_avg_20": 1947685.35,
-        "volume_ratio": 0.8494118415995684,
-        "five_day_return": 5.479188325439921,
+        "price": 274.28,
+        "sma_20": 255.97225000000003,
+        "sma_50": 228.72060000000002,
+        "rsi_14": 81.69803087608616,
+        "macd": 13.390248455169626,
+        "macd_signal": 12.564821707983928,
+        "bb_upper": 278.92066922115816,
+        "bb_lower": 233.02383077884193,
+        "bb_mid": 255.97225000000003,
+        "volume": 812758.0,
+        "vol_avg_20": 1972123.8,
+        "volume_ratio": 0.8025322751036218,
+        "five_day_return": 4.201808373223903,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 5,
       "news_headlines": [
-        "Amazon's Next Gold Mine Is Worth $1.3 Trillion: Transport Stocks Begin Paying For It",
-        "UPDATED: 'Apple to Let Users Choose Rival AI Models Across Its iOS 27 Features' - Bloomberg News",
-        "Anthropic CEO At New York Finance Event, Says There Should Be Government Rules Constraining AI Model Releases"
+        "Micron Stock Climbs On Cramer's Bullish Take: AI Storage Demand Secular, Not Cyclical",
+        "Cramer's AI Winners List: From Nvidia To Dell, These Stocks Are Cashing In Big",
+        "Microsoft And Amazon Aren't Cheap: Analyst Says Earnings 'Mirage' Driven By OpenAI, Anthropic Dominating 50% Of Cloud Backlog"
       ],
       "confidence": {
         "technical_score": 17,
@@ -282,33 +292,33 @@
     },
     "GOOGL": {
       "technicals": {
-        "price": 386.215,
-        "sma_20": 345.24875000000003,
-        "sma_50": 318.3754,
-        "rsi_14": 80.87417597429342,
-        "macd": 18.942298050591774,
-        "macd_signal": 14.253670922201405,
-        "bb_upper": 389.7072613195438,
-        "bb_lower": 300.79023868045624,
-        "bb_mid": 345.24875000000003,
-        "volume": 761902.0,
-        "vol_avg_20": 895218.15,
-        "volume_ratio": 1.0295267136842567,
-        "five_day_return": 10.421282861349756,
+        "price": 397.09,
+        "sma_20": 349.351,
+        "sma_50": 320.1427,
+        "rsi_14": 83.41559888483283,
+        "macd": 20.576715291269863,
+        "macd_signal": 15.61673705299052,
+        "bb_upper": 397.5877329532173,
+        "bb_lower": 301.1142670467827,
+        "bb_mid": 349.351,
+        "volume": 544403.0,
+        "vol_avg_20": 915939.95,
+        "volume_ratio": 1.082159370819015,
+        "five_day_return": 13.36683130156735,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 9,
       "news_headlines": [
-        "OpenAI Announces Beta Rollout Of New Self-Serve Ad Manager For Advertisers Within ChatGPT",
-        "'Google is building an AI agent that could be its answer to OpenClaw' - Business Insider",
-        "UPDATED: 'Apple to Let Users Choose Rival AI Models Across Its iOS 27 Features' - Bloomberg News"
+        "'Google Makes EU Offer to Avert Fines in News Search Case' - Bloomberg News",
+        "Google Rolling Out New Updates To AI Mode And AI Overviews To Help Easily Find Relevant Websites, Deep Insights And Original Content From Across The Web",
+        "Mizuho Maintains Outperform on Alphabet, Raises Price Target to $460"
       ],
       "confidence": {
         "technical_score": 17,
         "news_score": 9,
-        "perplexity_score": 28,
-        "total": 54,
+        "perplexity_score": 24,
+        "total": 50,
         "action": "HOLD"
       },
       "info": {
@@ -320,43 +330,43 @@
       "perplexity": {
         "symbol": "GOOGL",
         "sentiment": "STRONG_POSITIVE",
-        "perplexity_score": 28,
-        "key_catalyst": "Alphabet's Q1 2026 earnings reported a +95.04% EPS surprise and +2.89% revenue surprise, driving strong positive momentum for GOOGL stock.[1][2]",
-        "risk": "Potential regulatory scrutiny on antitrust issues in search and AI remains a significant overhang despite strong earnings.",
-        "timeframe": "short-term (1-5 day)",
-        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 28,\n  \"KEY_CATALYST\": \"Alphabet's Q1 2026 earnings reported a +95.04% EPS surprise and +2.89% revenue surprise, driving strong positive momentum for GOOGL stock.[1][2]\",\n  \"RISK\": \"Potential regulatory scrutiny on antitrust issues in search and AI remains a significant overhang despite strong earnings.\",\n  \"TIMEFRAME\": \"short-term (1-5 day)\"\n}",
-        "updated_at": "2026-05-04 11:33:44"
+        "perplexity_score": 24,
+        "key_catalyst": "Alphabet delivered a massive 95% EPS surprise on April 29, 2026 (Q1 2026), beating consensus estimates of $2.64 with actual EPS of $5.11, alongside a 2.89% revenue beat.",
+        "risk": "The extraordinary earnings beat (193% above estimates) raises questions about estimate accuracy and sustainability, potentially setting unrealistic expectations for future quarters.",
+        "timeframe": "medium-term",
+        "raw_response": "```json\n{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 24,\n  \"KEY_CATALYST\": \"Alphabet delivered a massive 95% EPS surprise on April 29, 2026 (Q1 2026), beating consensus estimates of $2.64 with actual EPS of $5.11, alongside a 2.89% revenue beat.\",\n  \"RISK\": \"The extraordinary earnings beat (193% above estimates) raises questions about estimate accuracy and sustainability, potentially setting unrealistic expectations for future quarters.\",\n  \"TIMEFRAME\": \"medium-term\",\n  \"ANALYSIS\": {\n",
+        "updated_at": "2026-05-06 11:53:56"
       }
     },
     "AVGO": {
       "technicals": {
-        "price": 433.075,
-        "sma_20": 400.89475,
-        "sma_50": 353.20090000000005,
-        "rsi_14": 71.13661513976925,
-        "macd": 21.53854326380815,
-        "macd_signal": 21.305195210193553,
-        "bb_upper": 445.6413835577328,
-        "bb_lower": 356.14811644226717,
-        "bb_mid": 400.89475,
-        "volume": 419567.0,
-        "vol_avg_20": 634789.65,
-        "volume_ratio": 0.7273023433825677,
-        "five_day_return": 8.314783783107815,
+        "price": 422.62,
+        "sma_20": 404.207,
+        "sma_50": 355.03,
+        "rsi_14": 66.51011862967795,
+        "macd": 20.54329569804696,
+        "macd_signal": 21.122581642119663,
+        "bb_upper": 442.6872531696456,
+        "bb_lower": 365.7267468303544,
+        "bb_mid": 404.207,
+        "volume": 220028.0,
+        "vol_avg_20": 623274.05,
+        "volume_ratio": 1.0350134102326256,
+        "five_day_return": 4.21552308735591,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 9,
       "news_headlines": [
-        "Broadcom Introduces Unified AI Cloud Infrastructure Solution",
-        "'Big Short' Idol Steve Eisman Warns Iran War Could End Tomorrow, But 'The Financial Event Is Not Ending'",
-        "Nvidia, TSM And Broadcom Are Sending The Same Signal\u2014And It's Not Bullish"
+        "OpenAI Collaborates With Microsoft, AMD, Intel, Nvidia, Broadcom To Roll Multipath Reliable Connection Working Protocol",
+        "Nancy Pelosi Portfolio Back In Spotlight As Former House Speaker Reportedly Rakes In Cool $3 Million From Stock Market In One Week",
+        "Broadcom Introduces Unified AI Cloud Infrastructure Solution"
       ],
       "confidence": {
-        "technical_score": 17,
+        "technical_score": 14,
         "news_score": 9,
         "perplexity_score": 18,
-        "total": 44,
+        "total": 41,
         "action": "HOLD"
       },
       "info": {
@@ -378,33 +388,33 @@
     },
     "AMD": {
       "technicals": {
-        "price": 358.755,
-        "sma_20": 297.80075,
-        "sma_50": 241.4463,
-        "rsi_14": 73.41850812657495,
-        "macd": 34.73275585330646,
-        "macd_signal": 30.43261023332616,
-        "bb_upper": 384.07546427220143,
-        "bb_lower": 211.5260357277986,
-        "bb_mid": 297.80075,
-        "volume": 833993.0,
-        "vol_avg_20": 692521.8,
-        "volume_ratio": 1.5080016253639956,
-        "five_day_return": 11.042156741364373,
+        "price": 413.99,
+        "sma_20": 306.72950000000003,
+        "sma_50": 245.3734,
+        "rsi_14": 80.75275420730677,
+        "macd": 38.902096025189394,
+        "macd_signal": 32.10896821373258,
+        "bb_upper": 400.90309024163867,
+        "bb_lower": 212.5559097583614,
+        "bb_mid": 306.72950000000003,
+        "volume": 1031752.0,
+        "vol_avg_20": 740671.4,
+        "volume_ratio": 1.771458976274769,
+        "five_day_return": 22.81107699609901,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 5,
+      "news_score": 13,
       "news_headlines": [
-        "Broadcom Introduces Unified AI Cloud Infrastructure Solution",
-        "10 Information Technology Stocks With Whale Alerts In Today's Session",
-        "'Trump administration looks to ease memory chip crunch with supply chain bloc' - Nikkei Asia"
+        "This AMD Analyst Turns Bullish; Here Are Top 5 Upgrades For Wednesday",
+        "What's Going On With NVIDIA Stock Wednesday?",
+        "AMD Stock Hits New All-Time Highs: Well Positioned 'To Ride That Demand Wave'"
       ],
       "confidence": {
         "technical_score": 22,
-        "news_score": 5,
-        "perplexity_score": 15,
-        "total": 42,
+        "news_score": 13,
+        "perplexity_score": 26,
+        "total": 61,
         "action": "HOLD"
       },
       "info": {
@@ -415,44 +425,44 @@
       },
       "perplexity": {
         "symbol": "AMD",
-        "sentiment": "NEUTRAL",
-        "perplexity_score": 15,
-        "key_catalyst": "I cannot provide the comprehensive investment analysis you've requested because the search results lack the necessary current data to evaluate AMD's investment catalysts as of May 2026.\n\nThe available",
-        "risk": "Unable to parse structured response",
-        "timeframe": "unknown",
-        "raw_response": "I cannot provide the comprehensive investment analysis you've requested because the search results lack the necessary current data to evaluate AMD's investment catalysts as of May 2026.\n\nThe available information only includes AMD's full-year 2025 results (record revenue of $34.6 billion, net income of $4.3 billion, and diluted EPS of $2.65)[1], but the search results are missing critical information needed for your analysis:\n\n- **Recent earnings or upcoming earnings dates** \u2013 No Q1 2026 results",
-        "updated_at": "2026-05-04 11:33:52"
+        "sentiment": "STRONG_POSITIVE",
+        "perplexity_score": 26,
+        "key_catalyst": "AMD's first\u2011quarter 2026 results beat expectations with $10.3 billion revenue and strong AI\u2011driven data\u2011center growth, reinforcing its position as a key beneficiary of the AI infrastructure build\u2011out.",
+        "risk": "Aggressive capital spending and intensifying competition from Nvidia and Intel in AI accelerators and data\u2011center CPUs could pressure margins and market\u2011share gains if execution or demand falter.",
+        "timeframe": "medium-term (5-20 day)",
+        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 26,\n  \"KEY_CATALYST\": \"AMD's first\u2011quarter 2026 results beat expectations with $10.3 billion revenue and strong AI\u2011driven data\u2011center growth, reinforcing its position as a key beneficiary of the AI infrastructure build\u2011out.\",\n  \"RISK\": \"Aggressive capital spending and intensifying competition from Nvidia and Intel in AI accelerators and data\u2011center CPUs could pressure margins and market\u2011share gains if execution or demand falter.\",\n  \"TIMEFR",
+        "updated_at": "2026-05-06 11:54:00"
       }
     },
     "TSLA": {
       "technicals": {
-        "price": 392.77,
-        "sma_20": 376.8525,
-        "sma_50": 383.17369999999994,
-        "rsi_14": 57.28159833749302,
-        "macd": 2.6144857696645545,
-        "macd_signal": 0.2455669348359079,
-        "bb_upper": 410.7656958830186,
-        "bb_lower": 342.9393041169814,
-        "bb_mid": 376.8525,
-        "volume": 481619.0,
-        "vol_avg_20": 834892.85,
-        "volume_ratio": 0.5550844039447697,
-        "five_day_return": 4.429555183324019,
+        "price": 394.18,
+        "sma_20": 379.217,
+        "sma_50": 382.7993,
+        "rsi_14": 57.52702632123753,
+        "macd": 2.9886594262853805,
+        "macd_signal": 0.6500212370970455,
+        "bb_upper": 409.9476788730741,
+        "bb_lower": 348.4863211269259,
+        "bb_mid": 379.217,
+        "volume": 375208.0,
+        "vol_avg_20": 800850.7,
+        "volume_ratio": 0.7584359981204987,
+        "five_day_return": 5.73639667914001,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 5,
+      "news_score": 0,
       "news_headlines": [
-        "9 Consumer Discretionary Stocks Whale Activity In Today's Session",
-        "Tesla, Meta, Microsoft Investors May Need A 'Self-Destruct' Switch, Not Blind Faith",
-        "China's Robotaxi Race Hits A Safety Pause"
+        "Elon Musk Plans To Spend Up To $119 Billion On Chip Plant To Take On TSMC",
+        "What's Going On With Tesla Stock Wednesday?",
+        "Tesla Rival Lucid Eyes 2027 Affordable EV Ramp Against Model Y, Rivian R2"
       ],
       "confidence": {
         "technical_score": 25,
-        "news_score": 5,
+        "news_score": 0,
         "perplexity_score": 18,
-        "total": 48,
+        "total": 43,
         "action": "HOLD"
       },
       "info": {
@@ -465,42 +475,42 @@
         "symbol": "TSLA",
         "sentiment": "POSITIVE",
         "perplexity_score": 18,
-        "key_catalyst": "Tesla reported Q1 2026 earnings with a +13.89% EPS surprise and strong free cash flow of $1.4 billion, exceeding expectations, though gross margins contracted to approximately 19.7%.",
-        "risk": "Historical pattern shows TSLA shares have declined in the immediate aftermath of earnings 8 out of 12 previous reports, with an average first-day drop of -1.4%, and the company is transitioning from automaker to AI/robotics which carries execution uncertainty.",
-        "timeframe": "short-term",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"Tesla reported Q1 2026 earnings with a +13.89% EPS surprise and strong free cash flow of $1.4 billion, exceeding expectations, though gross margins contracted to approximately 19.7%.\",\n  \"RISK\": \"Historical pattern shows TSLA shares have declined in the immediate aftermath of earnings 8 out of 12 previous reports, with an average first-day drop of -1.4%, and the company is transitioning from automaker to AI/robotics ",
-        "updated_at": "2026-05-04 11:33:58"
+        "key_catalyst": "Tesla beat Q1 2026 EPS estimates by 36.67% ($0.41 vs $0.30 expected) on April 21-22, 2026, with strong free cash flow of $1.4B and gross margins near 19.7%, signaling operational momentum.",
+        "risk": "Historical pattern shows TSLA shares declined in 8 of 12 post-earnings periods, and stock was down 1-3.29% immediately after the April earnings release despite the beat, suggesting limited near-term upside despite strong fundamentals.",
+        "timeframe": "medium-term (5-20 day)",
+        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"Tesla beat Q1 2026 EPS estimates by 36.67% ($0.41 vs $0.30 expected) on April 21-22, 2026, with strong free cash flow of $1.4B and gross margins near 19.7%, signaling operational momentum.\",\n  \"RISK\": \"Historical pattern shows TSLA shares declined in 8 of 12 post-earnings periods, and stock was down 1-3.29% immediately after the April earnings release despite the beat, suggesting limited near-term upside despite stro",
+        "updated_at": "2026-05-06 11:54:09"
       }
     },
     "CRM": {
       "technicals": {
-        "price": 186.07,
-        "sma_20": 179.32199999999997,
-        "sma_50": 186.79370000000003,
-        "rsi_14": 53.595897044939925,
-        "macd": -0.42257260075859904,
-        "macd_signal": -1.4910784283541547,
-        "bb_upper": 191.8644999103052,
-        "bb_lower": 166.77950008969475,
-        "bb_mid": 179.32199999999997,
-        "volume": 232857.0,
-        "vol_avg_20": 514466.15,
-        "volume_ratio": 0.8762578451468576,
-        "five_day_return": 2.597044552271721,
+        "price": 182.47,
+        "sma_20": 179.6775,
+        "sma_50": 186.7543,
+        "rsi_14": 49.77179858743594,
+        "macd": -0.29787993699991944,
+        "macd_signal": -1.2320911163831922,
+        "bb_upper": 192.32066396318606,
+        "bb_lower": 167.03433603681395,
+        "bb_mid": 179.6775,
+        "volume": 160173.0,
+        "vol_avg_20": 520647.15,
+        "volume_ratio": 0.6878670131969415,
+        "five_day_return": 0.6786581328624974,
         "above_sma20": true,
         "above_sma50": false
       },
       "news_score": 5,
       "news_headlines": [
+        "Salesforce Selected by Merck Animal Health To Unify Animal Health Management Systems On Single Platform",
         "Microsoft's $627 Billion Order Book Is Bigger Than The Combined Size Of IBM, Salesforce, Dell And Adobe",
-        "Stock Market Today: Dow Jones Roars As Industrials Rescue Wall Street From Meta-Led Tech Slide",
-        "Here's How Much $1000 Invested In Salesforce 20 Years Ago Would Be Worth Today"
+        "Stock Market Today: Dow Jones Roars As Industrials Rescue Wall Street From Meta-Led Tech Slide"
       ],
       "confidence": {
         "technical_score": 20,
         "news_score": 5,
-        "perplexity_score": 22,
-        "total": 47,
+        "perplexity_score": 18,
+        "total": 43,
         "action": "HOLD"
       },
       "info": {
@@ -512,14 +522,14 @@
       "perplexity": {
         "symbol": "CRM",
         "sentiment": "POSITIVE",
-        "perplexity_score": 22,
-        "key_catalyst": "Salesforce's Q4 FY26 earnings on February 25, 2026, delivered revenue of $11.2B (up 12% YoY) and EPS of $3.81 (beating estimates of $3.05 by 24.92%), with emphasis on Agentforce AI platform growth (MarketBeat, Investing.com).",
-        "risk": "Post-earnings stock decline of 1.2% after-hours despite the beat, alongside a high trailing P/E of 37.05 and forward P/E of 34.17, signals potential valuation concerns amid market volatility (MarketBeat, Investing.com).",
-        "timeframe": "medium-term (5-20 day)",
-        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 22,\n  \"KEY_CATALYST\": \"Salesforce's Q4 FY26 earnings on February 25, 2026, delivered revenue of $11.2B (up 12% YoY) and EPS of $3.81 (beating estimates of $3.05 by 24.92%), with emphasis on Agentforce AI platform growth (MarketBeat, Investing.com).\",\n  \"RISK\": \"Post-earnings stock decline of 1.2% after-hours despite the beat, alongside a high trailing P/E of 37.05 and forward P/E of 34.17, signals potential valuation concerns amid market volatilit",
-        "updated_at": "2026-05-04 11:34:01"
+        "perplexity_score": 18,
+        "key_catalyst": "Salesforce delivered record Q4 FY2026 results on Feb 25, 2026 with EPS of $3.81 beating estimates by 41.64% and revenue of $11.2B (+12% YoY), demonstrating strong operational execution.",
+        "risk": "Stock fell 1.2% after-hours despite earnings beat, and historical data shows CRM moves higher in only 6 of 12 previous earnings reports, suggesting mixed market reception to positive results.",
+        "timeframe": "medium-term",
+        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"Salesforce delivered record Q4 FY2026 results on Feb 25, 2026 with EPS of $3.81 beating estimates by 41.64% and revenue of $11.2B (+12% YoY), demonstrating strong operational execution.\",\n  \"RISK\": \"Stock fell 1.2% after-hours despite earnings beat, and historical data shows CRM moves higher in only 6 of 12 previous earnings reports, suggesting mixed market reception to positive results.\",\n  \"TIMEFRAME\": \"medium-term",
+        "updated_at": "2026-05-06 11:54:16"
       }
     }
   },
-  "perplexity_enhanced_at": "2026-05-04 11:34:01"
+  "perplexity_enhanced_at": "2026-05-06 11:54:16"
 }
