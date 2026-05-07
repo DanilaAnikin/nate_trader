@@ -1,44 +1,64 @@
 {
-  "updated_at": "2026-05-07 11:55:49",
+  "updated_at": "2026-05-07 11:57:37",
   "positions": [
+    {
+      "symbol": "AAON",
+      "qty": 347.0,
+      "avg_entry_price": 135.84,
+      "current_price": 135.835,
+      "market_value": 47134.745,
+      "unrealized_pl": -1.735,
+      "unrealized_plpc": -0.004,
+      "side": "PositionSide.LONG"
+    },
     {
       "symbol": "AAPL",
       "qty": 180.0,
       "avg_entry_price": 276.85,
-      "current_price": 289.28,
-      "market_value": 52070.4,
-      "unrealized_pl": 2237.4,
-      "unrealized_plpc": 4.49,
+      "current_price": 289.245,
+      "market_value": 52064.1,
+      "unrealized_pl": 2231.1,
+      "unrealized_plpc": 4.476999999999999,
+      "side": "PositionSide.LONG"
+    },
+    {
+      "symbol": "AGL",
+      "qty": 618.0,
+      "avg_entry_price": 57.94,
+      "current_price": 57.67,
+      "market_value": 35640.06,
+      "unrealized_pl": -166.86,
+      "unrealized_plpc": -0.466,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "AMZN",
       "qty": 194.0,
       "avg_entry_price": 256.87,
-      "current_price": 273.35,
-      "market_value": 53029.9,
-      "unrealized_pl": 3197.12,
-      "unrealized_plpc": 6.4159999999999995,
+      "current_price": 273.49,
+      "market_value": 53057.06,
+      "unrealized_pl": 3224.28,
+      "unrealized_plpc": 6.47,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "EQH",
       "qty": 1090.0,
       "avg_entry_price": 43.81,
-      "current_price": 44.01,
-      "market_value": 47970.9,
-      "unrealized_pl": 218.0,
-      "unrealized_plpc": 0.457,
+      "current_price": 43.96,
+      "market_value": 47916.4,
+      "unrealized_pl": 163.5,
+      "unrealized_plpc": 0.34199999999999997,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "GOOGL",
       "qty": 133.0,
       "avg_entry_price": 374.0,
-      "current_price": 395.92,
-      "market_value": 52657.36,
-      "unrealized_pl": 2915.36,
-      "unrealized_plpc": 5.861000000000001,
+      "current_price": 395.72,
+      "market_value": 52630.76,
+      "unrealized_pl": 2888.76,
+      "unrealized_plpc": 5.8069999999999995,
       "side": "PositionSide.LONG"
     }
   ]
