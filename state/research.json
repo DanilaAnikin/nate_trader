@@ -1,47 +1,47 @@
 {
-  "updated_at": "2026-05-07 11:55:11",
+  "updated_at": "2026-05-07 14:18:33",
   "spy": {
     "symbol": "SPY",
-    "price": 734.885,
-    "sma_20": 710.256,
-    "sma_50": 683.3493999999998,
-    "rsi_14": 76.10752495609539,
-    "five_day_return": 2.29325872412689,
-    "monthly_return": 8.710798816568044,
+    "price": 731.89,
+    "sma_20": 710.10625,
+    "sma_50": 683.2895,
+    "rsi_14": 73.5017003845216,
+    "five_day_return": 1.8763658635041258,
+    "monthly_return": 8.267751479289931,
     "market_regime": "BULL",
-    "updated_at": "2026-05-07 11:55:11"
+    "updated_at": "2026-05-07 14:18:33"
   },
   "symbols": {
     "QQQ": {
       "technicals": {
-        "price": 698.72,
-        "sma_20": 655.93375,
-        "sma_50": 618.9248,
-        "rsi_14": 81.08837746216902,
-        "macd": 21.510004491816403,
-        "macd_signal": 18.293183944659518,
-        "bb_upper": 700.8955915853942,
-        "bb_lower": 610.9719084146059,
-        "bb_mid": 655.93375,
-        "volume": 270288.0,
+        "price": 695.0,
+        "sma_20": 655.74775,
+        "sma_50": 618.8504,
+        "rsi_14": 79.8001118952054,
+        "macd": 21.213252355064128,
+        "macd_signal": 18.233833517309062,
+        "bb_upper": 700.0256288420367,
+        "bb_lower": 611.4698711579633,
+        "bb_mid": 655.74775,
+        "volume": 556466.0,
         "vol_avg_20": 739236.0,
         "volume_ratio": 1.1189809478975592,
-        "five_day_return": 4.659906232680755,
+        "five_day_return": 4.1026946870178715,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 9,
+      "news_score": 17,
       "news_headlines": [
-        "Trade Strategy For SPY, AAPL, MSFT, NVDA, GOOGL, META, And TSLA",
-        "Stock Market Today: Do, S&P 500, Nasdaq Futures Gain As Trump Celebrates Record Gains\u2014 Fortinet, Whirlpool, Core Scientific In Focus (UPDATED)",
-        "Decade-Long Global Insider Trading Ring Busted: 30 Charged In Multi-Million Dollar Scheme"
+        "Nasdaq 100 Climbs Records, Oil Extends Drop As Iran Weighs Hormuz Deal: Stock Market Today",
+        "Stocks Hit Record Highs Ahead Of Jobs Report, Trump's China Visit",
+        "Trade Strategy For SPY, AAPL, MSFT, NVDA, GOOGL, META, And TSLA"
       ],
       "confidence": {
         "technical_score": 17,
-        "news_score": 9,
+        "news_score": 17,
         "perplexity_score": 12,
-        "total": 38,
-        "action": "SELL"
+        "total": 46,
+        "action": "HOLD"
       },
       "info": {
         "sector": "Technology",
@@ -62,33 +62,33 @@
     },
     "NVDA": {
       "technicals": {
-        "price": 213.33,
-        "sma_20": 201.919,
-        "sma_50": 188.0625,
-        "rsi_14": 64.66023918248479,
-        "macd": 5.403028373049864,
-        "macd_signal": 5.5662699703921055,
-        "bb_upper": 216.4531472402069,
-        "bb_lower": 187.38485275979312,
-        "bb_mid": 201.919,
-        "volume": 2404026.0,
+        "price": 213.14,
+        "sma_20": 201.9095,
+        "sma_50": 188.05870000000002,
+        "rsi_14": 64.54163319637115,
+        "macd": 5.387871677893173,
+        "macd_signal": 5.563238631360767,
+        "bb_upper": 216.4140185718111,
+        "bb_lower": 187.4049814281889,
+        "bb_mid": 201.9095,
+        "volume": 3551610.0,
         "vol_avg_20": 4340271.55,
         "volume_ratio": 1.4742651297935494,
-        "five_day_return": 6.910895058634869,
+        "five_day_return": 6.815676054926323,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 1,
+      "news_score": 9,
       "news_headlines": [
-        "Intel Stock Struggles To Keep Pace: NVIDIA and AMD Pull Ahead in AI 'Two-Horse Race'",
-        "Trade Strategy For SPY, AAPL, MSFT, NVDA, GOOGL, META, And TSLA",
-        "Elon Musk Called Claude 'Evil' \u2014 Now Anthropic Runs On His Nvidia Supercomputer"
+        "'OpenAI's AI Chip Deal With Broadcom Hits $18 Billion Financing Snag' - The Information",
+        "Copper Is Dead, Glass Is King: Inside Nvidia's $500M Bet On Fiber Optics",
+        "10 Information Technology Stocks Whale Activity In Today's Session"
       ],
       "confidence": {
         "technical_score": 23,
-        "news_score": 1,
+        "news_score": 9,
         "perplexity_score": 0,
-        "total": 24,
+        "total": 32,
         "action": "SELL"
       },
       "info": {
@@ -100,33 +100,33 @@
     },
     "AAPL": {
       "technicals": {
-        "price": 289.36,
-        "sma_20": 271.6335,
-        "sma_50": 262.4132,
-        "rsi_14": 70.63669650221284,
-        "macd": 6.563535344726461,
-        "macd_signal": 4.702617958030999,
-        "bb_upper": 288.5208162758327,
-        "bb_lower": 254.74618372416737,
-        "bb_mid": 271.6335,
-        "volume": 548490.0,
+        "price": 288.89,
+        "sma_20": 271.61,
+        "sma_50": 262.4038,
+        "rsi_14": 70.34993738976266,
+        "macd": 6.5260424672335375,
+        "macd_signal": 4.695119382532415,
+        "bb_upper": 288.39960511745295,
+        "bb_lower": 254.82039488254705,
+        "bb_mid": 271.61,
+        "volume": 793205.0,
         "vol_avg_20": 1302427.0,
         "volume_ratio": 1.0588846822125155,
-        "five_day_return": 6.717807815006749,
+        "five_day_return": 6.544468826642569,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 1,
+      "news_score": 13,
       "news_headlines": [
-        "'Rave Inc. Files Antitrust Suit Against Apple In U.S. Federal Court Alleging Apple Removed Rave From App Store After Apple Released A Competing Product' - Reuters News",
-        "Trade Strategy For SPY, AAPL, MSFT, NVDA, GOOGL, META, And TSLA",
-        "Amazon, Google, Microsoft In Focus As EU Reportedly Mulls Restricting US Cloud Providers' Access To Sensitive Data"
+        "Stocks Hit Record Highs Ahead Of Jobs Report, Trump's China Visit",
+        "'Trump administration plans to invite CEOs from Nvidia, Apple, Exxon on China trip' - Semafor",
+        "Nvidia, Apple Drive A Mag 7 Coup That Just Seized 55% Of S&P 500 Profits"
       ],
       "confidence": {
         "technical_score": 17,
-        "news_score": 1,
+        "news_score": 13,
         "perplexity_score": 22,
-        "total": 40,
+        "total": 52,
         "action": "HOLD"
       },
       "info": {
@@ -148,33 +148,33 @@
     },
     "MSFT": {
       "technicals": {
-        "price": 426.11,
-        "sma_20": 414.19624999999996,
-        "sma_50": 397.9710999999999,
-        "rsi_14": 60.795834180980236,
-        "macd": 7.173975276146621,
-        "macd_signal": 7.8832041888022495,
-        "bb_upper": 444.36934892520054,
-        "bb_lower": 384.0231510747994,
-        "bb_mid": 414.19624999999996,
-        "volume": 326565.0,
+        "price": 422.445,
+        "sma_20": 414.01300000000003,
+        "sma_50": 397.89779999999996,
+        "rsi_14": 59.08210413394466,
+        "macd": 6.881610603781951,
+        "macd_signal": 7.824731254329315,
+        "bb_upper": 443.93794718458065,
+        "bb_lower": 384.0880528154194,
+        "bb_mid": 414.01300000000003,
+        "volume": 482138.0,
         "vol_avg_20": 932935.5,
         "volume_ratio": 0.8195861343040328,
-        "five_day_return": 4.498914816131849,
+        "five_day_return": 3.6001128100744406,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 5,
+      "news_score": 17,
       "news_headlines": [
-        "Trade Strategy For SPY, AAPL, MSFT, NVDA, GOOGL, META, And TSLA",
-        "Amazon, Google, Microsoft In Focus As EU Reportedly Mulls Restricting US Cloud Providers' Access To Sensitive Data",
-        "Cramer Defends Massive AI Spending Spree: 'The Demand Already Exists'"
+        "'OpenAI's AI Chip Deal With Broadcom Hits $18 Billion Financing Snag' - The Information",
+        "10 Information Technology Stocks Whale Activity In Today's Session",
+        "OpenAI Announces Advancing Voice Intelligence With New Models In The API"
       ],
       "confidence": {
         "technical_score": 18,
-        "news_score": 5,
+        "news_score": 17,
         "perplexity_score": 0,
-        "total": 23,
+        "total": 35,
         "action": "SELL"
       },
       "info": {
@@ -186,33 +186,33 @@
     },
     "META": {
       "technicals": {
-        "price": 622.66,
-        "sma_20": 650.154,
-        "sma_50": 627.6193,
-        "rsi_14": 46.27453635614418,
-        "macd": -2.503180714110613,
-        "macd_signal": 4.475379907433832,
-        "bb_upper": 706.9243692607333,
-        "bb_lower": 593.3836307392667,
-        "bb_mid": 650.154,
-        "volume": 131768.0,
+        "price": 616.24,
+        "sma_20": 649.833,
+        "sma_50": 627.4909,
+        "rsi_14": 43.997885616332724,
+        "macd": -3.0153174662473248,
+        "macd_signal": 4.3729525570064895,
+        "bb_upper": 707.2900320674503,
+        "bb_lower": 592.3759679325497,
+        "bb_mid": 649.833,
+        "volume": 268597.0,
         "vol_avg_20": 502642.0,
         "volume_ratio": 1.0343524814878184,
-        "five_day_return": 1.7152378463146878,
+        "five_day_return": 0.6664924202822942,
         "above_sma20": false,
         "above_sma50": false
       },
-      "news_score": 5,
+      "news_score": 13,
       "news_headlines": [
-        "Who Benefits As Meta Tests Stablecoin Payments For Creators",
-        "This Hut 8 Analyst Raises Price Target Despite Q1 Miss",
-        "Trade Strategy For SPY, AAPL, MSFT, NVDA, GOOGL, META, And TSLA"
+        "Copper Is Dead, Glass Is King: Inside Nvidia's $500M Bet On Fiber Optics",
+        "Stocks Hit Record Highs Ahead Of Jobs Report, Trump's China Visit",
+        "Arm's AI Party Hits A Supply Wall, Stock Falls"
       ],
       "confidence": {
         "technical_score": 13,
-        "news_score": 5,
+        "news_score": 13,
         "perplexity_score": 0,
-        "total": 18,
+        "total": 26,
         "action": "SELL"
       },
       "info": {
@@ -224,33 +224,33 @@
     },
     "AMZN": {
       "technicals": {
-        "price": 273.34,
-        "sma_20": 257.99775,
-        "sma_50": 229.988,
-        "rsi_14": 78.85891846625577,
-        "macd": 13.273074578324184,
-        "macd_signal": 12.750067844630243,
-        "bb_upper": 279.79317027009387,
-        "bb_lower": 236.2023297299061,
-        "bb_mid": 257.99775,
-        "volume": 787039.0,
+        "price": 272.8,
+        "sma_20": 257.97075,
+        "sma_50": 229.97719999999998,
+        "rsi_14": 77.85745963104311,
+        "macd": 13.229997655247303,
+        "macd_signal": 12.741452460014866,
+        "bb_upper": 279.69128919105185,
+        "bb_lower": 236.25021080894814,
+        "bb_mid": 257.97075,
+        "volume": 1265367.0,
         "vol_avg_20": 1999723.35,
         "volume_ratio": 0.9369831081884401,
-        "five_day_return": 3.131602776939313,
+        "five_day_return": 2.927859945668576,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 9,
+      "news_score": 17,
       "news_headlines": [
-        "CMS To Offer Wegovy To Eligible Medicare Patients At $50 Monthly Copay Starting July 2026",
-        "This Hut 8 Analyst Raises Price Target Despite Q1 Miss",
-        "Amazon, Google, Microsoft In Focus As EU Reportedly Mulls Restricting US Cloud Providers' Access To Sensitive Data"
+        "Nasdaq 100 Climbs Records, Oil Extends Drop As Iran Weighs Hormuz Deal: Stock Market Today",
+        "Stocks Hit Record Highs Ahead Of Jobs Report, Trump's China Visit",
+        "Arm's AI Party Hits A Supply Wall, Stock Falls"
       ],
       "confidence": {
         "technical_score": 17,
-        "news_score": 9,
+        "news_score": 17,
         "perplexity_score": 26,
-        "total": 52,
+        "total": 60,
         "action": "HOLD"
       },
       "info": {
@@ -272,33 +272,33 @@
     },
     "GOOGL": {
       "technicals": {
-        "price": 396.25,
-        "sma_20": 353.269,
-        "sma_50": 321.8233,
-        "rsi_14": 81.99896948739446,
-        "macd": 21.493683510880373,
-        "macd_signal": 16.898323852232448,
-        "bb_upper": 403.57572962934483,
-        "bb_lower": 302.9622703706552,
-        "bb_mid": 353.269,
-        "volume": 336029.0,
+        "price": 397.18,
+        "sma_20": 353.31550000000004,
+        "sma_50": 321.8419,
+        "rsi_14": 82.97344141802881,
+        "macd": 21.567871545068442,
+        "macd_signal": 16.91316145907006,
+        "bb_upper": 403.78252199456597,
+        "bb_lower": 302.8484780054341,
+        "bb_mid": 353.31550000000004,
+        "volume": 639573.0,
         "vol_avg_20": 926289.35,
         "volume_ratio": 1.156785404042484,
-        "five_day_return": 2.9247512922413454,
+        "five_day_return": 3.1663160082080033,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 5,
+      "news_score": 17,
       "news_headlines": [
-        "Trade Strategy For SPY, AAPL, MSFT, NVDA, GOOGL, META, And TSLA",
-        "Google Introduces The All-New Fitbit Air; Fitbit Air Is Compatible With Android And iOS And Available For Pre-order, Starting Today For $99.99; Google Fitbit Air Special Edition Will Be Available For Pre-Order Today, And On-Shelf In The U.S. May 26 For $129.99; Accessory Bands Are Available For Pre-order Today, Starting At $34.99",
-        "Amazon, Google, Microsoft In Focus As EU Reportedly Mulls Restricting US Cloud Providers' Access To Sensitive Data"
+        "'OpenAI's AI Chip Deal With Broadcom Hits $18 Billion Financing Snag' - The Information",
+        "Nasdaq 100 Climbs Records, Oil Extends Drop As Iran Weighs Hormuz Deal: Stock Market Today",
+        "Arm's AI Party Hits A Supply Wall, Stock Falls"
       ],
       "confidence": {
         "technical_score": 17,
-        "news_score": 5,
+        "news_score": 17,
         "perplexity_score": 24,
-        "total": 46,
+        "total": 58,
         "action": "HOLD"
       },
       "info": {
@@ -320,19 +320,19 @@
     },
     "AVGO": {
       "technicals": {
-        "price": 420.94,
-        "sma_20": 407.63925,
-        "sma_50": 356.85519999999997,
-        "rsi_14": 65.24987929114332,
-        "macd": 19.868153973702306,
-        "macd_signal": 20.878515302532776,
-        "bb_upper": 439.67525681654865,
-        "bb_lower": 375.60324318345135,
-        "bb_mid": 407.63925,
-        "volume": 289481.0,
+        "price": 409.0,
+        "sma_20": 407.04225,
+        "sma_50": 356.6164,
+        "rsi_14": 58.26164533442096,
+        "macd": 18.915675341223675,
+        "macd_signal": 20.68801957603705,
+        "bb_upper": 438.5044246665731,
+        "bb_lower": 375.580075333427,
+        "bb_mid": 407.04225,
+        "volume": 523439.0,
         "vol_avg_20": 595004.6,
         "volume_ratio": 0.9311877588845532,
-        "five_day_return": 0.8118788169081403,
+        "five_day_return": -2.0476589629984443,
         "above_sma20": true,
         "above_sma50": true
       },
@@ -343,10 +343,10 @@
         "Nancy Pelosi Portfolio Back In Spotlight As Former House Speaker Reportedly Rakes In Cool $3 Million From Stock Market In One Week"
       ],
       "confidence": {
-        "technical_score": 14,
+        "technical_score": 18,
         "news_score": 9,
         "perplexity_score": 0,
-        "total": 23,
+        "total": 27,
         "action": "SELL"
       },
       "info": {
@@ -358,33 +358,33 @@
     },
     "AMD": {
       "technicals": {
-        "price": 409.05,
-        "sma_20": 315.72799999999995,
-        "sma_50": 249.48760000000001,
-        "rsi_14": 76.52018635116741,
-        "macd": 42.00360343877952,
-        "macd_signal": 34.18591288746588,
-        "bb_upper": 415.68773641421825,
-        "bb_lower": 215.76826358578165,
-        "bb_mid": 315.72799999999995,
-        "volume": 334692.0,
+        "price": 405.455,
+        "sma_20": 315.54825,
+        "sma_50": 249.4157,
+        "rsi_14": 75.21107120031411,
+        "macd": 41.71682281199895,
+        "macd_signal": 34.12855676210977,
+        "bb_upper": 414.846827193986,
+        "bb_lower": 216.249672806014,
+        "bb_mid": 315.54825,
+        "volume": 560210.0,
         "vol_avg_20": 778370.6,
         "volume_ratio": 1.9565461490965872,
-        "five_day_return": 15.4171722016873,
+        "five_day_return": 14.40281030444963,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 9,
+      "news_score": 13,
       "news_headlines": [
-        "Intel Stock Struggles To Keep Pace: NVIDIA and AMD Pull Ahead in AI 'Two-Horse Race'",
-        "Rackspace And AMD Sign Partnership MOU To Create An Enterprise AI Cloud For Regulated Enterprises And Sovereign Workloads",
-        "AMD Vs Nvidia: Why AMD's 'Integrated Strategy' Could Be NVDA's Biggest Threat In 2026"
+        "What's Going On With Rackspace Technology Stock Today?",
+        "'OpenAI's AI Chip Deal With Broadcom Hits $18 Billion Financing Snag' - The Information",
+        "AMD Stock Is Hot As 'AI Agents' Are Sparking $120 Billion CPU Gold Mine"
       ],
       "confidence": {
         "technical_score": 22,
-        "news_score": 9,
+        "news_score": 13,
         "perplexity_score": 27,
-        "total": 58,
+        "total": 62,
         "action": "HOLD"
       },
       "info": {
@@ -406,33 +406,33 @@
     },
     "TSLA": {
       "technicals": {
-        "price": 409.305,
-        "sma_20": 382.61600000000004,
-        "sma_50": 382.726,
-        "rsi_14": 63.923866624957306,
-        "macd": 4.9803483309246985,
-        "macd_signal": 1.534802800205949,
-        "bb_upper": 412.36635186346587,
-        "bb_lower": 352.8656481365342,
-        "bb_mid": 382.61600000000004,
-        "volume": 452545.0,
+        "price": 407.22,
+        "sma_20": 382.51175,
+        "sma_50": 382.6843,
+        "rsi_14": 63.14036128131258,
+        "macd": 4.814023544599877,
+        "macd_signal": 1.5015378429409845,
+        "bb_upper": 411.8996860069745,
+        "bb_lower": 353.1238139930255,
+        "bb_mid": 382.51175,
+        "volume": 714590.0,
         "vol_avg_20": 784629.25,
         "volume_ratio": 1.0492343995587725,
-        "five_day_return": 7.254598815575708,
+        "five_day_return": 6.708243802735714,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 1,
+      "news_score": 17,
       "news_headlines": [
-        "Trade Strategy For SPY, AAPL, MSFT, NVDA, GOOGL, META, And TSLA",
-        "Intel Stock Bubble Warning \u2014 More Extreme Than Cisco At Dot\u2011Com Peak",
-        "AI Productivity Boom Could Ease $39 Trillion National Debt\u2014 But Only If The Government Stops Doing This"
+        "10 Consumer Discretionary Stocks With Whale Alerts In Today's Session",
+        "Nasdaq 100 Climbs Records, Oil Extends Drop As Iran Weighs Hormuz Deal: Stock Market Today",
+        "Stocks Hit Record Highs Ahead Of Jobs Report, Trump's China Visit"
       ],
       "confidence": {
         "technical_score": 25,
-        "news_score": 1,
+        "news_score": 17,
         "perplexity_score": 22,
-        "total": 48,
+        "total": 64,
         "action": "HOLD"
       },
       "info": {
@@ -454,33 +454,33 @@
     },
     "CRM": {
       "technicals": {
-        "price": 188.32,
-        "sma_20": 180.4855,
-        "sma_50": 186.65550000000002,
-        "rsi_14": 55.06156561154271,
-        "macd": 0.20380240167597208,
-        "macd_signal": -0.8588127801506599,
-        "bb_upper": 192.95267526146182,
-        "bb_lower": 168.01832473853818,
-        "bb_mid": 180.4855,
-        "volume": 266384.0,
+        "price": 186.82,
+        "sma_20": 180.4105,
+        "sma_50": 186.62550000000002,
+        "rsi_14": 53.85864976052175,
+        "macd": 0.08414428201785995,
+        "macd_signal": -0.8827444040822823,
+        "bb_upper": 192.70510284027125,
+        "bb_lower": 168.11589715972877,
+        "bb_mid": 180.4105,
+        "volume": 417548.0,
         "vol_avg_20": 516981.0,
         "volume_ratio": 0.9200338116874701,
-        "five_day_return": 6.684794924087911,
+        "five_day_return": 5.83503285746656,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 5,
+      "news_score": 9,
       "news_headlines": [
+        "Michael Burry Reports Sold Positions In Salesforce And Autodesk At Small Profits",
         "Salesforce Selected by Merck Animal Health To Unify Animal Health Management Systems On Single Platform",
-        "Microsoft's $627 Billion Order Book Is Bigger Than The Combined Size Of IBM, Salesforce, Dell And Adobe",
-        "Stock Market Today: Dow Jones Roars As Industrials Rescue Wall Street From Meta-Led Tech Slide"
+        "Microsoft's $627 Billion Order Book Is Bigger Than The Combined Size Of IBM, Salesforce, Dell And Adobe"
       ],
       "confidence": {
         "technical_score": 25,
-        "news_score": 5,
+        "news_score": 9,
         "perplexity_score": 18,
-        "total": 48,
+        "total": 52,
         "action": "HOLD"
       },
       "info": {
