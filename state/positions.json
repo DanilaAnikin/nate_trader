@@ -1,54 +1,54 @@
 {
-  "updated_at": "2026-05-08 11:11:12",
+  "updated_at": "2026-05-08 11:12:38",
   "positions": [
     {
       "symbol": "AAON",
       "qty": 347.0,
       "avg_entry_price": 135.84,
-      "current_price": 136.2199,
-      "market_value": 47268.3053,
-      "unrealized_pl": 131.8253,
-      "unrealized_plpc": 0.27999999999999997,
+      "current_price": 136.02,
+      "market_value": 47198.94,
+      "unrealized_pl": 62.46,
+      "unrealized_plpc": 0.133,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "AAPL",
       "qty": 180.0,
       "avg_entry_price": 276.85,
-      "current_price": 293.66,
-      "market_value": 52858.8,
-      "unrealized_pl": 3025.8,
-      "unrealized_plpc": 6.072,
+      "current_price": 293.44,
+      "market_value": 52819.2,
+      "unrealized_pl": 2986.2,
+      "unrealized_plpc": 5.992,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "AMZN",
       "qty": 194.0,
       "avg_entry_price": 256.87,
-      "current_price": 272.35,
-      "market_value": 52835.9,
-      "unrealized_pl": 3003.12,
-      "unrealized_plpc": 6.026,
+      "current_price": 272.34,
+      "market_value": 52833.96,
+      "unrealized_pl": 3001.18,
+      "unrealized_plpc": 6.023,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "EQH",
       "qty": 1090.0,
       "avg_entry_price": 43.81,
-      "current_price": 43.36,
-      "market_value": 47262.4,
-      "unrealized_pl": -490.5,
-      "unrealized_plpc": -1.027,
+      "current_price": 43.355,
+      "market_value": 47256.95,
+      "unrealized_pl": -495.95,
+      "unrealized_plpc": -1.039,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "GOOGL",
       "qty": 133.0,
       "avg_entry_price": 374.0,
-      "current_price": 399.115,
-      "market_value": 53082.295,
-      "unrealized_pl": 3340.295,
-      "unrealized_plpc": 6.715,
+      "current_price": 399.28,
+      "market_value": 53104.24,
+      "unrealized_pl": 3362.24,
+      "unrealized_plpc": 6.7589999999999995,
       "side": "PositionSide.LONG"
     }
   ]
