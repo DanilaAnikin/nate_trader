@@ -1,119 +1,119 @@
 {
-  "updated_at": "2026-05-11 12:19:00",
+  "updated_at": "2026-05-11 12:24:18",
   "most_active": [
     {
       "symbol": "EZGO",
-      "volume": 1495773318,
-      "trade_count": 518329
+      "volume": 1500478917,
+      "trade_count": 519866
     },
     {
       "symbol": "MEHA",
-      "volume": 832559087,
-      "trade_count": 582216
+      "volume": 836709828,
+      "trade_count": 585237
     },
     {
       "symbol": "SOXS",
-      "volume": 196599264,
-      "trade_count": 252724
+      "volume": 199148867,
+      "trade_count": 255305
     },
     {
       "symbol": "POM",
-      "volume": 164443889,
-      "trade_count": 103158
+      "volume": 183054961,
+      "trade_count": 114917
     },
     {
       "symbol": "TZA",
-      "volume": 133597654,
-      "trade_count": 26619
+      "volume": 137367125,
+      "trade_count": 27342
     },
     {
       "symbol": "HAO",
-      "volume": 122888126,
-      "trade_count": 77792
+      "volume": 124691424,
+      "trade_count": 78700
     },
     {
       "symbol": "INTC",
-      "volume": 107030850,
-      "trade_count": 1204890
+      "volume": 108111621,
+      "trade_count": 1217898
     },
     {
       "symbol": "TSLL",
-      "volume": 106409721,
-      "trade_count": 320776
+      "volume": 107748651,
+      "trade_count": 325000
     },
     {
       "symbol": "PLUG",
-      "volume": 91118217,
-      "trade_count": 128024
+      "volume": 92358726,
+      "trade_count": 130455
     },
     {
       "symbol": "NVDA",
-      "volume": 90313334,
-      "trade_count": 1717577
+      "volume": 91776543,
+      "trade_count": 1762352
     },
     {
       "symbol": "BMNU",
-      "volume": 86336713,
-      "trade_count": 29615
-    },
-    {
-      "symbol": "ENSC",
-      "volume": 82516476,
-      "trade_count": 168039
+      "volume": 88194013,
+      "trade_count": 30157
     },
     {
       "symbol": "NOK",
-      "volume": 81927572,
-      "trade_count": 202241
+      "volume": 83088366,
+      "trade_count": 205632
     },
     {
-      "symbol": "JZXN",
-      "volume": 77804341,
-      "trade_count": 287133
+      "symbol": "ENSC",
+      "volume": 82794156,
+      "trade_count": 168358
     },
     {
       "symbol": "BITO",
-      "volume": 76658176,
-      "trade_count": 35167
+      "volume": 79025094,
+      "trade_count": 36101
+    },
+    {
+      "symbol": "JZXN",
+      "volume": 77901786,
+      "trade_count": 287649
     },
     {
       "symbol": "DRAM",
-      "volume": 54899402,
-      "trade_count": 457705
+      "volume": 55752334,
+      "trade_count": 464575
     },
     {
       "symbol": "POET",
-      "volume": 54681149,
-      "trade_count": 254886
+      "volume": 55276294,
+      "trade_count": 257906
     },
     {
       "symbol": "IREN",
-      "volume": 52798159,
-      "trade_count": 605136
+      "volume": 53562805,
+      "trade_count": 613304
     },
     {
       "symbol": "WOK",
-      "volume": 47471420,
-      "trade_count": 122803
+      "volume": 48708845,
+      "trade_count": 125997
     },
     {
       "symbol": "RXT",
-      "volume": 44145455,
-      "trade_count": 167661
+      "volume": 45194841,
+      "trade_count": 169696
     }
   ],
   "top_movers": [
     {
       "symbol": "POM",
-      "change_pct": 205.2,
-      "price": 0.2289,
-      "change": 0.1539
+      "change_pct": 189.6,
+      "price": 0.2172,
+      "change": 0.1422
     },
     {
-      "symbol": "SABSW",
-      "change_pct": 77.82,
-      "price": 0.0489,
-      "change": 0.0214
+      "symbol": "MEHA",
+      "change_pct": 66.98,
+      "price": 0.1588,
+      "change": 0.0637
     },
     {
       "symbol": "BFRGW",
@@ -122,16 +122,16 @@
       "change": 0.1222
     },
     {
-      "symbol": "MEHA",
-      "change_pct": 60.04,
-      "price": 0.1522,
-      "change": 0.0571
+      "symbol": "AIIOW",
+      "change_pct": 55.28,
+      "price": 0.0559,
+      "change": 0.0199
     },
     {
       "symbol": "JZXN",
-      "change_pct": 58.01,
-      "price": 1.43,
-      "change": 0.525
+      "change_pct": 54.14,
+      "price": 1.395,
+      "change": 0.49
     },
     {
       "symbol": "CHARR",
@@ -140,16 +140,16 @@
       "change": 0.0379
     },
     {
+      "symbol": "POEL",
+      "change_pct": 52.51,
+      "price": 66.375,
+      "change": 22.85
+    },
+    {
       "symbol": "BAYAR",
       "change_pct": 52.37,
       "price": 0.1219,
       "change": 0.0419
-    },
-    {
-      "symbol": "AIIOW",
-      "change_pct": 52.22,
-      "price": 0.0548,
-      "change": 0.0188
     },
     {
       "symbol": "TXXS",
@@ -158,16 +158,16 @@
       "change": 2.869
     },
     {
-      "symbol": "POEL",
-      "change_pct": 51.92,
-      "price": 66.12,
-      "change": 22.6
+      "symbol": "MRAM",
+      "change_pct": 51.21,
+      "price": 40.8115,
+      "change": 13.82
     },
     {
-      "symbol": "MRAM",
-      "change_pct": 51.72,
-      "price": 40.9499,
-      "change": 13.96
+      "symbol": "PRSO",
+      "change_pct": 49.23,
+      "price": 1.4795,
+      "change": 0.4881
     },
     {
       "symbol": "ENGNW",
@@ -176,16 +176,10 @@
       "change": 0.0589
     },
     {
-      "symbol": "PRSO",
-      "change_pct": 46.26,
-      "price": 1.45,
-      "change": 0.4586
-    },
-    {
-      "symbol": "AAOX",
-      "change_pct": 46.01,
-      "price": 65.91,
-      "change": 20.77
+      "symbol": "DRTSW",
+      "change_pct": 48.84,
+      "price": 1.95,
+      "change": 0.6399
     },
     {
       "symbol": "PSQH.WS",
@@ -194,22 +188,22 @@
       "change": 0.0283
     },
     {
-      "symbol": "DRTSW",
-      "change_pct": 45.03,
-      "price": 1.9,
-      "change": 0.5899
+      "symbol": "AAOX",
+      "change_pct": 45.75,
+      "price": 65.79,
+      "change": 20.65
     },
     {
       "symbol": "GSIT",
-      "change_pct": 44.38,
-      "price": 12.2,
-      "change": 3.75
+      "change_pct": 43.2,
+      "price": 12.1,
+      "change": 3.65
     },
     {
       "symbol": "NVTX",
-      "change_pct": 44.07,
-      "price": 104.31,
-      "change": 31.91
+      "change_pct": 43.02,
+      "price": 103.5501,
+      "change": 31.15
     },
     {
       "symbol": "NBRGR",
@@ -224,10 +218,16 @@
       "change": 0.0683
     },
     {
+      "symbol": "HPAI",
+      "change_pct": 38.22,
+      "price": 1.363,
+      "change": 0.3769
+    },
+    {
       "symbol": "HAO",
-      "change_pct": -93.55,
-      "price": 0.0471,
-      "change": -0.6829
+      "change_pct": -93.58,
+      "price": 0.0469,
+      "change": -0.6831
     },
     {
       "symbol": "RNWWW",
@@ -243,9 +243,21 @@
     },
     {
       "symbol": "RPGL",
-      "change_pct": -43.02,
-      "price": 0.4757,
-      "change": -0.3591
+      "change_pct": -41.78,
+      "price": 0.486,
+      "change": -0.3488
+    },
+    {
+      "symbol": "SMX",
+      "change_pct": -36.94,
+      "price": 14,
+      "change": -8.2
+    },
+    {
+      "symbol": "LITZ",
+      "change_pct": -36.27,
+      "price": 13.67,
+      "change": -7.78
     },
     {
       "symbol": "LHAI",
@@ -254,16 +266,10 @@
       "change": -0.47
     },
     {
-      "symbol": "LITZ",
-      "change_pct": -35.34,
-      "price": 13.87,
-      "change": -7.58
-    },
-    {
       "symbol": "MASK",
-      "change_pct": -35.22,
-      "price": 2.06,
-      "change": -1.12
+      "change_pct": -33.96,
+      "price": 2.1,
+      "change": -1.08
     },
     {
       "symbol": "MYPSW",
@@ -272,52 +278,52 @@
       "change": -0.0016
     },
     {
-      "symbol": "SMX",
-      "change_pct": -31.76,
-      "price": 15.15,
-      "change": -7.05
+      "symbol": "WOK",
+      "change_pct": -31.33,
+      "price": 0.879,
+      "change": -0.401
     },
     {
       "symbol": "CRCD",
-      "change_pct": -31.67,
-      "price": 2.2309,
-      "change": -1.034
-    },
-    {
-      "symbol": "PMAX",
-      "change_pct": -31.66,
-      "price": 2.72,
-      "change": -1.26
-    },
-    {
-      "symbol": "DYNCW",
-      "change_pct": -31.25,
-      "price": 0.11,
-      "change": -0.05
+      "change_pct": -30.63,
+      "price": 2.265,
+      "change": -1
     },
     {
       "symbol": "IONZ",
-      "change_pct": -30.71,
-      "price": 3.52,
-      "change": -1.56
-    },
-    {
-      "symbol": "WOK",
-      "change_pct": -28.13,
-      "price": 0.9199,
-      "change": -0.3601
-    },
-    {
-      "symbol": "RKLZ",
-      "change_pct": -27.9,
-      "price": 2.92,
-      "change": -1.13
+      "change_pct": -30.51,
+      "price": 3.5302,
+      "change": -1.55
     },
     {
       "symbol": "CREG",
-      "change_pct": -27.38,
-      "price": 0.2106,
-      "change": -0.0794
+      "change_pct": -28.48,
+      "price": 0.2074,
+      "change": -0.0826
+    },
+    {
+      "symbol": "RKLZ",
+      "change_pct": -27.4,
+      "price": 2.9403,
+      "change": -1.11
+    },
+    {
+      "symbol": "DYNCW",
+      "change_pct": -26.81,
+      "price": 0.1171,
+      "change": -0.0429
+    },
+    {
+      "symbol": "HUBC",
+      "change_pct": -26.76,
+      "price": 0.1812,
+      "change": -0.0662
+    },
+    {
+      "symbol": "PMAX",
+      "change_pct": -26.38,
+      "price": 2.93,
+      "change": -1.05
     },
     {
       "symbol": "SLXNW",
@@ -326,25 +332,20 @@
       "change": -0.0039
     },
     {
-      "symbol": "HUBC",
-      "change_pct": -25.83,
-      "price": 0.1835,
-      "change": -0.0639
-    },
-    {
-      "symbol": "BEZ",
-      "change_pct": -24.93,
-      "price": 1.8992,
-      "change": -0.6308
-    },
-    {
       "symbol": "CODX",
-      "change_pct": -24.9,
-      "price": 1.9,
-      "change": -0.63
+      "change_pct": -24.51,
+      "price": 1.91,
+      "change": -0.62
+    },
+    {
+      "symbol": "ENHA",
+      "change_pct": -24.23,
+      "price": 7.35,
+      "change": -2.35
     }
   ],
   "trending": [
+    "GME",
     "VZ",
     "MCD",
     "NEE",
@@ -353,28 +354,27 @@
     "SPGI",
     "CB",
     "DHR",
-    "CRH",
-    "SU"
+    "CRH"
   ],
   "scored_candidates": {
     "CB": {
       "technicals": {
-        "price": 318.805,
-        "sma_20": 325.96799999999996,
-        "sma_50": 327.2941,
-        "rsi_14": 38.62038612661796,
-        "macd": -1.9955198778561112,
-        "macd_signal": -1.0408469282596793,
-        "bb_upper": 333.3336210871862,
-        "bb_lower": 318.6023789128137,
-        "bb_mid": 325.96799999999996,
-        "volume": 21746.0,
+        "price": 318.6,
+        "sma_20": 325.95775,
+        "sma_50": 327.29,
+        "rsi_14": 38.37125078436584,
+        "macd": -2.011873154209411,
+        "macd_signal": -1.0441175835303393,
+        "bb_upper": 333.36367497599065,
+        "bb_lower": 318.5518250240093,
+        "bb_mid": 325.95775,
+        "volume": 21997.0,
         "vol_avg_20": 78241.45,
         "volume_ratio": 0.5643044703287069,
-        "five_day_return": -1.933310775477548,
-        "twenty_day_return": -3.386568882962604,
-        "atr_14": 5.407448480171047,
-        "atr_pct": 1.696161754103934,
+        "five_day_return": -1.9963702359346525,
+        "twenty_day_return": -3.4486938602339534,
+        "atr_14": 5.413162765885332,
+        "atr_pct": 1.69904669362377,
         "above_sma20": false,
         "above_sma50": false
       },
@@ -397,22 +397,22 @@
     },
     "CRH": {
       "technicals": {
-        "price": 113.09,
-        "sma_20": 115.42075,
-        "sma_50": 110.2825,
-        "rsi_14": 48.83857428508804,
-        "macd": 0.3500914249553517,
-        "macd_signal": 0.8883167642417046,
-        "bb_upper": 119.7272372866409,
-        "bb_lower": 111.1142627133591,
-        "bb_mid": 115.42075,
-        "volume": 29391.0,
+        "price": 113.08,
+        "sma_20": 115.42025000000001,
+        "sma_50": 110.28229999999999,
+        "rsi_14": 48.820612077296865,
+        "macd": 0.34929370415761696,
+        "macd_signal": 0.8881572200821577,
+        "bb_upper": 119.72782179278533,
+        "bb_lower": 111.11267820721469,
+        "bb_mid": 115.42025000000001,
+        "volume": 31881.0,
         "vol_avg_20": 210897.55,
         "volume_ratio": 0.8338171780563597,
-        "five_day_return": 2.0299530855286907,
-        "twenty_day_return": -3.5561998976633147,
+        "five_day_return": 2.020931071815224,
+        "twenty_day_return": -3.564727954971858,
         "atr_14": 3.2891464311127243,
-        "atr_pct": 2.908432603336037,
+        "atr_pct": 2.908689804662827,
         "above_sma20": false,
         "above_sma50": true
       },
@@ -435,22 +435,22 @@
     },
     "DHR": {
       "technicals": {
-        "price": 165.35,
-        "sma_20": 182.1405,
-        "sma_50": 188.5059,
-        "rsi_14": 24.969013310344195,
-        "macd": -5.8766073934488645,
-        "macd_signal": -4.781811274440084,
-        "bb_upper": 201.54448410120972,
-        "bb_lower": 162.7365158987903,
-        "bb_mid": 182.1405,
-        "volume": 291763.0,
+        "price": 165.92,
+        "sma_20": 182.16899999999998,
+        "sma_50": 188.5173,
+        "rsi_14": 25.373588269107884,
+        "macd": -5.831137307978764,
+        "macd_signal": -4.772717257346065,
+        "bb_upper": 201.475685267026,
+        "bb_lower": 162.86231473297397,
+        "bb_mid": 182.16899999999998,
+        "volume": 305669.0,
         "vol_avg_20": 312482.45,
         "volume_ratio": 0.9746339354418144,
-        "five_day_return": -5.014935661764719,
-        "twenty_day_return": -15.60761496452815,
+        "five_day_return": -4.687500000000011,
+        "twenty_day_return": -15.316694737916613,
         "atr_14": 4.790478398286398,
-        "atr_pct": 2.897174719253945,
+        "atr_pct": 2.887221792602699,
         "above_sma20": false,
         "above_sma50": false
       },
@@ -473,22 +473,22 @@
     },
     "DRAM": {
       "technicals": {
-        "price": 55.68,
-        "sma_20": 40.38925,
+        "price": 55.265,
+        "sma_20": 40.3685,
         "sma_50": null,
-        "rsi_14": 85.81817166091875,
-        "macd": 5.222449994524936,
+        "rsi_14": 85.56812261408666,
+        "macd": 5.189344581419526,
         "macd_signal": null,
-        "bb_upper": 52.7013275155942,
-        "bb_lower": 28.077172484405796,
-        "bb_mid": 40.38925,
-        "volume": 1836460.0,
+        "bb_upper": 52.578402169960256,
+        "bb_lower": 28.15859783003974,
+        "bb_mid": 40.3685,
+        "volume": 1876620.0,
         "vol_avg_20": 579735.15,
         "volume_ratio": 3.1703304517588764,
-        "five_day_return": 31.01176470588236,
-        "twenty_day_return": 66.01073345259391,
+        "five_day_return": 30.03529411764707,
+        "twenty_day_return": 64.77340488968397,
         "atr_14": 2.353687465247007,
-        "atr_pct": 4.227168579825802,
+        "atr_pct": 4.258911544824042,
         "above_sma20": true,
         "above_sma50": null
       },
@@ -509,24 +509,100 @@
       },
       "source": "screener"
     },
+    "ENHA": {
+      "technicals": {
+        "price": 7.345,
+        "sma_20": 10.078750000000001,
+        "sma_50": 10.1324,
+        "rsi_14": 35.00175076588762,
+        "macd": -0.29162245570912404,
+        "macd_signal": -0.0470409205917286,
+        "bb_upper": 11.885033131184036,
+        "bb_lower": 8.272466868815966,
+        "bb_mid": 10.078750000000001,
+        "volume": 873.0,
+        "vol_avg_20": 2836.7,
+        "volume_ratio": 5.2483519582613605,
+        "five_day_return": -33.46920289855072,
+        "twenty_day_return": -28.411306042884988,
+        "atr_14": 0.8723057789691044,
+        "atr_pct": 11.876184873643355,
+        "above_sma20": false,
+        "above_sma50": false
+      },
+      "news_score": 9,
+      "news_headlines": [
+        "Dole Posts Downbeat Q1 Earnings, Joins Ocular Therapeutix And Other Big Stocks Moving Lower In Monday's Pre-Market Session",
+        "Why Digi Power X Shares Are Trading Higher By Around 20%; Here Are 20 Stocks Moving Premarket",
+        "EXCLUSIVE: Enhanced Hits NYSE As Sports, Science And Wall Street Collide"
+      ],
+      "confidence": {
+        "technical_score": 5,
+        "news_score": 9,
+        "perplexity_score": 0,
+        "total": 14,
+        "action": "SELL",
+        "threshold_used": 55,
+        "regime": "auto"
+      },
+      "source": "screener"
+    },
+    "GME": {
+      "technicals": {
+        "price": 23.69,
+        "sma_20": 24.76325,
+        "sma_50": 23.9398,
+        "rsi_14": 46.27590460409843,
+        "macd": 0.11316700289542325,
+        "macd_signal": 0.2888140241936673,
+        "bb_upper": 26.08760371030549,
+        "bb_lower": 23.438896289694508,
+        "bb_mid": 24.76325,
+        "volume": 180077.0,
+        "vol_avg_20": 401376.55,
+        "volume_ratio": 0.8675245227953651,
+        "five_day_return": -0.6291946308724761,
+        "twenty_day_return": 1.2393162393162571,
+        "atr_14": 1.0972464371351496,
+        "atr_pct": 4.631686100190584,
+        "above_sma20": false,
+        "above_sma50": false
+      },
+      "news_score": 9,
+      "news_headlines": [
+        "Rocket Lab, Super Micro Computer, eBay And More: 5 Stocks Investors Couldn't Stop Buzzing About This Week",
+        "Deal Dispatch: J.M. Smucker Considers Strategic Review, Meta Buys Assured Robot Intelligence, Buzzfeed On Brink Of Bankruptcy",
+        "Michael Burry Says GameStop's eBay Bid 'Just Went Hostile' After Ryan Cohen Claims Ban: All You Need To Know"
+      ],
+      "confidence": {
+        "technical_score": 6,
+        "news_score": 9,
+        "perplexity_score": 0,
+        "total": 15,
+        "action": "SELL",
+        "threshold_used": 55,
+        "regime": "auto"
+      },
+      "source": "screener"
+    },
     "GSIT": {
       "technicals": {
-        "price": 12.2,
-        "sma_20": 7.548,
-        "sma_50": 7.0851,
-        "rsi_14": 77.37697738000395,
-        "macd": 0.8345962444906894,
-        "macd_signal": 0.4600229504440231,
-        "bb_upper": 10.156743758976727,
-        "bb_lower": 4.939256241023272,
-        "bb_mid": 7.548,
-        "volume": 199028.0,
+        "price": 12.1,
+        "sma_20": 7.543000000000001,
+        "sma_50": 7.083099999999999,
+        "rsi_14": 77.12470599538514,
+        "macd": 0.8266190365134811,
+        "macd_signal": 0.45842750884858147,
+        "bb_upper": 10.116201119228739,
+        "bb_lower": 4.969798880771263,
+        "bb_mid": 7.543000000000001,
+        "volume": 201662.0,
         "vol_avg_20": 31907.85,
         "volume_ratio": 1.4608630791482347,
-        "five_day_return": 55.810983397190284,
-        "twenty_day_return": 97.57085020242914,
+        "five_day_return": 54.53384418901659,
+        "twenty_day_return": 95.9514170040486,
         "atr_14": 0.8738801575360073,
-        "atr_pct": 7.16295211095088,
+        "atr_pct": 7.222150062281052,
         "above_sma20": true,
         "above_sma50": true
       },
@@ -539,8 +615,8 @@
       "confidence": {
         "technical_score": 37,
         "news_score": 9,
-        "perplexity_score": 18,
-        "total": 64,
+        "perplexity_score": 22,
+        "total": 68,
         "action": "BUY",
         "threshold_used": 55,
         "regime": "auto"
@@ -549,32 +625,32 @@
       "perplexity": {
         "symbol": "GSIT",
         "sentiment": "POSITIVE",
-        "perplexity_score": 18,
-        "key_catalyst": "GSI Technology beat Q4 FY2026 earnings expectations by $0.06 EPS on May 7, 2026, with SRAM revenue growing 22% to $25.1M and gross margins expanding to ~54.5%, demonstrating operational progress in core business.",
-        "risk": "Company remains unprofitable with negative net margin of 43.15% and negative ROE of 22.69%, creating execution risk on APU commercialization timeline despite $67.2M cash runway.",
+        "perplexity_score": 22,
+        "key_catalyst": "GSI Technology reported Q4 FY2026 earnings on May 7, 2026, with EPS of -$0.13 beating consensus estimates of -$0.19 by $0.06, alongside 22% FY2026 revenue growth to $25.1M driven by SRAM and $67.2M cash position with no debt (MarketBeat, May 7, 2026).",
+        "risk": "Persistent negative profitability with -43.15% net margin and -22.69% return on equity, plus high operating expense growth of 48.6%, could pressure margins amid semiconductor sector volatility (MarketBeat).",
         "timeframe": "medium-term (5-20 day)",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 18,\n  \"KEY_CATALYST\": \"GSI Technology beat Q4 FY2026 earnings expectations by $0.06 EPS on May 7, 2026, with SRAM revenue growing 22% to $25.1M and gross margins expanding to ~54.5%, demonstrating operational progress in core business.\",\n  \"RISK\": \"Company remains unprofitable with negative net margin of 43.15% and negative ROE of 22.69%, creating execution risk on APU commercialization timeline despite $67.2M cash runway.\",\n  \"TIMEFRAME\":",
-        "updated_at": "2026-05-11 12:20:26"
+        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 22,\n  \"KEY_CATALYST\": \"GSI Technology reported Q4 FY2026 earnings on May 7, 2026, with EPS of -$0.13 beating consensus estimates of -$0.19 by $0.06, alongside 22% FY2026 revenue growth to $25.1M driven by SRAM and $67.2M cash position with no debt (MarketBeat, May 7, 2026).\",\n  \"RISK\": \"Persistent negative profitability with -43.15% net margin and -22.69% return on equity, plus high operating expense growth of 48.6%, could pressure margins amid se",
+        "updated_at": "2026-05-11 12:26:01"
       }
     },
     "INTC": {
       "technicals": {
-        "price": 127.65,
-        "sma_20": 87.493,
-        "sma_50": 63.756,
-        "rsi_14": 85.79569835976955,
-        "macd": 16.797263336079695,
-        "macd_signal": 13.09612986526239,
-        "bb_upper": 128.90961120854766,
-        "bb_lower": 46.07638879145234,
-        "bb_mid": 87.493,
-        "volume": 1975883.0,
+        "price": 127.45,
+        "sma_20": 87.48299999999999,
+        "sma_50": 63.751999999999995,
+        "rsi_14": 85.75059724623497,
+        "macd": 16.781308920125298,
+        "macd_signal": 13.09293898207151,
+        "bb_upper": 128.86090139676003,
+        "bb_lower": 46.10509860323996,
+        "bb_mid": 87.48299999999999,
+        "volume": 2003709.0,
         "vol_avg_20": 3928248.15,
         "volume_ratio": 1.4664895851857016,
-        "five_day_return": 33.288086039469576,
-        "twenty_day_return": 95.87233389596442,
+        "five_day_return": 33.07925237548292,
+        "twenty_day_return": 95.56544422280191,
         "atr_14": 6.830323308090293,
-        "atr_pct": 5.3508212362634495,
+        "atr_pct": 5.359217974178339,
         "above_sma20": true,
         "above_sma50": true
       },
@@ -587,8 +663,8 @@
       "confidence": {
         "technical_score": 32,
         "news_score": 9,
-        "perplexity_score": 28,
-        "total": 69,
+        "perplexity_score": 22,
+        "total": 63,
         "action": "BUY",
         "threshold_used": 55,
         "regime": "auto"
@@ -596,33 +672,33 @@
       "source": "screener",
       "perplexity": {
         "symbol": "INTC",
-        "sentiment": "STRONG_POSITIVE",
-        "perplexity_score": 28,
-        "key_catalyst": "Intel's Q1 2026 earnings on April 23, 2026, reported EPS of $0.29 beating estimates of -$0.01 to $0.01 by up to 3,000% with revenue of $13.58B up 7.4% YoY exceeding $12.32B expectations, driving a 13.96% stock surge to $124.92 as of May 8, 2026.",
-        "risk": "Morningstar rates INTC at a 583% premium to fair value of $49 with very high uncertainty and a trailing four-quarter EPS of -$0.62, signaling potential overvaluation and profitability concerns.",
-        "timeframe": "short-term",
-        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 28,\n  \"KEY_CATALYST\": \"Intel's Q1 2026 earnings on April 23, 2026, reported EPS of $0.29 beating estimates of -$0.01 to $0.01 by up to 3,000% with revenue of $13.58B up 7.4% YoY exceeding $12.32B expectations, driving a 13.96% stock surge to $124.92 as of May 8, 2026.\",\n  \"RISK\": \"Morningstar rates INTC at a 583% premium to fair value of $49 with very high uncertainty and a trailing four-quarter EPS of -$0.62, signaling potential overvaluat",
-        "updated_at": "2026-05-11 12:20:32"
+        "sentiment": "POSITIVE",
+        "perplexity_score": 22,
+        "key_catalyst": "Intel's Q1 2026 earnings on April 23, 2026, reported non-GAAP EPS of $0.29 beating estimates of -$0.01 to $0.01 (up to 3,000% surprise), revenue of $13.6B (+7% YoY) exceeding $12.32B expectations, with Q2 guidance of $13.8B-$14.8B revenue and $0.20 non-GAAP EPS (source: Intel press release, MarketBeat).",
+        "risk": "Persistent GAAP losses (Q1 EPS -$0.73) and trailing 4-quarter EPS of -$0.62 highlight ongoing profitability challenges amid competition from AMD and TSMC (source: MarketBeat, Intel reports).",
+        "timeframe": "medium-term",
+        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 22,\n  \"KEY_CATALYST\": \"Intel's Q1 2026 earnings on April 23, 2026, reported non-GAAP EPS of $0.29 beating estimates of -$0.01 to $0.01 (up to 3,000% surprise), revenue of $13.6B (+7% YoY) exceeding $12.32B expectations, with Q2 guidance of $13.8B-$14.8B revenue and $0.20 non-GAAP EPS (source: Intel press release, MarketBeat).\",\n  \"RISK\": \"Persistent GAAP losses (Q1 EPS -$0.73) and trailing 4-quarter EPS of -$0.62 highlight ongoing profitability ch",
+        "updated_at": "2026-05-11 12:26:06"
       }
     },
     "IREN": {
       "technicals": {
-        "price": 59.24,
-        "sma_20": 50.304500000000004,
-        "sma_50": 43.6201,
-        "rsi_14": 64.46159858262965,
-        "macd": 4.3328754653918935,
-        "macd_signal": 3.091591035588733,
-        "bb_upper": 60.993846518847704,
-        "bb_lower": 39.615153481152305,
-        "bb_mid": 50.304500000000004,
-        "volume": 995441.0,
+        "price": 58.96,
+        "sma_20": 50.290499999999994,
+        "sma_50": 43.6145,
+        "rsi_14": 63.995587394800424,
+        "macd": 4.310539283055711,
+        "macd_signal": 3.087123799121496,
+        "bb_upper": 60.93363154104568,
+        "bb_lower": 39.64736845895431,
+        "bb_mid": 50.290499999999994,
+        "volume": 1024517.0,
         "vol_avg_20": 1017590.5,
         "volume_ratio": 2.165771987847764,
-        "five_day_return": 19.749343036183543,
-        "twenty_day_return": 37.623417353931934,
+        "five_day_return": 19.18334344046897,
+        "twenty_day_return": 36.97293530026715,
         "atr_14": 4.818921925679935,
-        "atr_pct": 8.134574486292935,
+        "atr_pct": 8.17320543704195,
         "above_sma20": true,
         "above_sma50": true
       },
@@ -646,31 +722,31 @@
         "symbol": "IREN",
         "sentiment": "NEGATIVE",
         "perplexity_score": 8,
-        "key_catalyst": "IREN reported Q3 2026 earnings on May 7, 2026, with EPS of -$0.33 missing estimates of -$0.24 by 36.25% (public.com) and revenue of $144.8M missing $219.87M forecast by 34.14% (investing.com), leading to likely post-earnings stock pressure.",
-        "risk": "Significant earnings miss on both EPS and revenue exposes IREN to heightened volatility in the Bitcoin mining sector amid potential crypto price fluctuations and competition.",
-        "timeframe": "short-term (1-5 day)",
-        "raw_response": "{\n  \"SENTIMENT\": \"NEGATIVE\",\n  \"CATALYST_SCORE\": 8,\n  \"KEY_CATALYST\": \"IREN reported Q3 2026 earnings on May 7, 2026, with EPS of -$0.33 missing estimates of -$0.24 by 36.25% (public.com) and revenue of $144.8M missing $219.87M forecast by 34.14% (investing.com), leading to likely post-earnings stock pressure.\",\n  \"RISK\": \"Significant earnings miss on both EPS and revenue exposes IREN to heightened volatility in the Bitcoin mining sector amid potential crypto price fluctuations and competition.\"",
-        "updated_at": "2026-05-11 12:20:20"
+        "key_catalyst": "Q3 2026 earnings missed analyst expectations with EPS of -$0.33 vs. -$0.24 estimate (reported May 7, 2026), signaling continued operational challenges in Bitcoin mining and AI Cloud services.",
+        "risk": "Revenue significantly underperformed guidance at $144.8M vs. $219.87M estimate (-34.14%), with next quarter projecting further deterioration at -$0.40 EPS, indicating potential structural headwinds in the cryptocurrency mining sector.",
+        "timeframe": "medium-term",
+        "raw_response": "```json\n{\n  \"SENTIMENT\": \"NEGATIVE\",\n  \"CATALYST_SCORE\": 8,\n  \"KEY_CATALYST\": \"Q3 2026 earnings missed analyst expectations with EPS of -$0.33 vs. -$0.24 estimate (reported May 7, 2026), signaling continued operational challenges in Bitcoin mining and AI Cloud services.\",\n  \"RISK\": \"Revenue significantly underperformed guidance at $144.8M vs. $219.87M estimate (-34.14%), with next quarter projecting further deterioration at -$0.40 EPS, indicating potential structural headwinds in the cryptocurre",
+        "updated_at": "2026-05-11 12:25:57"
       }
     },
     "MCD": {
       "technicals": {
-        "price": 274.01,
-        "sma_20": 293.91625,
-        "sma_50": 307.42359999999996,
-        "rsi_14": 23.63873538050605,
-        "macd": -8.520609128749697,
-        "macd_signal": -7.04843279854457,
-        "bb_upper": 315.2491719459034,
-        "bb_lower": 272.58332805409657,
-        "bb_mid": 293.91625,
-        "volume": 124169.0,
+        "price": 274.31,
+        "sma_20": 293.93125,
+        "sma_50": 307.4296,
+        "rsi_14": 23.80512431794658,
+        "macd": -8.496677504818024,
+        "macd_signal": -7.043646473758235,
+        "bb_upper": 315.20851271751155,
+        "bb_lower": 272.6539872824884,
+        "bb_mid": 293.93125,
+        "volume": 125143.0,
         "vol_avg_20": 134951.3,
         "volume_ratio": 1.4013425583895822,
-        "five_day_return": -3.5702345550843617,
-        "twenty_day_return": -10.010180958323755,
+        "five_day_return": -3.464658373071028,
+        "twenty_day_return": -9.911655555190645,
         "atr_14": 5.6701116508382325,
-        "atr_pct": 2.0693082919741004,
+        "atr_pct": 2.0670451864088926,
         "above_sma20": false,
         "above_sma50": false
       },
@@ -693,22 +769,22 @@
     },
     "MRAM": {
       "technicals": {
-        "price": 40.68,
-        "sma_20": 17.02075,
-        "sma_50": 12.475400000000002,
-        "rsi_14": 90.28892582614746,
-        "macd": 4.752307812066579,
-        "macd_signal": 2.680298127959066,
-        "bb_upper": 30.870668510590598,
-        "bb_lower": 3.1708314894094,
-        "bb_mid": 17.02075,
-        "volume": 191100.0,
+        "price": 40.87,
+        "sma_20": 17.03025,
+        "sma_50": 12.4792,
+        "rsi_14": 90.34767310154515,
+        "macd": 4.7674645072232735,
+        "macd_signal": 2.683329466990405,
+        "bb_upper": 30.9451774072846,
+        "bb_lower": 3.1153225927153976,
+        "bb_mid": 17.03025,
+        "volume": 195133.0,
         "vol_avg_20": 52508.4,
         "volume_ratio": 2.3221236983035096,
-        "five_day_return": 116.72882258923813,
-        "twenty_day_return": 266.3214768122467,
-        "atr_14": 2.8444118147360733,
-        "atr_pct": 6.992162769754359,
+        "five_day_return": 117.74107618540222,
+        "twenty_day_return": 268.0324178298064,
+        "atr_14": 2.8658403861646446,
+        "atr_pct": 7.012088050317213,
         "above_sma20": true,
         "above_sma50": true
       },
@@ -731,22 +807,22 @@
     },
     "NEE": {
       "technicals": {
-        "price": 95.365,
-        "sma_20": 93.9955,
-        "sma_50": 92.92220000000002,
-        "rsi_14": 53.82291616833907,
-        "macd": 0.601990627399843,
-        "macd_signal": 0.712465283395382,
-        "bb_upper": 98.5792832627645,
-        "bb_lower": 89.41171673723551,
-        "bb_mid": 93.9955,
-        "volume": 167231.0,
+        "price": 95.31,
+        "sma_20": 93.99275,
+        "sma_50": 92.92110000000001,
+        "rsi_14": 53.68221323432029,
+        "macd": 0.5976031630123799,
+        "macd_signal": 0.7115877905178893,
+        "bb_upper": 98.57330834478724,
+        "bb_lower": 89.41219165521277,
+        "bb_mid": 93.99275,
+        "volume": 170846.0,
         "vol_avg_20": 450963.75,
         "volume_ratio": 1.1121026911808323,
-        "five_day_return": -0.20406027626622691,
-        "twenty_day_return": 3.320693391115914,
+        "five_day_return": -0.26161573880284505,
+        "twenty_day_return": 3.26110509209101,
         "atr_14": 2.1846525334719087,
-        "atr_pct": 2.2908326256717966,
+        "atr_pct": 2.292154583435011,
         "above_sma20": true,
         "above_sma50": true
       },
@@ -769,22 +845,22 @@
     },
     "NEM": {
       "technicals": {
-        "price": 120.285,
-        "sma_20": 113.29775,
-        "sma_50": 112.1012,
-        "rsi_14": 58.75478156019046,
-        "macd": 0.5732269002581063,
-        "macd_signal": -0.1657573983025587,
-        "bb_upper": 121.18380381353683,
-        "bb_lower": 105.41169618646316,
-        "bb_mid": 113.29775,
-        "volume": 100675.0,
+        "price": 120.165,
+        "sma_20": 113.29174999999998,
+        "sma_50": 112.0988,
+        "rsi_14": 58.6398409854771,
+        "macd": 0.5636542506854596,
+        "macd_signal": -0.16767192821708804,
+        "bb_upper": 121.15668437671279,
+        "bb_lower": 105.42681562328717,
+        "bb_mid": 113.29174999999998,
+        "volume": 103027.0,
         "vol_avg_20": 307260.7,
         "volume_ratio": 0.5367917211670741,
-        "five_day_return": 11.035724176128504,
-        "twenty_day_return": 3.2489270386266034,
+        "five_day_return": 10.924951536970372,
+        "twenty_day_return": 3.1459227467811157,
         "atr_14": 4.687426437986517,
-        "atr_pct": 3.8969334813040004,
+        "atr_pct": 3.90082506385929,
         "above_sma20": true,
         "above_sma50": true
       },
@@ -797,8 +873,8 @@
       "confidence": {
         "technical_score": 28,
         "news_score": 13,
-        "perplexity_score": 25,
-        "total": 66,
+        "perplexity_score": 28,
+        "total": 69,
         "action": "BUY",
         "threshold_used": 55,
         "regime": "auto"
@@ -807,32 +883,32 @@
       "perplexity": {
         "symbol": "NEM",
         "sentiment": "STRONG_POSITIVE",
-        "perplexity_score": 25,
-        "key_catalyst": "Newmont's Q1 2026 earnings on April 23 beat EPS estimates by $0.83 at $2.90 with revenue up 45.8% YoY to $7.31B exceeding expectations, alongside 9.47% projected EPS growth to $10.64 next year (MarketBeat).",
-        "risk": "Historical data shows NEM stock declines -1.0% on average in the day after 7 of 12 earnings reports (MarketChameleon).",
+        "perplexity_score": 28,
+        "key_catalyst": "Newmont reported record Q1 2026 earnings on April 23, 2026, with EPS of $2.90 beating estimates of $2.07-$2.19 by 32-40% and revenue of $7.31B up 45.8% YoY, alongside $3.1B record free cash flow and increased share repurchase authorization (sources: public.com, marketbeat.com, newmont.com).",
+        "risk": "Historical data shows NEM stock declines post-earnings in 7 of 12 reports by average -1.0% on day 1 (market chameleon.com), with upcoming Q2 earnings on July 23, 2026 potentially introducing volatility.",
         "timeframe": "medium-term",
-        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 25,\n  \"KEY_CATALYST\": \"Newmont's Q1 2026 earnings on April 23 beat EPS estimates by $0.83 at $2.90 with revenue up 45.8% YoY to $7.31B exceeding expectations, alongside 9.47% projected EPS growth to $10.64 next year (MarketBeat).\",\n  \"RISK\": \"Historical data shows NEM stock declines -1.0% on average in the day after 7 of 12 earnings reports (MarketChameleon).\",\n  \"TIMEFRAME\": \"medium-term\"\n}",
-        "updated_at": "2026-05-11 12:20:35"
+        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 28,\n  \"KEY_CATALYST\": \"Newmont reported record Q1 2026 earnings on April 23, 2026, with EPS of $2.90 beating estimates of $2.07-$2.19 by 32-40% and revenue of $7.31B up 45.8% YoY, alongside $3.1B record free cash flow and increased share repurchase authorization (sources: public.com, marketbeat.com, newmont.com).\",\n  \"RISK\": \"Historical data shows NEM stock declines post-earnings in 7 of 12 reports by average -1.0% on day 1 (market chameleo",
+        "updated_at": "2026-05-11 12:26:10"
       }
     },
     "NOK": {
       "technicals": {
-        "price": 13.785,
-        "sma_20": 11.598749999999999,
-        "sma_50": 9.6908,
-        "rsi_14": 73.312848464232,
-        "macd": 1.112394992291831,
-        "macd_signal": 1.0111494051282466,
-        "bb_upper": 14.327604842236926,
-        "bb_lower": 8.869895157763072,
-        "bb_mid": 11.598749999999999,
-        "volume": 3812691.0,
+        "price": 13.725,
+        "sma_20": 11.595749999999999,
+        "sma_50": 9.689599999999999,
+        "rsi_14": 73.03050169272657,
+        "macd": 1.107608667505506,
+        "macd_signal": 1.0101921401709815,
+        "bb_upper": 14.315099692481628,
+        "bb_lower": 8.87640030751837,
+        "bb_mid": 11.595749999999999,
+        "volume": 3913581.0,
         "vol_avg_20": 6680657.55,
         "volume_ratio": 0.7416801359620656,
-        "five_day_return": 4.948610582413404,
-        "twenty_day_return": 32.867469879518076,
+        "five_day_return": 4.491815759421391,
+        "twenty_day_return": 32.28915662650602,
         "atr_14": 0.6861697688715299,
-        "atr_pct": 4.977655196746681,
+        "atr_pct": 4.9994154380439335,
         "above_sma20": true,
         "above_sma50": true
       },
@@ -855,22 +931,22 @@
     },
     "POET": {
       "technicals": {
-        "price": 13.825,
-        "sma_20": 9.20875,
-        "sma_50": 7.500900000000001,
-        "rsi_14": 66.6989186783424,
-        "macd": 0.9882736308289211,
-        "macd_signal": 0.677309303543137,
-        "bb_upper": 14.12285813373089,
-        "bb_lower": 4.294641866269111,
-        "bb_mid": 9.20875,
-        "volume": 1791795.0,
+        "price": 13.83,
+        "sma_20": 9.209,
+        "sma_50": 7.501,
+        "rsi_14": 66.70910902477567,
+        "macd": 0.9886724912277813,
+        "macd_signal": 0.6773890756229091,
+        "bb_upper": 14.124047914313763,
+        "bb_lower": 4.293952085686236,
+        "bb_mid": 9.209,
+        "volume": 1804891.0,
         "vol_avg_20": 1710270.45,
         "volume_ratio": 1.366861597825069,
-        "five_day_return": 94.17134831460672,
-        "twenty_day_return": 89.64334705075446,
+        "five_day_return": 94.24157303370787,
+        "twenty_day_return": 89.71193415637859,
         "atr_14": 1.6988982735491116,
-        "atr_pct": 12.288595107046016,
+        "atr_pct": 12.28415237562626,
         "above_sma20": true,
         "above_sma50": true
       },
@@ -894,89 +970,13 @@
         "symbol": "POET",
         "sentiment": "NEGATIVE",
         "perplexity_score": 8,
-        "key_catalyst": "POET's most recent Q4 2025 earnings on March 30-31, 2026, reported EPS of -$0.32, missing analyst estimates of -$0.06 by 433.33%, with no major product launches, partnerships, or analyst upgrades noted in recent data.",
-        "risk": "Significant earnings miss in Q4 2025 highlights ongoing operational losses and revenue shortfalls (e.g., prior quarter actual revenue $268K vs. $553K estimate), increasing dilution risk for this pre-revenue photonics tech firm.",
+        "key_catalyst": "POET reported Q4 2025 EPS of -$0.32 on Mar 30-31, 2026, missing estimates of -$0.06 by 433.33%, with prior Q3 2025 also missing at -$0.11 vs -$0.09.",
+        "risk": "Persistent earnings misses, including Q4 2025's 433% shortfall and revenue shortfalls like $268K vs $553K estimate, signal ongoing operational and financial challenges.",
         "timeframe": "medium-term",
-        "raw_response": "{\n  \"SENTIMENT\": \"NEGATIVE\",\n  \"CATALYST_SCORE\": 8,\n  \"KEY_CATALYST\": \"POET's most recent Q4 2025 earnings on March 30-31, 2026, reported EPS of -$0.32, missing analyst estimates of -$0.06 by 433.33%, with no major product launches, partnerships, or analyst upgrades noted in recent data.\",\n  \"RISK\": \"Significant earnings miss in Q4 2025 highlights ongoing operational losses and revenue shortfalls (e.g., prior quarter actual revenue $268K vs. $553K estimate), increasing dilution risk for this pre",
-        "updated_at": "2026-05-11 12:20:29"
+        "raw_response": "{\n  \"SENTIMENT\": \"NEGATIVE\",\n  \"CATALYST_SCORE\": 8,\n  \"KEY_CATALYST\": \"POET reported Q4 2025 EPS of -$0.32 on Mar 30-31, 2026, missing estimates of -$0.06 by 433.33%, with prior Q3 2025 also missing at -$0.11 vs -$0.09.\",\n  \"RISK\": \"Persistent earnings misses, including Q4 2025's 433% shortfall and revenue shortfalls like $268K vs $553K estimate, signal ongoing operational and financial challenges.\",\n  \"TIMEFRAME\": \"medium-term\"\n}",
+        "updated_at": "2026-05-11 12:26:03"
       }
-    },
-    "RXT": {
-      "technicals": {
-        "price": 5.22,
-        "sma_20": 2.0875,
-        "sma_50": 1.770042,
-        "rsi_14": 84.2316913883008,
-        "macd": 0.7425214763696748,
-        "macd_signal": 0.33516540636203684,
-        "bb_upper": 4.498320399780953,
-        "bb_lower": -0.3233203997809535,
-        "bb_mid": 2.0875,
-        "volume": 513149.0,
-        "vol_avg_20": 406497.6,
-        "volume_ratio": 4.778958104549695,
-        "five_day_return": 159.7014925373134,
-        "twenty_day_return": 334.99999999999994,
-        "atr_14": 0.5664882833930587,
-        "atr_pct": 10.852265965384266,
-        "above_sma20": true,
-        "above_sma50": true
-      },
-      "news_score": 9,
-      "news_headlines": [
-        "Why Is Rackspace Technology Stock Gaining Monday?",
-        "Why Digi Power X Shares Are Trading Higher By Around 20%; Here Are 20 Stocks Moving Premarket",
-        "Consumer Tech News (May 4- 8): Big Tech Gain On AI Momentum, Pentagon Awards $500M AI Contract & More"
-      ],
-      "confidence": {
-        "technical_score": 32,
-        "news_score": 9,
-        "perplexity_score": 0,
-        "total": 41,
-        "action": "HOLD",
-        "threshold_used": 55,
-        "regime": "auto"
-      },
-      "source": "screener"
-    },
-    "SMX": {
-      "technicals": {
-        "price": 15.01,
-        "sma_20": 3.4685,
-        "sma_50": 10.3652,
-        "rsi_14": 73.44674421835546,
-        "macd": -1.2175919407063,
-        "macd_signal": -2.447549792439906,
-        "bb_upper": 9.634440398673835,
-        "bb_lower": -2.697440398673835,
-        "bb_mid": 3.4685,
-        "volume": 1693.0,
-        "vol_avg_20": 25613.8,
-        "volume_ratio": 0.6757685310262437,
-        "five_day_return": 862.1794871794871,
-        "twenty_day_return": 148.71582435791217,
-        "atr_14": 2.2240129772616863,
-        "atr_pct": 14.816875264901308,
-        "above_sma20": true,
-        "above_sma50": true
-      },
-      "news_score": 5,
-      "news_headlines": [
-        "SMX Announces 20-For-1 Reverse Stock Split, Effective May 11",
-        "12 Information Technology Stocks Moving In Wednesday's Intraday Session",
-        "12 Information Technology Stocks Moving In Tuesday's Intraday Session"
-      ],
-      "confidence": {
-        "technical_score": 32,
-        "news_score": 5,
-        "perplexity_score": 0,
-        "total": 37,
-        "action": "SELL",
-        "threshold_used": 55,
-        "regime": "auto"
-      },
-      "source": "screener"
     }
   },
-  "perplexity_enhanced_at": "2026-05-11 12:20:35"
+  "perplexity_enhanced_at": "2026-05-11 12:26:10"
 }
