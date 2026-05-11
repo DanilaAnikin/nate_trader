@@ -262,10 +262,15 @@ a typo/docstring fix.
 3. **Reference the issue in the commit.** Use `Refs #N` for partial work
    and `Closes #N` for work that fully resolves the issue. Example:
    `git commit -m "strategy: tighten BEAR confidence threshold to 82 — Closes #17"`.
-4. **Update the Project board** if one exists. After commit, add the issue
-   to the active project (`gh project item-add ...`) and move its status to
-   reflect reality. `gh project list --owner DanilaAnikin` finds the
-   project ID.
+4. **Update the Project board.** The active project is
+   **"Nate Trader Roadmap"** at
+   https://github.com/users/DanilaAnikin/projects/2 (project number `2`).
+   After commit:
+   - Add the issue: `gh project item-add 2 --owner DanilaAnikin --url <issue-url>`.
+   - Set `Status`, `Priority`, and `Domain` via
+     `gh project item-edit --id <item-id> --project-id PVT_kwHOBawbPM4BXaEn --field-id <field-id> --single-select-option-id <option-id>`.
+   - When the issue closes, the Project status moves to `Done`
+     automatically.
 5. **Close with a summary comment.** When the work is done, `gh issue close N`
    with a comment that names the file(s) changed, the backtest result if
    any, and the commit SHA(s). Future-you reads this.
