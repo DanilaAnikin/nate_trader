@@ -127,7 +127,8 @@ def update_performance_state() -> None:
     perf["num_positions"] = current["num_positions"]
     perf["updated_at"] = current["updated_at"]
 
-    # Track daily P&L history
+    # Track daily P&L history — equity + cash + num_positions per day so the
+    # dashboard can render all three curves on the same chart
     history = perf.get("daily_history", [])
     from utils import get_today_str
     today = get_today_str()
@@ -138,6 +139,8 @@ def update_performance_state() -> None:
             entry["pnl"] = current["daily_pnl"]
             entry["pnl_pct"] = current["daily_pnl_pct"]
             entry["equity"] = current["equity"]
+            entry["cash"] = current["cash"]
+            entry["num_positions"] = current["num_positions"]
             updated = True
             break
     if not updated:
@@ -146,6 +149,8 @@ def update_performance_state() -> None:
             "pnl": current["daily_pnl"],
             "pnl_pct": current["daily_pnl_pct"],
             "equity": current["equity"],
+            "cash": current["cash"],
+            "num_positions": current["num_positions"],
         })
     perf["daily_history"] = history
 

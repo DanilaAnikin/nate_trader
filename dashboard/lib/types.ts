@@ -3,6 +3,9 @@ export interface DailyHistory {
   pnl: number;
   pnl_pct: number;
   equity: number;
+  // Older entries (written before 2026-05-12) may not have these — handle null
+  cash?: number;
+  num_positions?: number;
 }
 
 export interface PerformanceData {
