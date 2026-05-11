@@ -1,0 +1,46 @@
+name: Risk event
+description: A drawdown, halt trigger, missed stop, or near-miss worth recording.
+title: "[risk] "
+labels: [risk]
+body:
+  - type: textarea
+    id: event
+    attributes:
+      label: What happened
+      placeholder: SPY gapped down 2.1% pre-market on 2026-05-08, multiple stops filled below intended level.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier_impact
+    attributes:
+      label: Risk tier impact
+      options:
+        - "No tier change"
+        - "Triggered CAUTIOUS"
+        - "Triggered HALT"
+        - "Already in HALT — reinforces the tier"
+    validations:
+      required: true
+
+  - type: input
+    id: loss
+    attributes:
+      label: Realized P&L impact ($ / %)
+      placeholder: -$420 / -0.42% of equity
+
+  - type: textarea
+    id: root_cause
+    attributes:
+      label: Root cause
+      description: Why did the rules not protect us (or did they)? What was the gap?
+    validations:
+      required: true
+
+  - type: textarea
+    id: action
+    attributes:
+      label: Action to prevent recurrence
+      description: Concrete change — strategy_config tweak, new guard in execute_trades, journal entry, etc.
+    validations:
+      required: true

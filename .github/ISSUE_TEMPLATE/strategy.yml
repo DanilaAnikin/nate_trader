@@ -1,0 +1,52 @@
+name: Strategy idea
+description: A new signal, indicator, screener rule, or scoring tweak to consider.
+title: "[strategy] "
+labels: [strategy]
+body:
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis
+      description: One sentence — what edge are you proposing and why might it work?
+      placeholder: Adding a 5-day breakout-from-tight-range filter should increase win rate by reducing chop entries.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: regime
+    attributes:
+      label: Applies in which regime?
+      multiple: true
+      options:
+        - BULL
+        - NEUTRAL
+        - BEAR
+        - All
+    validations:
+      required: true
+
+  - type: textarea
+    id: rule
+    attributes:
+      label: Proposed rule / scoring change
+      description: Concrete change to strategy_config / scoring / screener. What lines of code change?
+    validations:
+      required: true
+
+  - type: textarea
+    id: backtest
+    attributes:
+      label: Backtest plan
+      description: How will we validate this before going live? Date range, universe, metric to beat.
+      placeholder: Compare run vs. baseline over 2024-01-01 → 2025-12-31. Must improve Sharpe by ≥0.15 with max DD not worse than baseline.
+    validations:
+      required: true
+
+  - type: input
+    id: kill
+    attributes:
+      label: Kill condition
+      description: When do we revert if it's underperforming live?
+      placeholder: Revert if 4-week alpha vs. baseline < -1.0%
+    validations:
+      required: true

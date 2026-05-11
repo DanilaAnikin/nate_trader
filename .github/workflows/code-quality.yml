@@ -1,0 +1,63 @@
+name: Code Quality & Security
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.py"
+      - "requirements.txt"
+      - ".github/workflows/code-quality.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Ruff lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff check
+        run: ruff check scripts/ --output-format=github
+        continue-on-error: true
+
+  security-scan:
+    name: Bandit security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install bandit
+        run: pip install "bandit[toml]"
+      - name: Bandit scan
+        run: |
+          bandit -r scripts/ \
+            --severity-level medium \
+            --confidence-level medium \
+            --format screen
+        continue-on-error: true
+
+  pip-audit:
+    name: Dependency vulnerability audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pip-audit
+        run: pip install pip-audit
+      - name: Audit requirements.txt
+        run: pip-audit --requirement requirements.txt --strict
+        continue-on-error: true

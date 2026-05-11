@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Routine failure
+    url: https://github.com/DanilaAnikin/nate_trader/actions
+    about: Check the failing routine in the Actions tab, then open a Bug issue with the run URL.

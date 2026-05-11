@@ -1,0 +1,49 @@
+name: Bug
+description: Something broke — a routine failed, a script crashed, a stop didn't fire.
+title: "[bug] "
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Plain description. What were you expecting, what actually happened?
+      placeholder: Routine 2 (market-open) crashed at 09:55 ET on 2026-05-08. Expected 3 BUY orders, got 0.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Exact command(s) or workflow run URL. Include the date/time if it was a scheduled routine.
+      placeholder: |
+        python3 scripts/execute_trades.py dry-run
+        or: https://github.com/DanilaAnikin/nate_trader/actions/runs/...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / traceback
+      render: shell
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - "P0 — blocks trading or risks capital"
+        - "P1 — degrades a routine but workaround exists"
+        - "P2 — cosmetic / non-blocking"
+      default: 1
+    validations:
+      required: true
+
+  - type: input
+    id: state
+    attributes:
+      label: Relevant state files
+      description: Which state/journal files reflect the broken state (if any)?
+      placeholder: state/positions.json, journal/2026-05-08.md

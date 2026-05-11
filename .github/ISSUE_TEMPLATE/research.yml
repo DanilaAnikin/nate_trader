@@ -1,0 +1,29 @@
+name: Research task
+description: A one-off question worth answering — data study, symbol deep-dive, sector look.
+title: "[research] "
+labels: [research]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Research question
+      placeholder: Does Perplexity score above 20 actually predict 5-day return better than news_score alone?
+    validations:
+      required: true
+
+  - type: textarea
+    id: method
+    attributes:
+      label: Method
+      description: How will you answer it? Which data, which scripts, which output?
+    validations:
+      required: true
+
+  - type: textarea
+    id: success
+    attributes:
+      label: What "done" looks like
+      description: A specific answer or artifact — not "I'll know it when I see it".
+      placeholder: Notebook in research/ with chart of forward return vs. Perplexity score bucket, plus 1-paragraph conclusion.
+    validations:
+      required: true

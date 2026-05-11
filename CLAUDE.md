@@ -223,9 +223,90 @@ python3 scripts/notify.py test             # Send test ClickUp task
 
 ---
 
+## GitHub Collaboration (THIS REPO ONLY — `DanilaAnikin/nate_trader`)
+
+**This section applies only to this repo. Do not apply these rules in other
+repositories.** The repo uses GitHub's free-tier collaboration features
+(Issues, Projects, Dependabot, Actions) as a memory layer that survives
+across Claude Code sessions. Every non-trivial change MUST leave a trace in
+that layer so future-you can reconstruct the why.
+
+### What counts as a "bigger" change
+
+A change is **bigger** (and requires GitHub collaboration steps below) if it
+matches any of:
+
+- Edits `scripts/strategy_config.py`, `scripts/execute_trades.py`,
+  `scripts/trade.py`, or anything that decides whether/what to trade.
+- Changes risk rules, position sizing, stops, hedge sizing, or regime logic.
+- Adds, removes, or reschedules a routine in `.github/workflows/`.
+- Adds or removes a `requirements.txt` package.
+- Refactors > ~50 lines or touches > 3 files in one commit.
+- Adds a new feature, screener source, scoring component, or data source.
+
+A change is **routine** (skip the steps below, just commit per Git Workflow)
+if it only touches: `state/`, `journal/`, `memory/`, `watchlist.json`, or is
+a typo/docstring fix.
+
+### The 5 steps for every bigger change
+
+1. **Find or open the issue.** Before editing code, run
+   `gh issue list --repo DanilaAnikin/nate_trader --search "<keyword>"` to
+   see if it already exists. If not, open one with the right template
+   (`gh issue create --repo DanilaAnikin/nate_trader -t bug.yml` etc.) and
+   the right labels. The issue is the **plan**; the code change is its
+   execution.
+2. **Set the labels.** Use `strategy`, `risk`, `research`, `routine`,
+   `backtest`, `infra`, `security`, `bug`, plus a priority (`P0`/`P1`/`P2`).
+   Add `claude-code` to anything you (Claude Code) drive end-to-end.
+3. **Reference the issue in the commit.** Use `Refs #N` for partial work
+   and `Closes #N` for work that fully resolves the issue. Example:
+   `git commit -m "strategy: tighten BEAR confidence threshold to 82 — Closes #17"`.
+4. **Update the Project board** if one exists. After commit, add the issue
+   to the active project (`gh project item-add ...`) and move its status to
+   reflect reality. `gh project list --owner DanilaAnikin` finds the
+   project ID.
+5. **Close with a summary comment.** When the work is done, `gh issue close N`
+   with a comment that names the file(s) changed, the backtest result if
+   any, and the commit SHA(s). Future-you reads this.
+
+### Strategy changes — extra rule
+
+Any change to scoring, thresholds, or regime rules MUST cite a backtest:
+either link a `backtest:` commit in the issue, or paste the
+`state/backtest/` result summary into the closing comment. No backtest →
+no merge. (We measure this against the goal: beat SPY by 5%+ per month.)
+
+### Risk events — extra rule
+
+If a stop fires unexpectedly, a routine fails during market hours, or risk
+tier escalates, open a `[risk]` issue **the same day**. Cross-link from the
+journal entry (`See gh issue #N`) and from `memory/lessons_learned.md` once
+the lesson is extracted.
+
+### Dependabot PRs
+
+Dependabot opens PRs against `main` weekly. When you see one:
+- `pip-audit` and the test suite (once it exists) must pass.
+- Minor/patch upgrades grouped by Dependabot can be merged directly.
+- Major upgrades — open an `[infra]` issue first, validate that imports
+  and routines still work, then merge.
+
+### Security
+
+`.github/dependabot.yml` and the `Code Quality & Security` workflow are
+load-bearing. Do not disable them. Do not commit anything that looks like
+an API key — secrets live only in GitHub Actions Secrets and local `.env`.
+See `SECURITY.md`.
+
+---
+
 ## Git Workflow
 
-**CRITICAL: Always push directly to `main`. Never create feature branches, never create `claude/` branches, never open pull requests. All routine work commits directly to the `main` branch.**
+**CRITICAL: Always push directly to `main`. Never create feature branches, never create `claude/` branches, never open pull requests for routine work. All routine work commits directly to the `main` branch.**
+
+The one exception: a Dependabot PR is created by Dependabot itself — review
+and merge it via `gh pr merge`, do not close it and reapply manually.
 
 After every routine execution:
 1. Make sure you are on the `main` branch: `git checkout main`
@@ -235,11 +316,15 @@ After every routine execution:
 5. Commit: `git commit -m "routine: <routine-name> YYYY-MM-DD"`
 6. Push directly to main: `git push origin main`
 
+For **bigger changes** (see GitHub Collaboration above), the commit message
+must end with `Refs #N` or `Closes #N`. State-only routine commits do not
+need an issue reference.
+
 **Rules:**
-- Never use `git checkout -b` to create new branches
-- Never push to any branch other than `main`
-- Never create pull requests
-- If on a branch other than `main`, switch back with `git checkout main` first
+- Never use `git checkout -b` to create new branches for your own work.
+- Never push to any branch other than `main` (Dependabot's branches are an exception you only `gh pr merge`).
+- Never create pull requests for your own work — only Dependabot's PRs exist.
+- If on a branch other than `main`, switch back with `git checkout main` first.
 
 ---
 
