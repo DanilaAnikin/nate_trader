@@ -1,6 +1,22 @@
 {
   "runs": [
     {
+      "id": "single_20260511_210114",
+      "kind": "single",
+      "generated_at": "2026-05-11 17:01:14",
+      "start_date": "2021-01-01",
+      "end_date": "2026-05-11",
+      "filename": "runs/single_20260511_210114.json",
+      "summary": {
+        "total_return_pct": 14.5609,
+        "annual_return_pct": 2.5816,
+        "alpha_annual_pct": -12.851,
+        "sharpe_ratio": 0.3666,
+        "max_drawdown_pct": -7.4089,
+        "n_trades": 849
+      }
+    },
+    {
       "id": "monte_carlo_20260511_155934",
       "kind": "monte_carlo",
       "generated_at": "2026-05-11 15:59:34",
@@ -33,5 +49,5 @@
       }
     }
   ],
-  "updated_at": "2026-05-11 16:33:57"
+  "updated_at": "2026-05-11 17:01:14"
 }
