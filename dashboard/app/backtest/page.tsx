@@ -272,8 +272,19 @@ export default async function BacktestPage() {
         </div>
       )}
 
-      {/* Comparison */}
-      {cmp && (
+      {/* Comparison — only render when the run actually completed */}
+      {cmp && (cmp as unknown as { error?: string }).error ? (
+        <div className="glass-card p-5 border border-amber/30">
+          <h3 className="text-sm font-medium text-secondary mb-2">Latest Compare run failed</h3>
+          <p className="text-xs text-muted">
+            {(cmp as unknown as { error: string }).error}
+          </p>
+          <p className="text-[11px] text-muted mt-2">
+            Compare needs a finished <code>sweep</code> result to pick the challenger params.
+            Trigger the Backtest workflow with mode=<code>sweep</code> first, then re-run compare.
+          </p>
+        </div>
+      ) : cmp && cmp.delta && cmp.baseline && cmp.challenger ? (
         <div className="space-y-4">
           <div className="glass-card p-5">
             <h3 className="text-sm font-medium text-secondary mb-3">
@@ -307,7 +318,7 @@ export default async function BacktestPage() {
             spy={cmp.spy_baseline_equity}
           />
         </div>
-      )}
+      ) : null}
 
       {/* Monte Carlo */}
       {mc && (

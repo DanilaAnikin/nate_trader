@@ -1,20 +1,6 @@
 {
   "runs": [
     {
-      "id": "compare_20260511_203357",
-      "kind": "compare",
-      "generated_at": "2026-05-11 16:33:57",
-      "start_date": null,
-      "end_date": null,
-      "filename": "runs/compare_20260511_203357.json",
-      "summary": {
-        "alpha_annual_pp": null,
-        "sharpe_delta": null,
-        "max_dd_pp": null,
-        "challenger_params": null
-      }
-    },
-    {
       "id": "monte_carlo_20260511_155934",
       "kind": "monte_carlo",
       "generated_at": "2026-05-11 15:59:34",

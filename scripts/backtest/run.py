@@ -187,6 +187,18 @@ def cmd_compare(args) -> None:
     from backtest.compare import run_compare
     end = args.end or datetime.now().strftime("%Y-%m-%d")
     result = run_compare(args.start, end, args.starting_cash)
+
+    # Don't record runs that didn't actually produce a comparison — those used
+    # to crash the dashboard because the `delta` / `baseline` / `challenger`
+    # blocks were missing. Surface a clear error instead and bail out before
+    # touching the archive or manifest.
+    if "error" in result:
+        log.error(f"Compare failed: {result['error']}")
+        print(f"\nERROR: {result['error']}")
+        print("\nFix: run mode=sweep first (compare reads the best params from "
+              "the latest sweep result).")
+        sys.exit(2)
+
     out = {
         "kind": "compare",
         "generated_at": get_now_str(),
@@ -194,10 +206,6 @@ def cmd_compare(args) -> None:
     }
     run_id = record_run("compare", out, latest_path=RESULT_COMPARE)
     log.info(f"Saved → {RESULT_COMPARE} (archived as runs/{run_id}.json)")
-
-    if "error" in result:
-        print(f"\nERROR: {result['error']}")
-        return
 
     bm = result["baseline"]["metrics"]
     cm = result["challenger"]["metrics"]

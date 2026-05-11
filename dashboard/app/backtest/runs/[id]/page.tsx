@@ -86,6 +86,18 @@ function BackLink() {
 }
 
 function renderRun(run: AnyRun) {
+  // Every run kind can theoretically be saved with just an `error` field
+  // (e.g. compare without a prior sweep, monte-carlo with no history). Short-
+  // circuit to a friendly error panel rather than crash on undefined fields.
+  const err = (run as unknown as { error?: string }).error;
+  if (err) {
+    return (
+      <div className="glass-card p-5 border border-amber/30">
+        <h3 className="text-sm font-medium text-secondary mb-2">This run did not complete</h3>
+        <p className="text-xs text-muted">{err}</p>
+      </div>
+    );
+  }
   switch (run.kind) {
     case "single":
       return <SingleView run={run as SingleResult} />;
