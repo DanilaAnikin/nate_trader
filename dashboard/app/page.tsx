@@ -29,9 +29,20 @@ export default async function DashboardPage() {
   const holdCount = symbolEntries.filter((s) => s.confidence.action === "HOLD").length;
   const sellCount = symbolEntries.filter((s) => s.confidence.action === "SELL").length;
 
+  // Regime-adaptive limits — kept in sync with scripts/strategy_config.py.
+  // BULL: 15 positions max, 5% min cash, 6% max position size.
+  // NEUTRAL: 12 / 20% / 5%. BEAR: 8 / 40% / 2%.
+  const limitsByRegime: Record<string, { maxPos: number; minCash: number }> = {
+    BULL: { maxPos: 15, minCash: 5 },
+    NEUTRAL: { maxPos: 12, minCash: 20 },
+    BEAR: { maxPos: 8, minCash: 40 },
+    UNKNOWN: { maxPos: 12, minCash: 20 },
+  };
+  const activeLimits = limitsByRegime[marketRegime] ?? limitsByRegime.UNKNOWN;
+
   const rules = [
-    { label: "Cash Reserve ≥ 20%", ok: cashPct >= 20 },
-    { label: "Max 10 Positions", ok: numPositions <= 10 },
+    { label: `Cash Reserve ≥ ${activeLimits.minCash}%`, ok: cashPct >= activeLimits.minCash },
+    { label: `Max ${activeLimits.maxPos} Positions`, ok: numPositions <= activeLimits.maxPos },
     { label: "Risk Tier: NORMAL", ok: riskTier === "NORMAL" },
     { label: "Daily Loss < 3%", ok: dailyPnlPct > -3 },
   ];
@@ -72,7 +83,7 @@ export default async function DashboardPage() {
           label="Cash Reserve"
           value={`${cashPct.toFixed(1)}%`}
           subValue={`$${(performance?.cash ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
-          trend={cashPct >= 20 ? "up" : "down"}
+          trend={cashPct >= activeLimits.minCash ? "up" : "down"}
           accent="amber"
           index={1}
         />
@@ -170,10 +181,15 @@ export default async function DashboardPage() {
             <div>
               <div className="flex justify-between text-xs mb-1.5">
                 <span className="text-muted">Positions</span>
-                <span className="text-foreground font-medium">{numPositions} / 10</span>
+                <span className="text-foreground font-medium">
+                  {numPositions} / {activeLimits.maxPos}
+                </span>
               </div>
               <div className="h-2 bg-surface rounded-full overflow-hidden">
-                <div className="h-full bg-purple rounded-full transition-all" style={{ width: `${(numPositions / 10) * 100}%` }} />
+                <div
+                  className="h-full bg-purple rounded-full transition-all"
+                  style={{ width: `${Math.min(100, (numPositions / activeLimits.maxPos) * 100)}%` }}
+                />
               </div>
             </div>
           </div>
