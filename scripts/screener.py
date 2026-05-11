@@ -151,6 +151,8 @@ def run_full_screen() -> dict:
     exclude = {
         # Index ETFs
         "SPY", "QQQ", "DIA", "IWM",
+        # Hedge instruments — managed by manage_bear_hedge, not by screener
+        "SH",
         # Volatility products
         "VXX", "UVXY", "SVXY", "VIXY",
         # Leveraged / inverse ETFs

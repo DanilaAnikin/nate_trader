@@ -50,7 +50,15 @@ See `strategy/rules.md` for the full table.
 | Sector cap | 25% | 25% | 25% |
 | Order type | Limit only | Limit only | Limit only |
 
-CAUTIOUS tier halves position size and tightens thresholds. HALT blocks new buys.
+CAUTIOUS tier halves position size and tightens thresholds. HALT blocks new
+directional buys (hedges still allowed).
+
+### Bear hedge (SH inverse SPY)
+
+Engine maintains an automatic SH position when regime weakens. Target as
+% of equity: 0% BULL/NORMAL, 10% NEUTRAL, 25% BEAR (CAUTIOUS +5pp, HALT +10pp,
+max 35%). Hedge is exempt from sector cap, position-count cap, and HALT
+block. Rebalances when actual drift > 2% of equity. See `strategy_config.get_bear_hedge_target_pct()`.
 
 ---
 

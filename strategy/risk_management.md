@@ -111,6 +111,41 @@ Order rejected if any of:
 
 ---
 
+## Bear Hedge (SH inverse SPY)
+
+In NEUTRAL/BEAR regimes the engine maintains a position in **SH** (ProShares
+Short S&P500, 1× inverse, non-leveraged) as a portfolio hedge. SH rises ~1:1
+when SPY falls. The hedge is regime-driven, not stock-pick-driven — it does
+not pass the 5-question checklist or the sector cap.
+
+### Hedge target % (of equity)
+
+| Regime | NORMAL | CAUTIOUS | HALT |
+|--------|-------:|---------:|-----:|
+| BULL | 0% | 0% | 20% |
+| NEUTRAL | 10% | 15% | 20% |
+| BEAR | 25% | 30% | 35% |
+
+Max 35% cap. Rebalances only when actual drift from target exceeds 2% of
+equity (avoids churn from minor SPY moves).
+
+### Mechanics
+
+- Runs BEFORE `execute_buys()` so it claims cash first
+- Exempt from 25% sector cap (Hedge sector)
+- Exempt from `max_positions` count (doesn't consume directional slots)
+- Exempt from HALT new-buy block (HALT blocks directional only)
+- No trailing stop — exit is regime-driven (engine sells SH when target % drops)
+
+### Why SH and not single-name shorts
+
+Single-name shorts have unbounded downside (squeeze risk), require borrow
+fees, and are difficult to time on momentum reversal. SH gives ~95% of the
+defensive value for ~5% of the implementation complexity and zero squeeze
+risk. See discussion in commit history for full reasoning.
+
+---
+
 ## Recovery Protocol
 
 When in HALT:

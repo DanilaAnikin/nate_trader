@@ -209,6 +209,9 @@ SECTOR_FALLBACK_MAP = {
     "SPG": "RealEstate", "O": "RealEstate", "VICI": "RealEstate",
     "WELL": "RealEstate", "AVB": "RealEstate", "EQR": "RealEstate",
 
+    # Hedge instruments — exempt from sector cap, used only by manage_bear_hedge
+    "SH": "Hedge",      # ProShares Short S&P500 (1x inverse, non-leveraged)
+
     # Communication (separated for visibility, treated as Technology for cap)
     "T": "Communication", "VZ": "Communication", "TMUS": "Communication",
     "CMCSA": "Communication", "CHTR": "Communication", "DIS": "Communication",

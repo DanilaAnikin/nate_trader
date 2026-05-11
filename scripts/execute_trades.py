@@ -20,7 +20,11 @@ from utils import (
 )
 from strategy_config import (
     get_strategy_params, get_market_regime, get_effective_threshold,
+    get_bear_hedge_target_pct,
 )
+
+HEDGE_SYMBOL = "SH"  # ProShares Short S&P500 — 1× inverse, non-leveraged
+HEDGE_REBALANCE_THRESHOLD_PCT = 2.0  # only act on hedge drift > 2% of equity
 
 log = setup_logging("execute_trades")
 
@@ -554,6 +558,153 @@ def tighten_stops_in_profit(dry_run: bool = False) -> list[dict]:
     return results
 
 
+# ────────────────────────── bear hedge management ────────────────────────
+
+
+def manage_bear_hedge(dry_run: bool = False) -> list[dict]:
+    """Maintain SH (inverse SPY) position at the regime-driven target %.
+
+    Behavior:
+      • Target 0%, have SH       → close entire SH position
+      • Target N%, have 0 SH     → buy SH to reach target (if delta > 2% equity)
+      • Target N%, have X% SH    → top-up if X << N, trim if X >> N (>2% drift)
+      • Target N%, have X ≈ N    → no-op
+
+    Runs BEFORE execute_buys in the routine so cash is reserved for the hedge
+    before directional buys consume it.
+
+    The hedge is exempt from the 5-question checklist, sector cap, max-positions
+    cap, and the HALT new-buys block (see validate_order).
+    """
+    from portfolio import get_positions, get_account
+    from research import get_latest_quote
+    from trade import place_limit_order, close_position, validate_order
+    from notify import send_trade_alert
+
+    regime = get_market_regime()
+    risk_tier = get_risk_tier()
+    target_pct = get_bear_hedge_target_pct(regime, risk_tier)
+
+    try:
+        acct = get_account()
+    except Exception as e:
+        log.error(f"Hedge: failed to get account — {e}")
+        return [{"action": "ERROR", "reason": f"account fetch: {e}"}]
+
+    equity = acct.get("equity", 0.0)
+    if equity <= 0:
+        return []
+
+    positions = get_positions()
+    sh_pos = next((p for p in positions if p["symbol"] == HEDGE_SYMBOL), None)
+    sh_value = sh_pos["market_value"] if sh_pos else 0.0
+    sh_pct = (sh_value / equity * 100.0) if equity > 0 else 0.0
+
+    target_value = equity * (target_pct / 100.0)
+    delta_value = target_value - sh_value
+    delta_pct = abs(delta_value) / equity * 100.0 if equity > 0 else 0.0
+
+    log.info(
+        f"Hedge: regime={regime} tier={risk_tier} target={target_pct:.1f}% "
+        f"current={sh_pct:.1f}% delta={delta_value:+,.0f} ({delta_pct:.1f}%)"
+    )
+
+    # Case 1: target is 0 — fully exit any existing hedge
+    if target_pct == 0.0 and sh_pos:
+        log.info(f"  Closing SH ({sh_pos['qty']:.0f} sh @ ${sh_pos['current_price']:.2f}) — regime no longer warrants hedge")
+        if dry_run:
+            return [{"symbol": HEDGE_SYMBOL, "action": "DRY_RUN_HEDGE_EXIT",
+                     "qty": sh_pos["qty"], "value": sh_value}]
+        try:
+            result = close_position(HEDGE_SYMBOL)
+            send_trade_alert(
+                HEDGE_SYMBOL, "sell", int(sh_pos["qty"]), sh_pos["current_price"],
+                f"Hedge exit ({regime}/{risk_tier})",
+            )
+            return [{"symbol": HEDGE_SYMBOL, "action": "HEDGE_EXIT",
+                     "qty": sh_pos["qty"], **result}]
+        except Exception as e:
+            log.error(f"  Hedge exit failed — {e}")
+            return [{"symbol": HEDGE_SYMBOL, "action": "ERROR", "reason": str(e)}]
+
+    # Case 2: not enough drift to bother (avoid commission churn on real account)
+    if delta_pct < HEDGE_REBALANCE_THRESHOLD_PCT:
+        return []
+
+    # Case 3: need to ADD hedge (delta positive = buy more SH)
+    if delta_value > 0:
+        try:
+            quote = get_latest_quote(HEDGE_SYMBOL)
+            price = quote["ask"] if quote["ask"] > 0 else quote["mid"]
+        except Exception as e:
+            log.error(f"  Hedge: quote failed — {e}")
+            return [{"symbol": HEDGE_SYMBOL, "action": "ERROR", "reason": f"quote: {e}"}]
+
+        qty = int(delta_value / price)
+        if qty < 1:
+            return []
+
+        validation = validate_order(HEDGE_SYMBOL, qty, "buy", price)
+        if not validation["valid"]:
+            log.warning(f"  Hedge order rejected: {validation['reasons']}")
+            return [{"symbol": HEDGE_SYMBOL, "action": "REJECTED",
+                     "reasons": validation["reasons"]}]
+
+        if dry_run:
+            log.info(f"  DRY RUN — would BUY {qty} SH @ ${price:.2f} (${qty * price:,.0f})")
+            return [{"symbol": HEDGE_SYMBOL, "action": "DRY_RUN_HEDGE_BUY",
+                     "qty": qty, "price": price, "target_pct": target_pct}]
+
+        try:
+            order = place_limit_order(HEDGE_SYMBOL, qty, "buy", price)
+            send_trade_alert(
+                HEDGE_SYMBOL, "buy", qty, price,
+                f"Bear hedge → {target_pct:.0f}% target ({regime}/{risk_tier})",
+            )
+            log.info(f"  HEDGE BUY {qty} SH @ ${price:.2f} (order {order['id']})")
+            return [{"symbol": HEDGE_SYMBOL, "action": "HEDGE_BUY",
+                     "qty": qty, "price": price, "target_pct": target_pct,
+                     "order_id": order["id"]}]
+        except Exception as e:
+            log.error(f"  Hedge BUY failed — {e}")
+            return [{"symbol": HEDGE_SYMBOL, "action": "ERROR", "reason": str(e)}]
+
+    # Case 4: need to TRIM hedge (current SH > target by > 2% of equity)
+    if delta_value < 0 and sh_pos:
+        try:
+            quote = get_latest_quote(HEDGE_SYMBOL)
+            price = quote["bid"] if quote["bid"] > 0 else quote["mid"]
+        except Exception as e:
+            log.error(f"  Hedge: quote failed — {e}")
+            return [{"symbol": HEDGE_SYMBOL, "action": "ERROR", "reason": f"quote: {e}"}]
+
+        trim_qty = int(abs(delta_value) / price)
+        if trim_qty < 1:
+            return []
+        trim_qty = min(trim_qty, int(sh_pos["qty"]))  # don't oversell
+
+        if dry_run:
+            log.info(f"  DRY RUN — would TRIM {trim_qty} SH @ ${price:.2f}")
+            return [{"symbol": HEDGE_SYMBOL, "action": "DRY_RUN_HEDGE_TRIM",
+                     "qty": trim_qty, "price": price, "target_pct": target_pct}]
+
+        try:
+            order = place_limit_order(HEDGE_SYMBOL, trim_qty, "sell", round(price * 0.999, 2))
+            send_trade_alert(
+                HEDGE_SYMBOL, "sell", trim_qty, price,
+                f"Trim hedge → {target_pct:.0f}% target ({regime}/{risk_tier})",
+            )
+            log.info(f"  HEDGE TRIM {trim_qty} SH @ ${price:.2f}")
+            return [{"symbol": HEDGE_SYMBOL, "action": "HEDGE_TRIM",
+                     "qty": trim_qty, "price": price, "target_pct": target_pct,
+                     "order_id": order["id"]}]
+        except Exception as e:
+            log.error(f"  Hedge TRIM failed — {e}")
+            return [{"symbol": HEDGE_SYMBOL, "action": "ERROR", "reason": str(e)}]
+
+    return []
+
+
 # ───────────────────────────── orchestration ──────────────────────────────
 
 
@@ -582,6 +733,12 @@ def run_execution(dry_run: bool = False) -> dict:
         log.info(f"Scale-out / target exits: {len(scale_outs)}")
 
     sells = execute_sells(dry_run=dry_run)
+
+    # Hedge sizing runs BEFORE directional buys so it can claim cash first
+    hedge = manage_bear_hedge(dry_run=dry_run)
+    if hedge:
+        log.info(f"Bear hedge actions: {len(hedge)}")
+
     buys = execute_buys(dry_run=dry_run)
     time_stops = execute_time_stops(dry_run=dry_run)
 
@@ -597,6 +754,7 @@ def run_execution(dry_run: bool = False) -> dict:
         "tightened_stops": tightened,
         "scale_outs": scale_outs,
         "sells": sells,
+        "hedge": hedge,
         "buys": buys,
         "time_stops": time_stops,
         "dry_run": dry_run,
@@ -624,10 +782,15 @@ if __name__ == "__main__":
     elif cmd == "dry-run":
         result = run_execution(dry_run=True)
         print(f"\nDry run — regime={result['regime']} | risk={result['risk_tier']}")
+        hedge_target = get_bear_hedge_target_pct(result['regime'], result['risk_tier'])
+        print(f"Hedge target: {hedge_target:.1f}% of equity in SH")
         print(f"Would buy: {len([b for b in result['buys'] if b.get('action') in ('DRY_RUN',)])} | "
               f"sell: {len([s for s in result['sells'] if s.get('action') == 'DRY_RUN_SELL'])} | "
+              f"hedge: {len([h for h in result['hedge'] if 'DRY_RUN' in h.get('action', '')])} | "
               f"scale-out: {len([s for s in result['scale_outs'] if s.get('action') in ('DRY_RUN_SCALE_OUT', 'DRY_RUN_FINAL_TARGET')])} | "
               f"time-stop: {len([t for t in result['time_stops'] if t.get('action') == 'DRY_RUN_TIME_STOP'])}")
+        for h in result["hedge"]:
+            print(f"  {h['symbol']}: {h['action']} — qty={h.get('qty', '?')} target={h.get('target_pct', '?')}%")
         for b in result["buys"]:
             reason = b.get('reason', f"qty={b.get('qty')} @ ${b.get('price', 0):.2f} score={b.get('score')}")
             print(f"  {b['symbol']}: {b['action']} — {reason}")
@@ -652,6 +815,11 @@ if __name__ == "__main__":
         if scale_outs:
             for r in scale_outs:
                 print(f"  {r['symbol']}: {r['action']}")
+
+        hedge = manage_bear_hedge()
+        if hedge:
+            for r in hedge:
+                print(f"  HEDGE {r.get('action')}: {r.get('qty', '?')} {HEDGE_SYMBOL}")
 
         stops = execute_stop_losses()
         if stops:

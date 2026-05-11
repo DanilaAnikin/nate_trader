@@ -185,6 +185,40 @@ def get_strategy_params(regime: str | None = None, risk_tier: str | None = None)
     return dict(_PARAMS[(regime, risk_tier)])  # copy so callers can mutate safely
 
 
+def get_bear_hedge_target_pct(regime: str | None = None,
+                              risk_tier: str | None = None) -> float:
+    """Target SH (inverse SPY) allocation as % of equity.
+
+    The hedge sizing follows two signals:
+      • Market regime — how directional is the downside risk?
+      • Risk tier    — are we already in drawdown?
+
+    Designed so transitions are gradual (no whipsaw): NEUTRAL holds a small
+    hedge, BEAR scales it up, and a CAUTIOUS/HALT tier adds extra protection
+    regardless of regime. Max possible target is 35%.
+    """
+    if regime is None:
+        regime = get_market_regime()
+    if risk_tier is None:
+        risk_tier = get_risk_tier()
+
+    base = {
+        "BULL": 0.0,
+        "NEUTRAL": 10.0,
+        "BEAR": 25.0,
+    }.get(regime, 10.0)
+
+    # Tier modifiers — drawdown adds protection on top of regime
+    if risk_tier == "CAUTIOUS":
+        base += 5.0
+    elif risk_tier == "HALT":
+        # Floor at 20%: even if regime is technically BULL but we're in HALT,
+        # something is wrong with our positions — hedge until it clears.
+        base = max(base + 10.0, 20.0)
+
+    return min(base, 35.0)  # absolute cap
+
+
 def get_effective_threshold(cash_pct: float, regime: str | None = None,
                             risk_tier: str | None = None) -> int:
     """Score threshold adjusted by cash deployment pressure.

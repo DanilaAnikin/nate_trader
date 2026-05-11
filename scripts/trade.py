@@ -42,9 +42,13 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
     risk_tier = get_risk_tier()
     params = get_strategy_params()
 
-    # 1. Risk tier check
-    if risk_tier == "HALT" and side.lower() == "buy":
-        reasons.append(f"HALT mode — no new buys allowed")
+    # Identify hedge orders early so we can apply exemptions consistently
+    from utils import get_symbol_info as _get_info
+    is_hedge_order = _get_info(symbol).get("sector") == "Hedge"
+
+    # 1. Risk tier check — HALT blocks new directional longs, NOT hedges
+    if risk_tier == "HALT" and side.lower() == "buy" and not is_hedge_order:
+        reasons.append(f"HALT mode — no new directional buys allowed (hedges OK)")
 
     # 2. Cash reserve check (regime-adaptive minimum)
     order_cost = qty * price
@@ -69,15 +73,20 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
     if position_pct > max_pct:
         reasons.append(f"Position size {position_pct:.1f}% exceeds {max_pct}% limit")
 
-    # 4. Max positions check (regime-adaptive)
-    if side.lower() == "buy":
+    # 4. Max positions check (regime-adaptive) — hedge orders are exempt
+    if side.lower() == "buy" and not is_hedge_order:
         existing_symbols = {p.symbol for p in positions}
+        # Don't count existing hedge position against the directional slot count
+        non_hedge_symbols = {
+            s for s in existing_symbols
+            if _get_info(s).get("sector") != "Hedge"
+        }
         max_positions = params["max_positions"]
-        if symbol not in existing_symbols and len(existing_symbols) >= max_positions:
-            reasons.append(f"Max {max_positions} positions reached ({len(existing_symbols)} open)")
+        if symbol not in existing_symbols and len(non_hedge_symbols) >= max_positions:
+            reasons.append(f"Max {max_positions} positions reached ({len(non_hedge_symbols)} open)")
 
-    # 5. Sector concentration check (25% max)
-    if side.lower() == "buy":
+    # 5. Sector concentration check (25% max) — Hedge sector is exempt
+    if side.lower() == "buy" and not is_hedge_order:
         symbol_info = get_symbol_info(symbol)
         target_sector = symbol_info.get("sector", "Unknown")
         if target_sector == "Unknown":
