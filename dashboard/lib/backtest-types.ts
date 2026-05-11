@@ -139,6 +139,21 @@ export interface ComparisonResult {
   delta: { alpha_annual_pp: number; sharpe: number; max_dd_pp: number };
 }
 
+export interface ManifestEntry {
+  id: string;
+  kind: "single" | "sweep" | "monte_carlo" | "walk_forward" | "compare" | string;
+  generated_at: string;
+  start_date?: string;
+  end_date?: string;
+  filename?: string;
+  summary?: Record<string, unknown>;
+}
+
+export interface Manifest {
+  updated_at: string | null;
+  runs: ManifestEntry[];
+}
+
 export interface MonteCarloResult {
   kind: "monte_carlo";
   generated_at: string;

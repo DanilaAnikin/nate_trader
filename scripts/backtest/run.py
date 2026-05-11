@@ -24,6 +24,7 @@ from utils import PROJECT_ROOT, setup_logging, save_json, get_now_str  # noqa: E
 from backtest.data_provider import BarProvider  # noqa: E402
 from backtest.engine import BacktestConfig, run_backtest  # noqa: E402
 from backtest.metrics import compute_metrics  # noqa: E402
+from backtest.manifest import record_run  # noqa: E402
 
 log = setup_logging("backtest_run")
 
@@ -55,9 +56,8 @@ def cmd_single(args) -> None:
         "closed_trades": result["closed_trades"],
         "open_positions": result["open_positions"],
     }
-    RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    save_json(RESULT_LATEST, out)
-    log.info(f"Saved → {RESULT_LATEST}")
+    run_id = record_run("single", out, latest_path=RESULT_LATEST)
+    log.info(f"Saved → {RESULT_LATEST} (archived as runs/{run_id}.json)")
 
     print(f"\n{'=' * 60}")
     print(f"  BACKTEST RESULT")
@@ -93,15 +93,15 @@ def cmd_sweep(args) -> None:
     from backtest.sweep import run_sweep
     end = args.end or datetime.now().strftime("%Y-%m-%d")
     grid = run_sweep(args.start, end, args.starting_cash)
-    RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    save_json(RESULT_SWEEP, {
+    out = {
         "kind": "sweep",
         "generated_at": get_now_str(),
         "start_date": args.start,
         "end_date": end,
         "results": grid,
-    })
-    log.info(f"Saved → {RESULT_SWEEP}")
+    }
+    run_id = record_run("sweep", out, latest_path=RESULT_SWEEP)
+    log.info(f"Saved → {RESULT_SWEEP} (archived as runs/{run_id}.json)")
     # Top 5
     sorted_grid = sorted(grid, key=lambda r: r["metrics"]["alpha_annual_pct"], reverse=True)
     print(f"\n{'=' * 70}")
@@ -121,16 +121,16 @@ def cmd_monte_carlo(args) -> None:
     from backtest.monte_carlo import run_monte_carlo
     end = args.end or datetime.now().strftime("%Y-%m-%d")
     result = run_monte_carlo(args.start, end, args.starting_cash, n_simulations=args.n)
-    RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    save_json(RESULT_MONTE, {
+    out = {
         "kind": "monte_carlo",
         "generated_at": get_now_str(),
         "start_date": args.start,
         "end_date": end,
         "n_simulations": args.n,
         **result,
-    })
-    log.info(f"Saved → {RESULT_MONTE}")
+    }
+    run_id = record_run("monte_carlo", out, latest_path=RESULT_MONTE)
+    log.info(f"Saved → {RESULT_MONTE} (archived as runs/{run_id}.json)")
     print(f"\n{'=' * 60}")
     print(f"  MONTE CARLO ({args.n} simulations)")
     print(f"{'=' * 60}")
@@ -151,13 +151,13 @@ def cmd_walk_forward(args) -> None:
         test_months=args.test_months,
         max_windows=args.windows,
     )
-    RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    save_json(RESULT_WALK, {
+    out = {
         "kind": "walk_forward",
         "generated_at": get_now_str(),
         **result,
-    })
-    log.info(f"Saved → {RESULT_WALK}")
+    }
+    run_id = record_run("walk_forward", out, latest_path=RESULT_WALK)
+    log.info(f"Saved → {RESULT_WALK} (archived as runs/{run_id}.json)")
 
     if "error" in result:
         print(f"\nERROR: {result['error']}")
@@ -187,13 +187,13 @@ def cmd_compare(args) -> None:
     from backtest.compare import run_compare
     end = args.end or datetime.now().strftime("%Y-%m-%d")
     result = run_compare(args.start, end, args.starting_cash)
-    RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    save_json(RESULT_COMPARE, {
+    out = {
         "kind": "compare",
         "generated_at": get_now_str(),
         **result,
-    })
-    log.info(f"Saved → {RESULT_COMPARE}")
+    }
+    run_id = record_run("compare", out, latest_path=RESULT_COMPARE)
+    log.info(f"Saved → {RESULT_COMPARE} (archived as runs/{run_id}.json)")
 
     if "error" in result:
         print(f"\nERROR: {result['error']}")

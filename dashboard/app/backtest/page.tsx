@@ -5,30 +5,35 @@ import type {
   MonteCarloResult,
   WalkForwardResult,
   ComparisonResult,
+  Manifest,
 } from "@/lib/backtest-types";
 import BacktestEquityChart from "@/components/BacktestEquityChart";
 import BacktestComparisonChart from "@/components/BacktestComparisonChart";
 import PerTradeChart from "@/components/PerTradeChart";
+import RunHistoryTable from "@/components/RunHistoryTable";
 
 export const dynamic = "force-dynamic";
 
 export default async function BacktestPage() {
-  const [single, sweep, mc, walk, cmp] = await Promise.all([
+  const [single, sweep, mc, walk, cmp, manifest] = await Promise.all([
     fetchStateFile<SingleResult>("backtest/latest_result.json"),
     fetchStateFile<SweepResult>("backtest/sweep_result.json"),
     fetchStateFile<MonteCarloResult>("backtest/monte_carlo_result.json"),
     fetchStateFile<WalkForwardResult>("backtest/walk_forward_result.json"),
     fetchStateFile<ComparisonResult>("backtest/comparison_result.json"),
+    fetchStateFile<Manifest>("backtest/manifest.json"),
   ]);
+  const runs = manifest?.runs ?? [];
 
   if (!single) {
     return (
       <div className="space-y-6 animate-fade-in">
         <h2 className="text-2xl font-semibold text-foreground">Backtest</h2>
+        {runs.length > 0 && <RunHistoryTable runs={runs} />}
         <div className="glass-card p-8 text-center">
-          <p className="text-sm text-secondary font-medium mb-2">No backtest run yet</p>
+          <p className="text-sm text-secondary font-medium mb-2">No single backtest yet</p>
           <p className="text-xs text-muted max-w-md mx-auto">
-            Trigger the &ldquo;Backtest&rdquo; GitHub Actions workflow (Actions tab → Backtest → Run workflow) with mode=<code>single</code> to generate the first equity curve and metrics.
+            Trigger the &ldquo;Backtest&rdquo; GitHub Actions workflow (Actions tab → Backtest → Run workflow) with mode=<code>single</code> to generate the first equity curve and metrics. Past runs (if any) appear above.
           </p>
         </div>
       </div>
@@ -53,6 +58,9 @@ export default async function BacktestPage() {
         </div>
         <p className="text-xs text-muted">Last run: {single.generated_at}</p>
       </div>
+
+      {/* Run history — all archived runs across all modes */}
+      <RunHistoryTable runs={runs} />
 
       {/* Headline metrics */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
