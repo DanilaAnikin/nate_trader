@@ -1,4 +1,4 @@
-alpaca-py>=0.30.0
+alpaca-py>=0.43.4
 requests
 pandas
 ta
