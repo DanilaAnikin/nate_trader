@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-04-24",
+  "updated_at": "2026-05-11",
   "symbols": {
     "SPY": {
       "sector": "Benchmark",
@@ -72,6 +72,144 @@
       "max_allocation_pct": 5,
       "tradeable": true,
       "notes": "Enterprise SaaS + AI agents"
+    },
+    "PLTR": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Defense + commercial AI — high momentum"
+    },
+    "ANET": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "AI data-center networking — Meta/MSFT supplier"
+    },
+    "SNOW": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Cloud data warehouse + AI Cortex"
+    },
+    "ORCL": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Oracle Cloud — AI infrastructure surge"
+    },
+    "JPM": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Largest US bank — rate-cycle leader"
+    },
+    "V": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Payments — secular cashless growth"
+    },
+    "MA": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Payments — wider margins than V"
+    },
+    "GS": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Investment banking — M&A + trading"
+    },
+    "BX": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Alt assets — private credit/equity AUM growth"
+    },
+    "LLY": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "GLP-1 leader — Zepbound/Mounjaro"
+    },
+    "UNH": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Managed care giant — Optum services"
+    },
+    "NVO": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Novo Nordisk — Ozempic/Wegovy"
+    },
+    "ISRG": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Surgical robotics — recurring instruments revenue"
+    },
+    "CAT": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Infrastructure + data-center construction beneficiary"
+    },
+    "GE": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Aerospace — engines + services"
+    },
+    "DE": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Ag equipment + precision tech"
+    },
+    "ETN": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Electrification + power management — AI data centers"
+    },
+    "XOM": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Integrated energy — capital discipline"
+    },
+    "CVX": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Integrated energy — dividend anchor"
+    },
+    "COST": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Membership warehouse — recession-resistant"
+    },
+    "NFLX": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Streaming — ads + sports + password sharing crackdown"
+    },
+    "WMT": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Retail + advertising + Sam's Club"
+    },
+    "NKE": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "Brand turnaround + China recovery"
     }
   }
 }

@@ -33,27 +33,32 @@ def get_market_status() -> dict:
 
 def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
     """Validate an order against all risk rules. Returns {valid: bool, reasons: []}."""
+    from strategy_config import get_strategy_params
     reasons = []
     acct = client.get_account()
     equity = float(acct.equity)
     cash = float(acct.cash)
     positions = client.get_all_positions()
     risk_tier = get_risk_tier()
+    params = get_strategy_params()
 
     # 1. Risk tier check
     if risk_tier == "HALT" and side.lower() == "buy":
         reasons.append(f"HALT mode — no new buys allowed")
 
-    # 2. Cash reserve check (20% minimum)
+    # 2. Cash reserve check (regime-adaptive minimum)
     order_cost = qty * price
     if side.lower() == "buy":
         remaining_cash = cash - order_cost
-        min_cash = equity * 0.20
+        min_cash = equity * (params["min_cash_pct"] / 100.0)
         if remaining_cash < min_cash:
-            reasons.append(f"Would breach 20% cash reserve (remaining: ${remaining_cash:,.2f}, min: ${min_cash:,.2f})")
+            reasons.append(
+                f"Would breach {params['min_cash_pct']:.0f}% cash reserve "
+                f"(remaining: ${remaining_cash:,.2f}, min: ${min_cash:,.2f})"
+            )
 
-    # 3. Position size check (5% max, 2.5% if CAUTIOUS)
-    max_pct = 2.5 if risk_tier == "CAUTIOUS" else 5.0
+    # 3. Position size check (regime-adaptive max)
+    max_pct = params["max_position_pct"]
     position_value = order_cost
     # Add existing position value if we already hold this
     for p in positions:
@@ -119,19 +124,28 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
 
 
 def calculate_position_size(symbol: str, entry_price: float) -> int:
-    """Calculate position size respecting all limits."""
+    """Calculate position size respecting all limits — regime adaptive.
+
+    Two sizing methods, take the smaller:
+      1. Allocation cap: max_position_pct of equity (from strategy_config)
+      2. Risk-based: risk_per_trade_pct of equity, assuming trailing_stop_pct loss
+
+    Both knobs scale up in BULL/NORMAL and down in BEAR/CAUTIOUS.
+    """
+    from strategy_config import get_strategy_params
     acct = client.get_account()
     equity = float(acct.equity)
-    risk_tier = get_risk_tier()
+    params = get_strategy_params()
 
-    # Method 1: 5% allocation limit (2.5% if CAUTIOUS)
-    max_pct = 0.025 if risk_tier == "CAUTIOUS" else 0.05
+    # 1. Allocation limit
+    max_pct = params["max_position_pct"] / 100.0
     alloc_shares = int((equity * max_pct) / entry_price)
 
-    # Method 2: Risk-based (0.4% risk with 8% stop)
-    risk_shares = int((equity * 0.004) / (entry_price * 0.08))
+    # 2. Risk-based sizing
+    risk_pct = params["risk_per_trade_pct"] / 100.0
+    stop_pct = params["trailing_stop_pct"] / 100.0
+    risk_shares = int((equity * risk_pct) / (entry_price * stop_pct))
 
-    # Take the smaller
     shares = min(alloc_shares, risk_shares)
 
     # Subtract existing position
@@ -210,12 +224,19 @@ def close_position(symbol: str) -> dict:
 
 
 def sync_trailing_stops() -> list[dict]:
-    """Place trailing stops for any filled positions that don't have one."""
+    """Place trailing stops for any filled positions that don't have one.
+
+    Uses regime-adaptive trail_pct from strategy_config (8% default in
+    NORMAL/BULL, 5–6% in CAUTIOUS/BEAR).
+    """
+    from strategy_config import get_strategy_params
+    params = get_strategy_params()
+    trail_pct = params["trailing_stop_pct"]
+
     positions = client.get_all_positions()
     if not positions:
         return []
 
-    # Get all open trailing stop sell orders
     request = GetOrdersRequest(status=QueryOrderStatus.OPEN)
     open_orders = client.get_orders(filter=request)
     symbols_with_stops = set()
@@ -233,9 +254,9 @@ def sync_trailing_stops() -> list[dict]:
             continue
 
         try:
-            stop = place_trailing_stop(symbol, qty, trail_percent=8.0)
-            log.info(f"Synced trailing stop for {symbol}: {qty} shares @ 8% trail")
-            results.append({"symbol": symbol, "qty": qty, "stop_id": stop["id"]})
+            stop = place_trailing_stop(symbol, qty, trail_percent=trail_pct)
+            log.info(f"Synced trailing stop for {symbol}: {qty} shares @ {trail_pct}% trail")
+            results.append({"symbol": symbol, "qty": qty, "stop_id": stop["id"], "trail_pct": trail_pct})
         except Exception as e:
             log.error(f"Failed to place trailing stop for {symbol}: {e}")
             results.append({"symbol": symbol, "error": str(e)})
@@ -244,18 +265,18 @@ def sync_trailing_stops() -> list[dict]:
 
 
 def execute_stop_losses() -> list[dict]:
-    """Check and execute manual stop-losses for positions without trailing stops."""
+    """Manual hard stop-loss for positions whose unrealized loss exceeds the trail percent."""
+    from strategy_config import get_strategy_params
+    params = get_strategy_params()
+    stop_pct = params["trailing_stop_pct"]
+
     positions = client.get_all_positions()
     actions = []
 
     for p in positions:
-        entry = float(p.avg_entry_price)
-        current = float(p.current_price)
         pnl_pct = float(p.unrealized_plpc) * 100
-
-        # Check if 8% stop-loss breached
-        if pnl_pct <= -8.0:
-            log.warning(f"Stop-loss triggered for {p.symbol}: {pnl_pct:.2f}%")
+        if pnl_pct <= -stop_pct:
+            log.warning(f"Stop-loss triggered for {p.symbol}: {pnl_pct:.2f}% (limit -{stop_pct}%)")
             result = close_position(p.symbol)
             result["reason"] = f"Stop-loss at {pnl_pct:.2f}%"
             actions.append(result)

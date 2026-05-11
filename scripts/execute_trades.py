@@ -1,27 +1,51 @@
-"""Execute trades — reads research data and places BUY/SELL orders."""
+"""Execute trades — regime-adaptive momentum swing trading engine.
+
+This module is the orchestration layer. It reads research + screener state,
+applies the regime-adaptive 5-question checklist (from strategy_config), and
+places limit orders with trailing stops. It also handles:
+
+  • Scale-out profit taking (sell 50% at +N% gain, trail the rest)
+  • Tightened stops once a position is in profit
+  • Time stops (close positions held too long with no progress)
+  • Real entry-date tracking via Alpaca order history
+"""
 
 import sys
+from datetime import datetime, timedelta, timezone
 
 from utils import (
     RESEARCH_STATE, SCREENER_STATE, PERFORMANCE_STATE,
     setup_logging, get_now_str, load_json, save_json,
     get_risk_tier,
 )
+from strategy_config import (
+    get_strategy_params, get_market_regime, get_effective_threshold,
+)
 
 log = setup_logging("execute_trades")
 
 
+# ─────────────────────────── candidate sourcing ───────────────────────────
+
+
 def get_buy_candidates() -> list[dict]:
-    """Collect symbols with action=BUY and score >= 65 from research + screener."""
+    """Collect symbols with action=BUY from research + screener.
+
+    Threshold is no longer hard-coded — we take everything the scoring engine
+    marked as BUY, plus anything within 3 points below threshold (to allow
+    regime-adaptive borderlines). Final filter happens in execute_buys.
+    """
     candidates = []
 
-    # From research.json (watchlist symbols)
     research = load_json(RESEARCH_STATE)
     for symbol, data in research.get("symbols", {}).items():
         if "error" in data:
             continue
         confidence = data.get("confidence", {})
-        if confidence.get("action") == "BUY" and confidence.get("total", 0) >= 65:
+        total = confidence.get("total", 0)
+        threshold = confidence.get("threshold_used", 55)
+        # Include BUY and near-BUY (within 3 of threshold) for cash-deployment logic
+        if confidence.get("action") == "BUY" or total >= threshold - 3:
             candidates.append({
                 "symbol": symbol,
                 "confidence": confidence,
@@ -29,14 +53,14 @@ def get_buy_candidates() -> list[dict]:
                 "source": "watchlist",
             })
 
-    # From screener.json (discovered symbols)
     screener = load_json(SCREENER_STATE)
     for symbol, data in screener.get("scored_candidates", {}).items():
         if "error" in data:
             continue
         confidence = data.get("confidence", {})
-        if confidence.get("action") == "BUY" and confidence.get("total", 0) >= 65:
-            # Don't duplicate watchlist symbols
+        total = confidence.get("total", 0)
+        threshold = confidence.get("threshold_used", 55)
+        if confidence.get("action") == "BUY" or total >= threshold - 3:
             if not any(c["symbol"] == symbol for c in candidates):
                 candidates.append({
                     "symbol": symbol,
@@ -45,13 +69,12 @@ def get_buy_candidates() -> list[dict]:
                     "source": "screener",
                 })
 
-    # Sort by score descending
     candidates.sort(key=lambda c: c["confidence"].get("total", 0), reverse=True)
     return candidates
 
 
 def get_sell_candidates() -> list[dict]:
-    """Collect held positions with action=SELL (score < 40)."""
+    """Positions whose research action is SELL (score < 40)."""
     from portfolio import get_positions
 
     candidates = []
@@ -75,43 +98,118 @@ def get_sell_candidates() -> list[dict]:
     return candidates
 
 
-def passes_five_question_checklist(candidate: dict) -> tuple[bool, list[str]]:
-    """Run the 5-question checklist. Returns (all_pass, list_of_results)."""
+# ───────────────────────── 5-question checklist ───────────────────────────
+
+
+def passes_five_question_checklist(candidate: dict, regime: str | None = None) -> tuple[bool, list[str]]:
+    """Regime-adaptive 5-question checklist.
+
+    Replaces the old 5-day RS gate with 20-day alpha (less noise, better
+    signal). Volume gate scales with regime via strategy_config.
+    """
+    params = get_strategy_params(regime)
     tech = candidate.get("technicals", {})
     confidence = candidate.get("confidence", {})
     results = []
 
-    # 1. Trend — above 20-SMA AND 50-SMA
+    # 1) Trend — above 20-SMA AND 50-SMA
     above_20 = tech.get("above_sma20", False)
     above_50 = tech.get("above_sma50", False)
     trend_pass = bool(above_20 and above_50)
-    results.append(f"{'PASS' if trend_pass else 'FAIL'}: Trend (above 20-SMA and 50-SMA)")
+    results.append(f"{'PASS' if trend_pass else 'FAIL'}: Trend (>20SMA={above_20}, >50SMA={above_50})")
 
-    # 2. Catalyst — news_score > 5 or perplexity_score > 10 indicates a catalyst
+    # 2) Catalyst — news_score > 5 OR perplexity_score > 10
     news_score = confidence.get("news_score", 0)
     perplexity_score = confidence.get("perplexity_score", 0)
     catalyst_pass = news_score > 5 or perplexity_score > 10
-    results.append(f"{'PASS' if catalyst_pass else 'FAIL'}: Catalyst (news={news_score}, perplexity={perplexity_score})")
+    results.append(f"{'PASS' if catalyst_pass else 'FAIL'}: Catalyst (news={news_score}, px={perplexity_score})")
 
-    # 3. Volume — volume_ratio >= 1.2
+    # 3) Volume — regime-adaptive ratio
     vol_ratio = tech.get("volume_ratio")
-    volume_pass = vol_ratio is not None and vol_ratio >= 1.2
-    results.append(f"{'PASS' if volume_pass else 'FAIL'}: Volume (ratio={vol_ratio:.2f})" if vol_ratio else f"FAIL: Volume (no data)")
+    vol_min = params["volume_min_ratio"]
+    volume_pass = vol_ratio is not None and vol_ratio >= vol_min
+    if vol_ratio is not None:
+        results.append(f"{'PASS' if volume_pass else 'FAIL'}: Volume (ratio={vol_ratio:.2f}, need ≥{vol_min:.2f})")
+    else:
+        results.append(f"FAIL: Volume (no data)")
 
-    # 4. Relative strength — 5-day return > SPY 5-day return
+    # 4) Relative strength — 20-day return vs SPY 20-day return
     research = load_json(RESEARCH_STATE)
-    spy_5d = research.get("spy", {}).get("five_day_return", 0)
-    stock_5d = tech.get("five_day_return", 0)
-    rs_pass = stock_5d > spy_5d
-    results.append(f"{'PASS' if rs_pass else 'FAIL'}: Relative strength ({stock_5d:+.2f}% vs SPY {spy_5d:+.2f}%)")
+    spy = research.get("spy", {})
+    spy_20d = spy.get("twenty_day_return", spy.get("monthly_return", 0))
+    stock_20d = tech.get("twenty_day_return", tech.get("five_day_return", 0))
+    alpha_20d = stock_20d - spy_20d
+    rs_pass = alpha_20d >= params["rs_alpha_min"]
+    results.append(
+        f"{'PASS' if rs_pass else 'FAIL'}: 20d alpha "
+        f"({stock_20d:+.2f}% − SPY {spy_20d:+.2f}% = {alpha_20d:+.2f}%, need ≥{params['rs_alpha_min']:+.2f}%)"
+    )
 
-    # 5. Confidence — total >= 65
+    # 5) Confidence — regime-adaptive threshold (effective, with cash-starve bonus)
+    from portfolio import get_account
+    try:
+        acct = get_account()
+        cash_pct = acct.get("cash_pct", 50.0)
+    except Exception:
+        cash_pct = 50.0
+    threshold = get_effective_threshold(cash_pct, regime)
     total = confidence.get("total", 0)
-    conf_pass = total >= 65
-    results.append(f"{'PASS' if conf_pass else 'FAIL'}: Confidence (score={total})")
+    conf_pass = total >= threshold
+    results.append(f"{'PASS' if conf_pass else 'FAIL'}: Confidence (score={total}, need ≥{threshold})")
 
     all_pass = trend_pass and catalyst_pass and volume_pass and rs_pass and conf_pass
     return all_pass, results
+
+
+# ─────────────────────────── entry tracking ───────────────────────────────
+
+
+def _get_position_entry_date(symbol: str) -> datetime | None:
+    """Best-effort entry date for a held position via Alpaca order history.
+
+    Looks for the most recent filled BUY order for `symbol` and returns its
+    filled_at timestamp. Returns None on failure (caller falls back to a
+    conservative default).
+    """
+    try:
+        from alpaca.trading.requests import GetOrdersRequest
+        from alpaca.trading.enums import QueryOrderStatus, OrderSide
+        from trade import client as trading_client
+
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=90)
+        req = GetOrdersRequest(
+            status=QueryOrderStatus.CLOSED,
+            symbols=[symbol],
+            after=start,
+            until=end,
+            limit=50,
+        )
+        orders = trading_client.get_orders(filter=req)
+        buy_fills = [
+            o for o in orders
+            if o.side == OrderSide.BUY and o.filled_at is not None
+        ]
+        if not buy_fills:
+            return None
+        buy_fills.sort(key=lambda o: o.filled_at, reverse=True)
+        return buy_fills[0].filled_at
+    except Exception as e:
+        log.warning(f"  {symbol}: could not fetch entry date — {e}")
+        return None
+
+
+def _trading_days_between(start: datetime, end: datetime) -> int:
+    """Approximate trading days between two datetimes (5/7 of calendar days)."""
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    cal_days = (end - start).days
+    return max(0, int(cal_days * 5 / 7))
+
+
+# ─────────────────────────── buy / sell execution ─────────────────────────
 
 
 def execute_buys(dry_run: bool = False) -> list[dict]:
@@ -119,19 +217,28 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
     from trade import validate_order, place_limit_order, calculate_position_size
     from research import get_latest_quote
     from notify import send_trade_alert
+    from portfolio import get_account
 
     risk_tier = get_risk_tier()
+    regime = get_market_regime()
     results = []
 
     if risk_tier == "HALT":
         log.warning("HALT mode — no new buys allowed")
         return [{"action": "HALT", "reason": "Risk tier is HALT — no new buys"}]
 
-    # In CAUTIOUS mode, raise threshold to 75
-    min_score = 75 if risk_tier == "CAUTIOUS" else 65
+    try:
+        acct = get_account()
+        cash_pct = acct.get("cash_pct", 50.0)
+    except Exception:
+        cash_pct = 50.0
 
+    min_score = get_effective_threshold(cash_pct, regime, risk_tier)
     candidates = get_buy_candidates()
-    log.info(f"BUY candidates: {len(candidates)} (risk_tier={risk_tier}, min_score={min_score})")
+    log.info(
+        f"BUY candidates: {len(candidates)} | regime={regime} | risk={risk_tier} "
+        f"| cash={cash_pct:.1f}% | threshold={min_score}"
+    )
 
     for candidate in candidates:
         symbol = candidate["symbol"]
@@ -142,8 +249,7 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
             results.append({"symbol": symbol, "action": "SKIP", "reason": f"Score {score} < {min_score}"})
             continue
 
-        # Run 5-question checklist
-        passes, checklist = passes_five_question_checklist(candidate)
+        passes, checklist = passes_five_question_checklist(candidate, regime=regime)
         log.info(f"  {symbol}: 5-question checklist {'PASS' if passes else 'FAIL'}")
         for check in checklist:
             log.info(f"    {check}")
@@ -152,10 +258,9 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
             results.append({"symbol": symbol, "action": "SKIP", "reason": "Failed 5-question checklist", "checklist": checklist})
             continue
 
-        # Get current price for limit order
         try:
             quote = get_latest_quote(symbol)
-            price = quote["ask"]  # buy at ask
+            price = quote["ask"]
             if price <= 0:
                 price = quote["mid"]
         except Exception as e:
@@ -163,14 +268,12 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
             results.append({"symbol": symbol, "action": "ERROR", "reason": f"Quote failed: {e}"})
             continue
 
-        # Calculate position size
         qty = calculate_position_size(symbol, price)
         if qty <= 0:
             log.info(f"  {symbol}: position size is 0 — skipping")
             results.append({"symbol": symbol, "action": "SKIP", "reason": "Position size 0"})
             continue
 
-        # Validate order
         validation = validate_order(symbol, qty, "buy", price)
         if not validation["valid"]:
             log.warning(f"  {symbol}: order rejected — {validation['reasons']}")
@@ -182,14 +285,10 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
             results.append({"symbol": symbol, "action": "DRY_RUN", "qty": qty, "price": price, "score": score})
             continue
 
-        # Place limit order (trailing stop placed later via sync_trailing_stops after fill)
         try:
             order = place_limit_order(symbol, qty, "buy", price)
             log.info(f"  {symbol}: BUY {qty} @ ${price:.2f} — order {order['id']}")
-
-            # Notify
-            send_trade_alert(symbol, "buy", qty, price, f"Score {score} | {candidate['source']}")
-
+            send_trade_alert(symbol, "buy", qty, price, f"Score {score} | {candidate['source']} | {regime}")
             results.append({
                 "symbol": symbol,
                 "action": "BUY",
@@ -206,7 +305,7 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
 
 
 def execute_sells(dry_run: bool = False) -> list[dict]:
-    """Execute SELL orders for positions with score < 40."""
+    """Close positions with score < 40."""
     from trade import close_position
     from notify import send_trade_alert
 
@@ -227,12 +326,7 @@ def execute_sells(dry_run: bool = False) -> list[dict]:
         try:
             result = close_position(symbol)
             log.info(f"  {symbol}: position closed — {result}")
-
-            send_trade_alert(
-                symbol, "sell", int(pos["qty"]),
-                pos["current_price"], reason,
-            )
-
+            send_trade_alert(symbol, "sell", int(pos["qty"]), pos["current_price"], reason)
             results.append({
                 "symbol": symbol,
                 "action": "SELL",
@@ -248,68 +342,260 @@ def execute_sells(dry_run: bool = False) -> list[dict]:
     return results
 
 
-def execute_time_stops(dry_run: bool = False) -> list[dict]:
-    """Close positions held > 10 trading days without 5%+ gain."""
-    from trade import close_position
+# ─────────────────────────── profit management ────────────────────────────
+
+
+def execute_scale_outs(dry_run: bool = False) -> list[dict]:
+    """Sell 50% of position at scale_out_at_gain%, take the rest at final_target_gain%.
+
+    Idempotent: tracks scale-outs in state/performance.json under "scaled_out"
+    so we don't double-sell the same position.
+    """
     from portfolio import get_positions
+    from trade import client as trading_client, place_limit_order
+    from alpaca.trading.requests import LimitOrderRequest
+    from alpaca.trading.enums import OrderSide, TimeInForce
     from notify import send_trade_alert
+
+    params = get_strategy_params()
+    scale_at = params["scale_out_at_gain"]
+    final_at = params["final_target_gain"]
+
+    perf = load_json(PERFORMANCE_STATE)
+    scaled = set(perf.get("scaled_out", []))
 
     results = []
     positions = get_positions()
-    perf = load_json(PERFORMANCE_STATE)
-    history = perf.get("daily_history", [])
-
-    # We track by checking if position P&L < 5% — actual entry date tracking
-    # would need Alpaca order history. For now, check positions with low gains.
-    # This is a simplified heuristic: if num trading days tracked >= 10 and gain < 5%
-    if len(history) < 10:
-        return results
-
     for pos in positions:
-        pnl_pct = pos.get("unrealized_plpc", 0)
-        if pnl_pct < 5.0:
-            # Check if we have 10+ days of history with this position
-            # For now log a warning — full implementation needs entry date tracking
-            log.info(f"  {pos['symbol']}: held with {pnl_pct:+.2f}% gain — monitor for time stop")
+        symbol = pos["symbol"]
+        qty = int(pos["qty"])
+        pnl_pct = pos["unrealized_plpc"]
+        current_price = pos["current_price"]
+
+        # Final target: close entire remaining position
+        if pnl_pct >= final_at:
+            log.info(f"  {symbol}: at +{pnl_pct:.2f}% — closing at final target +{final_at}%")
+            if dry_run:
+                results.append({"symbol": symbol, "action": "DRY_RUN_FINAL_TARGET", "pnl_pct": pnl_pct})
+                continue
+            try:
+                limit_price = round(current_price * 0.999, 2)
+                req = LimitOrderRequest(
+                    symbol=symbol, qty=qty, side=OrderSide.SELL,
+                    time_in_force=TimeInForce.DAY, limit_price=limit_price,
+                )
+                order = trading_client.submit_order(req)
+                send_trade_alert(symbol, "sell", qty, current_price, f"Final target +{pnl_pct:.1f}%")
+                results.append({
+                    "symbol": symbol, "action": "FINAL_TARGET",
+                    "qty": qty, "price": current_price, "order_id": str(order.id),
+                })
+                # Clear from scaled list (position closed)
+                scaled.discard(symbol)
+            except Exception as e:
+                log.error(f"  {symbol}: final target sell failed — {e}")
+                results.append({"symbol": symbol, "action": "ERROR", "reason": str(e)})
+            continue
+
+        # Scale-out: half off at scale_at%, once per position
+        if pnl_pct >= scale_at and symbol not in scaled:
+            sell_qty = max(1, qty // 2)
+            log.info(f"  {symbol}: at +{pnl_pct:.2f}% — scaling out {sell_qty}/{qty} at +{scale_at}%")
+            if dry_run:
+                results.append({"symbol": symbol, "action": "DRY_RUN_SCALE_OUT",
+                                "qty": sell_qty, "pnl_pct": pnl_pct})
+                continue
+            try:
+                limit_price = round(current_price * 0.999, 2)
+                req = LimitOrderRequest(
+                    symbol=symbol, qty=sell_qty, side=OrderSide.SELL,
+                    time_in_force=TimeInForce.DAY, limit_price=limit_price,
+                )
+                order = trading_client.submit_order(req)
+                send_trade_alert(symbol, "sell", sell_qty, current_price, f"Scale-out 50% at +{pnl_pct:.1f}%")
+                scaled.add(symbol)
+                results.append({
+                    "symbol": symbol, "action": "SCALE_OUT",
+                    "qty": sell_qty, "price": current_price, "order_id": str(order.id),
+                })
+            except Exception as e:
+                log.error(f"  {symbol}: scale-out failed — {e}")
+                results.append({"symbol": symbol, "action": "ERROR", "reason": str(e)})
+
+    # Persist scaled-out set (only when not dry-run)
+    if not dry_run:
+        perf["scaled_out"] = sorted(scaled)
+        save_json(PERFORMANCE_STATE, perf)
 
     return results
 
 
+def execute_time_stops(dry_run: bool = False) -> list[dict]:
+    """Close positions held > time_stop_days without time_stop_min_gain.
+
+    Uses Alpaca order history to determine real entry date. Falls back to
+    skipping if entry date can't be determined.
+    """
+    from trade import close_position
+    from portfolio import get_positions
+    from notify import send_trade_alert
+
+    params = get_strategy_params()
+    max_days = params["time_stop_days"]
+    min_gain = params["time_stop_min_gain"]
+
+    results = []
+    positions = get_positions()
+    now = datetime.now(timezone.utc)
+
+    for pos in positions:
+        symbol = pos["symbol"]
+        pnl_pct = pos["unrealized_plpc"]
+        if pnl_pct >= min_gain:
+            continue  # making enough progress — leave it alone
+
+        entry = _get_position_entry_date(symbol)
+        if entry is None:
+            continue
+        days_held = _trading_days_between(entry, now)
+        if days_held < max_days:
+            continue
+
+        log.info(f"  {symbol}: time stop — held {days_held}d at {pnl_pct:+.2f}% (max {max_days}d / min +{min_gain}%)")
+        if dry_run:
+            results.append({"symbol": symbol, "action": "DRY_RUN_TIME_STOP",
+                            "days_held": days_held, "pnl_pct": pnl_pct})
+            continue
+        try:
+            result = close_position(symbol)
+            send_trade_alert(symbol, "sell", int(pos["qty"]), pos["current_price"],
+                             f"Time stop: {days_held}d @ {pnl_pct:+.1f}%")
+            results.append({
+                "symbol": symbol, "action": "TIME_STOP",
+                "days_held": days_held, "pnl_pct": pnl_pct,
+                "order_id": result.get("order_id"),
+            })
+        except Exception as e:
+            log.error(f"  {symbol}: time-stop close failed — {e}")
+            results.append({"symbol": symbol, "action": "ERROR", "reason": str(e)})
+
+    return results
+
+
+def tighten_stops_in_profit(dry_run: bool = False) -> list[dict]:
+    """Replace 8% trailing stops with tighter stop once position is meaningfully in profit.
+
+    When pnl >= 5%, swap to tightened_stop_pct trail. Idempotent via tracking
+    in performance state.
+    """
+    from portfolio import get_positions
+    from trade import client as trading_client, place_trailing_stop
+    from alpaca.trading.requests import GetOrdersRequest
+    from alpaca.trading.enums import QueryOrderStatus, OrderType, OrderSide
+
+    params = get_strategy_params()
+    tight_pct = params["tightened_stop_pct"]
+    trigger_gain = 5.0
+
+    perf = load_json(PERFORMANCE_STATE)
+    tightened = set(perf.get("tightened_stops", []))
+
+    results = []
+    positions = get_positions()
+    if not positions:
+        return results
+
+    # Get current open trailing stops
+    req = GetOrdersRequest(status=QueryOrderStatus.OPEN)
+    open_orders = list(trading_client.get_orders(filter=req))
+    stop_by_symbol = {
+        o.symbol: o for o in open_orders
+        if o.side == OrderSide.SELL and o.type == OrderType.TRAILING_STOP
+    }
+
+    for pos in positions:
+        symbol = pos["symbol"]
+        pnl_pct = pos["unrealized_plpc"]
+        qty = int(pos["qty"])
+
+        if pnl_pct < trigger_gain:
+            continue
+        if symbol in tightened:
+            continue
+
+        existing = stop_by_symbol.get(symbol)
+        existing_trail = float(existing.trail_percent) if existing and existing.trail_percent else 8.0
+        if existing_trail <= tight_pct + 0.1:
+            tightened.add(symbol)
+            continue
+
+        log.info(f"  {symbol}: at +{pnl_pct:.2f}% — tightening stop from {existing_trail:.1f}% to {tight_pct:.1f}%")
+        if dry_run:
+            results.append({"symbol": symbol, "action": "DRY_RUN_TIGHTEN",
+                            "from": existing_trail, "to": tight_pct})
+            continue
+        try:
+            if existing:
+                trading_client.cancel_order_by_id(existing.id)
+            new_stop = place_trailing_stop(symbol, qty, trail_percent=tight_pct)
+            tightened.add(symbol)
+            results.append({"symbol": symbol, "action": "TIGHTEN",
+                            "trail_pct": tight_pct, "order_id": new_stop["id"]})
+        except Exception as e:
+            log.error(f"  {symbol}: tighten stop failed — {e}")
+            results.append({"symbol": symbol, "action": "ERROR", "reason": str(e)})
+
+    if not dry_run:
+        # Keep only symbols we still hold
+        held = {p["symbol"] for p in positions}
+        perf["tightened_stops"] = sorted(s for s in tightened if s in held)
+        save_json(PERFORMANCE_STATE, perf)
+
+    return results
+
+
+# ───────────────────────────── orchestration ──────────────────────────────
+
+
 def run_execution(dry_run: bool = False) -> dict:
-    """Main execution routine — run all trade logic."""
+    """Main execution routine — full sequence of trade logic."""
     log.info(f"{'='*60}")
     log.info(f"TRADE EXECUTION — {get_now_str()}")
     log.info(f"{'='*60}")
 
-    # 1. Execute stop-losses first
     from trade import execute_stop_losses, sync_trailing_stops
+
     stops = execute_stop_losses()
     if stops:
         log.info(f"Stop-losses triggered: {len(stops)}")
 
-    # 1b. Sync trailing stops for filled positions missing them
     synced = sync_trailing_stops()
     if synced:
         log.info(f"Trailing stops synced: {len(synced)}")
 
-    # 2. Execute sells (score < 40)
+    tightened = tighten_stops_in_profit(dry_run=dry_run)
+    if tightened:
+        log.info(f"Stops tightened: {len([t for t in tightened if t.get('action') == 'TIGHTEN'])}")
+
+    scale_outs = execute_scale_outs(dry_run=dry_run)
+    if scale_outs:
+        log.info(f"Scale-out / target exits: {len(scale_outs)}")
+
     sells = execute_sells(dry_run=dry_run)
-
-    # 3. Execute buys (score >= 65, passes checklist)
     buys = execute_buys(dry_run=dry_run)
-
-    # 4. Check time stops
     time_stops = execute_time_stops(dry_run=dry_run)
 
-    # 5. Save portfolio state
     from portfolio import save_positions_state, update_performance_state
     save_positions_state()
     update_performance_state()
 
     result = {
         "timestamp": get_now_str(),
+        "regime": get_market_regime(),
         "risk_tier": get_risk_tier(),
         "stop_losses": stops,
+        "tightened_stops": tightened,
+        "scale_outs": scale_outs,
         "sells": sells,
         "buys": buys,
         "time_stops": time_stops,
@@ -318,9 +604,12 @@ def run_execution(dry_run: bool = False) -> dict:
 
     log.info(f"\nExecution summary:")
     log.info(f"  Stop-losses: {len(stops)}")
-    log.info(f"  Sells: {len([s for s in sells if s.get('action') == 'SELL'])}")
-    log.info(f"  Buys:  {len([b for b in buys if b.get('action') == 'BUY'])}")
-    log.info(f"  Skips: {len([b for b in buys if b.get('action') == 'SKIP'])}")
+    log.info(f"  Tightened:   {len([t for t in tightened if t.get('action') == 'TIGHTEN'])}")
+    log.info(f"  Scale-outs:  {len([s for s in scale_outs if s.get('action') in ('SCALE_OUT', 'FINAL_TARGET')])}")
+    log.info(f"  Sells:       {len([s for s in sells if s.get('action') == 'SELL'])}")
+    log.info(f"  Buys:        {len([b for b in buys if b.get('action') == 'BUY'])}")
+    log.info(f"  Time stops:  {len([t for t in time_stops if t.get('action') == 'TIME_STOP'])}")
+    log.info(f"  Skips:       {len([b for b in buys if b.get('action') == 'SKIP'])}")
 
     return result
 
@@ -334,9 +623,13 @@ if __name__ == "__main__":
 
     elif cmd == "dry-run":
         result = run_execution(dry_run=True)
-        print(f"\nDry run complete. Would buy: {len(result['buys'])}, Would sell: {len(result['sells'])}")
+        print(f"\nDry run — regime={result['regime']} | risk={result['risk_tier']}")
+        print(f"Would buy: {len([b for b in result['buys'] if b.get('action') in ('DRY_RUN',)])} | "
+              f"sell: {len([s for s in result['sells'] if s.get('action') == 'DRY_RUN_SELL'])} | "
+              f"scale-out: {len([s for s in result['scale_outs'] if s.get('action') in ('DRY_RUN_SCALE_OUT', 'DRY_RUN_FINAL_TARGET')])} | "
+              f"time-stop: {len([t for t in result['time_stops'] if t.get('action') == 'DRY_RUN_TIME_STOP'])}")
         for b in result["buys"]:
-            reason = b.get('reason', f"qty={b.get('qty')} @ ${b.get('price', 0):.2f}")
+            reason = b.get('reason', f"qty={b.get('qty')} @ ${b.get('price', 0):.2f} score={b.get('score')}")
             print(f"  {b['symbol']}: {b['action']} — {reason}")
 
     elif cmd == "midday":
@@ -345,31 +638,29 @@ if __name__ == "__main__":
 
         print(f"\nMidday scan — {get_now_str()}")
 
-        # Sync trailing stops for filled positions
         synced = sync_trailing_stops()
         if synced:
             print(f"Trailing stops synced: {len(synced)}")
-            for r in synced:
-                if "error" in r:
-                    print(f"  {r['symbol']}: ERROR — {r['error']}")
-                else:
-                    print(f"  {r['symbol']}: {r['qty']} shares @ 8% trail")
         else:
             print("All positions have trailing stops.")
 
-        # Check manual stop-losses
+        tightened = tighten_stops_in_profit()
+        if tightened:
+            print(f"Stops tightened: {len([t for t in tightened if t.get('action') == 'TIGHTEN'])}")
+
+        scale_outs = execute_scale_outs()
+        if scale_outs:
+            for r in scale_outs:
+                print(f"  {r['symbol']}: {r['action']}")
+
         stops = execute_stop_losses()
         if stops:
             print(f"Stop-losses triggered: {len(stops)}")
-            for s in stops:
-                print(f"  {s['symbol']}: {s.get('reason', 'closed')}")
 
-        # Time stops
         time_stops = execute_time_stops()
         if time_stops:
-            print(f"Time stops: {len(time_stops)}")
+            print(f"Time stops: {len([t for t in time_stops if t.get('action') == 'TIME_STOP'])}")
 
-        # Save state
         save_positions_state()
         update_performance_state()
         print("State saved.")
@@ -377,9 +668,18 @@ if __name__ == "__main__":
     elif cmd == "candidates":
         buys = get_buy_candidates()
         sells = get_sell_candidates()
+        regime = get_market_regime()
+        from portfolio import get_account
+        try:
+            cash_pct = get_account()["cash_pct"]
+        except Exception:
+            cash_pct = 50.0
+        threshold = get_effective_threshold(cash_pct, regime)
+        print(f"\nRegime: {regime} | Cash: {cash_pct:.1f}% | Effective threshold: {threshold}")
         print(f"\nBUY candidates ({len(buys)}):")
         for c in buys:
-            print(f"  {c['symbol']}: score={c['confidence']['total']} ({c['source']})")
+            t = c["confidence"].get("total", 0)
+            print(f"  {c['symbol']}: score={t} ({c['source']}) {'✓BUY' if t >= threshold else '↘near'}")
         print(f"\nSELL candidates ({len(sells)}):")
         for c in sells:
             print(f"  {c['symbol']}: {c['reason']}")

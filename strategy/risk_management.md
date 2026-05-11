@@ -1,71 +1,121 @@
-# Risk Management
+# Risk Management — Regime-Adaptive
+
+All risk knobs are resolved from `scripts/strategy_config.py` based on
+(market_regime, risk_tier). This file describes the policies; the numbers
+live in code so they stay consistent across every script.
+
+---
 
 ## Drawdown Escalation
 
-| Level | Trigger | Actions |
-|-------|---------|---------|
-| **NORMAL** | Default state | Full trading per `rules.md` |
-| **CAUTIOUS** | Weekly P&L ≤ −2% | Halve position sizes, raise confidence threshold to 75, no new sectors, tighten stops to 6% |
-| **HALT** | Monthly P&L ≤ −5% | No new trades. Only close/manage existing. Review strategy before resuming. |
+| Tier | Trigger | Behavior |
+|------|---------|----------|
+| **NORMAL** | Default | Full strategy per current regime |
+| **CAUTIOUS** | Weekly P&L ≤ −2% | Tighter thresholds, halved sizing, tighter stops |
+| **HALT** | Monthly P&L ≤ −5% | No new buys — manage existing only |
 
-### Tier Transitions
-- Check at every routine execution
-- Escalation is immediate upon breach
-- De-escalation: HALT → CAUTIOUS after 3 consecutive green days; CAUTIOUS → NORMAL after weekly P&L returns to ≥ 0%
+**De-escalation:** HALT → CAUTIOUS after 3 consecutive green days;
+CAUTIOUS → NORMAL after weekly P&L returns to ≥ 0%.
+
+Auto-set in `portfolio.update_performance_state()` after every routine.
 
 ---
 
 ## Daily Loss Limit
 
-- If unrealized + realized daily P&L hits **−3%**, stop all trading for the rest of the day
-- Cancel all open buy orders
-- Do NOT close existing positions unless stop-losses trigger
-- Log the halt in the daily journal with reasoning
+- If realized + unrealized daily P&L hits **−3%**, stop all new buys for the day
+- Existing positions managed normally; their stops still trigger
+- Logged in `state/performance.json` and journal
 
 ---
 
-## Position-Level Stops
+## Position-Level Stops (regime-adaptive)
 
-| Type | Rule |
-|------|------|
-| **Initial stop** | 8% below entry price, set as trailing stop order |
-| **Trailing stop** | 8% from highest closing price since entry |
-| **Profit protection** | After +5% gain, tighten stop to 5% trailing |
-| **Time stop** | Close after 10 days if gain < 5% |
+| State | Trail % |
+|-------|---------|
+| Default trailing stop (BULL/NORMAL) | 8% |
+| Default (NEUTRAL/NORMAL, BULL/CAUTIOUS) | 6% |
+| BEAR or CAUTIOUS | 5–6% |
+| Tightened (after +5% gain) | 5% / 4% / 3% by regime |
+
+Stops are placed automatically via `sync_trailing_stops()` after every fill
+and re-evaluated by `tighten_stops_in_profit()` once positions are in profit.
+
+---
+
+## Profit-Taking (regime-adaptive)
+
+| Regime | Scale-out 50% | Final target |
+|--------|---------------|--------------|
+| BULL/NORMAL | +10% | +20% |
+| NEUTRAL/NORMAL | +10% | +15% |
+| BEAR/NORMAL | +7% | +12% |
+| Any CAUTIOUS | −2 pp on both | −5 pp |
+
+Idempotent — once scaled out, the symbol is recorded in
+`state/performance.json:scaled_out` and skipped on subsequent runs until the
+position is fully closed.
+
+---
+
+## Time Stop
+
+Position closes if held longer than `time_stop_days` without reaching
+`time_stop_min_gain`. Real entry date pulled from Alpaca order history (not
+a heuristic on history length).
+
+| Regime/Tier | Max days | Min gain |
+|-------------|----------|----------|
+| BULL/NORMAL | 12 | +4% |
+| NEUTRAL/NORMAL | 10 | +5% |
+| BEAR/NORMAL | 7 | +3% |
+| Any CAUTIOUS | shorter, see config | tighter |
 
 ---
 
 ## Concentration Limits
 
-| Metric | Limit |
-|--------|-------|
-| Single position | 5% of equity |
-| Single sector | 25% of equity |
-| Total invested | 80% of equity (20% cash reserve) |
-| Max positions | 10 |
+| Metric | NORMAL | CAUTIOUS |
+|--------|--------|----------|
+| Single position | 5–6% of equity (regime-dependent) | 2.5–3% |
+| Single sector | 25% | 25% |
+| Min cash reserve | 5–40% (regime-dependent) | 25–60% |
+| Max open positions | 10 | 10 |
+
+In BULL/NORMAL the cash floor drops to 5% (deploy capital). In BEAR/CAUTIOUS
+it rises to 60%+ (defend capital).
 
 ---
 
-## Pre-Trade Checklist
+## Cash Deployment Pressure
 
-Before placing any order, verify:
+If `cash_pct > max_cash_pct` for the current regime, the score threshold
+drops by `cash_starve_bonus` (5 points in BULL/NORMAL). Prevents the system
+from sitting on cash during a strong rally — the original failure mode that
+cost ~6% of monthly alpha.
 
-- [ ] Risk tier allows new trades (not HALT)
-- [ ] Cash after trade ≥ 20% of equity
-- [ ] Position size ≤ 5% of equity (2.5% if CAUTIOUS)
-- [ ] Sector exposure after trade ≤ 25%
-- [ ] Total open positions < 10
-- [ ] Daily P&L > −3%
-- [ ] Confidence score ≥ 65 (75 if CAUTIOUS)
-- [ ] All 5 entry criteria met
+Absolute floor: threshold never goes below 40 (no buying low-conviction).
+
+---
+
+## Pre-Trade Checklist (validate_order)
+
+Order rejected if any of:
+- Risk tier is HALT
+- Cash after order < `min_cash_pct` of equity
+- Single-position exposure > `max_position_pct`
+- Total open positions ≥ 10 (for new symbols)
+- Sector exposure after order > 25%
+- Daily P&L ≤ −3%
+- Symbol not tradeable on Alpaca
 
 ---
 
 ## Recovery Protocol
 
-When in HALT mode:
-1. Review all open positions — close any with confidence < 40
-2. Analyze losing trades from the month — update `memory/lessons_learned.md`
-3. Wait for 3 consecutive green days before moving to CAUTIOUS
-4. In CAUTIOUS, trade at half size for at least 5 trading days
-5. Only return to NORMAL when weekly P&L ≥ 0%
+When in HALT:
+1. Review every position — close any with confidence < 40
+2. Update `memory/lessons_learned.md` from the drawdown
+3. Wait 3 consecutive green days → CAUTIOUS
+4. In CAUTIOUS, half size for ≥ 5 trading days
+5. Return to NORMAL only when weekly P&L ≥ 0%

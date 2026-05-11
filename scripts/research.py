@@ -143,6 +143,19 @@ def compute_technicals(df: pd.DataFrame) -> dict:
     else:
         five_day_return = 0.0
 
+    # 20-day return — used for relative strength vs SPY (less noisy than 5d)
+    if len(close) >= 21:
+        twenty_day_return = (current_price / float(close.iloc[-21]) - 1) * 100
+    else:
+        twenty_day_return = five_day_return
+
+    # ATR(14) for volatility-aware stops / sizing
+    if len(close) >= 15:
+        atr_series = ta.volatility.average_true_range(high, low, close, window=14)
+        current_atr = float(atr_series.iloc[-1]) if pd.notna(atr_series.iloc[-1]) else None
+    else:
+        current_atr = None
+
     return {
         "price": current_price,
         "sma_20": current_sma20,
@@ -157,6 +170,9 @@ def compute_technicals(df: pd.DataFrame) -> dict:
         "vol_avg_20": current_vol_avg,
         "volume_ratio": prev_day_volume / current_vol_avg if current_vol_avg and current_vol_avg > 0 else None,
         "five_day_return": five_day_return,
+        "twenty_day_return": twenty_day_return,
+        "atr_14": current_atr,
+        "atr_pct": (current_atr / current_price * 100) if current_atr and current_price else None,
         "above_sma20": current_price > current_sma20 if current_sma20 else None,
         "above_sma50": current_price > current_sma50 if current_sma50 else None,
     }
@@ -193,44 +209,87 @@ def score_news(news: list[dict]) -> int:
     return max(0, min(35, score))
 
 
-def compute_confidence_score(technicals: dict, news_score: int, perplexity_score: int = 0) -> dict:
-    """Compute composite confidence score (0-100)."""
+def compute_confidence_score(
+    technicals: dict,
+    news_score: int,
+    perplexity_score: int = 0,
+    regime: str | None = None,
+    risk_tier: str | None = None,
+) -> dict:
+    """Compute composite confidence score (0-100), regime-aware.
+
+    Technical breakdown (max ~37):
+      • Trend (SMA stack)          : up to 10
+      • RSI in regime sweet spot   : up to 10
+      • MACD bullish               : up to 7
+      • Volume confirmation        : up to 5
+      • 20-day momentum            : up to 5  (rewards trending strength)
+
+    The RSI sweet spot moves with the regime: in BULL we *reward* RSI 55-80
+    (momentum), not penalize it. The old 40-65 band only made sense in a
+    range-bound market.
+
+    Action mapping uses the regime-adaptive threshold from strategy_config.
+    """
+    from strategy_config import get_strategy_params
+
+    params = get_strategy_params(regime, risk_tier)
     tech_score = 0
 
-    # Price > 20-SMA and 50-SMA (10 pts)
-    if technicals.get("above_sma20") and technicals.get("above_sma50"):
+    # 1) Trend alignment (max 10)
+    above_20 = technicals.get("above_sma20")
+    above_50 = technicals.get("above_sma50")
+    if above_20 and above_50:
         tech_score += 10
-    elif technicals.get("above_sma20"):
-        tech_score += 5
+    elif above_20:
+        tech_score += 6
+    elif above_50:
+        tech_score += 3
 
-    # RSI 40-65 sweet spot (8 pts)
+    # 2) RSI sweet spot (max 10) — regime adaptive
     rsi = technicals.get("rsi_14")
-    if rsi and 40 <= rsi <= 65:
-        tech_score += 8
-    elif rsi and (30 <= rsi < 40 or 65 < rsi <= 70):
-        tech_score += 4
+    if rsi is not None:
+        sweet_lo = params["rsi_sweet_low"]
+        sweet_hi = params["rsi_sweet_high"]
+        accept_lo = params["rsi_acceptable_low"]
+        accept_hi = params["rsi_acceptable_high"]
+        if sweet_lo <= rsi <= sweet_hi:
+            tech_score += 10
+        elif accept_lo <= rsi <= accept_hi:
+            tech_score += 5
 
-    # MACD > signal (7 pts)
+    # 3) MACD bullish crossover (max 7)
     macd = technicals.get("macd")
     macd_sig = technicals.get("macd_signal")
-    if macd is not None and macd_sig is not None and macd > macd_sig:
-        tech_score += 7
+    if macd is not None and macd_sig is not None:
+        if macd > macd_sig:
+            tech_score += 7
+            # Bonus 2 pts if MACD is also positive (above zero line)
+            if macd > 0:
+                tech_score += 0  # consumed in cap; keep base 7
 
-    # Price in lower half of Bollinger Bands (5 pts)
-    price = technicals.get("price")
-    bb_mid = technicals.get("bb_mid")
-    bb_low = technicals.get("bb_lower")
-    if price and bb_mid and bb_low and price <= bb_mid:
-        tech_score += 5
-
-    # Volume >= 1.2x avg (5 pts)
+    # 4) Volume confirmation (max 5) — regime-adaptive gate
     vol_ratio = technicals.get("volume_ratio")
-    if vol_ratio and vol_ratio >= 1.2:
-        tech_score += 5
+    if vol_ratio is not None:
+        if vol_ratio >= params["volume_min_ratio"] * 1.25:
+            tech_score += 5
+        elif vol_ratio >= params["volume_min_ratio"]:
+            tech_score += 3
+
+    # 5) 20-day momentum (max 5) — strong recent trend earns extra points
+    twenty_d = technicals.get("twenty_day_return")
+    if twenty_d is not None:
+        if twenty_d >= 10:
+            tech_score += 5
+        elif twenty_d >= 5:
+            tech_score += 3
+        elif twenty_d >= 0:
+            tech_score += 1
 
     total = tech_score + news_score + perplexity_score
 
-    if total >= 65:
+    threshold = params["score_threshold"]
+    if total >= threshold:
         action = "BUY"
     elif total >= 40:
         action = "HOLD"
@@ -243,6 +302,8 @@ def compute_confidence_score(technicals: dict, news_score: int, perplexity_score
         "perplexity_score": perplexity_score,
         "total": total,
         "action": action,
+        "threshold_used": threshold,
+        "regime": regime or "auto",
     }
 
 
@@ -257,6 +318,12 @@ def get_spy_benchmark() -> dict:
         month_return = (float(close.iloc[-1]) / float(close.iloc[-22]) - 1) * 100
     else:
         month_return = (float(close.iloc[-1]) / float(close.iloc[0]) - 1) * 100
+
+    # 20-day return — used for stock relative-strength comparison
+    if len(close) >= 21:
+        twenty_day_return = (float(close.iloc[-1]) / float(close.iloc[-21]) - 1) * 100
+    else:
+        twenty_day_return = month_return
 
     # Market regime
     price = technicals.get("price", 0)
@@ -279,13 +346,14 @@ def get_spy_benchmark() -> dict:
         "sma_50": sma50,
         "rsi_14": technicals.get("rsi_14"),
         "five_day_return": technicals.get("five_day_return"),
+        "twenty_day_return": twenty_day_return,
         "monthly_return": month_return,
         "market_regime": regime,
         "updated_at": get_now_str(),
     }
 
 
-def research_symbol(symbol: str) -> dict:
+def research_symbol(symbol: str, regime: str | None = None) -> dict:
     """Research any single symbol on demand. Returns full analysis dict."""
     log.info(f"Researching {symbol}...")
     try:
@@ -304,7 +372,11 @@ def research_symbol(symbol: str) -> dict:
             n_score = 5
             news_headlines = []
 
-        confidence = compute_confidence_score(technicals, n_score)
+        # If regime not provided, read from research state (may be stale; that's OK)
+        if regime is None:
+            regime = load_json(RESEARCH_STATE).get("spy", {}).get("market_regime")
+
+        confidence = compute_confidence_score(technicals, n_score, regime=regime)
 
         result = {
             "symbol": symbol,
@@ -329,11 +401,13 @@ def build_research_report() -> dict:
     existing_research = load_json(RESEARCH_STATE)
     report = {"updated_at": get_now_str(), "spy": {}, "symbols": {}}
 
-    # SPY benchmark
+    # SPY benchmark — gates regime for downstream scoring
+    regime = "NEUTRAL"
     try:
         spy = get_spy_benchmark()
         report["spy"] = spy
-        log.info(f"SPY: ${spy['price']:.2f} | Regime: {spy['market_regime']} | Month: {spy['monthly_return']:+.2f}%")
+        regime = spy.get("market_regime", "NEUTRAL")
+        log.info(f"SPY: ${spy['price']:.2f} | Regime: {regime} | Month: {spy['monthly_return']:+.2f}%")
     except Exception as e:
         log.error(f"SPY benchmark error: {e}")
 
@@ -374,8 +448,10 @@ def build_research_report() -> dict:
                     except ValueError:
                         pass  # can't parse date, keep it
 
-            # Confidence score — include preserved Perplexity score if available
-            confidence = compute_confidence_score(technicals, n_score, existing_px_score)
+            # Confidence score — regime-aware, include preserved Perplexity score
+            confidence = compute_confidence_score(
+                technicals, n_score, existing_px_score, regime=regime,
+            )
 
             sym_data = {
                 "technicals": technicals,

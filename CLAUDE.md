@@ -17,47 +17,53 @@ You operate entirely through Python scripts in this repo. You never place trades
 
 ---
 
-## Decision Framework — 5-Question Checklist
+## Decision Framework — 5-Question Checklist (Regime-Adaptive)
 
-Before **every** trade, answer these five questions:
+Before **every** trade, all five must be YES. Volume, RS, and confidence
+thresholds adapt to the SPY market regime via `scripts/strategy_config.py`.
 
-1. **Trend** — Is the stock above its 20-SMA AND 50-SMA? (required for longs)
-2. **Catalyst** — Is there a concrete news catalyst within 5 days? (earnings, product launch, macro)
-3. **Volume** — Is recent volume ≥ 1.2× the 20-day average?
-4. **Relative strength** — Is the stock outperforming SPY over the last 5 days?
-5. **Confidence** — Is the composite score ≥ 65?
+1. **Trend** — Price > 20-SMA AND 50-SMA
+2. **Catalyst** — news_score > 5 OR perplexity_score > 10
+3. **Volume** — volume_ratio ≥ `volume_min_ratio` (1.0 BULL / 1.2 NEUTRAL / 1.5 BEAR)
+4. **Relative strength** — 20-day return − SPY 20-day return ≥ `rs_alpha_min`
+5. **Confidence** — score ≥ `score_threshold` (55 BULL / 65 NEUTRAL / 80 BEAR)
 
-All five must be **YES** to open a new long position. Any **NO** → skip.
+If cash > `max_cash_pct`, threshold drops by `cash_starve_bonus` (deploys capital).
+
+See `strategy/rules.md` for the full table.
 
 ---
 
-## Hard Rules (Never Break These)
+## Hard Rules (Regime-Adaptive — see `scripts/strategy_config.py`)
 
-| Rule | Limit |
-|------|-------|
-| Max position size | 5% of portfolio equity |
-| Cash reserve | Always keep ≥ 20% cash |
-| Order type | Limit orders only (no market orders) |
-| Stop-loss | 8% trailing stop on every position |
-| Daily loss halt | If daily P&L hits −3%, stop trading for the day |
-| Max open positions | 10 |
-| Concentration | Max 25% in any single sector |
-| Time stop | Close any position held > 10 trading days without 5%+ gain |
+| Rule | NORMAL/BULL | NORMAL/NEUTRAL | NORMAL/BEAR |
+|------|-------------|----------------|-------------|
+| Max position size | 6% | 5% | 2% |
+| Min cash reserve | 5% | 20% | 40% |
+| Risk per trade | 1.0% | 0.7% | 0.3% |
+| Trailing stop | 8% | 8% | 6% |
+| Scale-out gain | +10% | +10% | +7% |
+| Final target | +20% | +15% | +12% |
+| Time stop | 12d / +4% | 10d / +5% | 7d / +3% |
+| Daily loss halt | −3% (universal) | | |
+| Max positions | 10 | 10 | 10 |
+| Sector cap | 25% | 25% | 25% |
+| Order type | Limit only | Limit only | Limit only |
+
+CAUTIOUS tier halves position size and tightens thresholds. HALT blocks new buys.
 
 ---
 
 ## Confidence Scoring System (0–100)
 
-Every candidate gets scored before a trade decision.
-
-### Technical Score (0–35)
+### Technical Score (max ~37) — regime-adaptive RSI
 | Signal | Points |
 |--------|--------|
 | Price > 20-SMA and 50-SMA | 10 |
-| RSI 40–65 (healthy momentum) | 8 |
-| MACD line > signal line | 7 |
-| Price in lower half of Bollinger Bands (buy zone) | 5 |
-| Volume ≥ 1.2× 20-day avg | 5 |
+| RSI in regime sweet spot (BULL 55–80 / NEUTRAL 50–70 / BEAR 35–60) | up to 10 |
+| MACD > signal | 7 |
+| Volume confirmation (vs `volume_min_ratio`) | up to 5 |
+| 20-day momentum (≥+10% = 5 / ≥+5% = 3 / ≥0% = 1) | up to 5 |
 
 ### News Score (0–35)
 | Signal | Points |
@@ -75,12 +81,12 @@ Every candidate gets scored before a trade decision.
 | Mixed / uncertain | 5–14 |
 | Negative outlook | 0–4 |
 
-### Thresholds
+### Thresholds (regime-adaptive)
 | Score | Action |
 |-------|--------|
-| ≥ 65 | **BUY** — open or add to position |
-| 40–64 | **HOLD** — keep existing, don't add |
-| < 40 | **SELL** — close position if held |
+| ≥ `score_threshold` (55 BULL / 65 NEUTRAL / 80 BEAR; CAUTIOUS adds ~10) | **BUY** |
+| 40 to threshold−1 | **HOLD** |
+| < 40 | **SELL** |
 
 ---
 
