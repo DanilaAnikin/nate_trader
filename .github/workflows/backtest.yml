@@ -1,0 +1,86 @@
+name: Backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Mode: single | sweep | monte-carlo'
+        required: true
+        default: 'single'
+        type: choice
+        options:
+          - single
+          - sweep
+          - monte-carlo
+      start_date:
+        description: 'Start date (YYYY-MM-DD)'
+        required: true
+        default: '2021-01-01'
+      end_date:
+        description: 'End date (YYYY-MM-DD, blank = today)'
+        required: false
+        default: ''
+      n_monte_carlo:
+        description: 'Monte Carlo simulations (only used for monte-carlo mode)'
+        required: false
+        default: '200'
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: .
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Pull latest
+        run: git pull --rebase origin main
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download / refresh historical bars
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python3 scripts/backtest/run.py download --start ${{ inputs.start_date }}
+
+      - name: Run backtest (${{ inputs.mode }})
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: |
+          END_ARG=""
+          if [ -n "${{ inputs.end_date }}" ]; then
+            END_ARG="--end ${{ inputs.end_date }}"
+          fi
+          if [ "${{ inputs.mode }}" = "single" ]; then
+            python3 scripts/backtest/run.py single --start ${{ inputs.start_date }} $END_ARG
+          elif [ "${{ inputs.mode }}" = "sweep" ]; then
+            python3 scripts/backtest/run.py sweep --start ${{ inputs.start_date }} $END_ARG
+          else
+            python3 scripts/backtest/run.py monte-carlo --start ${{ inputs.start_date }} $END_ARG --n ${{ inputs.n_monte_carlo }}
+          fi
+
+      - name: Commit and push results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add state/backtest/
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "backtest: ${{ inputs.mode }} run $(date +%Y-%m-%d)"
+          git pull --rebase origin main
+          git push origin main
