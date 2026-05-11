@@ -42,10 +42,36 @@ jobs:
       - name: Commit and push state
         working-directory: .
         run: |
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add state/spy_history.json
-          git diff --cached --quiet && echo "No changes to commit" && exit 0
-          git commit -m "routine: SPY history update $(date +%Y-%m-%d)"
-          git pull --rebase origin main
-          git push origin main
+
+          if [ -z "$(git status --porcelain state/spy_history.json 2>/dev/null)" ]; then
+            echo "No SPY history change to commit"
+            exit 0
+          fi
+
+          for attempt in 1 2 3; do
+            echo "── push attempt $attempt/3 ──"
+            git pull --rebase=true --autostash origin main || {
+              git rebase --abort 2>/dev/null || true
+              git stash pop 2>/dev/null || true
+              sleep 5
+              continue
+            }
+            git add state/spy_history.json
+            if git diff --cached --quiet; then
+              echo "  nothing to commit after rebase"
+              exit 0
+            fi
+            git commit -m "routine: SPY history update $(date +%Y-%m-%d)"
+            if git push origin main; then
+              echo "  pushed on attempt $attempt"
+              exit 0
+            fi
+            git reset --soft HEAD~1
+            sleep 5
+          done
+
+          echo "Failed to push SPY history after 3 attempts"
+          exit 1

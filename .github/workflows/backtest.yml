@@ -99,10 +99,54 @@ jobs:
 
       - name: Commit and push results
         run: |
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add state/backtest/
-          git diff --cached --quiet && echo "No changes to commit" && exit 0
-          git commit -m "backtest: ${{ inputs.mode }} run $(date +%Y-%m-%d)"
-          git pull --rebase origin main
-          git push origin main
+
+          # If nothing was produced, exit early.
+          if [ -z "$(git status --porcelain state/backtest/ 2>/dev/null)" ]; then
+            echo "No backtest output to commit"
+            exit 0
+          fi
+
+          # Manifest is rebuilt deterministically from runs/ on disk after every
+          # pull, so we throw away local manifest changes before pulling. The
+          # archive (runs/*.json) and the legacy latest_result are append-only
+          # and never conflict with concurrent workflows.
+          for attempt in 1 2 3; do
+            echo "── push attempt $attempt/3 ──"
+            git checkout state/backtest/manifest.json 2>/dev/null || true
+
+            # Make sure local main is at remote tip. Other workflows (e.g. SPY
+            # history) may have pushed since this backtest started.
+            if ! git pull --rebase=true --autostash origin main; then
+              echo "  pull --rebase failed; aborting any in-flight rebase"
+              git rebase --abort 2>/dev/null || true
+              git stash pop 2>/dev/null || true
+              sleep 10
+              continue
+            fi
+
+            # Reconstruct manifest from the on-disk union of all runs/ files
+            # — including any new ones pulled in from concurrent workflows.
+            python3 scripts/backtest/rebuild_manifest.py
+
+            git add state/backtest/
+            if git diff --cached --quiet; then
+              echo "  nothing left to commit after rebuild"
+              exit 0
+            fi
+            git commit -m "backtest: ${{ inputs.mode }} run $(date +%Y-%m-%d)"
+
+            if git push origin main; then
+              echo "  pushed on attempt $attempt"
+              exit 0
+            fi
+
+            echo "  push rejected — undoing commit and retrying"
+            git reset --soft HEAD~1
+            sleep 10
+          done
+
+          echo "Failed to push backtest result after 3 attempts"
+          exit 1
