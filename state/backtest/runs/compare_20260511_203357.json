@@ -1,0 +1,6 @@
+{
+  "kind": "compare",
+  "generated_at": "2026-05-11 16:33:57",
+  "error": "No sweep result found and no challenger params provided. Run sweep first or pass params explicitly.",
+  "run_id": "compare_20260511_203357"
+}
