@@ -51,23 +51,21 @@ export default function DashboardClient({ performance, research }: Props) {
   } | null>(null);
 
   useEffect(() => {
+    type LivePayload = {
+      account: {
+        equity: number;
+        cash: number;
+        cash_pct: number;
+        daily_pnl: number;
+        daily_pnl_pct: number;
+        num_positions: number;
+      };
+      timestamp: string;
+    };
     function handler(e: Event) {
-      const ce = e as CustomEvent<{
-        account: DisplayMetrics & { cash_pct: number; daily_pnl_pct: number; num_positions: number };
-        timestamp: string;
-      }>;
-      if (ce.detail) {
-        setLive({
-          account: {
-            equity: ce.detail.account.equity,
-            cash: ce.detail.account.cash,
-            cash_pct: ce.detail.account.cash_pct,
-            daily_pnl: ce.detail.account.daily_pnl,
-            daily_pnl_pct: ce.detail.account.daily_pnl_pct,
-            num_positions: ce.detail.account.num_positions,
-          },
-          timestamp: ce.detail.timestamp,
-        });
+      const detail = (e as CustomEvent<LivePayload>).detail;
+      if (detail && detail.account) {
+        setLive({ account: detail.account, timestamp: detail.timestamp });
       }
     }
     window.addEventListener("dashboard:live", handler);

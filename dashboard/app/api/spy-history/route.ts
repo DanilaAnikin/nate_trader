@@ -10,7 +10,9 @@ import { NextResponse } from "next/server";
  * back to "history unavailable" message in the chart component.
  */
 
-export const revalidate = 3600;
+// Don't prerender at build time (no Alpaca creds in build env). Cache at
+// the fetch layer instead via `next: { revalidate }` on the actual fetch.
+export const dynamic = "force-dynamic";
 
 interface AlpacaBar {
   t: string;
