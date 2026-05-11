@@ -52,8 +52,8 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
     fetch("/api/spy-history", { cache: "no-store" })
       .then(async (res) => {
         if (cancelled) return;
-        if (res.status === 503) {
-          setErrorMsg("Alpaca credentials not set on the server — historical SPY data unavailable. Add ALPACA_API_KEY and ALPACA_SECRET_KEY in Vercel env.");
+        if (res.status === 404) {
+          setErrorMsg("SPY history file not generated yet. Run the 'Update SPY History' GitHub Actions workflow (Actions → Update SPY History → Run workflow) to backfill from 2020.");
           setSpyData([]);
           return;
         }
