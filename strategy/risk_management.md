@@ -80,7 +80,7 @@ a heuristic on history length).
 | Single position | 5–6% of equity (regime-dependent) | 2.5–3% |
 | Single sector | 25% | 25% |
 | Min cash reserve | 5–40% (regime-dependent) | 25–60% |
-| Max open positions | 10 | 10 |
+| Max open positions | 15 BULL / 12 NEUTRAL / 8 BEAR | halved (5–10) |
 
 In BULL/NORMAL the cash floor drops to 5% (deploy capital). In BEAR/CAUTIOUS
 it rises to 60%+ (defend capital).

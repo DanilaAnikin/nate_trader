@@ -45,6 +45,7 @@ _PARAMS = {
         "final_target_gain": 20.0,       # sell remainder at +20%
         "time_stop_days": 12,
         "time_stop_min_gain": 4.0,
+        "max_positions": 15,
     },
     ("BULL", "CAUTIOUS"): {
         "score_threshold": 68,
@@ -66,6 +67,7 @@ _PARAMS = {
         "final_target_gain": 15.0,
         "time_stop_days": 10,
         "time_stop_min_gain": 4.0,
+        "max_positions": 12,
     },
     # ────────────────────── NEUTRAL regime ─────────────────────
     ("NEUTRAL", "NORMAL"): {
@@ -88,6 +90,7 @@ _PARAMS = {
         "final_target_gain": 15.0,
         "time_stop_days": 10,
         "time_stop_min_gain": 5.0,
+        "max_positions": 12,
     },
     ("NEUTRAL", "CAUTIOUS"): {
         "score_threshold": 75,
@@ -109,6 +112,7 @@ _PARAMS = {
         "final_target_gain": 12.0,
         "time_stop_days": 8,
         "time_stop_min_gain": 4.0,
+        "max_positions": 10,
     },
     # ──────────────────────── BEAR regime ──────────────────────
     ("BEAR", "NORMAL"): {
@@ -131,6 +135,7 @@ _PARAMS = {
         "final_target_gain": 12.0,
         "time_stop_days": 7,
         "time_stop_min_gain": 3.0,
+        "max_positions": 8,
     },
     ("BEAR", "CAUTIOUS"): {
         "score_threshold": 90,           # effectively no new longs
@@ -152,6 +157,7 @@ _PARAMS = {
         "final_target_gain": 10.0,
         "time_stop_days": 5,
         "time_stop_min_gain": 3.0,
+        "max_positions": 5,
     },
 }
 

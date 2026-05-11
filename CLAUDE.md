@@ -46,7 +46,7 @@ See `strategy/rules.md` for the full table.
 | Final target | +20% | +15% | +12% |
 | Time stop | 12d / +4% | 10d / +5% | 7d / +3% |
 | Daily loss halt | −3% (universal) | | |
-| Max positions | 10 | 10 | 10 |
+| Max positions | 15 | 12 | 8 |
 | Sector cap | 25% | 25% | 25% |
 | Order type | Limit only | Limit only | Limit only |
 

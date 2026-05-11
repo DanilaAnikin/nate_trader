@@ -69,21 +69,25 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
     if position_pct > max_pct:
         reasons.append(f"Position size {position_pct:.1f}% exceeds {max_pct}% limit")
 
-    # 4. Max positions check
+    # 4. Max positions check (regime-adaptive)
     if side.lower() == "buy":
         existing_symbols = {p.symbol for p in positions}
-        if symbol not in existing_symbols and len(existing_symbols) >= 10:
-            reasons.append(f"Max 10 positions reached ({len(existing_symbols)} open)")
+        max_positions = params["max_positions"]
+        if symbol not in existing_symbols and len(existing_symbols) >= max_positions:
+            reasons.append(f"Max {max_positions} positions reached ({len(existing_symbols)} open)")
 
     # 5. Sector concentration check (25% max)
     if side.lower() == "buy":
         symbol_info = get_symbol_info(symbol)
         target_sector = symbol_info.get("sector", "Unknown")
         if target_sector == "Unknown":
-            # Can't enforce sector limits on unknown sectors, but warn if accumulating
-            unknown_count = sum(1 for p in positions if get_symbol_info(p.symbol).get("sector", "Unknown") == "Unknown")
-            if unknown_count >= 3:
-                log.warning(f"WARNING: {unknown_count} positions with Unknown sector — review manually")
+            # Unknown means the symbol isn't in watchlist AND isn't in the sector
+            # fallback map. Block the trade — better miss a single name than
+            # silently breach the sector cap (the old behavior cost us).
+            reasons.append(
+                f"{symbol}: unknown sector — add to watchlist.json or "
+                f"SECTOR_FALLBACK_MAP in utils.py before trading"
+            )
         else:
             sector_value = order_cost
             for p in positions:
