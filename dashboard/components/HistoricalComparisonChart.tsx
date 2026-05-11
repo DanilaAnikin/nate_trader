@@ -245,12 +245,16 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
               fontSize: 12,
               boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
             }}
-            formatter={(value: number | null, name: string) => {
-              if (value === null || value === undefined) return ["—", name];
-              const formatted = `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-              return [formatted, name];
+            formatter={(value, name) => {
+              if (value === null || value === undefined) return ["—", String(name)];
+              const n = typeof value === "number" ? value : Number(value);
+              if (Number.isNaN(n)) return ["—", String(name)];
+              return [
+                `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+                String(name),
+              ];
             }}
-            labelFormatter={(date: string) => `Date: ${date}`}
+            labelFormatter={(date) => `Date: ${String(date)}`}
           />
           <Legend
             wrapperStyle={{ fontSize: 12, paddingTop: 12 }}
