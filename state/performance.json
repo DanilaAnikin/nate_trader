@@ -1,17 +1,17 @@
 {
   "risk_tier": "NORMAL",
   "risk_tier_updated": null,
-  "equity": 1005744.36,
-  "cash": 751773.02,
-  "cash_pct": 74.74792302091558,
-  "daily_pnl": 71.40000000002328,
-  "daily_pnl_pct": 0.007099723552279192,
-  "weekly_pnl": 3193.5100000000093,
-  "weekly_pnl_pct": 0.3185384561790566,
-  "monthly_pnl": 5744.359999999986,
-  "monthly_pnl_pct": 0.5744359999999986,
-  "num_positions": 5,
-  "updated_at": "2026-05-11 12:20:36",
+  "equity": 1005459.54,
+  "cash": 445877.43,
+  "cash_pct": 44.34563622520305,
+  "daily_pnl": -213.4199999999255,
+  "daily_pnl_pct": -0.021221610651630276,
+  "weekly_pnl": 2908.6900000000605,
+  "weekly_pnl_pct": 0.290128924632607,
+  "monthly_pnl": 5459.540000000037,
+  "monthly_pnl_pct": 0.5459540000000037,
+  "num_positions": 10,
+  "updated_at": "2026-05-11 12:23:00",
   "daily_history": [
     {
       "date": "2026-04-24",
@@ -81,9 +81,16 @@
     },
     {
       "date": "2026-05-11",
-      "pnl": 71.40000000002328,
-      "pnl_pct": 0.007099723552279192,
-      "equity": 1005744.36
+      "pnl": -213.4199999999255,
+      "pnl_pct": -0.021221610651630276,
+      "equity": 1005459.54
     }
-  ]
+  ],
+  "tightened_stops": [
+    "AAON",
+    "AAPL",
+    "AMZN",
+    "GOOGL"
+  ],
+  "scaled_out": []
 }
