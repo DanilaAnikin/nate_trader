@@ -31,6 +31,8 @@ RESULT_DIR = PROJECT_ROOT / "state" / "backtest"
 RESULT_LATEST = RESULT_DIR / "latest_result.json"
 RESULT_SWEEP = RESULT_DIR / "sweep_result.json"
 RESULT_MONTE = RESULT_DIR / "monte_carlo_result.json"
+RESULT_WALK = RESULT_DIR / "walk_forward_result.json"
+RESULT_COMPARE = RESULT_DIR / "comparison_result.json"
 
 
 def cmd_single(args) -> None:
@@ -140,6 +142,78 @@ def cmd_monte_carlo(args) -> None:
     print(f"  Median max drawdown:   {result['median_max_dd_pct']:.2f}%")
 
 
+def cmd_walk_forward(args) -> None:
+    from backtest.walk_forward import run_walk_forward
+    end = args.end or datetime.now().strftime("%Y-%m-%d")
+    result = run_walk_forward(
+        args.start, end, args.starting_cash,
+        train_months=args.train_months,
+        test_months=args.test_months,
+        max_windows=args.windows,
+    )
+    RESULT_DIR.mkdir(parents=True, exist_ok=True)
+    save_json(RESULT_WALK, {
+        "kind": "walk_forward",
+        "generated_at": get_now_str(),
+        **result,
+    })
+    log.info(f"Saved → {RESULT_WALK}")
+
+    if "error" in result:
+        print(f"\nERROR: {result['error']}")
+        return
+
+    print(f"\n{'=' * 60}")
+    print(f"  WALK-FORWARD AGGREGATE")
+    print(f"{'=' * 60}")
+    agg = result["aggregate"]
+    print(f"  Windows completed:    {agg['n_windows']}")
+    print(f"  Mean OOS alpha (yr):  {agg['mean_oos_alpha_annual_pct']:+.2f}%")
+    print(f"  Mean OOS Sharpe:      {agg['mean_oos_sharpe']:.2f}")
+    print(f"  Mean OOS max DD:      {agg['mean_oos_max_drawdown_pct']:.2f}%")
+    print(f"\n  Per-window OOS results:")
+    for s in result["segments"]:
+        bp = s["best_params"]
+        tm = s["test_metrics"]
+        print(f"    Win {s['window_index']}: train {s['train_start']}→{s['train_end']}  "
+              f"test {s['test_start']}→{s['test_end']}")
+        print(f"      best params: Δ={bp['threshold_delta']:+d} risk={bp['risk_per_trade_pct']}%")
+        print(f"      OOS α={tm.get('alpha_annual_pct', 0):+.2f}%/yr  "
+              f"sharpe={tm.get('sharpe_ratio', 0):.2f}  "
+              f"DD={tm.get('max_drawdown_pct', 0):.1f}%")
+
+
+def cmd_compare(args) -> None:
+    from backtest.compare import run_compare
+    end = args.end or datetime.now().strftime("%Y-%m-%d")
+    result = run_compare(args.start, end, args.starting_cash)
+    RESULT_DIR.mkdir(parents=True, exist_ok=True)
+    save_json(RESULT_COMPARE, {
+        "kind": "compare",
+        "generated_at": get_now_str(),
+        **result,
+    })
+    log.info(f"Saved → {RESULT_COMPARE}")
+
+    if "error" in result:
+        print(f"\nERROR: {result['error']}")
+        return
+
+    bm = result["baseline"]["metrics"]
+    cm = result["challenger"]["metrics"]
+    d = result["delta"]
+    print(f"\n{'=' * 60}")
+    print(f"  BASELINE vs CHALLENGER")
+    print(f"{'=' * 60}")
+    print(f"  {'':18}  {'baseline':>12}  {'challenger':>12}  {'Δ':>10}")
+    print(f"  {'Annual return':18}  {bm['annual_return_pct']:>+11.2f}%  {cm['annual_return_pct']:>+11.2f}%  {cm['annual_return_pct'] - bm['annual_return_pct']:>+9.2f}pp")
+    print(f"  {'Annual alpha':18}  {bm['alpha_annual_pct']:>+11.2f}%  {cm['alpha_annual_pct']:>+11.2f}%  {d['alpha_annual_pp']:>+9.2f}pp")
+    print(f"  {'Sharpe':18}  {bm['sharpe_ratio']:>12.2f}   {cm['sharpe_ratio']:>12.2f}   {d['sharpe']:>+9.2f}")
+    print(f"  {'Max drawdown':18}  {bm['max_drawdown_pct']:>+11.2f}%  {cm['max_drawdown_pct']:>+11.2f}%  {d['max_dd_pp']:>+9.2f}pp")
+    print(f"  {'Trades':18}  {bm['n_trades']:>12}   {cm['n_trades']:>12}")
+    print(f"  Challenger params: {result['challenger']['params']}")
+
+
 def cmd_download(args) -> None:
     from backtest.download_history import main as download_main
     extra = []
@@ -168,6 +242,19 @@ def main() -> None:
     p_monte.add_argument("--starting-cash", type=float, default=1_000_000)
     p_monte.add_argument("--n", type=int, default=200)
 
+    p_walk = sub.add_parser("walk-forward", help="Walk-forward parameter optimization")
+    p_walk.add_argument("--start", default="2021-01-01")
+    p_walk.add_argument("--end", default=None)
+    p_walk.add_argument("--starting-cash", type=float, default=1_000_000)
+    p_walk.add_argument("--train-months", type=int, default=12)
+    p_walk.add_argument("--test-months", type=int, default=6)
+    p_walk.add_argument("--windows", type=int, default=3)
+
+    p_cmp = sub.add_parser("compare", help="Compare baseline vs sweep-best params")
+    p_cmp.add_argument("--start", default="2021-01-01")
+    p_cmp.add_argument("--end", default=None)
+    p_cmp.add_argument("--starting-cash", type=float, default=1_000_000)
+
     p_dl = sub.add_parser("download", help="Download / refresh historical bars")
     p_dl.add_argument("--start", default=None)
 
@@ -178,6 +265,10 @@ def main() -> None:
         cmd_sweep(args)
     elif args.cmd == "monte-carlo":
         cmd_monte_carlo(args)
+    elif args.cmd == "walk-forward":
+        cmd_walk_forward(args)
+    elif args.cmd == "compare":
+        cmd_compare(args)
     elif args.cmd == "download":
         cmd_download(args)
 

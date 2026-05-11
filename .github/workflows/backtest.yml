@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Mode: single | sweep | monte-carlo'
+        description: 'Mode'
         required: true
         default: 'single'
         type: choice
@@ -12,6 +12,8 @@ on:
           - single
           - sweep
           - monte-carlo
+          - walk-forward
+          - compare
       start_date:
         description: 'Start date (YYYY-MM-DD)'
         required: true
@@ -21,9 +23,21 @@ on:
         required: false
         default: ''
       n_monte_carlo:
-        description: 'Monte Carlo simulations (only used for monte-carlo mode)'
+        description: 'Monte Carlo simulations (monte-carlo only)'
         required: false
         default: '200'
+      train_months:
+        description: 'Walk-forward train window (months)'
+        required: false
+        default: '12'
+      test_months:
+        description: 'Walk-forward test window (months)'
+        required: false
+        default: '6'
+      windows:
+        description: 'Walk-forward number of windows'
+        required: false
+        default: '3'
 
 permissions:
   contents: write
@@ -31,7 +45,7 @@ permissions:
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 360
     defaults:
       run:
         working-directory: .
@@ -67,12 +81,20 @@ jobs:
           if [ -n "${{ inputs.end_date }}" ]; then
             END_ARG="--end ${{ inputs.end_date }}"
           fi
-          if [ "${{ inputs.mode }}" = "single" ]; then
+          MODE="${{ inputs.mode }}"
+          if [ "$MODE" = "single" ]; then
             python3 scripts/backtest/run.py single --start ${{ inputs.start_date }} $END_ARG
-          elif [ "${{ inputs.mode }}" = "sweep" ]; then
+          elif [ "$MODE" = "sweep" ]; then
             python3 scripts/backtest/run.py sweep --start ${{ inputs.start_date }} $END_ARG
-          else
+          elif [ "$MODE" = "monte-carlo" ]; then
             python3 scripts/backtest/run.py monte-carlo --start ${{ inputs.start_date }} $END_ARG --n ${{ inputs.n_monte_carlo }}
+          elif [ "$MODE" = "walk-forward" ]; then
+            python3 scripts/backtest/run.py walk-forward --start ${{ inputs.start_date }} $END_ARG \
+              --train-months ${{ inputs.train_months }} \
+              --test-months ${{ inputs.test_months }} \
+              --windows ${{ inputs.windows }}
+          elif [ "$MODE" = "compare" ]; then
+            python3 scripts/backtest/run.py compare --start ${{ inputs.start_date }} $END_ARG
           fi
 
       - name: Commit and push results

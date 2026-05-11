@@ -3,16 +3,22 @@ import type {
   SingleResult,
   SweepResult,
   MonteCarloResult,
+  WalkForwardResult,
+  ComparisonResult,
 } from "@/lib/backtest-types";
 import BacktestEquityChart from "@/components/BacktestEquityChart";
+import BacktestComparisonChart from "@/components/BacktestComparisonChart";
+import PerTradeChart from "@/components/PerTradeChart";
 
 export const dynamic = "force-dynamic";
 
 export default async function BacktestPage() {
-  const [single, sweep, mc] = await Promise.all([
+  const [single, sweep, mc, walk, cmp] = await Promise.all([
     fetchStateFile<SingleResult>("backtest/latest_result.json"),
     fetchStateFile<SweepResult>("backtest/sweep_result.json"),
     fetchStateFile<MonteCarloResult>("backtest/monte_carlo_result.json"),
+    fetchStateFile<WalkForwardResult>("backtest/walk_forward_result.json"),
+    fetchStateFile<ComparisonResult>("backtest/comparison_result.json"),
   ]);
 
   if (!single) {
@@ -186,6 +192,112 @@ export default async function BacktestPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Per-trade chart */}
+      <PerTradeChart trades={single.closed_trades} />
+
+      {/* Walk-forward — out-of-sample robustness */}
+      {walk && walk.segments?.length > 0 && (
+        <div className="glass-card p-5">
+          <h3 className="text-sm font-medium text-secondary mb-1">
+            Walk-Forward Optimization · {walk.config.train_months}m train / {walk.config.test_months}m test · {walk.aggregate.n_windows} windows
+          </h3>
+          <p className="text-xs text-muted mb-3">
+            Each window picks the best params on the train period, then measures them on the next test period.
+            The aggregate row is the strategy&apos;s expected out-of-sample edge.
+          </p>
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <MetricTile
+              label="Mean OOS Alpha"
+              value={`${walk.aggregate.mean_oos_alpha_annual_pct >= 0 ? "+" : ""}${walk.aggregate.mean_oos_alpha_annual_pct.toFixed(2)}%`}
+              good={walk.aggregate.mean_oos_alpha_annual_pct >= 0}
+              highlight
+            />
+            <MetricTile
+              label="Mean OOS Sharpe"
+              value={walk.aggregate.mean_oos_sharpe.toFixed(2)}
+              good={walk.aggregate.mean_oos_sharpe >= 1}
+            />
+            <MetricTile
+              label="Mean OOS Max DD"
+              value={`${walk.aggregate.mean_oos_max_drawdown_pct.toFixed(2)}%`}
+              good={walk.aggregate.mean_oos_max_drawdown_pct >= -15}
+            />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-muted border-b border-border">
+                <tr>
+                  <th className="text-left py-2 px-2">Window</th>
+                  <th className="text-left py-2 px-2">Train</th>
+                  <th className="text-left py-2 px-2">Test</th>
+                  <th className="text-right py-2 px-2">Best Δ</th>
+                  <th className="text-right py-2 px-2">Best risk</th>
+                  <th className="text-right py-2 px-2">OOS α/yr</th>
+                  <th className="text-right py-2 px-2">OOS Sharpe</th>
+                  <th className="text-right py-2 px-2">OOS Max DD</th>
+                  <th className="text-right py-2 px-2">Trades</th>
+                </tr>
+              </thead>
+              <tbody>
+                {walk.segments.map((s) => (
+                  <tr key={s.window_index} className="border-b border-border/50">
+                    <td className="py-1.5 px-2 font-medium">#{s.window_index}</td>
+                    <td className="py-1.5 px-2 text-muted">{s.train_start} → {s.train_end}</td>
+                    <td className="py-1.5 px-2 text-muted">{s.test_start} → {s.test_end}</td>
+                    <td className="py-1.5 px-2 text-right">{s.best_params.threshold_delta > 0 ? "+" : ""}{s.best_params.threshold_delta}</td>
+                    <td className="py-1.5 px-2 text-right">{s.best_params.risk_per_trade_pct}%</td>
+                    <td className={`py-1.5 px-2 text-right font-medium ${(s.test_metrics.alpha_annual_pct ?? 0) >= 0 ? "text-green" : "text-red"}`}>
+                      {(s.test_metrics.alpha_annual_pct ?? 0) >= 0 ? "+" : ""}
+                      {(s.test_metrics.alpha_annual_pct ?? 0).toFixed(2)}%
+                    </td>
+                    <td className="py-1.5 px-2 text-right">{(s.test_metrics.sharpe_ratio ?? 0).toFixed(2)}</td>
+                    <td className="py-1.5 px-2 text-right text-red">{(s.test_metrics.max_drawdown_pct ?? 0).toFixed(2)}%</td>
+                    <td className="py-1.5 px-2 text-right text-muted">{s.test_metrics.n_trades ?? 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Comparison */}
+      {cmp && (
+        <div className="space-y-4">
+          <div className="glass-card p-5">
+            <h3 className="text-sm font-medium text-secondary mb-3">
+              Side-by-Side · Baseline vs Challenger
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <MetricTile
+                label="Annual α Δ"
+                value={`${cmp.delta.alpha_annual_pp >= 0 ? "+" : ""}${cmp.delta.alpha_annual_pp.toFixed(2)}pp`}
+                good={cmp.delta.alpha_annual_pp >= 0}
+                highlight
+              />
+              <MetricTile
+                label="Sharpe Δ"
+                value={`${cmp.delta.sharpe >= 0 ? "+" : ""}${cmp.delta.sharpe.toFixed(2)}`}
+                good={cmp.delta.sharpe >= 0}
+              />
+              <MetricTile
+                label="Max DD Δ"
+                value={`${cmp.delta.max_dd_pp >= 0 ? "+" : ""}${cmp.delta.max_dd_pp.toFixed(2)}pp`}
+                good={cmp.delta.max_dd_pp >= 0}
+              />
+            </div>
+            <p className="text-[10px] text-muted mt-3">
+              Challenger params: <code>{typeof cmp.challenger.params === "string" ? cmp.challenger.params : JSON.stringify(cmp.challenger.params)}</code>
+            </p>
+          </div>
+          <BacktestComparisonChart
+            baseline={cmp.baseline}
+            challenger={cmp.challenger}
+            spy={cmp.spy_baseline_equity}
+          />
         </div>
       )}
 

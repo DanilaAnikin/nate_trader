@@ -15,6 +15,8 @@ const FILE_MAP: Record<string, string> = {
   single: "backtest/latest_result.json",
   sweep: "backtest/sweep_result.json",
   "monte-carlo": "backtest/monte_carlo_result.json",
+  "walk-forward": "backtest/walk_forward_result.json",
+  compare: "backtest/comparison_result.json",
 };
 
 export async function GET(request: Request) {

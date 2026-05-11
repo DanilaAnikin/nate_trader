@@ -89,35 +89,58 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/spy-history", { cache: "no-store" })
-      .then(async (res) => {
-        if (cancelled) return;
-        if (res.status === 404) {
-          setErrorMsg(
-            "SPY history file not generated yet. Run the 'Update SPY History' GitHub Actions workflow (Actions → Update SPY History → Run workflow) to backfill from 2020.",
-          );
-          setSpyData([]);
-          return;
-        }
-        if (!res.ok) {
-          setErrorMsg(`Failed to load SPY history (HTTP ${res.status})`);
-          setSpyData([]);
-          return;
-        }
-        const data = await res.json();
-        setSpyData(data.bars ?? []);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setErrorMsg(err instanceof Error ? err.message : String(err));
-          setSpyData([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+
+    const fetchHistory = (silent = false) => {
+      fetch("/api/spy-history", { cache: "no-store" })
+        .then(async (res) => {
+          if (cancelled) return;
+          if (res.status === 404) {
+            if (!silent) {
+              setErrorMsg(
+                "SPY history file not generated yet. Run the 'Update SPY History' GitHub Actions workflow (Actions → Update SPY History → Run workflow) to backfill from 2020.",
+              );
+              setSpyData([]);
+            }
+            return;
+          }
+          if (!res.ok) {
+            if (!silent) {
+              setErrorMsg(`Failed to load SPY history (HTTP ${res.status})`);
+              setSpyData([]);
+            }
+            return;
+          }
+          const data = await res.json();
+          if (!cancelled) {
+            setErrorMsg(null);
+            setSpyData(data.bars ?? []);
+          }
+        })
+        .catch((err) => {
+          if (!cancelled && !silent) {
+            setErrorMsg(err instanceof Error ? err.message : String(err));
+            setSpyData([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    };
+
+    // Initial fetch
+    fetchHistory();
+
+    // Refresh button (or auto-mount fetch in DashboardClient) dispatches
+    // dashboard:live; treat that as a signal to refetch SPY history too
+    // so the chart's grey baseline picks up any new bar from today's
+    // routine. Silent retry — don't blow away existing data on transient
+    // failure.
+    const refreshHandler = () => fetchHistory(/* silent */ true);
+    window.addEventListener("dashboard:live", refreshHandler);
+
     return () => {
       cancelled = true;
+      window.removeEventListener("dashboard:live", refreshHandler);
     };
   }, []);
 

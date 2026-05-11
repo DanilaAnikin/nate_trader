@@ -88,6 +88,57 @@ export interface SweepResult {
   results: SweepRow[];
 }
 
+export interface WalkForwardSegment {
+  window_index: number;
+  train_start: string;
+  train_end: string;
+  test_start: string;
+  test_end: string;
+  best_params: { threshold_delta: number; risk_per_trade_pct: number };
+  train_results: Array<{ delta: number; risk: number; alpha_annual_pct?: number; sharpe?: number; total_return_pct?: number; error?: string }>;
+  test_metrics: Partial<BacktestMetrics>;
+  test_daily_history: Array<{ date: string; equity: number }>;
+}
+
+export interface WalkForwardResult {
+  kind: "walk_forward";
+  generated_at: string;
+  config: {
+    start: string; end: string; starting_cash: number;
+    train_months: number; test_months: number; max_windows: number;
+    mini_grid_size: number;
+  };
+  segments: WalkForwardSegment[];
+  aggregate: {
+    mean_oos_alpha_annual_pct: number;
+    mean_oos_sharpe: number;
+    mean_oos_max_drawdown_pct: number;
+    n_windows: number;
+  };
+}
+
+export interface ComparisonResult {
+  kind: "compare";
+  generated_at: string;
+  start_date: string;
+  end_date: string;
+  starting_cash: number;
+  baseline: {
+    label: string;
+    params: string;
+    metrics: BacktestMetrics;
+    daily_history: Array<{ date: string; equity: number }>;
+  };
+  challenger: {
+    label: string;
+    params: SweepRow["params"] | string;
+    metrics: BacktestMetrics;
+    daily_history: Array<{ date: string; equity: number }>;
+  };
+  spy_baseline_equity: number[];
+  delta: { alpha_annual_pp: number; sharpe: number; max_dd_pp: number };
+}
+
 export interface MonteCarloResult {
   kind: "monte_carlo";
   generated_at: string;

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { PerformanceData, ResearchData } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+import type { DailyHistory, PerformanceData, ResearchData } from "@/lib/types";
 import MetricCard from "@/components/MetricCard";
 import EquityChart from "@/components/EquityChart";
 import SpyComparison from "@/components/SpyComparison";
@@ -50,6 +50,7 @@ export default function DashboardClient({ performance, research }: Props) {
     timestamp: string;
   } | null>(null);
 
+  // Listen for live data dispatched by the Refresh button
   useEffect(() => {
     type LivePayload = {
       account: {
@@ -70,6 +71,32 @@ export default function DashboardClient({ performance, research }: Props) {
     }
     window.addEventListener("dashboard:live", handler);
     return () => window.removeEventListener("dashboard:live", handler);
+  }, []);
+
+  // Auto-fetch live data on page load — every F5 hits Alpaca for fresh
+  // equity/cash/positions. GitHub state (snapshot from last routine) is
+  // used as the initial render; this useEffect upgrades it to live the
+  // moment the client mounts.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/live", { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (cancelled || !data || !data.account) return;
+        setLive({ account: data.account, timestamp: data.timestamp });
+        // Also broadcast so other components (e.g. HistoricalComparisonChart)
+        // can refetch their own data alongside.
+        window.dispatchEvent(new CustomEvent("dashboard:live", { detail: data }));
+      })
+      .catch(() => {
+        // Silent — falls back to GitHub snapshot already rendered
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Build display metrics — prefer live values when available, fall back to GitHub snapshot
@@ -122,6 +149,28 @@ export default function DashboardClient({ performance, research }: Props) {
   const riskTier = performance?.risk_tier ?? "NORMAL";
   const spyMonthly = research?.spy?.monthly_return ?? 0;
   const marketRegime = research?.spy?.market_regime ?? "UNKNOWN";
+
+  // Inject the live equity into today's daily_history entry so the
+  // historical chart's portfolio line ends at the live number, not at
+  // the last snapshot the routines wrote to GitHub.
+  const effectiveDailyHistory: DailyHistory[] = useMemo(() => {
+    if (!live || dailyHistory.length === 0) return dailyHistory;
+    const today = new Date().toISOString().slice(0, 10);
+    const liveEntry: DailyHistory = {
+      date: today,
+      pnl: live.account.daily_pnl,
+      pnl_pct: live.account.daily_pnl_pct,
+      equity: live.account.equity,
+      cash: live.account.cash,
+      num_positions: live.account.num_positions,
+    };
+    const last = dailyHistory[dailyHistory.length - 1];
+    if (last?.date === today) {
+      // Today already in history — replace with live values
+      return [...dailyHistory.slice(0, -1), liveEntry];
+    }
+    return [...dailyHistory, liveEntry];
+  }, [dailyHistory, live]);
 
   const symbols = research?.symbols ?? {};
   const symbolEntries = Object.values(symbols).filter((s) => !s.error && s.confidence);
@@ -210,7 +259,7 @@ export default function DashboardClient({ performance, research }: Props) {
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         <div className="lg:col-span-3">
-          <EquityChart data={dailyHistory} />
+          <EquityChart data={effectiveDailyHistory} />
         </div>
         <div className="lg:col-span-2">
           <SpyComparison portfolioReturn={display.monthlyPnlPct} spyReturn={spyMonthly} />
@@ -299,7 +348,7 @@ export default function DashboardClient({ performance, research }: Props) {
         </div>
       </div>
 
-      <HistoricalComparisonChart portfolioHistory={dailyHistory} />
+      <HistoricalComparisonChart portfolioHistory={effectiveDailyHistory} />
     </div>
   );
 }

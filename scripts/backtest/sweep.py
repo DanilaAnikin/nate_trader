@@ -34,9 +34,13 @@ log = setup_logging("backtest_sweep")
 
 GRID = [
     # (threshold_delta, risk_per_trade_pct, trailing_stop_pct)
+    # 3 × 3 × 3 = 27 combinations — covers each dimension at lo/mid/hi
+    # without exploding runtime. Each backtest ~3-5 min in CI → ~90-150 min
+    # total, fits comfortably in the 60-min workflow timeout if parallel,
+    # serial it needs ~2.5h so the workflow timeout is bumped to 6h.
     (delta, risk, stop)
-    for delta in [-10, -5, 0, 5, 10]
-    for risk in [0.5, 0.7, 1.0, 1.3, 1.5]
+    for delta in [-5, 0, 5]
+    for risk in [0.7, 1.0, 1.3]
     for stop in [6, 8, 10]
 ]
 
