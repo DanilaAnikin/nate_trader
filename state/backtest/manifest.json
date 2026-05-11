@@ -1,0 +1,37 @@
+{
+  "runs": [
+    {
+      "id": "monte_carlo_20260511_155934",
+      "kind": "monte_carlo",
+      "generated_at": "2026-05-11 15:59:34",
+      "start_date": "2021-01-01",
+      "end_date": "2026-05-11",
+      "filename": "runs/monte_carlo_20260511_155934.json",
+      "summary": {
+        "n_simulations": 200,
+        "median_alpha_pct": -89.2664,
+        "p5_alpha_pct": -264.5303,
+        "p95_alpha_pct": 3.7191,
+        "prob_beat_spy_pct": 6.5,
+        "median_max_dd_pct": -12.3805
+      }
+    },
+    {
+      "id": "single_20260511_155006",
+      "kind": "single",
+      "generated_at": "2026-05-11 15:50:06",
+      "start_date": "2021-01-01",
+      "end_date": "2026-05-11",
+      "filename": "runs/single_20260511_155006.json",
+      "summary": {
+        "total_return_pct": 14.5609,
+        "annual_return_pct": 2.5816,
+        "alpha_annual_pct": -12.851,
+        "sharpe_ratio": 0.3666,
+        "max_drawdown_pct": -7.4089,
+        "n_trades": 849
+      }
+    }
+  ],
+  "updated_at": "2026-05-11 16:22:15"
+}
