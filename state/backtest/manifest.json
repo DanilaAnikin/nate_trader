@@ -1,6 +1,20 @@
 {
-  "updated_at": "2026-05-11 17:10:32",
+  "updated_at": "2026-05-11 17:31:27",
   "runs": [
+    {
+      "id": "walk_forward_20260511_213127",
+      "kind": "walk_forward",
+      "generated_at": "2026-05-11 17:31:27",
+      "start_date": null,
+      "end_date": null,
+      "filename": "runs/walk_forward_20260511_213127.json",
+      "summary": {
+        "n_windows": 3,
+        "mean_oos_alpha_annual_pct": 1.0862,
+        "mean_oos_sharpe": 0.1802,
+        "mean_oos_max_drawdown_pct": -4.1047
+      }
+    },
     {
       "id": "single_20260511_210114",
       "kind": "single",
