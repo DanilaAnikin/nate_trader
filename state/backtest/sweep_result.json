@@ -1,0 +1,548 @@
+{
+  "kind": "sweep",
+  "generated_at": "2026-05-11 17:38:29",
+  "start_date": "2021-01-01",
+  "end_date": "2026-05-11",
+  "results": [
+    {
+      "params": {
+        "score_threshold_delta": -5,
+        "risk_per_trade_pct": 0.7,
+        "trailing_stop_pct": 6
+      },
+      "metrics": {
+        "total_return_pct": 5.0816,
+        "annual_return_pct": 0.9337,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -109.9081,
+        "alpha_annual_pct": -14.4988,
+        "sharpe_ratio": 0.1315,
+        "max_drawdown_pct": -8.2724,
+        "n_trades": 971,
+        "win_rate_pct": 52.32,
+        "profit_factor": 1.1369
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": -5,
+        "risk_per_trade_pct": 0.7,
+        "trailing_stop_pct": 8
+      },
+      "metrics": {
+        "total_return_pct": 10.2834,
+        "annual_return_pct": 1.8523,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -104.7062,
+        "alpha_annual_pct": -13.5803,
+        "sharpe_ratio": 0.2601,
+        "max_drawdown_pct": -8.9869,
+        "n_trades": 939,
+        "win_rate_pct": 54.53,
+        "profit_factor": 1.1932
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": -5,
+        "risk_per_trade_pct": 0.7,
+        "trailing_stop_pct": 10
+      },
+      "metrics": {
+        "total_return_pct": 10.5501,
+        "annual_return_pct": 1.8984,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -104.4396,
+        "alpha_annual_pct": -13.5342,
+        "sharpe_ratio": 0.2629,
+        "max_drawdown_pct": -8.2147,
+        "n_trades": 925,
+        "win_rate_pct": 55.24,
+        "profit_factor": 1.2023
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": -5,
+        "risk_per_trade_pct": 1.0,
+        "trailing_stop_pct": 6
+      },
+      "metrics": {
+        "total_return_pct": 5.0816,
+        "annual_return_pct": 0.9337,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -109.9081,
+        "alpha_annual_pct": -14.4988,
+        "sharpe_ratio": 0.1315,
+        "max_drawdown_pct": -8.2724,
+        "n_trades": 971,
+        "win_rate_pct": 52.32,
+        "profit_factor": 1.1369
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": -5,
+        "risk_per_trade_pct": 1.0,
+        "trailing_stop_pct": 8
+      },
+      "metrics": {
+        "total_return_pct": 10.2834,
+        "annual_return_pct": 1.8523,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -104.7062,
+        "alpha_annual_pct": -13.5803,
+        "sharpe_ratio": 0.2601,
+        "max_drawdown_pct": -8.9869,
+        "n_trades": 939,
+        "win_rate_pct": 54.53,
+        "profit_factor": 1.1932
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": -5,
+        "risk_per_trade_pct": 1.0,
+        "trailing_stop_pct": 10
+      },
+      "metrics": {
+        "total_return_pct": 10.5501,
+        "annual_return_pct": 1.8984,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -104.4396,
+        "alpha_annual_pct": -13.5342,
+        "sharpe_ratio": 0.2629,
+        "max_drawdown_pct": -8.2147,
+        "n_trades": 925,
+        "win_rate_pct": 55.24,
+        "profit_factor": 1.2023
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": -5,
+        "risk_per_trade_pct": 1.3,
+        "trailing_stop_pct": 6
+      },
+      "metrics": {
+        "total_return_pct": 5.0816,
+        "annual_return_pct": 0.9337,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -109.9081,
+        "alpha_annual_pct": -14.4988,
+        "sharpe_ratio": 0.1315,
+        "max_drawdown_pct": -8.2724,
+        "n_trades": 971,
+        "win_rate_pct": 52.32,
+        "profit_factor": 1.1369
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": -5,
+        "risk_per_trade_pct": 1.3,
+        "trailing_stop_pct": 8
+      },
+      "metrics": {
+        "total_return_pct": 10.2834,
+        "annual_return_pct": 1.8523,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -104.7062,
+        "alpha_annual_pct": -13.5803,
+        "sharpe_ratio": 0.2601,
+        "max_drawdown_pct": -8.9869,
+        "n_trades": 939,
+        "win_rate_pct": 54.53,
+        "profit_factor": 1.1932
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": -5,
+        "risk_per_trade_pct": 1.3,
+        "trailing_stop_pct": 10
+      },
+      "metrics": {
+        "total_return_pct": 10.5501,
+        "annual_return_pct": 1.8984,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -104.4396,
+        "alpha_annual_pct": -13.5342,
+        "sharpe_ratio": 0.2629,
+        "max_drawdown_pct": -8.2147,
+        "n_trades": 925,
+        "win_rate_pct": 55.24,
+        "profit_factor": 1.2023
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 0,
+        "risk_per_trade_pct": 0.7,
+        "trailing_stop_pct": 6
+      },
+      "metrics": {
+        "total_return_pct": 9.8706,
+        "annual_return_pct": 1.7807,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -105.1191,
+        "alpha_annual_pct": -13.6519,
+        "sharpe_ratio": 0.256,
+        "max_drawdown_pct": -7.1642,
+        "n_trades": 871,
+        "win_rate_pct": 52.7,
+        "profit_factor": 1.2034
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 0,
+        "risk_per_trade_pct": 0.7,
+        "trailing_stop_pct": 8
+      },
+      "metrics": {
+        "total_return_pct": 14.3541,
+        "annual_return_pct": 2.5468,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -100.6356,
+        "alpha_annual_pct": -12.8857,
+        "sharpe_ratio": 0.3621,
+        "max_drawdown_pct": -7.8543,
+        "n_trades": 847,
+        "win_rate_pct": 54.9,
+        "profit_factor": 1.2591
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 0,
+        "risk_per_trade_pct": 0.7,
+        "trailing_stop_pct": 10
+      },
+      "metrics": {
+        "total_return_pct": 14.1954,
+        "annual_return_pct": 2.5201,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -100.7942,
+        "alpha_annual_pct": -12.9124,
+        "sharpe_ratio": 0.354,
+        "max_drawdown_pct": -7.0165,
+        "n_trades": 832,
+        "win_rate_pct": 55.53,
+        "profit_factor": 1.2596
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 0,
+        "risk_per_trade_pct": 1.0,
+        "trailing_stop_pct": 6
+      },
+      "metrics": {
+        "total_return_pct": 9.8706,
+        "annual_return_pct": 1.7807,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -105.1191,
+        "alpha_annual_pct": -13.6519,
+        "sharpe_ratio": 0.256,
+        "max_drawdown_pct": -7.1642,
+        "n_trades": 871,
+        "win_rate_pct": 52.7,
+        "profit_factor": 1.2034
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 0,
+        "risk_per_trade_pct": 1.0,
+        "trailing_stop_pct": 8
+      },
+      "metrics": {
+        "total_return_pct": 14.3541,
+        "annual_return_pct": 2.5468,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -100.6356,
+        "alpha_annual_pct": -12.8857,
+        "sharpe_ratio": 0.3621,
+        "max_drawdown_pct": -7.8543,
+        "n_trades": 847,
+        "win_rate_pct": 54.9,
+        "profit_factor": 1.2591
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 0,
+        "risk_per_trade_pct": 1.0,
+        "trailing_stop_pct": 10
+      },
+      "metrics": {
+        "total_return_pct": 14.1954,
+        "annual_return_pct": 2.5201,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -100.7942,
+        "alpha_annual_pct": -12.9124,
+        "sharpe_ratio": 0.354,
+        "max_drawdown_pct": -7.0165,
+        "n_trades": 832,
+        "win_rate_pct": 55.53,
+        "profit_factor": 1.2596
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 0,
+        "risk_per_trade_pct": 1.3,
+        "trailing_stop_pct": 6
+      },
+      "metrics": {
+        "total_return_pct": 9.8706,
+        "annual_return_pct": 1.7807,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -105.1191,
+        "alpha_annual_pct": -13.6519,
+        "sharpe_ratio": 0.256,
+        "max_drawdown_pct": -7.1642,
+        "n_trades": 871,
+        "win_rate_pct": 52.7,
+        "profit_factor": 1.2034
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 0,
+        "risk_per_trade_pct": 1.3,
+        "trailing_stop_pct": 8
+      },
+      "metrics": {
+        "total_return_pct": 14.3541,
+        "annual_return_pct": 2.5468,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -100.6356,
+        "alpha_annual_pct": -12.8857,
+        "sharpe_ratio": 0.3621,
+        "max_drawdown_pct": -7.8543,
+        "n_trades": 847,
+        "win_rate_pct": 54.9,
+        "profit_factor": 1.2591
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 0,
+        "risk_per_trade_pct": 1.3,
+        "trailing_stop_pct": 10
+      },
+      "metrics": {
+        "total_return_pct": 14.1954,
+        "annual_return_pct": 2.5201,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -100.7942,
+        "alpha_annual_pct": -12.9124,
+        "sharpe_ratio": 0.354,
+        "max_drawdown_pct": -7.0165,
+        "n_trades": 832,
+        "win_rate_pct": 55.53,
+        "profit_factor": 1.2596
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 5,
+        "risk_per_trade_pct": 0.7,
+        "trailing_stop_pct": 6
+      },
+      "metrics": {
+        "total_return_pct": 11.0661,
+        "annual_return_pct": 1.9874,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -103.9236,
+        "alpha_annual_pct": -13.4452,
+        "sharpe_ratio": 0.3207,
+        "max_drawdown_pct": -5.7108,
+        "n_trades": 641,
+        "win_rate_pct": 55.54,
+        "profit_factor": 1.2934
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 5,
+        "risk_per_trade_pct": 0.7,
+        "trailing_stop_pct": 8
+      },
+      "metrics": {
+        "total_return_pct": 13.3571,
+        "annual_return_pct": 2.3786,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -101.6326,
+        "alpha_annual_pct": -13.054,
+        "sharpe_ratio": 0.3768,
+        "max_drawdown_pct": -6.4659,
+        "n_trades": 624,
+        "win_rate_pct": 58.17,
+        "profit_factor": 1.3357
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 5,
+        "risk_per_trade_pct": 0.7,
+        "trailing_stop_pct": 10
+      },
+      "metrics": {
+        "total_return_pct": 12.6027,
+        "annual_return_pct": 2.2505,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -102.387,
+        "alpha_annual_pct": -13.1821,
+        "sharpe_ratio": 0.3535,
+        "max_drawdown_pct": -6.4697,
+        "n_trades": 612,
+        "win_rate_pct": 58.99,
+        "profit_factor": 1.3299
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 5,
+        "risk_per_trade_pct": 1.0,
+        "trailing_stop_pct": 6
+      },
+      "metrics": {
+        "total_return_pct": 11.0661,
+        "annual_return_pct": 1.9874,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -103.9236,
+        "alpha_annual_pct": -13.4452,
+        "sharpe_ratio": 0.3207,
+        "max_drawdown_pct": -5.7108,
+        "n_trades": 641,
+        "win_rate_pct": 55.54,
+        "profit_factor": 1.2934
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 5,
+        "risk_per_trade_pct": 1.0,
+        "trailing_stop_pct": 8
+      },
+      "metrics": {
+        "total_return_pct": 13.3571,
+        "annual_return_pct": 2.3786,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -101.6326,
+        "alpha_annual_pct": -13.054,
+        "sharpe_ratio": 0.3768,
+        "max_drawdown_pct": -6.4659,
+        "n_trades": 624,
+        "win_rate_pct": 58.17,
+        "profit_factor": 1.3357
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 5,
+        "risk_per_trade_pct": 1.0,
+        "trailing_stop_pct": 10
+      },
+      "metrics": {
+        "total_return_pct": 12.6027,
+        "annual_return_pct": 2.2505,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -102.387,
+        "alpha_annual_pct": -13.1821,
+        "sharpe_ratio": 0.3535,
+        "max_drawdown_pct": -6.4697,
+        "n_trades": 612,
+        "win_rate_pct": 58.99,
+        "profit_factor": 1.3299
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 5,
+        "risk_per_trade_pct": 1.3,
+        "trailing_stop_pct": 6
+      },
+      "metrics": {
+        "total_return_pct": 11.0661,
+        "annual_return_pct": 1.9874,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -103.9236,
+        "alpha_annual_pct": -13.4452,
+        "sharpe_ratio": 0.3207,
+        "max_drawdown_pct": -5.7108,
+        "n_trades": 641,
+        "win_rate_pct": 55.54,
+        "profit_factor": 1.2934
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 5,
+        "risk_per_trade_pct": 1.3,
+        "trailing_stop_pct": 8
+      },
+      "metrics": {
+        "total_return_pct": 13.3571,
+        "annual_return_pct": 2.3786,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -101.6326,
+        "alpha_annual_pct": -13.054,
+        "sharpe_ratio": 0.3768,
+        "max_drawdown_pct": -6.4659,
+        "n_trades": 624,
+        "win_rate_pct": 58.17,
+        "profit_factor": 1.3357
+      }
+    },
+    {
+      "params": {
+        "score_threshold_delta": 5,
+        "risk_per_trade_pct": 1.3,
+        "trailing_stop_pct": 10
+      },
+      "metrics": {
+        "total_return_pct": 12.6027,
+        "annual_return_pct": 2.2505,
+        "spy_total_return_pct": 114.9897,
+        "spy_annual_return_pct": 15.4326,
+        "alpha_total_pct": -102.387,
+        "alpha_annual_pct": -13.1821,
+        "sharpe_ratio": 0.3535,
+        "max_drawdown_pct": -6.4697,
+        "n_trades": 612,
+        "win_rate_pct": 58.99,
+        "profit_factor": 1.3299
+      }
+    }
+  ]
+}
