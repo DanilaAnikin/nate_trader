@@ -1,54 +1,54 @@
 {
-  "updated_at": "2026-05-08 19:00:32",
+  "updated_at": "2026-05-11 12:20:36",
   "positions": [
     {
       "symbol": "AAON",
       "qty": 347.0,
       "avg_entry_price": 135.84,
-      "current_price": 138.95,
-      "market_value": 48215.65,
-      "unrealized_pl": 1079.17,
-      "unrealized_plpc": 2.289,
+      "current_price": 144.955,
+      "market_value": 50299.385,
+      "unrealized_pl": 3162.905,
+      "unrealized_plpc": 6.710000000000001,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "AAPL",
       "qty": 180.0,
       "avg_entry_price": 276.85,
-      "current_price": 293.45,
-      "market_value": 52821.0,
-      "unrealized_pl": 2988.0,
-      "unrealized_plpc": 5.9959999999999996,
+      "current_price": 292.25,
+      "market_value": 52605.0,
+      "unrealized_pl": 2772.0,
+      "unrealized_plpc": 5.563,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "AMZN",
       "qty": 194.0,
       "avg_entry_price": 256.87,
-      "current_price": 272.4813,
-      "market_value": 52861.3722,
-      "unrealized_pl": 3028.5922,
-      "unrealized_plpc": 6.078,
+      "current_price": 272.3,
+      "market_value": 52826.2,
+      "unrealized_pl": 2993.42,
+      "unrealized_plpc": 6.007,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "EQH",
       "qty": 1090.0,
       "avg_entry_price": 43.81,
-      "current_price": 42.6,
-      "market_value": 46434.0,
-      "unrealized_pl": -1318.9,
-      "unrealized_plpc": -2.762,
+      "current_price": 42.06,
+      "market_value": 45845.4,
+      "unrealized_pl": -1907.5,
+      "unrealized_plpc": -3.995,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "GOOGL",
       "qty": 133.0,
       "avg_entry_price": 374.0,
-      "current_price": 400.09,
-      "market_value": 53211.97,
-      "unrealized_pl": 3469.97,
-      "unrealized_plpc": 6.976,
+      "current_price": 393.95,
+      "market_value": 52395.35,
+      "unrealized_pl": 2653.35,
+      "unrealized_plpc": 5.334,
       "side": "PositionSide.LONG"
     }
   ]
