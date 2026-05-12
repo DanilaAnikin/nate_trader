@@ -1,829 +1,951 @@
 {
-  "updated_at": "2026-05-11 12:24:18",
+  "updated_at": "2026-05-12 12:06:13",
   "most_active": [
     {
       "symbol": "EZGO",
-      "volume": 1500478917,
-      "trade_count": 519866
-    },
-    {
-      "symbol": "MEHA",
-      "volume": 836709828,
-      "trade_count": 585237
-    },
-    {
-      "symbol": "SOXS",
-      "volume": 199148867,
-      "trade_count": 255305
-    },
-    {
-      "symbol": "POM",
-      "volume": 183054961,
-      "trade_count": 114917
-    },
-    {
-      "symbol": "TZA",
-      "volume": 137367125,
-      "trade_count": 27342
+      "volume": 471311477,
+      "trade_count": 143323
     },
     {
       "symbol": "HAO",
-      "volume": 124691424,
-      "trade_count": 78700
+      "volume": 348684212,
+      "trade_count": 151240
     },
     {
-      "symbol": "INTC",
-      "volume": 108111621,
-      "trade_count": 1217898
+      "symbol": "SOXS",
+      "volume": 335724250,
+      "trade_count": 418083
     },
     {
-      "symbol": "TSLL",
-      "volume": 107748651,
-      "trade_count": 325000
+      "symbol": "TZA",
+      "volume": 172656112,
+      "trade_count": 41405
+    },
+    {
+      "symbol": "CREG",
+      "volume": 161097957,
+      "trade_count": 203884
     },
     {
       "symbol": "PLUG",
-      "volume": 92358726,
-      "trade_count": 130455
+      "volume": 135412450,
+      "trade_count": 228205
     },
     {
-      "symbol": "NVDA",
-      "volume": 91776543,
-      "trade_count": 1762352
+      "symbol": "QUBT",
+      "volume": 105121497,
+      "trade_count": 641960
+    },
+    {
+      "symbol": "INTC",
+      "volume": 98240532,
+      "trade_count": 1015777
+    },
+    {
+      "symbol": "BZFD",
+      "volume": 93945140,
+      "trade_count": 255332
     },
     {
       "symbol": "BMNU",
-      "volume": 88194013,
-      "trade_count": 30157
+      "volume": 88758309,
+      "trade_count": 42239
     },
     {
-      "symbol": "NOK",
-      "volume": 83088366,
-      "trade_count": 205632
+      "symbol": "ALP",
+      "volume": 86909190,
+      "trade_count": 85498
     },
     {
-      "symbol": "ENSC",
-      "volume": 82794156,
-      "trade_count": 168358
+      "symbol": "NVDA",
+      "volume": 83609653,
+      "trade_count": 1615119
+    },
+    {
+      "symbol": "SCHG",
+      "volume": 77585853,
+      "trade_count": 22115
+    },
+    {
+      "symbol": "TSLL",
+      "volume": 76203180,
+      "trade_count": 290132
+    },
+    {
+      "symbol": "TDIC",
+      "volume": 75115283,
+      "trade_count": 313471
     },
     {
       "symbol": "BITO",
-      "volume": 79025094,
-      "trade_count": 36101
+      "volume": 71160900,
+      "trade_count": 30727
     },
     {
-      "symbol": "JZXN",
-      "volume": 77901786,
-      "trade_count": 287649
+      "symbol": "NOK",
+      "volume": 68042800,
+      "trade_count": 153896
     },
     {
-      "symbol": "DRAM",
-      "volume": 55752334,
-      "trade_count": 464575
+      "symbol": "UBXG",
+      "volume": 67681215,
+      "trade_count": 122866
     },
     {
-      "symbol": "POET",
-      "volume": 55276294,
-      "trade_count": 257906
+      "symbol": "NVD",
+      "volume": 59126837,
+      "trade_count": 18104
     },
     {
-      "symbol": "IREN",
-      "volume": 53562805,
-      "trade_count": 613304
-    },
-    {
-      "symbol": "WOK",
-      "volume": 48708845,
-      "trade_count": 125997
-    },
-    {
-      "symbol": "RXT",
-      "volume": 45194841,
-      "trade_count": 169696
+      "symbol": "GV",
+      "volume": 51670945,
+      "trade_count": 87471
     }
   ],
   "top_movers": [
     {
-      "symbol": "POM",
-      "change_pct": 189.6,
-      "price": 0.2172,
-      "change": 0.1422
+      "symbol": "ERNAW",
+      "change_pct": 145.1,
+      "price": 0.15,
+      "change": 0.0888
     },
     {
-      "symbol": "MEHA",
-      "change_pct": 66.98,
-      "price": 0.1588,
-      "change": 0.0637
+      "symbol": "BZFDW",
+      "change_pct": 133.16,
+      "price": 0.0457,
+      "change": 0.0261
     },
     {
-      "symbol": "BFRGW",
-      "change_pct": 65.07,
-      "price": 0.31,
-      "change": 0.1222
+      "symbol": "BZFD",
+      "change_pct": 117.84,
+      "price": 1.59,
+      "change": 0.8601
     },
     {
-      "symbol": "AIIOW",
-      "change_pct": 55.28,
-      "price": 0.0559,
-      "change": 0.0199
+      "symbol": "ERNA",
+      "change_pct": 96.39,
+      "price": 14.16,
+      "change": 6.95
     },
     {
-      "symbol": "JZXN",
-      "change_pct": 54.14,
-      "price": 1.395,
-      "change": 0.49
-    },
-    {
-      "symbol": "CHARR",
-      "change_pct": 52.57,
-      "price": 0.11,
-      "change": 0.0379
-    },
-    {
-      "symbol": "POEL",
-      "change_pct": 52.51,
-      "price": 66.375,
-      "change": 22.85
-    },
-    {
-      "symbol": "BAYAR",
-      "change_pct": 52.37,
-      "price": 0.1219,
-      "change": 0.0419
-    },
-    {
-      "symbol": "TXXS",
-      "change_pct": 51.96,
-      "price": 8.39,
-      "change": 2.869
-    },
-    {
-      "symbol": "MRAM",
-      "change_pct": 51.21,
-      "price": 40.8115,
-      "change": 13.82
-    },
-    {
-      "symbol": "PRSO",
-      "change_pct": 49.23,
-      "price": 1.4795,
-      "change": 0.4881
-    },
-    {
-      "symbol": "ENGNW",
-      "change_pct": 49.08,
-      "price": 0.1789,
-      "change": 0.0589
-    },
-    {
-      "symbol": "DRTSW",
-      "change_pct": 48.84,
-      "price": 1.95,
-      "change": 0.6399
-    },
-    {
-      "symbol": "PSQH.WS",
-      "change_pct": 45.94,
-      "price": 0.0899,
-      "change": 0.0283
-    },
-    {
-      "symbol": "AAOX",
-      "change_pct": 45.75,
-      "price": 65.79,
-      "change": 20.65
-    },
-    {
-      "symbol": "GSIT",
-      "change_pct": 43.2,
-      "price": 12.1,
-      "change": 3.65
-    },
-    {
-      "symbol": "NVTX",
-      "change_pct": 43.02,
-      "price": 103.5501,
-      "change": 31.15
-    },
-    {
-      "symbol": "NBRGR",
-      "change_pct": 42.79,
-      "price": 0.1999,
-      "change": 0.0599
-    },
-    {
-      "symbol": "TE.WS",
-      "change_pct": 40.18,
-      "price": 0.2383,
-      "change": 0.0683
-    },
-    {
-      "symbol": "HPAI",
-      "change_pct": 38.22,
-      "price": 1.363,
-      "change": 0.3769
-    },
-    {
-      "symbol": "HAO",
-      "change_pct": -93.58,
-      "price": 0.0469,
-      "change": -0.6831
-    },
-    {
-      "symbol": "RNWWW",
-      "change_pct": -53.42,
-      "price": 0.0034,
-      "change": -0.0039
+      "symbol": "TDIC",
+      "change_pct": 81.75,
+      "price": 1.8902,
+      "change": 0.8502
     },
     {
       "symbol": "NIXXW",
-      "change_pct": -45,
-      "price": 0.0055,
-      "change": -0.0045
+      "change_pct": 80,
+      "price": 0.0099,
+      "change": 0.0044
     },
     {
-      "symbol": "RPGL",
-      "change_pct": -41.78,
-      "price": 0.486,
-      "change": -0.3488
+      "symbol": "CHARR",
+      "change_pct": 67.25,
+      "price": 0.1338,
+      "change": 0.0538
+    },
+    {
+      "symbol": "USBC",
+      "change_pct": 62.46,
+      "price": 0.8253,
+      "change": 0.3173
+    },
+    {
+      "symbol": "NYC",
+      "change_pct": 54.88,
+      "price": 13.01,
+      "change": 4.61
+    },
+    {
+      "symbol": "BWEN",
+      "change_pct": 44.42,
+      "price": 2.9318,
+      "change": 0.9018
+    },
+    {
+      "symbol": "AEHL",
+      "change_pct": 43.71,
+      "price": 2.055,
+      "change": 0.625
+    },
+    {
+      "symbol": "SOBR",
+      "change_pct": 40.47,
+      "price": 2.1633,
+      "change": 0.6233
+    },
+    {
+      "symbol": "HTCO",
+      "change_pct": 39.43,
+      "price": 9.83,
+      "change": 2.78
+    },
+    {
+      "symbol": "CNCKW",
+      "change_pct": 36.36,
+      "price": 0.3,
+      "change": 0.08
+    },
+    {
+      "symbol": "SSACW",
+      "change_pct": 33.33,
+      "price": 0.08,
+      "change": 0.02
+    },
+    {
+      "symbol": "HOLOW",
+      "change_pct": 32.5,
+      "price": 0.0799,
+      "change": 0.0196
+    },
+    {
+      "symbol": "VSTS",
+      "change_pct": 30.97,
+      "price": 12.18,
+      "change": 2.88
+    },
+    {
+      "symbol": "AMBQ",
+      "change_pct": 30.96,
+      "price": 59.81,
+      "change": 14.14
+    },
+    {
+      "symbol": "QUBX",
+      "change_pct": 30.4,
+      "price": 19.5466,
+      "change": 4.557
+    },
+    {
+      "symbol": "DSX.WS",
+      "change_pct": 30,
+      "price": 0.65,
+      "change": 0.15
+    },
+    {
+      "symbol": "COOTW",
+      "change_pct": -54.42,
+      "price": 0.0299,
+      "change": -0.0357
+    },
+    {
+      "symbol": "PSIX",
+      "change_pct": -41.18,
+      "price": 36.735,
+      "change": -25.72
+    },
+    {
+      "symbol": "MVSTW",
+      "change_pct": -37.74,
+      "price": 0.0198,
+      "change": -0.012
+    },
+    {
+      "symbol": "ONFOW",
+      "change_pct": -35.22,
+      "price": 0.0651,
+      "change": -0.0354
+    },
+    {
+      "symbol": "USGOW",
+      "change_pct": -34.71,
+      "price": 0.3199,
+      "change": -0.1701
+    },
+    {
+      "symbol": "SVREW",
+      "change_pct": -33.51,
+      "price": 0.0129,
+      "change": -0.0065
+    },
+    {
+      "symbol": "GTM",
+      "change_pct": -31.87,
+      "price": 4.115,
+      "change": -1.925
+    },
+    {
+      "symbol": "MVST",
+      "change_pct": -31.18,
+      "price": 1.3901,
+      "change": -0.6299
+    },
+    {
+      "symbol": "CUBWW",
+      "change_pct": -31.02,
+      "price": 0.1101,
+      "change": -0.0495
     },
     {
       "symbol": "SMX",
-      "change_pct": -36.94,
-      "price": 14,
-      "change": -8.2
+      "change_pct": -30.02,
+      "price": 10.14,
+      "change": -4.35
     },
     {
-      "symbol": "LITZ",
-      "change_pct": -36.27,
-      "price": 13.67,
-      "change": -7.78
+      "symbol": "ELPW",
+      "change_pct": -29.23,
+      "price": 4.0199,
+      "change": -1.66
     },
     {
-      "symbol": "LHAI",
-      "change_pct": -35.61,
-      "price": 0.85,
-      "change": -0.47
+      "symbol": "SATLW",
+      "change_pct": -28.85,
+      "price": 1.85,
+      "change": -0.75
     },
     {
-      "symbol": "MASK",
-      "change_pct": -33.96,
-      "price": 2.1,
-      "change": -1.08
+      "symbol": "PRSO",
+      "change_pct": -28.61,
+      "price": 0.9852,
+      "change": -0.3948
     },
     {
-      "symbol": "MYPSW",
-      "change_pct": -33.33,
-      "price": 0.0032,
-      "change": -0.0016
+      "symbol": "DXYZ",
+      "change_pct": -28.46,
+      "price": 50.9646,
+      "change": -20.28
     },
     {
-      "symbol": "WOK",
-      "change_pct": -31.33,
-      "price": 0.879,
-      "change": -0.401
+      "symbol": "BRUNW",
+      "change_pct": -27.27,
+      "price": 7.52,
+      "change": -2.82
     },
     {
-      "symbol": "CRCD",
-      "change_pct": -30.63,
-      "price": 2.265,
-      "change": -1
+      "symbol": "NVTX",
+      "change_pct": -27.16,
+      "price": 78.9516,
+      "change": -29.44
     },
     {
-      "symbol": "IONZ",
-      "change_pct": -30.51,
-      "price": 3.5302,
-      "change": -1.55
+      "symbol": "CVM",
+      "change_pct": -27.11,
+      "price": 1.0277,
+      "change": -0.3823
     },
     {
-      "symbol": "CREG",
-      "change_pct": -28.48,
-      "price": 0.2074,
-      "change": -0.0826
+      "symbol": "ASTX",
+      "change_pct": -27.11,
+      "price": 23.04,
+      "change": -8.57
     },
     {
-      "symbol": "RKLZ",
-      "change_pct": -27.4,
-      "price": 2.9403,
-      "change": -1.11
+      "symbol": "DTSTW",
+      "change_pct": -26.98,
+      "price": 0.0203,
+      "change": -0.0075
     },
     {
-      "symbol": "DYNCW",
-      "change_pct": -26.81,
-      "price": 0.1171,
-      "change": -0.0429
-    },
-    {
-      "symbol": "HUBC",
-      "change_pct": -26.76,
-      "price": 0.1812,
-      "change": -0.0662
-    },
-    {
-      "symbol": "PMAX",
-      "change_pct": -26.38,
-      "price": 2.93,
-      "change": -1.05
-    },
-    {
-      "symbol": "SLXNW",
-      "change_pct": -26,
-      "price": 0.0111,
-      "change": -0.0039
-    },
-    {
-      "symbol": "CODX",
-      "change_pct": -24.51,
-      "price": 1.91,
-      "change": -0.62
-    },
-    {
-      "symbol": "ENHA",
-      "change_pct": -24.23,
-      "price": 7.35,
-      "change": -2.35
+      "symbol": "HIMZ",
+      "change_pct": -26.86,
+      "price": 29.555,
+      "change": -10.85
     }
   ],
   "trending": [
     "GME",
+    "NVDA",
+    "TSLA",
+    "AAPL",
+    "AMD",
+    "SMCI",
+    "NEE",
     "VZ",
     "MCD",
-    "NEE",
-    "TTE",
-    "NEM",
-    "SPGI",
-    "CB",
-    "DHR",
-    "CRH"
+    "FTNT"
   ],
   "scored_candidates": {
-    "CB": {
+    "DXYZ": {
       "technicals": {
-        "price": 318.6,
-        "sma_20": 325.95775,
-        "sma_50": 327.29,
-        "rsi_14": 38.37125078436584,
-        "macd": -2.011873154209411,
-        "macd_signal": -1.0441175835303393,
-        "bb_upper": 333.36367497599065,
-        "bb_lower": 318.5518250240093,
-        "bb_mid": 325.95775,
-        "volume": 21997.0,
-        "vol_avg_20": 78241.45,
-        "volume_ratio": 0.5643044703287069,
-        "five_day_return": -1.9963702359346525,
-        "twenty_day_return": -3.4486938602339534,
-        "atr_14": 5.413162765885332,
-        "atr_pct": 1.69904669362377,
-        "above_sma20": false,
-        "above_sma50": false
-      },
-      "news_score": 13,
-      "news_headlines": [
-        "Buffett's Legendary Premium Wiped Out \u2014 Berkshire Trails S&P 500 By 41 Points Since Retirement News",
-        "Warren Buffett Won't Be The Central Figure At Saturday's Berkshire Hathaway Annual Meeting: Will Investors Warm Up To Greg Abel?",
-        "Keefe, Bruyette & Woods Maintains Outperform on Chubb, Raises Price Target to $374"
-      ],
-      "confidence": {
-        "technical_score": 0,
-        "news_score": 13,
-        "perplexity_score": 0,
-        "total": 13,
-        "action": "SELL",
-        "threshold_used": 55,
-        "regime": "auto"
-      },
-      "source": "screener"
-    },
-    "CRH": {
-      "technicals": {
-        "price": 113.08,
-        "sma_20": 115.42025000000001,
-        "sma_50": 110.28229999999999,
-        "rsi_14": 48.820612077296865,
-        "macd": 0.34929370415761696,
-        "macd_signal": 0.8881572200821577,
-        "bb_upper": 119.72782179278533,
-        "bb_lower": 111.11267820721469,
-        "bb_mid": 115.42025000000001,
-        "volume": 31881.0,
-        "vol_avg_20": 210897.55,
-        "volume_ratio": 0.8338171780563597,
-        "five_day_return": 2.020931071815224,
-        "twenty_day_return": -3.564727954971858,
-        "atr_14": 3.2891464311127243,
-        "atr_pct": 2.908689804662827,
-        "above_sma20": false,
-        "above_sma50": true
-      },
-      "news_score": 9,
-      "news_headlines": [
-        "Earnings Scheduled For April 30, 2026",
-        "CRH Affirms FY2026 GAAP EPS Guidance of $5.60-$6.05 vs $5.99 Est",
-        "CRH Q1 Adj. EPS $(0.20) Beats $(0.23) Estimate, Sales $7.370B Beat $7.069B Estimate"
-      ],
-      "confidence": {
-        "technical_score": 8,
-        "news_score": 9,
-        "perplexity_score": 0,
-        "total": 17,
-        "action": "SELL",
-        "threshold_used": 55,
-        "regime": "auto"
-      },
-      "source": "screener"
-    },
-    "DHR": {
-      "technicals": {
-        "price": 165.92,
-        "sma_20": 182.16899999999998,
-        "sma_50": 188.5173,
-        "rsi_14": 25.373588269107884,
-        "macd": -5.831137307978764,
-        "macd_signal": -4.772717257346065,
-        "bb_upper": 201.475685267026,
-        "bb_lower": 162.86231473297397,
-        "bb_mid": 182.16899999999998,
-        "volume": 305669.0,
-        "vol_avg_20": 312482.45,
-        "volume_ratio": 0.9746339354418144,
-        "five_day_return": -4.687500000000011,
-        "twenty_day_return": -15.316694737916613,
-        "atr_14": 4.790478398286398,
-        "atr_pct": 2.887221792602699,
-        "above_sma20": false,
-        "above_sma50": false
-      },
-      "news_score": 9,
-      "news_headlines": [
-        "Masimo Stockholders Approve Merger Agreement With Danaher, Mobius Merger Sub",
-        "Morgan Stanley Maintains Overweight on Danaher, Lowers Price Target to $255",
-        "Reported Earlier, Danaher Raises ~\u20ac2.98B Via Euro Senior Notes Comprising \u20ac500M Floating Rate Due 2028, \u20ac750M At 3.250% Due 2030, \u20ac750M At 3.625% Due 2034 And \u20ac1B At 4.000% Due 2038 To Finance Masimo Buyout"
-      ],
-      "confidence": {
-        "technical_score": 0,
-        "news_score": 9,
-        "perplexity_score": 0,
-        "total": 9,
-        "action": "SELL",
-        "threshold_used": 55,
-        "regime": "auto"
-      },
-      "source": "screener"
-    },
-    "DRAM": {
-      "technicals": {
-        "price": 55.265,
-        "sma_20": 40.3685,
-        "sma_50": null,
-        "rsi_14": 85.56812261408666,
-        "macd": 5.189344581419526,
-        "macd_signal": null,
-        "bb_upper": 52.578402169960256,
-        "bb_lower": 28.15859783003974,
-        "bb_mid": 40.3685,
-        "volume": 1876620.0,
-        "vol_avg_20": 579735.15,
-        "volume_ratio": 3.1703304517588764,
-        "five_day_return": 30.03529411764707,
-        "twenty_day_return": 64.77340488968397,
-        "atr_14": 2.353687465247007,
-        "atr_pct": 4.258911544824042,
-        "above_sma20": true,
-        "above_sma50": null
-      },
-      "news_score": 13,
-      "news_headlines": [
-        "$6.2 Billion in 30 Days: How Sandisk, Micron And Seagate Powered One Of The Fastest ETF Launches Ever",
-        "ETF Boom Accelerates As Nearly 370 New Funds Launch In Just Four Months",
-        "Forget Nvidia, This 9-Stock Memory ETF Just Rallied Over 70% In A Month"
-      ],
-      "confidence": {
-        "technical_score": 21,
-        "news_score": 13,
-        "perplexity_score": 0,
-        "total": 34,
-        "action": "SELL",
-        "threshold_used": 55,
-        "regime": "auto"
-      },
-      "source": "screener"
-    },
-    "ENHA": {
-      "technicals": {
-        "price": 7.345,
-        "sma_20": 10.078750000000001,
-        "sma_50": 10.1324,
-        "rsi_14": 35.00175076588762,
-        "macd": -0.29162245570912404,
-        "macd_signal": -0.0470409205917286,
-        "bb_upper": 11.885033131184036,
-        "bb_lower": 8.272466868815966,
-        "bb_mid": 10.078750000000001,
-        "volume": 873.0,
-        "vol_avg_20": 2836.7,
-        "volume_ratio": 5.2483519582613605,
-        "five_day_return": -33.46920289855072,
-        "twenty_day_return": -28.411306042884988,
-        "atr_14": 0.8723057789691044,
-        "atr_pct": 11.876184873643355,
-        "above_sma20": false,
-        "above_sma50": false
-      },
-      "news_score": 9,
-      "news_headlines": [
-        "Dole Posts Downbeat Q1 Earnings, Joins Ocular Therapeutix And Other Big Stocks Moving Lower In Monday's Pre-Market Session",
-        "Why Digi Power X Shares Are Trading Higher By Around 20%; Here Are 20 Stocks Moving Premarket",
-        "EXCLUSIVE: Enhanced Hits NYSE As Sports, Science And Wall Street Collide"
-      ],
-      "confidence": {
-        "technical_score": 5,
-        "news_score": 9,
-        "perplexity_score": 0,
-        "total": 14,
-        "action": "SELL",
-        "threshold_used": 55,
-        "regime": "auto"
-      },
-      "source": "screener"
-    },
-    "GME": {
-      "technicals": {
-        "price": 23.69,
-        "sma_20": 24.76325,
-        "sma_50": 23.9398,
-        "rsi_14": 46.27590460409843,
-        "macd": 0.11316700289542325,
-        "macd_signal": 0.2888140241936673,
-        "bb_upper": 26.08760371030549,
-        "bb_lower": 23.438896289694508,
-        "bb_mid": 24.76325,
-        "volume": 180077.0,
-        "vol_avg_20": 401376.55,
-        "volume_ratio": 0.8675245227953651,
-        "five_day_return": -0.6291946308724761,
-        "twenty_day_return": 1.2393162393162571,
-        "atr_14": 1.0972464371351496,
-        "atr_pct": 4.631686100190584,
-        "above_sma20": false,
-        "above_sma50": false
-      },
-      "news_score": 9,
-      "news_headlines": [
-        "Rocket Lab, Super Micro Computer, eBay And More: 5 Stocks Investors Couldn't Stop Buzzing About This Week",
-        "Deal Dispatch: J.M. Smucker Considers Strategic Review, Meta Buys Assured Robot Intelligence, Buzzfeed On Brink Of Bankruptcy",
-        "Michael Burry Says GameStop's eBay Bid 'Just Went Hostile' After Ryan Cohen Claims Ban: All You Need To Know"
-      ],
-      "confidence": {
-        "technical_score": 6,
-        "news_score": 9,
-        "perplexity_score": 0,
-        "total": 15,
-        "action": "SELL",
-        "threshold_used": 55,
-        "regime": "auto"
-      },
-      "source": "screener"
-    },
-    "GSIT": {
-      "technicals": {
-        "price": 12.1,
-        "sma_20": 7.543000000000001,
-        "sma_50": 7.083099999999999,
-        "rsi_14": 77.12470599538514,
-        "macd": 0.8266190365134811,
-        "macd_signal": 0.45842750884858147,
-        "bb_upper": 10.116201119228739,
-        "bb_lower": 4.969798880771263,
-        "bb_mid": 7.543000000000001,
-        "volume": 201662.0,
-        "vol_avg_20": 31907.85,
-        "volume_ratio": 1.4608630791482347,
-        "five_day_return": 54.53384418901659,
-        "twenty_day_return": 95.9514170040486,
-        "atr_14": 0.8738801575360073,
-        "atr_pct": 7.222150062281052,
+        "price": 50.37,
+        "sma_20": 36.676249999999996,
+        "sma_50": 30.982000000000003,
+        "rsi_14": 61.33413814861105,
+        "macd": 6.77306280076192,
+        "macd_signal": 3.943014957798752,
+        "bb_upper": 58.352841723562086,
+        "bb_lower": 14.999658276437906,
+        "bb_mid": 36.676249999999996,
+        "volume": 161531.0,
+        "vol_avg_20": 72349.9,
+        "volume_ratio": 2.817764779218769,
+        "five_day_return": 31.171875000000004,
+        "twenty_day_return": 67.67643142476697,
+        "atr_14": 5.224736674133112,
+        "atr_pct": 10.372715255376438,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 9,
+      "news_score": 5,
       "news_headlines": [
-        "Liquidia, Beazer Homes, Circle Internet Group And Other Big Stocks Moving Higher On Monday",
-        "GSI Technology Sees Q1 Sales $5.900M-$6.700M vs $0.00 Est",
-        "GSI Technology Q4 EPS $(0.13) Down From $(0.09) YoY, Sales $6.319M Up From $5.883M YoY"
+        "'SpaceX, Google in Talks to Explore Data Centers in Orbit' - WSJ Exclusive",
+        "SpaceXAI Partners With Anthropic For AI Supercomputer Access",
+        "'Only Elon Musk can fire Elon Musk from SpaceX, filing shows'- Reuters Exclusive"
       ],
       "confidence": {
-        "technical_score": 37,
-        "news_score": 9,
-        "perplexity_score": 22,
-        "total": 68,
+        "technical_score": 42,
+        "news_score": 5,
+        "perplexity_score": 0,
+        "catalyst_score": 2,
+        "alpha_score": 20,
+        "total": 64,
         "action": "BUY",
-        "threshold_used": 55,
-        "regime": "auto"
+        "threshold_used": 45,
+        "regime": "BULL"
+      },
+      "source": "screener"
+    },
+    "NOK": {
+      "technicals": {
+        "price": 12.965,
+        "sma_20": 11.73625,
+        "sma_50": 9.7877,
+        "rsi_14": 62.83609585211996,
+        "macd": 1.075045105626458,
+        "macd_signal": 1.0225578128905708,
+        "bb_upper": 14.48733319576125,
+        "bb_lower": 8.98516680423875,
+        "bb_mid": 11.73625,
+        "volume": 4143363.0,
+        "vol_avg_20": 6545470.75,
+        "volume_ratio": 1.164008715492312,
+        "five_day_return": -3.3184190902311728,
+        "twenty_day_return": 25.144787644787648,
+        "atr_14": 0.7263646544731731,
+        "atr_pct": 5.602504083865585,
+        "above_sma20": true,
+        "above_sma50": true
+      },
+      "news_score": 13,
+      "news_headlines": [
+        "Apple Crushed These Rivals In 2007 With The iPhone \u2014 Now Nvidia Is Helping Them Win Again",
+        "Jim Cramer Won't 'Dump' This Medical Device Maker, Passes On Ford",
+        "Nokia Says Its New AI Can Fix Broadband Problems Before Customers Notice"
+      ],
+      "confidence": {
+        "technical_score": 40,
+        "news_score": 13,
+        "perplexity_score": 12,
+        "catalyst_score": 9,
+        "alpha_score": 25,
+        "total": 74,
+        "action": "BUY",
+        "threshold_used": 45,
+        "regime": "BULL"
       },
       "source": "screener",
       "perplexity": {
-        "symbol": "GSIT",
-        "sentiment": "POSITIVE",
-        "perplexity_score": 22,
-        "key_catalyst": "GSI Technology reported Q4 FY2026 earnings on May 7, 2026, with EPS of -$0.13 beating consensus estimates of -$0.19 by $0.06, alongside 22% FY2026 revenue growth to $25.1M driven by SRAM and $67.2M cash position with no debt (MarketBeat, May 7, 2026).",
-        "risk": "Persistent negative profitability with -43.15% net margin and -22.69% return on equity, plus high operating expense growth of 48.6%, could pressure margins amid semiconductor sector volatility (MarketBeat).",
+        "symbol": "NOK",
+        "sentiment": "NEUTRAL",
+        "perplexity_score": 12,
+        "key_catalyst": "Nokia's Q1 2026 earnings on April 23 reported EPS of $0.06 in line with estimates and revenue of $5.21B beating expectations of $4.59B, with forecasted EPS growth of 20% to $0.48 next year (MarketBeat).",
+        "risk": "Conflicting Q1 revenue reports ($5.21B beat vs. $5.26B miss) and high P/E ratio of 86.87 signal potential valuation concerns and earnings inconsistency.",
         "timeframe": "medium-term (5-20 day)",
-        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 22,\n  \"KEY_CATALYST\": \"GSI Technology reported Q4 FY2026 earnings on May 7, 2026, with EPS of -$0.13 beating consensus estimates of -$0.19 by $0.06, alongside 22% FY2026 revenue growth to $25.1M driven by SRAM and $67.2M cash position with no debt (MarketBeat, May 7, 2026).\",\n  \"RISK\": \"Persistent negative profitability with -43.15% net margin and -22.69% return on equity, plus high operating expense growth of 48.6%, could pressure margins amid se",
-        "updated_at": "2026-05-11 12:26:01"
+        "raw_response": "{\n  \"SENTIMENT\": \"NEUTRAL\",\n  \"CATALYST_SCORE\": 12,\n  \"KEY_CATALYST\": \"Nokia's Q1 2026 earnings on April 23 reported EPS of $0.06 in line with estimates and revenue of $5.21B beating expectations of $4.59B, with forecasted EPS growth of 20% to $0.48 next year (MarketBeat).\",\n  \"RISK\": \"Conflicting Q1 revenue reports ($5.21B beat vs. $5.26B miss) and high P/E ratio of 86.87 signal potential valuation concerns and earnings inconsistency.\",\n  \"TIMEFRAME\": \"medium-term (5-20 day)\"\n}",
+        "updated_at": "2026-05-12 12:08:18"
       }
     },
-    "INTC": {
+    "VSTS": {
       "technicals": {
-        "price": 127.45,
-        "sma_20": 87.48299999999999,
-        "sma_50": 63.751999999999995,
-        "rsi_14": 85.75059724623497,
-        "macd": 16.781308920125298,
-        "macd_signal": 13.09293898207151,
-        "bb_upper": 128.86090139676003,
-        "bb_lower": 46.10509860323996,
-        "bb_mid": 87.48299999999999,
-        "volume": 2003709.0,
-        "vol_avg_20": 3928248.15,
-        "volume_ratio": 1.4664895851857016,
-        "five_day_return": 33.07925237548292,
-        "twenty_day_return": 95.56544422280191,
-        "atr_14": 6.830323308090293,
-        "atr_pct": 5.359217974178339,
+        "price": 12.195,
+        "sma_20": 9.69625,
+        "sma_50": 8.5985,
+        "rsi_14": 79.58653924349625,
+        "macd": 0.41481171866882427,
+        "macd_signal": 0.33631172245470836,
+        "bb_upper": 11.00590978406608,
+        "bb_lower": 8.386590215933918,
+        "bb_mid": 9.69625,
+        "volume": 252276.0,
+        "vol_avg_20": 64130.6,
+        "volume_ratio": 1.1806376363233777,
+        "five_day_return": 31.695464362850977,
+        "twenty_day_return": 32.12351029252438,
+        "atr_14": 0.5319798113849824,
+        "atr_pct": 4.362278076137617,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 9,
       "news_headlines": [
-        "AMD Stock Hits 52-Week High - Here's Why",
-        "Cathie Wood Picks 5 Bubble-Era Stocks That Are Riding The AI Wave: 'Blasts From The Past' She Says",
-        "Intel Is Up 232% This Year. Apple Just Made It Bigger."
+        "12 Industrials Stocks Moving In Tuesday's Pre-Market Session",
+        "Vestis Affirms FY2026 Sales Guidance of $2.680B-$2.735B vs $2.649B Est",
+        "Earnings Scheduled For May 12, 2026"
       ],
       "confidence": {
-        "technical_score": 32,
+        "technical_score": 40,
         "news_score": 9,
-        "perplexity_score": 22,
+        "perplexity_score": 0,
+        "catalyst_score": 3,
+        "alpha_score": 20,
         "total": 63,
         "action": "BUY",
-        "threshold_used": 55,
-        "regime": "auto"
+        "threshold_used": 45,
+        "regime": "BULL"
+      },
+      "source": "screener"
+    },
+    "QUBT": {
+      "technicals": {
+        "price": 11.755,
+        "sma_20": 9.52,
+        "sma_50": 8.158399999999999,
+        "rsi_14": 71.22496195305065,
+        "macd": 0.6677239880041199,
+        "macd_signal": 0.5135403697481125,
+        "bb_upper": 10.93884460037032,
+        "bb_lower": 8.101155399629679,
+        "bb_mid": 9.52,
+        "volume": 1831697.0,
+        "vol_avg_20": 682985.3,
+        "volume_ratio": 1.2320030899640153,
+        "five_day_return": 23.089005235602087,
+        "twenty_day_return": 44.94451294697905,
+        "atr_14": 0.9515566145656231,
+        "atr_pct": 8.094909524165232,
+        "above_sma20": true,
+        "above_sma50": true
+      },
+      "news_score": 9,
+      "news_headlines": [
+        "Quantum Computing Shares Spike On Q1 Double Beat",
+        "QUBT Breaks Above Its 200-Day Moving Average \u2014 As CEO Bets On 'Scalable' Quantum",
+        "12 Information Technology Stocks Moving In Tuesday's Pre-Market Session"
+      ],
+      "confidence": {
+        "technical_score": 40,
+        "news_score": 9,
+        "perplexity_score": 0,
+        "catalyst_score": 3,
+        "alpha_score": 20,
+        "total": 63,
+        "action": "BUY",
+        "threshold_used": 45,
+        "regime": "BULL"
+      },
+      "source": "screener"
+    },
+    "INTC": {
+      "technicals": {
+        "price": 117.74,
+        "sma_20": 90.28,
+        "sma_50": 65.2374,
+        "rsi_14": 72.18346100321199,
+        "macd": 16.82254866141423,
+        "macd_signal": 13.87179754217419,
+        "bb_upper": 132.52682709979527,
+        "bb_lower": 48.03317290020474,
+        "bb_mid": 90.28,
+        "volume": 1598704.0,
+        "vol_avg_20": 3968155.0,
+        "volume_ratio": 0.8447953771967073,
+        "five_day_return": 8.8673139158576,
+        "twenty_day_return": 84.51653345870551,
+        "atr_14": 7.302449065291944,
+        "atr_pct": 6.202181981732584,
+        "above_sma20": true,
+        "above_sma50": true
+      },
+      "news_score": 17,
+      "news_headlines": [
+        "The United States Of Intel: Salute To Trump's Nearly $42 Billion Stock Profit",
+        "What's Going On With AMD Stock Tuesday?",
+        "Intel Slips Despite $80 Billion CPU Market Forecast, Apple Manufacturing Deal"
+      ],
+      "confidence": {
+        "technical_score": 37,
+        "news_score": 17,
+        "perplexity_score": 22,
+        "catalyst_score": 16,
+        "alpha_score": 25,
+        "total": 78,
+        "action": "BUY",
+        "threshold_used": 45,
+        "regime": "BULL"
       },
       "source": "screener",
       "perplexity": {
         "symbol": "INTC",
         "sentiment": "POSITIVE",
         "perplexity_score": 22,
-        "key_catalyst": "Intel's Q1 2026 earnings on April 23, 2026, reported non-GAAP EPS of $0.29 beating estimates of -$0.01 to $0.01 (up to 3,000% surprise), revenue of $13.6B (+7% YoY) exceeding $12.32B expectations, with Q2 guidance of $13.8B-$14.8B revenue and $0.20 non-GAAP EPS (source: Intel press release, MarketBeat).",
-        "risk": "Persistent GAAP losses (Q1 EPS -$0.73) and trailing 4-quarter EPS of -$0.62 highlight ongoing profitability challenges amid competition from AMD and TSMC (source: MarketBeat, Intel reports).",
-        "timeframe": "medium-term",
-        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 22,\n  \"KEY_CATALYST\": \"Intel's Q1 2026 earnings on April 23, 2026, reported non-GAAP EPS of $0.29 beating estimates of -$0.01 to $0.01 (up to 3,000% surprise), revenue of $13.6B (+7% YoY) exceeding $12.32B expectations, with Q2 guidance of $13.8B-$14.8B revenue and $0.20 non-GAAP EPS (source: Intel press release, MarketBeat).\",\n  \"RISK\": \"Persistent GAAP losses (Q1 EPS -$0.73) and trailing 4-quarter EPS of -$0.62 highlight ongoing profitability ch",
-        "updated_at": "2026-05-11 12:26:06"
+        "key_catalyst": "Intel's Q1 2026 results showed revenue of $13.6B (up 7% YoY, beating estimates of $12.32B) with a +1350% EPS surprise and +9.43% revenue surprise, driving a 26.46% stock price surge and Q2 guidance of $13.8-14.8B revenue.",
+        "risk": "Persistent GAAP losses with Q1 EPS of -$0.73 and trailing four-quarter EPS of -$0.62, alongside high gross CapEx of $5B leading to negative adjusted free cash flow of -$2B.",
+        "timeframe": "short-term (1-5 day)",
+        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 22,\n  \"KEY_CATALYST\": \"Intel's Q1 2026 results showed revenue of $13.6B (up 7% YoY, beating estimates of $12.32B) with a +1350% EPS surprise and +9.43% revenue surprise, driving a 26.46% stock price surge and Q2 guidance of $13.8-14.8B revenue.\",\n  \"RISK\": \"Persistent GAAP losses with Q1 EPS of -$0.73 and trailing four-quarter EPS of -$0.62, alongside high gross CapEx of $5B leading to negative adjusted free cash flow of -$2B.\",\n  \"TIMEFRAME\": \"sh",
+        "updated_at": "2026-05-12 12:08:14"
       }
     },
-    "IREN": {
+    "SMCI": {
       "technicals": {
-        "price": 58.96,
-        "sma_20": 50.290499999999994,
-        "sma_50": 43.6145,
-        "rsi_14": 63.995587394800424,
-        "macd": 4.310539283055711,
-        "macd_signal": 3.087123799121496,
-        "bb_upper": 60.93363154104568,
-        "bb_lower": 39.64736845895431,
-        "bb_mid": 50.290499999999994,
-        "volume": 1024517.0,
-        "vol_avg_20": 1017590.5,
-        "volume_ratio": 2.165771987847764,
-        "five_day_return": 19.18334344046897,
-        "twenty_day_return": 36.97293530026715,
-        "atr_14": 4.818921925679935,
-        "atr_pct": 8.17320543704195,
+        "price": 31.53,
+        "sma_20": 29.340999999999998,
+        "sma_50": 27.7467,
+        "rsi_14": 56.49730440885412,
+        "macd": 1.68534547464143,
+        "macd_signal": 1.0972044002316241,
+        "bb_upper": 34.780503286146626,
+        "bb_lower": 23.90149671385337,
+        "bb_mid": 29.340999999999998,
+        "volume": 727305.0,
+        "vol_avg_20": 1500955.15,
+        "volume_ratio": 0.9707018893935638,
+        "five_day_return": 13.25431034482758,
+        "twenty_day_return": 15.919117647058822,
+        "atr_14": 2.1911606381454094,
+        "atr_pct": 6.949446996972437,
         "above_sma20": true,
         "above_sma50": true
       },
-      "news_score": 17,
+      "news_score": 13,
       "news_headlines": [
-        "Macquarie Maintains Outperform on IREN, Raises Price Target to $90",
-        "JP Morgan Maintains Underweight on IREN, Raises Price Target to $46",
-        "Nvidia's IREN Deal Looks Increasingly Like A CoreWeave Repeat"
+        "$100 Invested In Super Micro Computer 10 Years Ago Would Be Worth This Much Today",
+        "Mizuho Maintains Neutral on Super Micro Computer, Raises Price Target to $36",
+        "Super Micro Names AI Veteran Vik Malyala CBO"
       ],
       "confidence": {
         "technical_score": 37,
-        "news_score": 17,
-        "perplexity_score": 8,
-        "total": 62,
+        "news_score": 13,
+        "perplexity_score": 12,
+        "catalyst_score": 9,
+        "alpha_score": 20,
+        "total": 66,
         "action": "BUY",
-        "threshold_used": 55,
-        "regime": "auto"
+        "threshold_used": 45,
+        "regime": "BULL"
       },
       "source": "screener",
       "perplexity": {
-        "symbol": "IREN",
+        "symbol": "SMCI",
         "sentiment": "NEGATIVE",
-        "perplexity_score": 8,
-        "key_catalyst": "Q3 2026 earnings missed analyst expectations with EPS of -$0.33 vs. -$0.24 estimate (reported May 7, 2026), signaling continued operational challenges in Bitcoin mining and AI Cloud services.",
-        "risk": "Revenue significantly underperformed guidance at $144.8M vs. $219.87M estimate (-34.14%), with next quarter projecting further deterioration at -$0.40 EPS, indicating potential structural headwinds in the cryptocurrency mining sector.",
-        "timeframe": "medium-term",
-        "raw_response": "```json\n{\n  \"SENTIMENT\": \"NEGATIVE\",\n  \"CATALYST_SCORE\": 8,\n  \"KEY_CATALYST\": \"Q3 2026 earnings missed analyst expectations with EPS of -$0.33 vs. -$0.24 estimate (reported May 7, 2026), signaling continued operational challenges in Bitcoin mining and AI Cloud services.\",\n  \"RISK\": \"Revenue significantly underperformed guidance at $144.8M vs. $219.87M estimate (-34.14%), with next quarter projecting further deterioration at -$0.40 EPS, indicating potential structural headwinds in the cryptocurre",
-        "updated_at": "2026-05-11 12:25:57"
+        "perplexity_score": 12,
+        "key_catalyst": "SMCI reported Q3 2026 earnings on May 5 with EPS beat of $0.84 vs. $0.63 expected (+$0.21 surprise) but revenue miss of $10.24B vs. $12.39B expected (-17.3%) and FY2026 guidance of $38.9B-$40.4B below consensus $41.5B.",
+        "risk": "Significant revenue shortfall and lowered FY2026 guidance signal weakening demand or execution issues in a competitive AI server market.",
+        "timeframe": "short-term (1-5 day)",
+        "raw_response": "{\n  \"SENTIMENT\": \"NEGATIVE\",\n  \"CATALYST_SCORE\": 12,\n  \"KEY_CATALYST\": \"SMCI reported Q3 2026 earnings on May 5 with EPS beat of $0.84 vs. $0.63 expected (+$0.21 surprise) but revenue miss of $10.24B vs. $12.39B expected (-17.3%) and FY2026 guidance of $38.9B-$40.4B below consensus $41.5B.\",\n  \"RISK\": \"Significant revenue shortfall and lowered FY2026 guidance signal weakening demand or execution issues in a competitive AI server market.\",\n  \"TIMEFRAME\": \"short-term (1-5 day)\"\n}",
+        "updated_at": "2026-05-12 12:08:24"
       }
     },
-    "MCD": {
+    "AMBQ": {
       "technicals": {
-        "price": 274.31,
-        "sma_20": 293.93125,
-        "sma_50": 307.4296,
-        "rsi_14": 23.80512431794658,
-        "macd": -8.496677504818024,
-        "macd_signal": -7.043646473758235,
-        "bb_upper": 315.20851271751155,
-        "bb_lower": 272.6539872824884,
-        "bb_mid": 293.93125,
-        "volume": 125143.0,
-        "vol_avg_20": 134951.3,
-        "volume_ratio": 1.4013425583895822,
-        "five_day_return": -3.464658373071028,
-        "twenty_day_return": -9.911655555190645,
-        "atr_14": 5.6701116508382325,
-        "atr_pct": 2.0670451864088926,
-        "above_sma20": false,
-        "above_sma50": false
+        "price": 59.81,
+        "sma_20": 38.2305,
+        "sma_50": 31.661400000000004,
+        "rsi_14": 85.87710308411201,
+        "macd": 4.824929191218814,
+        "macd_signal": 3.184469148844273,
+        "bb_upper": 50.46295637637835,
+        "bb_lower": 25.998043623621648,
+        "bb_mid": 38.2305,
+        "volume": 118560.0,
+        "vol_avg_20": 19572.85,
+        "volume_ratio": 2.076345550085961,
+        "five_day_return": 47.879836815428355,
+        "twenty_day_return": 100.03344481605355,
+        "atr_14": 3.222962219131229,
+        "atr_pct": 5.388667813294147,
+        "above_sma20": true,
+        "above_sma50": true
       },
-      "news_score": 5,
+      "news_score": 13,
       "news_headlines": [
-        "JP Morgan Maintains Overweight on McDonald's, Lowers Price Target to $305",
-        "RBC Capital Maintains Sector Perform on McDonald's, Lowers Price Target to $305",
-        "McDonald's Value Focus Fails To Drive Results: Analysts Cut Forecasts On Cautious Outlook"
+        "Ambiq Micro Sees Q2 Adj EPS $(0.29)-$(0.23) vs $(0.42) Est; Sees Sales $31.000M-$32.000M vs $25.674M Est",
+        "Ambiq Micro Q1 Adj. EPS $(0.25) Beats $(0.36) Estimate, Sales $25.060M Beat $21.494M Estimate",
+        "Earnings Scheduled For May 12, 2026"
       ],
       "confidence": {
-        "technical_score": 5,
-        "news_score": 5,
+        "technical_score": 37,
+        "news_score": 13,
         "perplexity_score": 0,
-        "total": 10,
-        "action": "SELL",
-        "threshold_used": 55,
-        "regime": "auto"
+        "catalyst_score": 4,
+        "alpha_score": 20,
+        "total": 61,
+        "action": "BUY",
+        "threshold_used": 45,
+        "regime": "BULL"
       },
       "source": "screener"
     },
-    "MRAM": {
+    "SCHG": {
       "technicals": {
-        "price": 40.87,
-        "sma_20": 17.03025,
-        "sma_50": 12.4792,
-        "rsi_14": 90.34767310154515,
-        "macd": 4.7674645072232735,
-        "macd_signal": 2.683329466990405,
-        "bb_upper": 30.9451774072846,
-        "bb_lower": 3.1153225927153976,
-        "bb_mid": 17.03025,
-        "volume": 195133.0,
-        "vol_avg_20": 52508.4,
-        "volume_ratio": 2.3221236983035096,
-        "five_day_return": 117.74107618540222,
-        "twenty_day_return": 268.0324178298064,
-        "atr_14": 2.8658403861646446,
-        "atr_pct": 7.012088050317213,
+        "price": 33.875,
+        "sma_20": 33.027499999999996,
+        "sma_50": 31.2111,
+        "rsi_14": 70.92103801293695,
+        "macd": 0.8252180923691768,
+        "macd_signal": 0.7837387191805218,
+        "bb_upper": 34.2651489809312,
+        "bb_lower": 31.789851019068788,
+        "bb_mid": 33.027499999999996,
+        "volume": 164116.0,
+        "vol_avg_20": 330523.2,
+        "volume_ratio": 1.518444091065317,
+        "five_day_return": 1.941017153174851,
+        "twenty_day_return": 7.50555379244684,
+        "atr_14": 0.43394168799404537,
+        "atr_pct": 1.2810086730451524,
+        "above_sma20": true,
+        "above_sma50": true
+      },
+      "news_score": 25,
+      "news_headlines": [
+        "Here's How Much $1000 Invested In Schwab U.S. Large-Cap Growth ETF 15 Years Ago Would Be Worth Today",
+        "Here's How Much You Would Have Made Owning Schwab U.S. Large-Cap Growth ETF Stock In The Last 15 Years",
+        "Here's How Much $1000 Invested In Schwab U.S. Large-Cap Growth ETF 10 Years Ago Would Be Worth Today"
+      ],
+      "confidence": {
+        "technical_score": 45,
+        "news_score": 25,
+        "perplexity_score": 12,
+        "catalyst_score": 14,
+        "alpha_score": 5,
+        "total": 64,
+        "action": "BUY",
+        "threshold_used": 45,
+        "regime": "BULL"
+      },
+      "source": "screener",
+      "perplexity": {
+        "symbol": "SCHG",
+        "sentiment": "POSITIVE",
+        "perplexity_score": 12,
+        "key_catalyst": "SCHG has delivered strong recent performance with a 4.6% YTD return as of May 11, 2026 (from $32.62 to $34.13 per MarketBeat) and 31.94%-37.7% 1-year total returns (StockAnalysis, Financhill), driven by large-cap growth exposure near 52-week highs of $34.16-$34.16 (FinancialContent).",
+        "risk": "As an ETF tracking large-cap growth stocks, SCHG faces heightened valuation risks with a PB ratio of 8.93 (GuruFocus) and potential sector headwinds from interest rate sensitivity or tech sector corrections.",
+        "timeframe": "medium-term",
+        "raw_response": "{\n  \"SENTIMENT\": \"POSITIVE\",\n  \"CATALYST_SCORE\": 12,\n  \"KEY_CATALYST\": \"SCHG has delivered strong recent performance with a 4.6% YTD return as of May 11, 2026 (from $32.62 to $34.13 per MarketBeat) and 31.94%-37.7% 1-year total returns (StockAnalysis, Financhill), driven by large-cap growth exposure near 52-week highs of $34.16-$34.16 (FinancialContent).\",\n  \"RISK\": \"As an ETF tracking large-cap growth stocks, SCHG faces heightened valuation risks with a PB ratio of 8.93 (GuruFocus) and potentia",
+        "updated_at": "2026-05-12 12:08:10"
+      }
+    },
+    "SMX": {
+      "technicals": {
+        "price": 10.305,
+        "sma_20": 3.7027500000000004,
+        "sma_50": 9.8651,
+        "rsi_14": 59.41351807947268,
+        "macd": -1.0445680247301707,
+        "macd_signal": -2.6533440949754974,
+        "bb_upper": 10.342039476291735,
+        "bb_lower": -2.9365394762917334,
+        "bb_mid": 3.7027500000000004,
+        "volume": 5437.0,
+        "vol_avg_20": 25529.2,
+        "volume_ratio": 0.09557682966955486,
+        "five_day_return": 788.3620689655172,
+        "twenty_day_return": 104.05940594059406,
+        "atr_14": 2.297007389336152,
+        "atr_pct": 22.29022211873995,
         "above_sma20": true,
         "above_sma50": true
       },
       "news_score": 5,
       "news_headlines": [
-        "Liquidia, Beazer Homes, Circle Internet Group And Other Big Stocks Moving Higher On Monday",
-        "12 Information Technology Stocks Moving In Monday's Pre-Market Session",
-        "Why Digi Power X Shares Are Trading Higher By Around 20%; Here Are 20 Stocks Moving Premarket"
+        "SMX Announces 20-For-1 Reverse Stock Split, Effective May 11",
+        "12 Information Technology Stocks Moving In Wednesday's Intraday Session",
+        "12 Information Technology Stocks Moving In Tuesday's Intraday Session"
+      ],
+      "confidence": {
+        "technical_score": 34,
+        "news_score": 5,
+        "perplexity_score": 0,
+        "catalyst_score": 2,
+        "alpha_score": 20,
+        "total": 56,
+        "action": "BUY",
+        "threshold_used": 45,
+        "regime": "BULL"
+      },
+      "source": "screener"
+    },
+    "FTNT": {
+      "technicals": {
+        "price": 114.7,
+        "sma_20": 90.774,
+        "sma_50": 85.4282,
+        "rsi_14": 83.41157098891082,
+        "macd": 7.483251723166646,
+        "macd_signal": 4.090131037650269,
+        "bb_upper": 113.79841847256955,
+        "bb_lower": 67.74958152743045,
+        "bb_mid": 90.774,
+        "volume": 75714.0,
+        "vol_avg_20": 259170.0,
+        "volume_ratio": 0.9776710267392059,
+        "five_day_return": 27.543645057266765,
+        "twenty_day_return": 45.75258910985451,
+        "atr_14": 4.142565046077587,
+        "atr_pct": 3.611652176179239,
+        "above_sma20": true,
+        "above_sma50": true
+      },
+      "news_score": 21,
+      "news_headlines": [
+        "Fortinet Announces Acceleration Of Its FortiAIGate Development With Nvidia's AI Platforms And Software",
+        "Citigroup Maintains Neutral on Fortinet, Raises Price Target to $115",
+        "Barclays Maintains Equal-Weight on Fortinet, Raises Price Target to $115"
+      ],
+      "confidence": {
+        "technical_score": 32,
+        "news_score": 21,
+        "perplexity_score": 28,
+        "catalyst_score": 19,
+        "alpha_score": 25,
+        "total": 76,
+        "action": "BUY",
+        "threshold_used": 45,
+        "regime": "BULL"
+      },
+      "source": "screener",
+      "perplexity": {
+        "symbol": "FTNT",
+        "sentiment": "STRONG_POSITIVE",
+        "perplexity_score": 28,
+        "key_catalyst": "Fortinet's Q1 2026 earnings on May 5-6 beat EPS estimates by 36.67% ($0.82 vs. $0.60) with 20% YoY revenue growth to $1.85B, 31% billings growth, record $1B free cash flow, and raised Q2/FY2026 guidance (sources: public.com, marketbeat.com, YouTube analysis).",
+        "risk": "High valuation multiples post-earnings surge and potential sector slowdown in cybersecurity spending amid economic uncertainty.",
+        "timeframe": "medium-term (5-20 day)",
+        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 28,\n  \"KEY_CATALYST\": \"Fortinet's Q1 2026 earnings on May 5-6 beat EPS estimates by 36.67% ($0.82 vs. $0.60) with 20% YoY revenue growth to $1.85B, 31% billings growth, record $1B free cash flow, and raised Q2/FY2026 guidance (sources: public.com, marketbeat.com, YouTube analysis).\",\n  \"RISK\": \"High valuation multiples post-earnings surge and potential sector slowdown in cybersecurity spending amid economic uncertainty.\",\n  \"TIMEFRAME\": \"me",
+        "updated_at": "2026-05-12 12:08:21"
+      }
+    },
+    "NYC": {
+      "technicals": {
+        "price": 10.8,
+        "sma_20": 8.254,
+        "sma_50": 9.5102,
+        "rsi_14": 86.19322245363188,
+        "macd": -0.10110693331942855,
+        "macd_signal": -0.3752152420972383,
+        "bb_upper": 9.4221849168689,
+        "bb_lower": 7.085815083131099,
+        "bb_mid": 8.254,
+        "volume": 1241.0,
+        "vol_avg_20": 16.3,
+        "volume_ratio": 0.0,
+        "five_day_return": 33.0049261083744,
+        "twenty_day_return": 33.0049261083744,
+        "atr_14": 0.30644627979892947,
+        "atr_pct": 2.837465553693791,
+        "above_sma20": true,
+        "above_sma50": true
+      },
+      "news_score": 5,
+      "news_headlines": [
+        "'Mamdani Scraps Planned NYC Property Tax Hike in Revised Budget' - Bloomberg",
+        "Earnings Scheduled For April 15, 2026",
+        "American Strategic Q4 EPS $(2.62) Down From $(2.60) YoY, Sales $6.476M Down From $14.889M YoY"
+      ],
+      "confidence": {
+        "technical_score": 29,
+        "news_score": 5,
+        "perplexity_score": 0,
+        "catalyst_score": 2,
+        "alpha_score": 20,
+        "total": 51,
+        "action": "BUY",
+        "threshold_used": 45,
+        "regime": "BULL"
+      },
+      "source": "screener"
+    },
+    "ERNA": {
+      "technicals": {
+        "price": 14.16,
+        "sma_20": 2.646905,
+        "sma_50": 1.2083439999999999,
+        "rsi_14": 96.80299002249869,
+        "macd": 2.3887584749433204,
+        "macd_signal": 1.1877987399730148,
+        "bb_upper": 10.369329859194163,
+        "bb_lower": -5.075519859194165,
+        "bb_mid": 2.646905,
+        "volume": 80436.0,
+        "vol_avg_20": 15859.65,
+        "volume_ratio": 0.12673671865394256,
+        "five_day_return": 273.61477572559363,
+        "twenty_day_return": 6861.6519174041305,
+        "atr_14": 1.2601546828909211,
+        "atr_pct": 8.899397478043229,
+        "above_sma20": true,
+        "above_sma50": true
+      },
+      "news_score": 9,
+      "news_headlines": [
+        "Nasdaq Dips Over 1%; US Inflation Surges To 3.8% In April",
+        "Ernexa Therapeutics Leadership To Discuss Recently-Announced Preclinical Ovarian Cancer Treatment Data As Part Of Closing Bell Event On May 13",
+        "Brookline Capital Initiates Coverage On Ernexa Therapeutics with Buy Rating, Announces Price Target of $30"
       ],
       "confidence": {
         "technical_score": 27,
-        "news_score": 5,
+        "news_score": 9,
         "perplexity_score": 0,
-        "total": 32,
-        "action": "SELL",
-        "threshold_used": 55,
-        "regime": "auto"
+        "catalyst_score": 3,
+        "alpha_score": 20,
+        "total": 50,
+        "action": "BUY",
+        "threshold_used": 45,
+        "regime": "BULL"
+      },
+      "source": "screener"
+    },
+    "VZ": {
+      "technicals": {
+        "price": 47.725,
+        "sma_20": 46.973,
+        "sma_50": 48.6146,
+        "rsi_14": 51.6398279146933,
+        "macd": -0.18838185728517942,
+        "macd_signal": -0.3485636479975563,
+        "bb_upper": 48.40303636317388,
+        "bb_lower": 45.542963636826116,
+        "bb_mid": 46.973,
+        "volume": 477282.0,
+        "vol_avg_20": 1196083.7,
+        "volume_ratio": 0.8654001388029952,
+        "five_day_return": 0.7706925675675658,
+        "twenty_day_return": 5.086425189915222,
+        "atr_14": 0.9579178301608179,
+        "atr_pct": 2.0071615089802366,
+        "above_sma20": true,
+        "above_sma50": false
+      },
+      "news_score": 13,
+      "news_headlines": [
+        "Apple And Google Finally Close SMS Security Gap As iOS 26.5 Brings End-To-End Encrypted RCS Messaging For Android And iPhone Conversations",
+        "'Verizon Kicks Off US Dollar High-Grade Bond Sale to Refinance' - Bloomberg",
+        "Bernie Sanders Says Driverless Vehicles, Jeff Bezos' '$100 Billion' Robot Factory Vision Threaten Millions Of Jobs: 'We Are Not Ready For...'"
+      ],
+      "confidence": {
+        "technical_score": 24,
+        "news_score": 13,
+        "perplexity_score": 0,
+        "catalyst_score": 4,
+        "alpha_score": 10,
+        "total": 38,
+        "action": "HOLD",
+        "threshold_used": 45,
+        "regime": "BULL"
       },
       "source": "screener"
     },
     "NEE": {
       "technicals": {
-        "price": 95.31,
-        "sma_20": 93.99275,
-        "sma_50": 92.92110000000001,
-        "rsi_14": 53.68221323432029,
-        "macd": 0.5976031630123799,
-        "macd_signal": 0.7115877905178893,
-        "bb_upper": 98.57330834478724,
-        "bb_lower": 89.41219165521277,
-        "bb_mid": 93.99275,
-        "volume": 170846.0,
-        "vol_avg_20": 450963.75,
-        "volume_ratio": 1.1121026911808323,
-        "five_day_return": -0.26161573880284505,
-        "twenty_day_return": 3.26110509209101,
-        "atr_14": 2.1846525334719087,
-        "atr_pct": 2.292154583435011,
-        "above_sma20": true,
+        "price": 94.09,
+        "sma_20": 94.10725000000001,
+        "sma_50": 92.93959999999998,
+        "rsi_14": 50.18099778258023,
+        "macd": 0.48523455440094665,
+        "macd_signal": 0.673460066132248,
+        "bb_upper": 98.50070362442806,
+        "bb_lower": 89.71379637557196,
+        "bb_mid": 94.10725000000001,
+        "volume": 203704.0,
+        "vol_avg_20": 456644.8,
+        "volume_ratio": 0.9975061579590965,
+        "five_day_return": -2.249233806036044,
+        "twenty_day_return": 3.0276485080755533,
+        "atr_14": 2.1450819742802802,
+        "atr_pct": 2.2798192945905837,
+        "above_sma20": false,
         "above_sma50": true
       },
       "news_score": 17,
@@ -833,150 +955,178 @@
         "Graphic Packaging Holding Enters Virtual Power Purchase Agreement With Nextera Energy Resources, Which Will Include A 250 MW Solar Plant"
       ],
       "confidence": {
-        "technical_score": 19,
+        "technical_score": 13,
         "news_score": 17,
         "perplexity_score": 0,
-        "total": 36,
+        "catalyst_score": 6,
+        "alpha_score": 5,
+        "total": 24,
         "action": "SELL",
-        "threshold_used": 55,
-        "regime": "auto"
+        "threshold_used": 45,
+        "regime": "BULL"
       },
       "source": "screener"
     },
-    "NEM": {
+    "HTCO": {
       "technicals": {
-        "price": 120.165,
-        "sma_20": 113.29174999999998,
-        "sma_50": 112.0988,
-        "rsi_14": 58.6398409854771,
-        "macd": 0.5636542506854596,
-        "macd_signal": -0.16767192821708804,
-        "bb_upper": 121.15668437671279,
-        "bb_lower": 105.42681562328717,
-        "bb_mid": 113.29174999999998,
-        "volume": 103027.0,
-        "vol_avg_20": 307260.7,
-        "volume_ratio": 0.5367917211670741,
-        "five_day_return": 10.924951536970372,
-        "twenty_day_return": 3.1459227467811157,
-        "atr_14": 4.687426437986517,
-        "atr_pct": 3.90082506385929,
-        "above_sma20": true,
+        "price": 9.855,
+        "sma_20": 10.09,
+        "sma_50": 9.355599999999999,
+        "rsi_14": 50.944186860508665,
+        "macd": -0.7661283941856727,
+        "macd_signal": -0.3772804595176149,
+        "bb_upper": 23.284097543977765,
+        "bb_lower": -3.1040975439777636,
+        "bb_mid": 10.09,
+        "volume": 17293.0,
+        "vol_avg_20": 7353.75,
+        "volume_ratio": 0.6772055073941866,
+        "five_day_return": 36.78001387925052,
+        "twenty_day_return": 1.2846865364851023,
+        "atr_14": 3.8634381795894464,
+        "atr_pct": 39.20282272541295,
+        "above_sma20": false,
         "above_sma50": true
+      },
+      "news_score": 5,
+      "news_headlines": [
+        "12 Industrials Stocks Moving In Tuesday's Pre-Market Session",
+        "Why Harmonic Shares Are Trading Higher By Around 13%; Here Are 20 Stocks Moving Premarket",
+        "High-Trend International Group Reported Monday, Shareholders Approved Increase In Authorized Share Capital To US$5.3M From US$1.3M, Expanding Class A Shares To 2B From 489.9M And Class B Shares To 110.1M From 10.1M; Authorized Up To 1,000:1 Share Consolidation Over Two Years"
+      ],
+      "confidence": {
+        "technical_score": 10,
+        "news_score": 5,
+        "perplexity_score": 0,
+        "catalyst_score": 2,
+        "alpha_score": 5,
+        "total": 17,
+        "action": "SELL",
+        "threshold_used": 45,
+        "regime": "BULL"
+      },
+      "source": "screener"
+    },
+    "MCD": {
+      "technicals": {
+        "price": 276.675,
+        "sma_20": 292.61775,
+        "sma_50": 306.2732,
+        "rsi_14": 27.78403306130737,
+        "macd": -8.599649404105378,
+        "macd_signal": -7.352680207630918,
+        "bb_upper": 314.6600385551843,
+        "bb_lower": 270.5754614448157,
+        "bb_mid": 292.61775,
+        "volume": 84846.0,
+        "vol_avg_20": 144357.45,
+        "volume_ratio": 1.9651704847931297,
+        "five_day_return": -2.968717121414033,
+        "twenty_day_return": -8.75737888731326,
+        "atr_14": 5.6512462891985455,
+        "atr_pct": 2.042557617854358,
+        "above_sma20": false,
+        "above_sma50": false
+      },
+      "news_score": 5,
+      "news_headlines": [
+        "Twilio To Rally Over 25%? Here Are 10 Top Analyst Forecasts For Monday",
+        "JP Morgan Maintains Overweight on McDonald's, Lowers Price Target to $305",
+        "RBC Capital Maintains Sector Perform on McDonald's, Lowers Price Target to $305"
+      ],
+      "confidence": {
+        "technical_score": 11,
+        "news_score": 5,
+        "perplexity_score": 0,
+        "catalyst_score": 2,
+        "alpha_score": 0,
+        "total": 13,
+        "action": "SELL",
+        "threshold_used": 45,
+        "regime": "BULL"
+      },
+      "source": "screener"
+    },
+    "PSIX": {
+      "technicals": {
+        "price": 36.83,
+        "sma_20": 72.61949999999999,
+        "sma_50": 65.92280000000001,
+        "rsi_14": 28.29390505435491,
+        "macd": -3.2094053723365477,
+        "macd_signal": -0.23189642208742306,
+        "bb_upper": 92.5448346019584,
+        "bb_lower": 52.69416539804158,
+        "bb_mid": 72.61949999999999,
+        "volume": 71252.0,
+        "vol_avg_20": 23587.2,
+        "volume_ratio": 3.8347493555826886,
+        "five_day_return": -46.87725371412087,
+        "twenty_day_return": -56.88110987531465,
+        "atr_14": 7.581718314981929,
+        "atr_pct": 20.585713589416045,
+        "above_sma20": false,
+        "above_sma50": false
       },
       "news_score": 13,
       "news_headlines": [
-        "Two Wins For Gold Miners Show Why This Time It's Different",
-        "Nasdaq 100 Marks Fresh Records, Intel Jumps 23% On AI Chip Mania: Stock Market Today",
-        "What's Behind The Drop In Citius Pharmaceuticals?"
+        "Nasdaq Dips Over 1%; US Inflation Surges To 3.8% In April",
+        "12 Industrials Stocks Moving In Tuesday's Pre-Market Session",
+        "AST SpaceMobile Posts Downbeat Q1 Results, Joins Hims & Hers Health, Gitlab And Other Big Stocks Moving Lower In Tuesday's Pre-Market Session"
       ],
       "confidence": {
-        "technical_score": 28,
+        "technical_score": 8,
         "news_score": 13,
-        "perplexity_score": 28,
-        "total": 69,
-        "action": "BUY",
-        "threshold_used": 55,
-        "regime": "auto"
-      },
-      "source": "screener",
-      "perplexity": {
-        "symbol": "NEM",
-        "sentiment": "STRONG_POSITIVE",
-        "perplexity_score": 28,
-        "key_catalyst": "Newmont reported record Q1 2026 earnings on April 23, 2026, with EPS of $2.90 beating estimates of $2.07-$2.19 by 32-40% and revenue of $7.31B up 45.8% YoY, alongside $3.1B record free cash flow and increased share repurchase authorization (sources: public.com, marketbeat.com, newmont.com).",
-        "risk": "Historical data shows NEM stock declines post-earnings in 7 of 12 reports by average -1.0% on day 1 (market chameleon.com), with upcoming Q2 earnings on July 23, 2026 potentially introducing volatility.",
-        "timeframe": "medium-term",
-        "raw_response": "{\n  \"SENTIMENT\": \"STRONG_POSITIVE\",\n  \"CATALYST_SCORE\": 28,\n  \"KEY_CATALYST\": \"Newmont reported record Q1 2026 earnings on April 23, 2026, with EPS of $2.90 beating estimates of $2.07-$2.19 by 32-40% and revenue of $7.31B up 45.8% YoY, alongside $3.1B record free cash flow and increased share repurchase authorization (sources: public.com, marketbeat.com, newmont.com).\",\n  \"RISK\": \"Historical data shows NEM stock declines post-earnings in 7 of 12 reports by average -1.0% on day 1 (market chameleo",
-        "updated_at": "2026-05-11 12:26:10"
-      }
-    },
-    "NOK": {
-      "technicals": {
-        "price": 13.725,
-        "sma_20": 11.595749999999999,
-        "sma_50": 9.689599999999999,
-        "rsi_14": 73.03050169272657,
-        "macd": 1.107608667505506,
-        "macd_signal": 1.0101921401709815,
-        "bb_upper": 14.315099692481628,
-        "bb_lower": 8.87640030751837,
-        "bb_mid": 11.595749999999999,
-        "volume": 3913581.0,
-        "vol_avg_20": 6680657.55,
-        "volume_ratio": 0.7416801359620656,
-        "five_day_return": 4.491815759421391,
-        "twenty_day_return": 32.28915662650602,
-        "atr_14": 0.6861697688715299,
-        "atr_pct": 4.9994154380439335,
-        "above_sma20": true,
-        "above_sma50": true
-      },
-      "news_score": 9,
-      "news_headlines": [
-        "Is Nokia A Buy? Analyzing The Lockheed Martin Deal And Q4 2026 Outlook",
-        "What's Going On With Nokia Stock Today?",
-        "Why Is Phoenix Asia Stock Gaining Today?"
-      ],
-      "confidence": {
-        "technical_score": 32,
-        "news_score": 9,
         "perplexity_score": 0,
-        "total": 41,
-        "action": "HOLD",
-        "threshold_used": 55,
-        "regime": "auto"
+        "catalyst_score": 4,
+        "alpha_score": 0,
+        "total": 12,
+        "action": "SELL",
+        "threshold_used": 45,
+        "regime": "BULL"
       },
       "source": "screener"
     },
-    "POET": {
+    "GME": {
       "technicals": {
-        "price": 13.83,
-        "sma_20": 9.209,
-        "sma_50": 7.501,
-        "rsi_14": 66.70910902477567,
-        "macd": 0.9886724912277813,
-        "macd_signal": 0.6773890756229091,
-        "bb_upper": 14.124047914313763,
-        "bb_lower": 4.293952085686236,
-        "bb_mid": 9.209,
-        "volume": 1804891.0,
-        "vol_avg_20": 1710270.45,
-        "volume_ratio": 1.366861597825069,
-        "five_day_return": 94.24157303370787,
-        "twenty_day_return": 89.71193415637859,
-        "atr_14": 1.6988982735491116,
-        "atr_pct": 12.28415237562626,
-        "above_sma20": true,
-        "above_sma50": true
+        "price": 22.73,
+        "sma_20": 24.67125,
+        "sma_50": 23.9004,
+        "rsi_14": 41.899498965073995,
+        "macd": -0.06258366691989892,
+        "macd_signal": 0.21578530862132114,
+        "bb_upper": 26.320167447903305,
+        "bb_lower": 23.022332552096696,
+        "bb_mid": 24.67125,
+        "volume": 220546.0,
+        "vol_avg_20": 413315.4,
+        "volume_ratio": 0.9668137214340428,
+        "five_day_return": -6.22937293729372,
+        "twenty_day_return": -5.5278470490440546,
+        "atr_14": 1.089880538631425,
+        "atr_pct": 4.794898982100418,
+        "above_sma20": false,
+        "above_sma50": false
       },
-      "news_score": 9,
+      "news_score": 5,
       "news_headlines": [
-        "POET Technologies Stock Surges Monday: What's Driving The Action?",
-        "POET Technologies Stock Is Trending: Investors Recalibrate Following Marvell Order Cancellation",
-        "What's Going On With POET Technologies Stock Wednesday?"
+        "What's Going On With eBay Stock Tuesday?",
+        "eBay Rejects GameStop's Massive $56 Billion Bid, Says Offer Is 'Neither Credible Nor Attractive'",
+        "eBay Announces Rejection Of Gamestop's Unsolicited Proposal To Acquire The Company"
       ],
       "confidence": {
-        "technical_score": 37,
-        "news_score": 9,
-        "perplexity_score": 8,
-        "total": 54,
-        "action": "HOLD",
-        "threshold_used": 55,
-        "regime": "auto"
+        "technical_score": 3,
+        "news_score": 5,
+        "perplexity_score": 0,
+        "catalyst_score": 2,
+        "alpha_score": 0,
+        "total": 5,
+        "action": "SELL",
+        "threshold_used": 45,
+        "regime": "BULL"
       },
-      "source": "screener",
-      "perplexity": {
-        "symbol": "POET",
-        "sentiment": "NEGATIVE",
-        "perplexity_score": 8,
-        "key_catalyst": "POET reported Q4 2025 EPS of -$0.32 on Mar 30-31, 2026, missing estimates of -$0.06 by 433.33%, with prior Q3 2025 also missing at -$0.11 vs -$0.09.",
-        "risk": "Persistent earnings misses, including Q4 2025's 433% shortfall and revenue shortfalls like $268K vs $553K estimate, signal ongoing operational and financial challenges.",
-        "timeframe": "medium-term",
-        "raw_response": "{\n  \"SENTIMENT\": \"NEGATIVE\",\n  \"CATALYST_SCORE\": 8,\n  \"KEY_CATALYST\": \"POET reported Q4 2025 EPS of -$0.32 on Mar 30-31, 2026, missing estimates of -$0.06 by 433.33%, with prior Q3 2025 also missing at -$0.11 vs -$0.09.\",\n  \"RISK\": \"Persistent earnings misses, including Q4 2025's 433% shortfall and revenue shortfalls like $268K vs $553K estimate, signal ongoing operational and financial challenges.\",\n  \"TIMEFRAME\": \"medium-term\"\n}",
-        "updated_at": "2026-05-11 12:26:03"
-      }
+      "source": "screener"
     }
   },
-  "perplexity_enhanced_at": "2026-05-11 12:26:10"
+  "perplexity_enhanced_at": "2026-05-12 12:08:24"
 }
