@@ -172,9 +172,12 @@ def _risk_tier(portfolio: SimulatedPortfolio) -> str:
     month_start = month[0].equity
     month_pct = (portfolio.equity() - month_start) / month_start * 100 if month_start > 0 else 0.0
 
+    # Mirror portfolio.update_performance_state thresholds:
+    # tightened to catch drawdown faster (was −2% weekly).
+    daily_pct = history[-1].pnl_pct if history else 0.0
     if month_pct <= -5.0:
         return "HALT"
-    if week_pct <= -2.0:
+    if week_pct <= -1.5 or daily_pct <= -2.0:
         return "CAUTIOUS"
     return "NORMAL"
 

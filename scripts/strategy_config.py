@@ -25,28 +25,32 @@ def get_market_regime() -> str:
 # "aggressive momentum harvester" depending on market backdrop.
 _PARAMS = {
     # ─────────────────────── BULL regime ───────────────────────
+    # Post-2022-bear lesson: aggressive 10% positions × 1.5% risk got us
+    # +45% in BULL but blew up −22% in the 2022 regime transition. We
+    # keep BULL aggressive enough to harvest momentum but pull back on
+    # individual-position blast radius.
     ("BULL", "NORMAL"): {
-        "score_threshold": 45,           # aggressive — let more winners through
+        "score_threshold": 48,           # was 45 — slightly more selective
         "rsi_sweet_low": 55,
         "rsi_sweet_high": 80,
         "rsi_acceptable_low": 45,
         "rsi_acceptable_high": 88,
-        "volume_min_ratio": 1.0,
+        "volume_min_ratio": 1.1,         # was 1.0 — require modest conviction
         "rs_lookback_days": 20,
-        "rs_alpha_min": -5.0,            # don't filter out consolidating names
-        "min_cash_pct": 3.0,             # deploy nearly all capital
-        "max_cash_pct": 15.0,            # lower trigger for cash-starve bonus
-        "cash_starve_bonus": 10,         # strong push to deploy
-        "risk_per_trade_pct": 1.5,       # bigger position sizing
-        "max_position_pct": 10.0,        # concentrated bets
-        "trailing_stop_pct": 10.0,       # wider stops = fewer shakeouts
+        "rs_alpha_min": -3.0,            # was −5: don't load up on chronic laggards
+        "min_cash_pct": 5.0,             # was 3 — keep small dry-powder buffer
+        "max_cash_pct": 15.0,
+        "cash_starve_bonus": 8,          # was 10 — less aggressive starve
+        "risk_per_trade_pct": 1.2,       # was 1.5 — smaller per-trade risk
+        "max_position_pct": 7.0,         # was 10 — less concentrated single-name risk
+        "trailing_stop_pct": 9.0,        # was 10 — slightly tighter
         "tightened_stop_pct": 6.0,
-        "scale_out_at_gain": 15.0,       # let winners run longer
-        "final_target_gain": 30.0,       # much higher profit target
-        "time_stop_days": 15,            # more patience
+        "scale_out_at_gain": 12.0,       # was 15 — bank profits earlier
+        "final_target_gain": 25.0,       # was 30 — still ambitious but realistic
+        "time_stop_days": 12,            # was 15 — flush stale positions sooner
         "time_stop_min_gain": 4.0,
-        "max_positions": 12,             # fewer but bigger bets
-        "gate_score_min": 0.55,          # weighted gate threshold
+        "max_positions": 14,             # was 12 — more diversification slots
+        "gate_score_min": 0.55,
     },
     ("BULL", "CAUTIOUS"): {
         "score_threshold": 55,

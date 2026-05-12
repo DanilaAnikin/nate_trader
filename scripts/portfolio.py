@@ -169,9 +169,13 @@ def update_performance_state() -> None:
     # Auto-adjust risk tier
     weekly_pnl_pct = perf.get("weekly_pnl_pct", 0.0)
     monthly_pnl_pct = perf.get("monthly_pnl_pct", 0.0)
+    # Faster downshift to CAUTIOUS — 2022 backtest showed waiting until
+    # weekly P&L ≤ −2% let aggressive BULL positions accrue real damage
+    # before tier flipped. −1.5% catches the deterioration earlier.
+    daily_pnl_pct = perf.get("daily_pnl_pct", 0.0)
     if monthly_pnl_pct <= -5.0:
         perf["risk_tier"] = "HALT"
-    elif weekly_pnl_pct <= -2.0:
+    elif weekly_pnl_pct <= -1.5 or daily_pnl_pct <= -2.0:
         perf["risk_tier"] = "CAUTIOUS"
     else:
         perf["risk_tier"] = "NORMAL"
