@@ -1,6 +1,24 @@
 {
-  "updated_at": "2026-05-11 17:31:27",
+  "updated_at": "2026-05-12 04:23:49",
   "runs": [
+    {
+      "id": "compare_20260512_082348",
+      "kind": "compare",
+      "generated_at": "2026-05-12 04:23:48",
+      "start_date": "2021-01-01",
+      "end_date": "2026-05-12",
+      "filename": "runs/compare_20260512_082348.json",
+      "summary": {
+        "alpha_annual_pp": -0.0347,
+        "sharpe_delta": -0.0045,
+        "max_dd_pp": -0.4454,
+        "challenger_params": {
+          "score_threshold_delta": 0,
+          "risk_per_trade_pct": 0.7,
+          "trailing_stop_pct": 8
+        }
+      }
+    },
     {
       "id": "walk_forward_20260511_213127",
       "kind": "walk_forward",
