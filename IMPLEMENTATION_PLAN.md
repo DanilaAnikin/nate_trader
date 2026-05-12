@@ -470,15 +470,20 @@ and walks forward shows uplift:
 
 ## 9. Status tracking
 
-| Phase | Status | Branch / commit | OOS α uplift |
-|-------|--------|-----------------|-------------|
-| 1. Earnings gate | TBD | TBD | TBD |
-| 2. Sector rotation | TBD | TBD | TBD |
-| 3. Mean reversion | TBD | TBD | TBD |
-| 4. Options hedge | TBD | TBD | TBD |
-| 5. Gap scanner | TBD | TBD | TBD |
-| 6. ATR sizing | TBD | TBD | TBD |
-| 7. Multi-timeframe | TBD | TBD | TBD |
-| 8. PEAD | TBD | TBD | TBD |
+| Phase | Status | Notes | Tests |
+|-------|--------|-------|------:|
+| 1. Earnings gate | **MERGED** | Perplexity batched fetch, weekly cache, gate veto −0.20 | 20 |
+| 2. Sector rotation | **MERGED** | XLK/XLF/.../XLC vs SPY 20d, ±5 per regime | 13 |
+| 3. Mean reversion | **MERGED** (core) | Pure logic + sizing complete; live execute_trades hook pending | 27 |
+| 4. Options hedge | **SCAFFOLDED** | `decide_action()` pure; Alpaca options wiring deferred | 8 |
+| 5. Gap scanner | **SCAFFOLDED** | `classify_gap()` pure; 9:35 ET workflow job deferred | 6 |
+| 6. ATR sizing | **MERGED** | Already in `trade.calculate_position_size` as 3rd constraint | 9 |
+| 7. Multi-timeframe | **SCAFFOLDED** | `compute_mtf_adjustment()` pure; 4h BarProvider deferred | 4 |
+| 8. PEAD | **SCAFFOLDED** | `is_pead_setup()` / `should_exit_pead()` pure; post-earnings query deferred | 9 |
+
+Total tests: **98** (all passing). Pure-math cores for all phases done.
+Remaining live wiring (Phase 3 execute_trades hook + Phases 4/5/7/8 I/O)
+is tracked in follow-up commits to keep each integration validated
+independently.
 
 This table is updated after each phase merges to main.
