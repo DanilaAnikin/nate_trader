@@ -215,32 +215,37 @@ def compute_confidence_score(
     perplexity_score: int = 0,
     regime: str | None = None,
     risk_tier: str | None = None,
+    spy_20d_return: float | None = None,
 ) -> dict:
     """Compute composite confidence score (0-100), regime-aware.
 
-    Technical breakdown (max ~37):
-      • Trend (SMA stack)          : up to 10
-      • RSI in regime sweet spot   : up to 10
-      • MACD bullish               : up to 7
-      • Volume confirmation        : up to 5
-      • 20-day momentum            : up to 5  (rewards trending strength)
+    Rebalanced scoring — three components:
 
-    The RSI sweet spot moves with the regime: in BULL we *reward* RSI 55-80
-    (momentum), not penalize it. The old 40-65 band only made sense in a
-    range-bound market.
+      Technical Score (max 50):
+        • Trend (SMA stack)           : up to 12
+        • RSI in regime sweet spot    : up to 10
+        • MACD bullish                : up to 10 (7 crossover + 3 above zero)
+        • Volume confirmation         : up to 5
+        • ATR squeeze (low vol entry) : up to 5
+        • Bollinger position          : up to 3
+        • 20-day momentum             : up to 5
 
-    Action mapping uses the regime-adaptive threshold from strategy_config.
+      Catalyst Score (max 25):
+        • News (rescaled 0-35 → 0-12) + Perplexity (rescaled 0-30 → 0-13)
+
+      Momentum Alpha Score (max 25):
+        • Pure relative strength vs SPY 20-day return
     """
     from strategy_config import get_strategy_params
 
     params = get_strategy_params(regime, risk_tier)
     tech_score = 0
 
-    # 1) Trend alignment (max 10)
+    # 1) Trend alignment (max 12)
     above_20 = technicals.get("above_sma20")
     above_50 = technicals.get("above_sma50")
     if above_20 and above_50:
-        tech_score += 10
+        tech_score += 12
     elif above_20:
         tech_score += 6
     elif above_50:
@@ -258,15 +263,14 @@ def compute_confidence_score(
         elif accept_lo <= rsi <= accept_hi:
             tech_score += 5
 
-    # 3) MACD bullish crossover (max 7)
+    # 3) MACD bullish crossover (max 10: 7 crossover + 3 above zero)
     macd = technicals.get("macd")
     macd_sig = technicals.get("macd_signal")
     if macd is not None and macd_sig is not None:
         if macd > macd_sig:
             tech_score += 7
-            # Bonus 2 pts if MACD is also positive (above zero line)
             if macd > 0:
-                tech_score += 0  # consumed in cap; keep base 7
+                tech_score += 3
 
     # 4) Volume confirmation (max 5) — regime-adaptive gate
     vol_ratio = technicals.get("volume_ratio")
@@ -276,7 +280,26 @@ def compute_confidence_score(
         elif vol_ratio >= params["volume_min_ratio"]:
             tech_score += 3
 
-    # 5) 20-day momentum (max 5) — strong recent trend earns extra points
+    # 5) ATR squeeze — low volatility entry signal (max 5)
+    atr_pct = technicals.get("atr_pct")
+    if atr_pct is not None:
+        if atr_pct < 1.5:
+            tech_score += 5   # very tight — coiled spring
+        elif atr_pct < 2.5:
+            tech_score += 3   # moderate squeeze
+
+    # 6) Bollinger position — near lower band = entry (max 3)
+    price = technicals.get("price")
+    bb_lower = technicals.get("bb_lower")
+    bb_upper = technicals.get("bb_upper")
+    if price and bb_lower and bb_upper and bb_upper > bb_lower:
+        bb_position = (price - bb_lower) / (bb_upper - bb_lower)
+        if bb_position < 0.3:
+            tech_score += 3   # near lower band
+        elif bb_position < 0.5:
+            tech_score += 1   # lower half
+
+    # 7) 20-day momentum (max 5)
     twenty_d = technicals.get("twenty_day_return")
     if twenty_d is not None:
         if twenty_d >= 10:
@@ -286,12 +309,48 @@ def compute_confidence_score(
         elif twenty_d >= 0:
             tech_score += 1
 
-    total = tech_score + news_score + perplexity_score
+    # Cap technical score at 50
+    tech_score = min(50, tech_score)
+
+    # ── Catalyst Score (max 25) — rescaled news + perplexity ──
+    rescaled_news = min(12, round(news_score * 12 / 35))
+    rescaled_px = min(13, round(perplexity_score * 13 / 30)) if perplexity_score else 0
+    catalyst_score = min(25, rescaled_news + rescaled_px)
+
+    # ── Momentum Alpha Score (max 25) — relative strength vs SPY ──
+    alpha_score = 0
+    stock_20d = technicals.get("twenty_day_return")
+    if stock_20d is not None and spy_20d_return is not None:
+        alpha = stock_20d - spy_20d_return
+        if alpha >= 15:
+            alpha_score = 25
+        elif alpha >= 10:
+            alpha_score = 20
+        elif alpha >= 5:
+            alpha_score = 15
+        elif alpha >= 2:
+            alpha_score = 10
+        elif alpha >= 0:
+            alpha_score = 5
+    elif stock_20d is not None:
+        # No SPY data — use absolute momentum as fallback
+        if stock_20d >= 15:
+            alpha_score = 20
+        elif stock_20d >= 10:
+            alpha_score = 15
+        elif stock_20d >= 5:
+            alpha_score = 10
+        elif stock_20d >= 0:
+            alpha_score = 5
+
+    total = tech_score + catalyst_score + alpha_score
 
     threshold = params["score_threshold"]
+    # Action bands scale with regime (lower thresholds = wider HOLD band)
+    sell_threshold = max(25, threshold - 15)
     if total >= threshold:
         action = "BUY"
-    elif total >= 40:
+    elif total >= sell_threshold:
         action = "HOLD"
     else:
         action = "SELL"
@@ -300,6 +359,8 @@ def compute_confidence_score(
         "technical_score": tech_score,
         "news_score": news_score,
         "perplexity_score": perplexity_score,
+        "catalyst_score": catalyst_score,
+        "alpha_score": alpha_score,
         "total": total,
         "action": action,
         "threshold_used": threshold,
@@ -373,10 +434,13 @@ def research_symbol(symbol: str, regime: str | None = None) -> dict:
             news_headlines = []
 
         # If regime not provided, read from research state (may be stale; that's OK)
+        existing = load_json(RESEARCH_STATE)
         if regime is None:
-            regime = load_json(RESEARCH_STATE).get("spy", {}).get("market_regime")
+            regime = existing.get("spy", {}).get("market_regime")
+        spy_20d = existing.get("spy", {}).get("twenty_day_return", 0.0)
 
-        confidence = compute_confidence_score(technicals, n_score, regime=regime)
+        confidence = compute_confidence_score(technicals, n_score, regime=regime,
+                                              spy_20d_return=spy_20d)
 
         result = {
             "symbol": symbol,
@@ -403,10 +467,12 @@ def build_research_report() -> dict:
 
     # SPY benchmark — gates regime for downstream scoring
     regime = "NEUTRAL"
+    spy_20d = 0.0
     try:
         spy = get_spy_benchmark()
         report["spy"] = spy
         regime = spy.get("market_regime", "NEUTRAL")
+        spy_20d = spy.get("twenty_day_return", 0.0)
         log.info(f"SPY: ${spy['price']:.2f} | Regime: {regime} | Month: {spy['monthly_return']:+.2f}%")
     except Exception as e:
         log.error(f"SPY benchmark error: {e}")
@@ -451,6 +517,7 @@ def build_research_report() -> dict:
             # Confidence score — regime-aware, include preserved Perplexity score
             confidence = compute_confidence_score(
                 technicals, n_score, existing_px_score, regime=regime,
+                spy_20d_return=spy_20d,
             )
 
             sym_data = {
@@ -514,8 +581,9 @@ if __name__ == "__main__":
             print(f"  VolRatio:{t.get('volume_ratio', 0):.2f}")
             print(f"  5d Ret:  {t.get('five_day_return', 0):+.2f}%")
             print(f"  Score:   {c['total']} ({c['action']})")
-            print(f"    Tech:  {c['technical_score']}/35")
-            print(f"    News:  {c['news_score']}/35")
+            print(f"    Tech:  {c['technical_score']}/50")
+            print(f"    Catalyst: {c.get('catalyst_score', 'n/a')}/25")
+            print(f"    Alpha: {c.get('alpha_score', 'n/a')}/25")
 
     elif cmd == "quote" and len(sys.argv) > 2:
         symbol = sys.argv[2].upper()

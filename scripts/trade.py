@@ -100,6 +100,11 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
         else:
             sector_value = order_cost
             for p in positions:
+                if p.symbol == symbol:
+                    # Already accounted for via order_cost for new shares;
+                    # add existing value for total post-trade position
+                    sector_value += float(p.market_value)
+                    continue
                 p_info = get_symbol_info(p.symbol)
                 if p_info.get("sector") == target_sector:
                     sector_value += float(p.market_value)
@@ -136,14 +141,16 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
     }
 
 
-def calculate_position_size(symbol: str, entry_price: float) -> int:
+def calculate_position_size(symbol: str, entry_price: float,
+                            atr: float | None = None) -> int:
     """Calculate position size respecting all limits — regime adaptive.
 
-    Two sizing methods, take the smaller:
+    Three sizing methods, take the smallest:
       1. Allocation cap: max_position_pct of equity (from strategy_config)
       2. Risk-based: risk_per_trade_pct of equity, assuming trailing_stop_pct loss
+      3. ATR-based: (equity * risk_pct) / (ATR_14 * 2) — volatility-aware sizing
 
-    Both knobs scale up in BULL/NORMAL and down in BEAR/CAUTIOUS.
+    All knobs scale up in BULL/NORMAL and down in BEAR/CAUTIOUS.
     """
     from strategy_config import get_strategy_params
     acct = client.get_account()
@@ -159,7 +166,13 @@ def calculate_position_size(symbol: str, entry_price: float) -> int:
     stop_pct = params["trailing_stop_pct"] / 100.0
     risk_shares = int((equity * risk_pct) / (entry_price * stop_pct))
 
-    shares = min(alloc_shares, risk_shares)
+    # 3. ATR-based sizing — smaller positions in volatile names
+    if atr and atr > 0:
+        atr_shares = int((equity * risk_pct) / (atr * 2))
+    else:
+        atr_shares = alloc_shares  # no ATR data → don't constrain
+
+    shares = min(alloc_shares, risk_shares, atr_shares)
 
     # Subtract existing position
     try:
@@ -225,12 +238,30 @@ def cancel_all_orders() -> int:
     return 0
 
 
-def close_position(symbol: str) -> dict:
-    """Close an entire position."""
+def close_position(symbol: str, price_override: float | None = None) -> dict:
+    """Close an entire position via limit order (not market order).
+
+    Fetches current bid and places a limit sell at bid * 0.999 to ensure
+    fill while staying limit-only. Use price_override to skip the quote.
+    """
     try:
-        order = client.close_position(symbol)
-        log.info(f"Closed position: {symbol}")
-        return {"symbol": symbol, "status": "closed", "order_id": str(order.id)}
+        pos = client.get_open_position(symbol)
+        qty = int(float(pos.qty))
+        if qty <= 0:
+            return {"symbol": symbol, "status": "no_position"}
+
+        if price_override:
+            limit_price = round(price_override, 2)
+        else:
+            from research import get_latest_quote
+            quote = get_latest_quote(symbol)
+            bid = quote["bid"] if quote["bid"] > 0 else quote["mid"]
+            limit_price = round(bid * 0.999, 2)
+
+        order = place_limit_order(symbol, qty, "sell", limit_price)
+        log.info(f"Closed position: {symbol} — {qty} shares @ ${limit_price:.2f}")
+        return {"symbol": symbol, "status": "closed", "order_id": order["id"],
+                "qty": qty, "price": limit_price}
     except Exception as e:
         log.error(f"Failed to close {symbol}: {e}")
         return {"symbol": symbol, "status": "error", "error": str(e)}

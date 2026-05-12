@@ -4,83 +4,65 @@ The live engine uses two non-replayable signals:
   • news_score (0-35) from Alpaca News keyword scoring
   • perplexity_score (0-30) from Perplexity catalyst LLM
 
-Neither has a free historical replay. Setting both to 0 would make the
-backtest engine unable to reach BUY threshold (gap of ~30-50 points vs
-live scoring). Setting them to constants would erase their signal entirely.
+New approach: randomized baseline + momentum bonus. This avoids the old
+problem of deriving both from price action (which double-counts the
+momentum signal already captured by technicals).
 
-The pragmatic middle: derive proxies from PRICE ACTION around `today`.
-Big single-day moves and strong multi-day momentum statistically
-co-occur with catalysts (earnings, upgrades, news). Using prior-day and
-prior-5-day returns reconstructs ~70% of the original signal strength
-without look-ahead.
+News proxy  → random N(6, 2) clipped [2, 12] + bonus if yesterday was +3%
+Perplexity proxy → random N(5, 3) clipped [0, 13], only for strong names
 
-Both proxies use only data ≤ today (no peeking).
+Both proxies are seeded per (symbol, date) for reproducibility across runs.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 
-def news_proxy_score(bars: pd.DataFrame) -> int:
-    """Approximate Alpaca-news-style sentiment from yesterday's return.
+def _rng_for(symbol: str, date: str) -> np.random.RandomState:
+    """Deterministic RNG seeded by (symbol, date) for reproducibility."""
+    seed = hash((symbol, date)) & 0xFFFFFFFF
+    return np.random.RandomState(seed)
 
-    Big single-day moves cluster around news events. Yesterday's close-to-
-    close return is the cleanest news-cluster signal we can build from
-    OHLCV alone.
 
-      • ≥ +5%   → strong catalyst         (25-35)
-      • ≥ +3%   → moderate positive       (15-24)
-      • ≥ +1.5% → mild positive           (10-14)
-      • ≥ -1.5% → neutral / no news       (5)
-      • ≥ -3%   → moderate negative       (2)
-      • <  -3%  → strong negative         (0)
+def news_proxy_score(bars: pd.DataFrame, symbol: str = "", date: str = "") -> int:
+    """Approximate news score (0-12, matching new rescaled max).
 
-    Returns int in [0, 35], matching live `score_news()` range.
+    Base: random draw from N(6, 2) clipped to [2, 12].
+    Bonus: +2 if yesterday's return > +3% (actual news cluster signal).
     """
-    if bars is None or len(bars) < 2:
-        return 5
-    closes = bars["close"]
-    prev_ret = (float(closes.iloc[-1]) / float(closes.iloc[-2]) - 1) * 100
+    rng = _rng_for(symbol, date)
+    base = int(np.clip(rng.normal(6, 2), 2, 12))
 
-    if prev_ret >= 5.0:
-        return 30
-    if prev_ret >= 3.0:
-        return 20
-    if prev_ret >= 1.5:
-        return 12
-    if prev_ret >= -1.5:
-        return 5
-    if prev_ret >= -3.0:
-        return 2
-    return 0
+    # Momentum bonus — big single-day moves cluster around news events
+    if bars is not None and len(bars) >= 2:
+        closes = bars["close"]
+        prev_ret = (float(closes.iloc[-1]) / float(closes.iloc[-2]) - 1) * 100
+        if prev_ret >= 3.0:
+            base = min(12, base + 2)
+
+    return base
 
 
-def perplexity_proxy_score(bars: pd.DataFrame) -> int:
-    """Approximate the medium-term catalyst depth that Perplexity captures.
+def perplexity_proxy_score(bars: pd.DataFrame, symbol: str = "", date: str = "") -> int:
+    """Approximate perplexity score (0-13, matching new rescaled max).
 
-    Live Perplexity scoring is based on a 5-20 day fundamental thesis
-    (earnings beat, segment trends, analyst posture). The cleanest OHLCV
-    proxy is sustained 5-day momentum + 20-day momentum combination.
+    Only applied to symbols with 20d return > +5% (Perplexity would only
+    be run on strong names in live). Others get 0.
 
-      • 5d≥+10% AND 20d≥+10% → 25  (strong sustained catalyst)
-      • 5d≥+5%  AND 20d≥+5%  → 18  (moderate)
-      • 5d≥0%   OR  20d≥+5%  → 10  (positive bias)
-      • else                  → 0
-
-    Returns int in [0, 30], matching live perplexity_score range.
+    Base: random draw from N(5, 3) clipped to [0, 13].
     """
     if bars is None or len(bars) < 21:
         return 0
+
     closes = bars["close"]
     last = float(closes.iloc[-1])
-    ret_5d = (last / float(closes.iloc[-6]) - 1) * 100
     ret_20d = (last / float(closes.iloc[-21]) - 1) * 100
 
-    if ret_5d >= 10 and ret_20d >= 10:
-        return 25
-    if ret_5d >= 5 and ret_20d >= 5:
-        return 18
-    if ret_5d >= 0 or ret_20d >= 5:
-        return 10
-    return 0
+    # Only strong names get perplexity enhancement (matches live behavior)
+    if ret_20d < 5.0:
+        return 0
+
+    rng = _rng_for(symbol, date)
+    return int(np.clip(rng.normal(5, 3), 0, 13))

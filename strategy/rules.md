@@ -1,4 +1,4 @@
-# Trading Rules — Regime-Adaptive Momentum Swing
+# Trading Rules — Aggressive Momentum Engine (v2)
 
 All entry gates, position sizing, and exit triggers are **regime-aware** and
 resolved through `scripts/strategy_config.py`. The same algorithm pivots from
@@ -6,50 +6,74 @@ aggressive in BULL to defensive in BEAR without manual tuning.
 
 ---
 
-## Entry Criteria — 5-Question Checklist
+## Entry Criteria — Weighted Gate Score
 
-Every BUY candidate must pass ALL five questions. Volume, RS, and confidence
-thresholds adapt to the current SPY market regime.
+BUY candidates are filtered through a **weighted gate score** (0.0–1.0) instead
+of the old 5-question AND-gate. Each signal contributes proportionally:
 
-1. **Trend alignment** — Price > 20-SMA AND Price > 50-SMA
-2. **Catalyst present** — news_score > 5 OR perplexity_score > 10
-3. **Volume confirmation** — volume_ratio ≥ `volume_min_ratio` (1.0 in BULL, 1.2 NEUTRAL, 1.5 BEAR)
-4. **Relative strength** — 20-day return − SPY 20-day return ≥ `rs_alpha_min`
-   (−2.0% BULL, 0.0% NEUTRAL, +5.0% BEAR)
-5. **Confidence score** — total ≥ `score_threshold` (55 BULL / 65 NEUTRAL / 80 BEAR)
+| Signal | Weight | Pass condition |
+|--------|--------|----------------|
+| **Trend** | 30% | Price > 20-SMA AND 50-SMA (partial: 50% if only > 20-SMA) |
+| **Relative strength** | 25% | 20d return − SPY 20d return ≥ `rs_alpha_min` |
+| **Catalyst** | 15% | news_score > 5 OR perplexity_score > 10 |
+| **Volume** | 15% | volume_ratio ≥ `volume_min_ratio` |
+| **Confidence** | 15% | total score ≥ `score_threshold` |
 
-Any FAIL → skip the candidate. The threshold drops by an additional
-`cash_starve_bonus` if portfolio cash exceeds `max_cash_pct` (forces capital
-deployment in bulls).
+**Gate score thresholds by regime:**
+| Regime | Min gate score |
+|--------|---------------|
+| BULL/NORMAL | 0.55 |
+| BULL/CAUTIOUS | 0.60 |
+| NEUTRAL/NORMAL | 0.65 |
+| NEUTRAL/CAUTIOUS | 0.70 |
+| BEAR/NORMAL | 0.80 |
+| BEAR/CAUTIOUS | 0.85 |
+
+This lets strong-momentum names through even with moderate volume or missing
+catalyst. The threshold also drops by `cash_starve_bonus` if portfolio cash
+exceeds `max_cash_pct` (forces capital deployment).
 
 ---
 
-## Confidence Scoring (0–100)
+## Confidence Scoring (0–100) — Rebalanced
 
-### Technical (max ~37)
+### Technical Score (max 50)
 | Signal | Points |
 |--------|--------|
-| Price > 20-SMA and 50-SMA | 10 |
+| Price > 20-SMA AND 50-SMA (uptrend) | 12 |
+| Price > 20-SMA only (early/recovering) | 6 |
 | RSI in regime sweet spot | up to 10 |
-| MACD > signal | 7 |
-| Volume confirmation | up to 5 |
+| MACD > signal line | 7 |
+| MACD > 0 (above zero line bonus) | 3 |
+| Volume confirmation (≥ vol_min_ratio) | up to 5 |
+| ATR squeeze (ATR% < 2.5% = low vol entry) | up to 5 |
+| Bollinger position (price near lower BB) | up to 3 |
 | 20-day momentum (≥+10% = 5, ≥+5% = 3, ≥0% = 1) | up to 5 |
 
-**RSI sweet spot** moves with regime (no more penalizing momentum):
-- BULL: sweet 55–80, acceptable 45–88
-- NEUTRAL: sweet 50–70, acceptable 40–75
-- BEAR: sweet 35–60, acceptable 30–65
+### Catalyst Score (max 25) — combined news + perplexity
+- News: rescaled from 0-35 → 0-12
+- Perplexity: rescaled from 0-30 → 0-13
+- Combined: min(25, rescaled_news + rescaled_perplexity)
 
-### News (max 35)
-Sentiment-keyword scan of recent headlines; +4 per positive, −4 per negative.
+### Momentum Alpha Score (max 25) — relative strength vs SPY
+| Alpha (stock 20d return − SPY 20d return) | Points |
+|---------------------------------------------|--------|
+| ≥ +15% | 25 |
+| ≥ +10% | 20 |
+| ≥ +5% | 15 |
+| ≥ +2% | 10 |
+| ≥ 0% | 5 |
+| < 0% | 0 |
 
-### Perplexity (max 30)
-Catalyst depth score from `perplexity_research.py enhance`.
-
-### Action mapping
-- `total ≥ score_threshold` → BUY
-- `40 ≤ total < threshold` → HOLD
-- `total < 40` → SELL
+### Action thresholds (regime-adaptive)
+| Regime | BUY threshold | SELL threshold |
+|--------|---------------|----------------|
+| BULL/NORMAL | 45 | < 30 |
+| BULL/CAUTIOUS | 55 | < 40 |
+| NEUTRAL/NORMAL | 55 | < 40 |
+| NEUTRAL/CAUTIOUS | 65 | < 50 |
+| BEAR/NORMAL | 70 | < 55 |
+| BEAR/CAUTIOUS | 80 | < 65 |
 
 ---
 
@@ -57,29 +81,47 @@ Catalyst depth score from `perplexity_research.py enhance`.
 
 | Trigger | Action |
 |---------|--------|
-| **Trailing stop** | regime-adaptive (8% NORMAL, 6% CAUTIOUS, 5% BEAR) — placed automatically after fill |
-| **Tightened stop** | once gain ≥ 5%, swap trail to `tightened_stop_pct` (5% / 4% / 3%) |
-| **Scale-out** | sell 50% at `scale_out_at_gain` (10% BULL, 8% CAUTIOUS, 7% BEAR) |
-| **Final target** | close remainder at `final_target_gain` (20% / 15% / 12%) |
+| **Trailing stop** | regime-adaptive (10% BULL, 8% NEUTRAL, 6% BEAR) |
+| **Tightened stop** | once gain ≥ 5%, swap trail to `tightened_stop_pct` |
+| **Scale-out** | sell 50% at `scale_out_at_gain` (15% BULL, 12% NEUTRAL, 8% BEAR) |
+| **Final target** | close remainder at `final_target_gain` (30% BULL, 20% NEUTRAL, 15% BEAR) |
 | **Time stop** | close if held > `time_stop_days` without `time_stop_min_gain` |
-| **Catalyst reversal** | research action flips to SELL (score < 40) |
+| **Catalyst reversal** | research action flips to SELL |
 
-Time-stop uses Alpaca order history to determine real entry date (not a
-heuristic).
+All sell orders use limit orders (bid × 0.999), never market orders.
 
 ---
 
 ## Position Sizing
 
-`shares = min(allocation_shares, risk_shares)` where both formulas are
-regime-adaptive:
+`shares = min(alloc_shares, risk_shares, atr_shares)` — three methods:
 
 1. **Allocation cap**: `equity × max_position_pct / entry_price`
-   - 6% BULL/NORMAL, 5% NEUTRAL/NORMAL, 3% CAUTIOUS, 2% BEAR
+   - 10% BULL/NORMAL, 8% NEUTRAL, 5% CAUTIOUS, 4% BEAR
 2. **Risk-based**: `equity × risk_per_trade_pct / (entry_price × trailing_stop_pct)`
-   - 1.0% BULL/NORMAL, 0.7% NEUTRAL, 0.5% CAUTIOUS, 0.3% BEAR
+   - 1.5% BULL/NORMAL, 1.0% NEUTRAL, 0.8% CAUTIOUS, 0.5% BEAR
+3. **ATR-based**: `(equity × risk_pct) / (ATR_14 × 2)` — volatility-aware
 
-CAUTIOUS halves both. HALT disallows new positions entirely.
+ATR sizing naturally takes smaller positions in volatile names and larger in
+stable ones. HALT disallows new directional buys (hedges still allowed).
+
+---
+
+## Hard Rules (Regime-Adaptive)
+
+| Rule | BULL/NORMAL | NEUTRAL/NORMAL | BEAR/NORMAL |
+|------|-------------|----------------|-------------|
+| Max position size | 10% | 8% | 4% |
+| Min cash reserve | 3% | 10% | 30% |
+| Risk per trade | 1.5% | 1.0% | 0.5% |
+| Trailing stop | 10% | 8% | 6% |
+| Scale-out gain | +15% | +12% | +8% |
+| Final target | +30% | +20% | +15% |
+| Time stop | 15d / +4% | 12d / +4% | 8d / +3% |
+| Daily loss halt | −3% (universal) | | |
+| Max positions | 12 | 12 | 8 |
+| Sector cap | 25% | 25% | 25% |
+| Order type | Limit only | Limit only | Limit only |
 
 ---
 
@@ -90,22 +132,18 @@ Determined from SPY in `research.py:get_spy_benchmark`:
 - **BEAR** — price < 20-SMA AND 20-SMA < 50-SMA
 - **NEUTRAL** — anything else
 
-Regime is written into `state/research.json` → `spy.market_regime` and read
-by every downstream component.
-
 ---
 
-## Order Execution
+## Bear Hedge (SH inverse SPY)
 
-- **Limit orders only** — never market orders
-- Buy at ask, sell at last × 0.999 (limit just under)
-- DAY time-in-force; if unfilled in 30 min, cancel and reassess
-- Trailing stop placed via `sync_trailing_stops()` after every fill
+Target as % of equity: 0% BULL, 10% NEUTRAL, 25% BEAR (CAUTIOUS +5pp,
+HALT +10pp, max 35%). Rebalances when actual drift > 2% of equity.
+Exempt from sector cap, position-count cap, and HALT block.
 
 ---
 
 ## Sector Concentration
 
 - Max 25% of equity in any single sector
-- Tracked sectors: Technology, Consumer, Financial, Healthcare, Industrial, Energy, Benchmark
+- Tracked sectors: Technology, Consumer, Financial, Healthcare, Industrial, Energy, Materials, Utilities, RealEstate, Communication, Hedge
 - Enforced in `validate_order` — order rejected if breach predicted

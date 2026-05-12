@@ -17,17 +17,20 @@ You operate entirely through Python scripts in this repo. You never place trades
 
 ---
 
-## Decision Framework — 5-Question Checklist (Regime-Adaptive)
+## Decision Framework — Weighted Gate Score (Regime-Adaptive)
 
-Before **every** trade, all five must be YES. Volume, RS, and confidence
-thresholds adapt to the SPY market regime via `scripts/strategy_config.py`.
+BUY candidates are filtered through a **weighted gate score** (0.0–1.0).
+Each signal contributes proportionally instead of the old all-or-nothing gate:
 
-1. **Trend** — Price > 20-SMA AND 50-SMA
-2. **Catalyst** — news_score > 5 OR perplexity_score > 10
-3. **Volume** — volume_ratio ≥ `volume_min_ratio` (1.0 BULL / 1.2 NEUTRAL / 1.5 BEAR)
-4. **Relative strength** — 20-day return − SPY 20-day return ≥ `rs_alpha_min`
-5. **Confidence** — score ≥ `score_threshold` (55 BULL / 65 NEUTRAL / 80 BEAR)
+| Signal | Weight | Pass condition |
+|--------|--------|----------------|
+| **Trend** | 30% | Price > 20-SMA AND 50-SMA (partial credit if > 20-SMA only) |
+| **Relative strength** | 25% | 20d return − SPY 20d return ≥ `rs_alpha_min` |
+| **Catalyst** | 15% | news_score > 5 OR perplexity_score > 10 |
+| **Volume** | 15% | volume_ratio ≥ `volume_min_ratio` |
+| **Confidence** | 15% | total score ≥ `score_threshold` |
 
+Gate score must exceed `gate_score_min` (0.55 BULL / 0.65 NEUTRAL / 0.80 BEAR).
 If cash > `max_cash_pct`, threshold drops by `cash_starve_bonus` (deploys capital).
 
 See `strategy/rules.md` for the full table.
@@ -36,21 +39,22 @@ See `strategy/rules.md` for the full table.
 
 ## Hard Rules (Regime-Adaptive — see `scripts/strategy_config.py`)
 
-| Rule | NORMAL/BULL | NORMAL/NEUTRAL | NORMAL/BEAR |
+| Rule | BULL/NORMAL | NEUTRAL/NORMAL | BEAR/NORMAL |
 |------|-------------|----------------|-------------|
-| Max position size | 6% | 5% | 2% |
-| Min cash reserve | 5% | 20% | 40% |
-| Risk per trade | 1.0% | 0.7% | 0.3% |
-| Trailing stop | 8% | 8% | 6% |
-| Scale-out gain | +10% | +10% | +7% |
-| Final target | +20% | +15% | +12% |
-| Time stop | 12d / +4% | 10d / +5% | 7d / +3% |
+| Max position size | 10% | 8% | 4% |
+| Min cash reserve | 3% | 10% | 30% |
+| Risk per trade | 1.5% | 1.0% | 0.5% |
+| Trailing stop | 10% | 8% | 6% |
+| Scale-out gain | +15% | +12% | +8% |
+| Final target | +30% | +20% | +15% |
+| Time stop | 15d / +4% | 12d / +4% | 8d / +3% |
 | Daily loss halt | −3% (universal) | | |
-| Max positions | 15 | 12 | 8 |
+| Max positions | 12 | 12 | 8 |
 | Sector cap | 25% | 25% | 25% |
 | Order type | Limit only | Limit only | Limit only |
+| Gate score min | 0.55 | 0.65 | 0.80 |
 
-CAUTIOUS tier halves position size and tightens thresholds. HALT blocks new
+CAUTIOUS tier tightens thresholds and reduces sizing. HALT blocks new
 directional buys (hedges still allowed).
 
 ### Bear hedge (SH inverse SPY)
@@ -64,37 +68,40 @@ block. Rebalances when actual drift > 2% of equity. See `strategy_config.get_bea
 
 ## Confidence Scoring System (0–100)
 
-### Technical Score (max ~37) — regime-adaptive RSI
+### Technical Score (max 50) — regime-adaptive RSI
 | Signal | Points |
 |--------|--------|
-| Price > 20-SMA and 50-SMA | 10 |
-| RSI in regime sweet spot (BULL 55–80 / NEUTRAL 50–70 / BEAR 35–60) | up to 10 |
+| Price > 20-SMA and 50-SMA | 12 |
+| Price > 20-SMA only | 6 |
+| RSI in regime sweet spot | up to 10 |
 | MACD > signal | 7 |
+| MACD > 0 (above zero line) | 3 |
 | Volume confirmation (vs `volume_min_ratio`) | up to 5 |
+| ATR squeeze (ATR% < 2.5%) | up to 5 |
+| Bollinger position (near lower band) | up to 3 |
 | 20-day momentum (≥+10% = 5 / ≥+5% = 3 / ≥0% = 1) | up to 5 |
 
-### News Score (0–35)
-| Signal | Points |
-|--------|--------|
-| Strong positive headline (earnings beat, upgrade, deal) | 25–35 |
-| Mildly positive / neutral | 10–24 |
-| No news | 5 |
-| Negative headline | 0 |
+### Catalyst Score (max 25) — combined news + perplexity
+News (0-35) rescaled to 0-12, Perplexity (0-30) rescaled to 0-13.
+Combined: min(25, rescaled_news + rescaled_perplexity).
 
-### Perplexity Score (0–30)
-| Signal | Points |
-|--------|--------|
-| Strong catalyst confirmed + positive outlook | 25–30 |
-| Moderate catalyst | 15–24 |
-| Mixed / uncertain | 5–14 |
-| Negative outlook | 0–4 |
+### Momentum Alpha Score (max 25) — NEW
+Relative strength vs SPY 20-day return:
+| Alpha | Points |
+|-------|--------|
+| ≥ +15% | 25 |
+| ≥ +10% | 20 |
+| ≥ +5% | 15 |
+| ≥ +2% | 10 |
+| ≥ 0% | 5 |
+| < 0% | 0 |
 
 ### Thresholds (regime-adaptive)
 | Score | Action |
 |-------|--------|
-| ≥ `score_threshold` (55 BULL / 65 NEUTRAL / 80 BEAR; CAUTIOUS adds ~10) | **BUY** |
-| 40 to threshold−1 | **HOLD** |
-| < 40 | **SELL** |
+| ≥ `score_threshold` (45 BULL / 55 NEUTRAL / 70 BEAR) | **BUY** |
+| threshold−15 to threshold−1 | **HOLD** |
+| < threshold−15 | **SELL** |
 
 ---
 

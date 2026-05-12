@@ -78,7 +78,7 @@ def get_buy_candidates() -> list[dict]:
 
 
 def get_sell_candidates() -> list[dict]:
-    """Positions whose research action is SELL (score < 40)."""
+    """Positions whose research action is SELL."""
     from portfolio import get_positions
 
     candidates = []
@@ -91,51 +91,66 @@ def get_sell_candidates() -> list[dict]:
         if "error" in data or not data:
             continue
         confidence = data.get("confidence", {})
-        if confidence.get("action") == "SELL" and confidence.get("total", 0) < 40:
+        if confidence.get("action") == "SELL":
             candidates.append({
                 "symbol": symbol,
                 "confidence": confidence,
                 "position": pos,
-                "reason": f"Score {confidence.get('total', 0)} < 40",
+                "reason": f"Score {confidence.get('total', 0)} — action SELL",
             })
 
     return candidates
 
 
-# ───────────────────────── 5-question checklist ───────────────────────────
+# ───────────────────────── weighted gate score ────────────────────────────
+
+# Gate weights — relative importance of each signal for entry filtering
+_GATE_WEIGHTS = {
+    "trend": 0.30,      # Most important: price above key SMAs
+    "catalyst": 0.15,   # Reduced from old: news/perplexity presence
+    "volume": 0.15,     # Confirms institutional interest
+    "rs": 0.25,         # Most important for alpha: beating SPY
+    "confidence": 0.15, # Overall score threshold
+}
 
 
-def passes_five_question_checklist(candidate: dict, regime: str | None = None) -> tuple[bool, list[str]]:
-    """Regime-adaptive 5-question checklist.
+def compute_gate_score(candidate: dict, regime: str | None = None,
+                       risk_tier: str | None = None) -> tuple[float, list[str]]:
+    """Weighted gate score replacing the old 5-question AND-gate.
 
-    Replaces the old 5-day RS gate with 20-day alpha (less noise, better
-    signal). Volume gate scales with regime via strategy_config.
+    Returns (score: float 0.0-1.0, details: list[str]).
+    Each check passes (1.0) or fails (0.0), weighted by importance.
+    Gate score ≥ gate_score_min (regime-dependent) = proceed to buy.
     """
-    params = get_strategy_params(regime)
+    params = get_strategy_params(regime, risk_tier)
     tech = candidate.get("technicals", {})
     confidence = candidate.get("confidence", {})
-    results = []
+    details = []
+    checks = {}
 
     # 1) Trend — above 20-SMA AND 50-SMA
     above_20 = tech.get("above_sma20", False)
     above_50 = tech.get("above_sma50", False)
     trend_pass = bool(above_20 and above_50)
-    results.append(f"{'PASS' if trend_pass else 'FAIL'}: Trend (>20SMA={above_20}, >50SMA={above_50})")
+    checks["trend"] = 1.0 if trend_pass else (0.5 if above_20 else 0.0)
+    details.append(f"{'PASS' if trend_pass else 'FAIL'}: Trend (>20SMA={above_20}, >50SMA={above_50})")
 
     # 2) Catalyst — news_score > 5 OR perplexity_score > 10
     news_score = confidence.get("news_score", 0)
     perplexity_score = confidence.get("perplexity_score", 0)
     catalyst_pass = news_score > 5 or perplexity_score > 10
-    results.append(f"{'PASS' if catalyst_pass else 'FAIL'}: Catalyst (news={news_score}, px={perplexity_score})")
+    checks["catalyst"] = 1.0 if catalyst_pass else 0.0
+    details.append(f"{'PASS' if catalyst_pass else 'FAIL'}: Catalyst (news={news_score}, px={perplexity_score})")
 
     # 3) Volume — regime-adaptive ratio
     vol_ratio = tech.get("volume_ratio")
     vol_min = params["volume_min_ratio"]
     volume_pass = vol_ratio is not None and vol_ratio >= vol_min
+    checks["volume"] = 1.0 if volume_pass else 0.0
     if vol_ratio is not None:
-        results.append(f"{'PASS' if volume_pass else 'FAIL'}: Volume (ratio={vol_ratio:.2f}, need ≥{vol_min:.2f})")
+        details.append(f"{'PASS' if volume_pass else 'FAIL'}: Volume (ratio={vol_ratio:.2f}, need ≥{vol_min:.2f})")
     else:
-        results.append(f"FAIL: Volume (no data)")
+        details.append("FAIL: Volume (no data)")
 
     # 4) Relative strength — 20-day return vs SPY 20-day return
     research = load_json(RESEARCH_STATE)
@@ -144,7 +159,8 @@ def passes_five_question_checklist(candidate: dict, regime: str | None = None) -
     stock_20d = tech.get("twenty_day_return", tech.get("five_day_return", 0))
     alpha_20d = stock_20d - spy_20d
     rs_pass = alpha_20d >= params["rs_alpha_min"]
-    results.append(
+    checks["rs"] = 1.0 if rs_pass else 0.0
+    details.append(
         f"{'PASS' if rs_pass else 'FAIL'}: 20d alpha "
         f"({stock_20d:+.2f}% − SPY {spy_20d:+.2f}% = {alpha_20d:+.2f}%, need ≥{params['rs_alpha_min']:+.2f}%)"
     )
@@ -156,13 +172,18 @@ def passes_five_question_checklist(candidate: dict, regime: str | None = None) -
         cash_pct = acct.get("cash_pct", 50.0)
     except Exception:
         cash_pct = 50.0
-    threshold = get_effective_threshold(cash_pct, regime)
+    threshold = get_effective_threshold(cash_pct, regime, risk_tier)
     total = confidence.get("total", 0)
     conf_pass = total >= threshold
-    results.append(f"{'PASS' if conf_pass else 'FAIL'}: Confidence (score={total}, need ≥{threshold})")
+    checks["confidence"] = 1.0 if conf_pass else 0.0
+    details.append(f"{'PASS' if conf_pass else 'FAIL'}: Confidence (score={total}, need ≥{threshold})")
 
-    all_pass = trend_pass and catalyst_pass and volume_pass and rs_pass and conf_pass
-    return all_pass, results
+    # Weighted sum
+    gate_score = sum(_GATE_WEIGHTS[k] * checks[k] for k in _GATE_WEIGHTS)
+    gate_min = params.get("gate_score_min", 0.65)
+    details.append(f"Gate score: {gate_score:.2f} (need ≥{gate_min:.2f})")
+
+    return gate_score, details
 
 
 # ─────────────────────────── entry tracking ───────────────────────────────
@@ -244,6 +265,8 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
         f"| cash={cash_pct:.1f}% | threshold={min_score}"
     )
 
+    gate_min = get_strategy_params(regime, risk_tier).get("gate_score_min", 0.65)
+
     for candidate in candidates:
         symbol = candidate["symbol"]
         score = candidate["confidence"].get("total", 0)
@@ -253,13 +276,15 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
             results.append({"symbol": symbol, "action": "SKIP", "reason": f"Score {score} < {min_score}"})
             continue
 
-        passes, checklist = passes_five_question_checklist(candidate, regime=regime)
-        log.info(f"  {symbol}: 5-question checklist {'PASS' if passes else 'FAIL'}")
-        for check in checklist:
-            log.info(f"    {check}")
+        gate_score, gate_details = compute_gate_score(candidate, regime=regime, risk_tier=risk_tier)
+        log.info(f"  {symbol}: gate score {gate_score:.2f} (need ≥{gate_min:.2f})")
+        for detail in gate_details:
+            log.info(f"    {detail}")
 
-        if not passes:
-            results.append({"symbol": symbol, "action": "SKIP", "reason": "Failed 5-question checklist", "checklist": checklist})
+        if gate_score < gate_min:
+            results.append({"symbol": symbol, "action": "SKIP",
+                            "reason": f"Gate score {gate_score:.2f} < {gate_min:.2f}",
+                            "gate_details": gate_details})
             continue
 
         try:
@@ -272,7 +297,8 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
             results.append({"symbol": symbol, "action": "ERROR", "reason": f"Quote failed: {e}"})
             continue
 
-        qty = calculate_position_size(symbol, price)
+        atr = candidate.get("technicals", {}).get("atr_14")
+        qty = calculate_position_size(symbol, price, atr=atr)
         if qty <= 0:
             log.info(f"  {symbol}: position size is 0 — skipping")
             results.append({"symbol": symbol, "action": "SKIP", "reason": "Position size 0"})
@@ -366,7 +392,13 @@ def execute_scale_outs(dry_run: bool = False) -> list[dict]:
     final_at = params["final_target_gain"]
 
     perf = load_json(PERFORMANCE_STATE)
-    scaled = set(perf.get("scaled_out", []))
+    # Track scale-outs as {symbol: qty_sold} for partial fill handling
+    raw_scaled = perf.get("scaled_out", [])
+    if isinstance(raw_scaled, list):
+        # Migrate from old set format to dict
+        scaled = {s: 999999 for s in raw_scaled}
+    else:
+        scaled = dict(raw_scaled)
 
     results = []
     positions = get_positions()
@@ -394,16 +426,20 @@ def execute_scale_outs(dry_run: bool = False) -> list[dict]:
                     "symbol": symbol, "action": "FINAL_TARGET",
                     "qty": qty, "price": current_price, "order_id": str(order.id),
                 })
-                # Clear from scaled list (position closed)
-                scaled.discard(symbol)
+                # Clear from scaled dict (position closed)
+                scaled.pop(symbol, None)
             except Exception as e:
                 log.error(f"  {symbol}: final target sell failed — {e}")
                 results.append({"symbol": symbol, "action": "ERROR", "reason": str(e)})
             continue
 
-        # Scale-out: half off at scale_at%, once per position
-        if pnl_pct >= scale_at and symbol not in scaled:
-            sell_qty = max(1, qty // 2)
+        # Scale-out: half off at scale_at%, tracked by qty sold
+        target_scale_qty = max(1, qty // 2)
+        already_scaled = scaled.get(symbol, 0)
+        if pnl_pct >= scale_at and already_scaled < target_scale_qty:
+            sell_qty = target_scale_qty - already_scaled
+            if sell_qty <= 0:
+                continue
             log.info(f"  {symbol}: at +{pnl_pct:.2f}% — scaling out {sell_qty}/{qty} at +{scale_at}%")
             if dry_run:
                 results.append({"symbol": symbol, "action": "DRY_RUN_SCALE_OUT",
@@ -417,7 +453,7 @@ def execute_scale_outs(dry_run: bool = False) -> list[dict]:
                 )
                 order = trading_client.submit_order(req)
                 send_trade_alert(symbol, "sell", sell_qty, current_price, f"Scale-out 50% at +{pnl_pct:.1f}%")
-                scaled.add(symbol)
+                scaled[symbol] = already_scaled + sell_qty
                 results.append({
                     "symbol": symbol, "action": "SCALE_OUT",
                     "qty": sell_qty, "price": current_price, "order_id": str(order.id),
@@ -426,9 +462,9 @@ def execute_scale_outs(dry_run: bool = False) -> list[dict]:
                 log.error(f"  {symbol}: scale-out failed — {e}")
                 results.append({"symbol": symbol, "action": "ERROR", "reason": str(e)})
 
-    # Persist scaled-out set (only when not dry-run)
+    # Persist scaled-out dict (only when not dry-run)
     if not dry_run:
-        perf["scaled_out"] = sorted(scaled)
+        perf["scaled_out"] = scaled
         save_json(PERFORMANCE_STATE, perf)
 
     return results

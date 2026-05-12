@@ -26,138 +26,144 @@ def get_market_regime() -> str:
 _PARAMS = {
     # ─────────────────────── BULL regime ───────────────────────
     ("BULL", "NORMAL"): {
-        "score_threshold": 55,           # was 65 — opens the gate in bulls
-        "rsi_sweet_low": 55,             # momentum-friendly: reward strong RSI
+        "score_threshold": 45,           # aggressive — let more winners through
+        "rsi_sweet_low": 55,
         "rsi_sweet_high": 80,
-        "rsi_acceptable_low": 45,        # secondary band
+        "rsi_acceptable_low": 45,
         "rsi_acceptable_high": 88,
-        "volume_min_ratio": 1.0,         # was 1.2 — relaxed for bull
-        "rs_lookback_days": 20,          # 20d alpha vs SPY (not 5d noise)
-        "rs_alpha_min": -2.0,            # allow small underperformance (consolidation)
-        "min_cash_pct": 5.0,             # only 5% cash min — deploy capital
-        "max_cash_pct": 25.0,            # if cash > 25%, drop threshold further
-        "cash_starve_bonus": 5,          # if over-cashed, subtract from threshold
-        "risk_per_trade_pct": 1.0,       # 1% portfolio risk per trade (was 0.4)
-        "max_position_pct": 6.0,         # 6% allocation cap (was 5)
-        "trailing_stop_pct": 8.0,
-        "tightened_stop_pct": 5.0,       # after +5% gain
-        "scale_out_at_gain": 10.0,       # sell 50% at +10%
-        "final_target_gain": 20.0,       # sell remainder at +20%
-        "time_stop_days": 12,
+        "volume_min_ratio": 1.0,
+        "rs_lookback_days": 20,
+        "rs_alpha_min": -5.0,            # don't filter out consolidating names
+        "min_cash_pct": 3.0,             # deploy nearly all capital
+        "max_cash_pct": 15.0,            # lower trigger for cash-starve bonus
+        "cash_starve_bonus": 10,         # strong push to deploy
+        "risk_per_trade_pct": 1.5,       # bigger position sizing
+        "max_position_pct": 10.0,        # concentrated bets
+        "trailing_stop_pct": 10.0,       # wider stops = fewer shakeouts
+        "tightened_stop_pct": 6.0,
+        "scale_out_at_gain": 15.0,       # let winners run longer
+        "final_target_gain": 30.0,       # much higher profit target
+        "time_stop_days": 15,            # more patience
         "time_stop_min_gain": 4.0,
-        "max_positions": 15,
+        "max_positions": 12,             # fewer but bigger bets
+        "gate_score_min": 0.55,          # weighted gate threshold
     },
     ("BULL", "CAUTIOUS"): {
-        "score_threshold": 68,
+        "score_threshold": 55,
         "rsi_sweet_low": 50,
         "rsi_sweet_high": 75,
         "rsi_acceptable_low": 40,
         "rsi_acceptable_high": 85,
         "volume_min_ratio": 1.1,
         "rs_lookback_days": 20,
+        "rs_alpha_min": -2.0,
+        "min_cash_pct": 15.0,
+        "max_cash_pct": 40.0,
+        "cash_starve_bonus": 5,
+        "risk_per_trade_pct": 0.8,
+        "max_position_pct": 5.0,
+        "trailing_stop_pct": 8.0,
+        "tightened_stop_pct": 5.0,
+        "scale_out_at_gain": 10.0,
+        "final_target_gain": 20.0,
+        "time_stop_days": 12,
+        "time_stop_min_gain": 4.0,
+        "max_positions": 10,
+        "gate_score_min": 0.60,
+    },
+    # ────────────────────── NEUTRAL regime ─────────────────────
+    ("NEUTRAL", "NORMAL"): {
+        "score_threshold": 55,           # was 65 — more deployment
+        "rsi_sweet_low": 50,
+        "rsi_sweet_high": 70,
+        "rsi_acceptable_low": 40,
+        "rsi_acceptable_high": 75,
+        "volume_min_ratio": 1.1,
+        "rs_lookback_days": 20,
+        "rs_alpha_min": -2.0,
+        "min_cash_pct": 10.0,
+        "max_cash_pct": 30.0,
+        "cash_starve_bonus": 8,
+        "risk_per_trade_pct": 1.0,
+        "max_position_pct": 8.0,         # was 5%
+        "trailing_stop_pct": 8.0,
+        "tightened_stop_pct": 5.0,
+        "scale_out_at_gain": 12.0,
+        "final_target_gain": 20.0,
+        "time_stop_days": 12,
+        "time_stop_min_gain": 4.0,
+        "max_positions": 12,
+        "gate_score_min": 0.65,
+    },
+    ("NEUTRAL", "CAUTIOUS"): {
+        "score_threshold": 65,
+        "rsi_sweet_low": 45,
+        "rsi_sweet_high": 65,
+        "rsi_acceptable_low": 35,
+        "rsi_acceptable_high": 70,
+        "volume_min_ratio": 1.2,
+        "rs_lookback_days": 20,
         "rs_alpha_min": 0.0,
         "min_cash_pct": 25.0,
         "max_cash_pct": 60.0,
         "cash_starve_bonus": 0,
         "risk_per_trade_pct": 0.5,
-        "max_position_pct": 3.0,
+        "max_position_pct": 4.0,
         "trailing_stop_pct": 6.0,
         "tightened_stop_pct": 4.0,
-        "scale_out_at_gain": 8.0,
-        "final_target_gain": 15.0,
-        "time_stop_days": 10,
-        "time_stop_min_gain": 4.0,
-        "max_positions": 12,
-    },
-    # ────────────────────── NEUTRAL regime ─────────────────────
-    ("NEUTRAL", "NORMAL"): {
-        "score_threshold": 65,
-        "rsi_sweet_low": 50,
-        "rsi_sweet_high": 70,
-        "rsi_acceptable_low": 40,
-        "rsi_acceptable_high": 75,
-        "volume_min_ratio": 1.2,
-        "rs_lookback_days": 20,
-        "rs_alpha_min": 0.0,
-        "min_cash_pct": 20.0,
-        "max_cash_pct": 60.0,
-        "cash_starve_bonus": 0,
-        "risk_per_trade_pct": 0.7,
-        "max_position_pct": 5.0,
-        "trailing_stop_pct": 8.0,
-        "tightened_stop_pct": 5.0,
         "scale_out_at_gain": 10.0,
         "final_target_gain": 15.0,
         "time_stop_days": 10,
-        "time_stop_min_gain": 5.0,
-        "max_positions": 12,
-    },
-    ("NEUTRAL", "CAUTIOUS"): {
-        "score_threshold": 75,
-        "rsi_sweet_low": 45,
-        "rsi_sweet_high": 65,
-        "rsi_acceptable_low": 35,
-        "rsi_acceptable_high": 70,
-        "volume_min_ratio": 1.3,
-        "rs_lookback_days": 20,
-        "rs_alpha_min": 2.0,
-        "min_cash_pct": 30.0,
-        "max_cash_pct": 70.0,
-        "cash_starve_bonus": 0,
-        "risk_per_trade_pct": 0.4,
-        "max_position_pct": 2.5,
-        "trailing_stop_pct": 6.0,
-        "tightened_stop_pct": 4.0,
-        "scale_out_at_gain": 8.0,
-        "final_target_gain": 12.0,
-        "time_stop_days": 8,
         "time_stop_min_gain": 4.0,
         "max_positions": 10,
+        "gate_score_min": 0.70,
     },
     # ──────────────────────── BEAR regime ──────────────────────
     ("BEAR", "NORMAL"): {
-        "score_threshold": 80,           # only the strongest survive
+        "score_threshold": 70,           # was 80 — still high but not frozen
         "rsi_sweet_low": 35,
         "rsi_sweet_high": 60,
         "rsi_acceptable_low": 30,
         "rsi_acceptable_high": 65,
-        "volume_min_ratio": 1.5,
+        "volume_min_ratio": 1.3,
         "rs_lookback_days": 20,
-        "rs_alpha_min": 5.0,             # stock must clearly outperform SPY
-        "min_cash_pct": 40.0,
-        "max_cash_pct": 100.0,
+        "rs_alpha_min": 2.0,             # was 5.0 — less restrictive
+        "min_cash_pct": 30.0,
+        "max_cash_pct": 80.0,
         "cash_starve_bonus": 0,
-        "risk_per_trade_pct": 0.3,
-        "max_position_pct": 2.0,
+        "risk_per_trade_pct": 0.5,
+        "max_position_pct": 4.0,         # was 2%
         "trailing_stop_pct": 6.0,
         "tightened_stop_pct": 4.0,
-        "scale_out_at_gain": 7.0,
-        "final_target_gain": 12.0,
-        "time_stop_days": 7,
+        "scale_out_at_gain": 8.0,
+        "final_target_gain": 15.0,
+        "time_stop_days": 8,
         "time_stop_min_gain": 3.0,
         "max_positions": 8,
+        "gate_score_min": 0.80,
     },
     ("BEAR", "CAUTIOUS"): {
-        "score_threshold": 90,           # effectively no new longs
+        "score_threshold": 80,           # was 90 — still very selective
         "rsi_sweet_low": 30,
         "rsi_sweet_high": 55,
         "rsi_acceptable_low": 25,
         "rsi_acceptable_high": 60,
-        "volume_min_ratio": 2.0,
+        "volume_min_ratio": 1.5,
         "rs_lookback_days": 20,
-        "rs_alpha_min": 8.0,
-        "min_cash_pct": 60.0,
+        "rs_alpha_min": 5.0,
+        "min_cash_pct": 50.0,
         "max_cash_pct": 100.0,
         "cash_starve_bonus": 0,
-        "risk_per_trade_pct": 0.2,
-        "max_position_pct": 1.5,
+        "risk_per_trade_pct": 0.3,
+        "max_position_pct": 2.0,
         "trailing_stop_pct": 5.0,
         "tightened_stop_pct": 3.0,
-        "scale_out_at_gain": 6.0,
-        "final_target_gain": 10.0,
-        "time_stop_days": 5,
+        "scale_out_at_gain": 7.0,
+        "final_target_gain": 12.0,
+        "time_stop_days": 6,
         "time_stop_min_gain": 3.0,
         "max_positions": 5,
+        "gate_score_min": 0.85,
     },
 }
 
@@ -232,7 +238,7 @@ def get_effective_threshold(cash_pct: float, regime: str | None = None,
     if (risk_tier or get_risk_tier()) == "NORMAL":
         if cash_pct > params["max_cash_pct"]:
             threshold -= params["cash_starve_bonus"]
-    return max(40, threshold)  # absolute floor of 40 — never buy garbage
+    return max(30, threshold)  # absolute floor of 30
 
 
 if __name__ == "__main__":

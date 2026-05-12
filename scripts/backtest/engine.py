@@ -175,63 +175,77 @@ def _technicals_from_bars(bars: pd.DataFrame) -> Optional[dict]:
     return compute_technicals(bars)
 
 
-def _passes_five_question_checklist(
+def _compute_gate_score(
     symbol: str,
     technicals: dict,
     confidence: dict,
     spy_20d: float,
     params: dict,
-) -> tuple[bool, list[str]]:
-    """Backtest version of execute_trades.passes_five_question_checklist.
+) -> tuple[float, list[tuple[str, float]]]:
+    """Backtest version of execute_trades.compute_gate_score.
 
-    Identical logic to the live engine but takes spy_20d as a parameter
-    instead of reading from RESEARCH_STATE.
+    Returns (gate_score: float 0.0-1.0, checks: list of (name, value) tuples).
+    Weighted gate replaces the old 5-question AND-gate.
     """
-    results = []
+    weights = {
+        "trend": 0.30,
+        "catalyst": 0.15,
+        "volume": 0.15,
+        "rs": 0.25,
+        "confidence": 0.15,
+    }
+    checks = {}
 
     # 1. Trend
     above_20 = technicals.get("above_sma20", False)
     above_50 = technicals.get("above_sma50", False)
     trend_pass = bool(above_20 and above_50)
-    results.append(("trend", trend_pass))
+    checks["trend"] = 1.0 if trend_pass else (0.5 if above_20 else 0.0)
 
     # 2. Catalyst — news_score > 5 OR perplexity_score > 10 (proxies)
     news_pass = (confidence.get("news_score", 0) > 5
                  or confidence.get("perplexity_score", 0) > 10)
-    results.append(("catalyst", news_pass))
+    checks["catalyst"] = 1.0 if news_pass else 0.0
 
     # 3. Volume — regime-adaptive ratio
     vol_ratio = technicals.get("volume_ratio")
     vol_min = params["volume_min_ratio"]
     vol_pass = vol_ratio is not None and vol_ratio >= vol_min
-    results.append(("volume", vol_pass))
+    checks["volume"] = 1.0 if vol_pass else 0.0
 
     # 4. Relative strength — 20-day return vs SPY
     stock_20d = technicals.get("twenty_day_return", 0)
     alpha_20d = stock_20d - spy_20d
     rs_pass = alpha_20d >= params["rs_alpha_min"]
-    results.append(("rs", rs_pass))
+    checks["rs"] = 1.0 if rs_pass else 0.0
 
     # 5. Confidence — adaptive threshold
     total = confidence.get("total", 0)
     conf_pass = total >= params["score_threshold"]
-    results.append(("confidence", conf_pass))
+    checks["confidence"] = 1.0 if conf_pass else 0.0
 
-    all_pass = all(r[1] for r in results)
-    return all_pass, results
+    gate_score = sum(weights[k] * checks[k] for k in weights)
+    results = [(k, checks[k]) for k in weights]
+    return gate_score, results
 
 
 # ─────────────────────────── position sizing ───────────────────────────────
 
 
-def _position_size(equity: float, entry_price: float, params: dict) -> int:
-    """Mirror trade.calculate_position_size — regime-adaptive."""
+def _position_size(equity: float, entry_price: float, params: dict,
+                    atr: float | None = None) -> int:
+    """Mirror trade.calculate_position_size — regime-adaptive with ATR."""
     max_pct = params["max_position_pct"] / 100.0
     alloc_shares = int((equity * max_pct) / entry_price)
     risk_pct = params["risk_per_trade_pct"] / 100.0
     stop_pct = params["trailing_stop_pct"] / 100.0
     risk_shares = int((equity * risk_pct) / (entry_price * stop_pct))
-    return max(0, min(alloc_shares, risk_shares))
+    # ATR-based sizing — smaller positions in volatile names
+    if atr and atr > 0:
+        atr_shares = int((equity * risk_pct) / (atr * 2))
+    else:
+        atr_shares = alloc_shares
+    return max(0, min(alloc_shares, risk_shares, atr_shares))
 
 
 # ─────────────────────────── trade-day mechanics ───────────────────────────
@@ -327,7 +341,7 @@ def _check_time_stops(portfolio: SimulatedPortfolio, day_opens: dict[str, float]
 def _check_catalyst_flips(portfolio: SimulatedPortfolio, scored: dict[str, dict],
                           day_opens: dict[str, float], date: str,
                           slippage_bps: float) -> int:
-    """Close positions whose score has fallen to SELL band (< 40)."""
+    """Close positions whose confidence action is SELL."""
     closed = 0
     for symbol in list(portfolio.positions.keys()):
         p = portfolio.positions[symbol]
@@ -336,7 +350,7 @@ def _check_catalyst_flips(portfolio: SimulatedPortfolio, scored: dict[str, dict]
         s = scored.get(symbol)
         if not s:
             continue
-        if s.get("confidence", {}).get("total", 0) < 40:
+        if s.get("confidence", {}).get("action") == "SELL":
             open_price = day_opens.get(symbol, p.current_price)
             fill = _sell_fill(open_price, slippage_bps)
             portfolio.close(symbol, fill, date, reason="catalyst_flip")
@@ -452,9 +466,11 @@ def run_backtest(config: BacktestConfig) -> dict:
             tech = _technicals_from_bars(bars)
             if tech is None or "error" in tech:
                 continue
-            news = news_proxy_score(bars)
-            px = perplexity_proxy_score(bars)
-            conf = compute_confidence_score(tech, news, px, regime=regime, risk_tier=risk_tier)
+            news = news_proxy_score(bars, symbol=sym, date=prev_day)
+            px = perplexity_proxy_score(bars, symbol=sym, date=prev_day)
+            conf = compute_confidence_score(tech, news, px, regime=regime,
+                                            risk_tier=risk_tier,
+                                            spy_20d_return=spy_20d)
             scored[sym] = {"technicals": tech, "confidence": conf}
 
         # 6. Catalyst flips (close existing positions whose score dropped below 40)
@@ -463,7 +479,8 @@ def run_backtest(config: BacktestConfig) -> dict:
         # 7. Hedge sizing — runs BEFORE buys so it claims cash first
         _manage_hedge(portfolio, provider, date, regime, risk_tier, config.slippage_bps)
 
-        # 8-10. Score-sorted buys subject to checklist + caps + cash floor
+        # 8-10. Score-sorted buys subject to gate score + caps + cash floor
+        gate_min = params.get("gate_score_min", 0.65)
         if risk_tier != "HALT":
             ranked = sorted(scored.items(),
                             key=lambda kv: kv[1]["confidence"]["total"],
@@ -471,10 +488,10 @@ def run_backtest(config: BacktestConfig) -> dict:
             for sym, data in ranked:
                 if portfolio.non_hedge_position_count() >= params["max_positions"]:
                     break
-                passes, _checks = _passes_five_question_checklist(
+                gate_score, _checks = _compute_gate_score(
                     sym, data["technicals"], data["confidence"], spy_20d, params,
                 )
-                if not passes:
+                if gate_score < gate_min:
                     continue
                 if portfolio.has_position(sym):
                     continue  # don't add to existing in backtest (matches live UX)
@@ -482,7 +499,8 @@ def run_backtest(config: BacktestConfig) -> dict:
                 if sym not in opens:
                     continue  # no trading today
                 fill_price = _buy_fill(opens[sym], config.slippage_bps)
-                qty = _position_size(portfolio.equity(), fill_price, params)
+                atr = data["technicals"].get("atr_14")
+                qty = _position_size(portfolio.equity(), fill_price, params, atr=atr)
                 if qty <= 0:
                     continue
                 cost = qty * fill_price

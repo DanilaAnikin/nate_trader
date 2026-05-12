@@ -127,8 +127,13 @@ Return ONLY a JSON array of ticker symbols, e.g. ["AAPL", "NVDA", "TSLA"]. No ot
 def run_full_screen() -> dict:
     """Run full screener: combine all sources, score top candidates."""
     from research import get_bars, compute_technicals, get_news, score_news, compute_confidence_score
+    from utils import RESEARCH_STATE
 
     log.info("Running full stock screen...")
+
+    # Read current regime from research state for regime-aware scoring
+    research_data = load_json(RESEARCH_STATE)
+    regime = research_data.get("spy", {}).get("market_regime", "NEUTRAL")
 
     # Gather candidates from all sources
     most_active = get_most_active(limit=20)
@@ -203,23 +208,34 @@ def run_full_screen() -> dict:
 
     log.info(f"After leveraged filter: {len(filtered_symbols)} candidates (removed {len(new_symbols) - len(filtered_symbols)})")
 
-    # Score top candidates
-    scored = {}
-    for symbol in sorted(filtered_symbols)[:30]:  # cap at 30 to avoid rate limits
+    # Quick-score all candidates to sort by quality before deep analysis
+    pre_scored = {}
+    cached_technicals = {}  # cache to avoid re-fetching bars
+    for symbol in filtered_symbols:
         try:
-            log.info(f"Screening {symbol}...")
             df = get_bars(symbol, days=60)
             if len(df) < 20:
-                log.warning(f"  {symbol}: insufficient data ({len(df)} bars)")
                 continue
-
             technicals = compute_technicals(df)
-            if "error" in technicals:
+            if "error" in technicals or technicals.get("price", 0) < 5.0:
                 continue
+            cached_technicals[symbol] = technicals
+            quick_conf = compute_confidence_score(technicals, 5, regime=regime)
+            pre_scored[symbol] = quick_conf.get("total", 0)
+        except Exception:
+            continue
 
-            # Skip penny stocks under $5
-            if technicals.get("price", 0) < 5.0:
-                log.info(f"  {symbol}: price ${technicals['price']:.2f} < $5 — skipping")
+    # Sort by quick score descending, take top 30
+    ranked_symbols = sorted(pre_scored, key=pre_scored.get, reverse=True)[:30]
+    log.info(f"Top 30 candidates by quick score (of {len(pre_scored)} pre-scored)")
+
+    # Full scoring with news for top candidates
+    scored = {}
+    for symbol in ranked_symbols:
+        try:
+            log.info(f"Screening {symbol}...")
+            technicals = cached_technicals.get(symbol)
+            if not technicals:
                 continue
 
             # Get news
@@ -231,7 +247,7 @@ def run_full_screen() -> dict:
                 n_score = 5
                 headlines = []
 
-            confidence = compute_confidence_score(technicals, n_score)
+            confidence = compute_confidence_score(technicals, n_score, regime=regime)
 
             scored[symbol] = {
                 "technicals": technicals,

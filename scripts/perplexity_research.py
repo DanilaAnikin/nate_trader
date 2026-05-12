@@ -158,6 +158,9 @@ def enhance_research_with_perplexity() -> dict:
         log.warning("No research data found. Run research.py report first.")
         return {}
 
+    regime = research.get("spy", {}).get("market_regime", "NEUTRAL")
+    spy_20d = research.get("spy", {}).get("twenty_day_return", 0.0)
+
     enhanced_count = 0
     for symbol, data in research["symbols"].items():
         if "error" in data:
@@ -180,6 +183,8 @@ def enhance_research_with_perplexity() -> dict:
             data["technicals"],
             confidence["news_score"],
             catalyst["perplexity_score"],
+            regime=regime,
+            spy_20d_return=spy_20d,
         )
         data["confidence"] = new_confidence
         enhanced_count += 1
@@ -219,6 +224,11 @@ def enhance_screener_with_perplexity() -> dict:
         log.info("No screener candidates with prelim score >= 25")
         return screener
 
+    # Get regime/SPY data for scoring
+    research = load_json(RESEARCH_STATE)
+    regime = research.get("spy", {}).get("market_regime", "NEUTRAL")
+    spy_20d = research.get("spy", {}).get("twenty_day_return", 0.0)
+
     enhanced_count = 0
     for symbol, data, prelim_score in candidates:
         log.info(f"Enhancing screener candidate {symbol} (prelim score: {prelim_score})...")
@@ -232,6 +242,8 @@ def enhance_screener_with_perplexity() -> dict:
             data["technicals"],
             confidence["news_score"],
             catalyst["perplexity_score"],
+            regime=regime,
+            spy_20d_return=spy_20d,
         )
         data["confidence"] = new_confidence
         screener["scored_candidates"][symbol] = data

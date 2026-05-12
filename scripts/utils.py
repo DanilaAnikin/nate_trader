@@ -3,8 +3,10 @@
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -30,8 +32,8 @@ POSITIONS_STATE = STATE_DIR / "positions.json"
 PERFORMANCE_STATE = STATE_DIR / "performance.json"
 SCREENER_STATE = STATE_DIR / "screener.json"
 
-# Timezone: approximate EDT (UTC-4)
-EDT = timezone(timedelta(hours=-4))
+# Timezone: US/Eastern handles EDT/EST transitions correctly
+EDT = ZoneInfo("America/New_York")
 
 
 def setup_logging(name: str = "nate_trader") -> logging.Logger:
@@ -67,10 +69,19 @@ def load_json(path: Path) -> dict:
 
 
 def save_json(path: Path, data: dict) -> None:
-    """Save data to a JSON file."""
+    """Save data to a JSON file atomically (write to temp, then rename)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, default=str)
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2, default=str)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def load_watchlist() -> dict:
