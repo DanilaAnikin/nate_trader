@@ -121,10 +121,17 @@ def compute_gate_score(candidate: dict, regime: str | None = None,
     Returns (score: float 0.0-1.0, details: list[str]).
     Each check passes (1.0) or fails (0.0), weighted by importance.
     Gate score ≥ gate_score_min (regime-dependent) = proceed to buy.
+
+    Earnings veto: if the symbol has a known earnings release within the
+    next 5 trading days, applies a hard penalty (−0.20) regardless of
+    the weighted score. Binary risk events have no edge for momentum.
     """
+    from earnings_calendar import has_earnings_risk, days_until_earnings
+
     params = get_strategy_params(regime, risk_tier)
     tech = candidate.get("technicals", {})
     confidence = candidate.get("confidence", {})
+    symbol = candidate.get("symbol", "")
     details = []
     checks = {}
 
@@ -180,6 +187,19 @@ def compute_gate_score(candidate: dict, regime: str | None = None,
 
     # Weighted sum
     gate_score = sum(_GATE_WEIGHTS[k] * checks[k] for k in _GATE_WEIGHTS)
+
+    # Earnings veto — apply AFTER weighted sum so it can drive a passing
+    # score below the gate. Binary earnings risk has no edge for swing
+    # momentum trading.
+    try:
+        if has_earnings_risk(symbol):
+            er_days = days_until_earnings(symbol)
+            gate_score -= 0.20
+            details.append(f"VETO: Earnings in {er_days}d (−0.20 penalty)")
+    except Exception as e:
+        # Missing earnings calendar should never block trading
+        details.append(f"(earnings calendar unavailable: {e})")
+
     gate_min = params.get("gate_score_min", 0.65)
     details.append(f"Gate score: {gate_score:.2f} (need ≥{gate_min:.2f})")
 
