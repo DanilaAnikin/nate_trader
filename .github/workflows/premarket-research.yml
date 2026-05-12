@@ -33,6 +33,17 @@ jobs:
         run: pip install -r requirements.txt
         working-directory: .
 
+      - name: Refresh sector rotation strength
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python3 sector_rotation.py refresh
+
+      - name: Refresh earnings calendar (weekly cache)
+        env:
+          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+        run: python3 earnings_calendar.py refresh
+
       - name: Run screener (full)
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}

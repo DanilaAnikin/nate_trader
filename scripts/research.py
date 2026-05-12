@@ -216,6 +216,7 @@ def compute_confidence_score(
     regime: str | None = None,
     risk_tier: str | None = None,
     spy_20d_return: float | None = None,
+    sector: str | None = None,
 ) -> dict:
     """Compute composite confidence score (0-100), regime-aware.
 
@@ -343,7 +344,18 @@ def compute_confidence_score(
         elif stock_20d >= 0:
             alpha_score = 5
 
-    total = tech_score + catalyst_score + alpha_score
+    # ── Sector rotation adjustment (±5) ──
+    # Top-3 sectors by 20d alpha get +5, bottom-3 get −5. Read from
+    # state/sector_strength.json (refreshed daily). Missing data → 0.
+    sector_adj = 0
+    if sector:
+        try:
+            from sector_rotation import compute_sector_adjustment
+            sector_adj = compute_sector_adjustment(sector)
+        except Exception:
+            sector_adj = 0
+
+    total = tech_score + catalyst_score + alpha_score + sector_adj
 
     threshold = params["score_threshold"]
     # Action bands scale with regime (lower thresholds = wider HOLD band)
@@ -361,6 +373,7 @@ def compute_confidence_score(
         "perplexity_score": perplexity_score,
         "catalyst_score": catalyst_score,
         "alpha_score": alpha_score,
+        "sector_adj": sector_adj,
         "total": total,
         "action": action,
         "threshold_used": threshold,
@@ -439,8 +452,11 @@ def research_symbol(symbol: str, regime: str | None = None) -> dict:
             regime = existing.get("spy", {}).get("market_regime")
         spy_20d = existing.get("spy", {}).get("twenty_day_return", 0.0)
 
-        confidence = compute_confidence_score(technicals, n_score, regime=regime,
-                                              spy_20d_return=spy_20d)
+        sym_info = get_symbol_info(symbol)
+        confidence = compute_confidence_score(
+            technicals, n_score, regime=regime,
+            spy_20d_return=spy_20d, sector=sym_info.get("sector"),
+        )
 
         result = {
             "symbol": symbol,
@@ -448,7 +464,7 @@ def research_symbol(symbol: str, regime: str | None = None) -> dict:
             "news_score": n_score,
             "news_headlines": news_headlines,
             "confidence": confidence,
-            "info": get_symbol_info(symbol),
+            "info": sym_info,
             "updated_at": get_now_str(),
         }
         log.info(f"  {symbol}: ${technicals['price']:.2f} | Score: {confidence['total']} ({confidence['action']})")
@@ -515,9 +531,10 @@ def build_research_report() -> dict:
                         pass  # can't parse date, keep it
 
             # Confidence score — regime-aware, include preserved Perplexity score
+            sym_info_for_score = get_symbol_info(symbol)
             confidence = compute_confidence_score(
                 technicals, n_score, existing_px_score, regime=regime,
-                spy_20d_return=spy_20d,
+                spy_20d_return=spy_20d, sector=sym_info_for_score.get("sector"),
             )
 
             sym_data = {
@@ -525,7 +542,7 @@ def build_research_report() -> dict:
                 "news_score": n_score,
                 "news_headlines": news_headlines,
                 "confidence": confidence,
-                "info": get_symbol_info(symbol),
+                "info": sym_info_for_score,
             }
 
             # Preserve fresh Perplexity data from previous runs

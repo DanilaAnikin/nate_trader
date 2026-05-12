@@ -468,9 +468,11 @@ def run_backtest(config: BacktestConfig) -> dict:
                 continue
             news = news_proxy_score(bars, symbol=sym, date=prev_day)
             px = perplexity_proxy_score(bars, symbol=sym, date=prev_day)
+            sec = get_symbol_info(sym).get("sector")
             conf = compute_confidence_score(tech, news, px, regime=regime,
                                             risk_tier=risk_tier,
-                                            spy_20d_return=spy_20d)
+                                            spy_20d_return=spy_20d,
+                                            sector=sec)
             scored[sym] = {"technicals": tech, "confidence": conf}
 
         # 6. Catalyst flips (close existing positions whose score dropped below 40)

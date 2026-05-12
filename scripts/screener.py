@@ -220,7 +220,9 @@ def run_full_screen() -> dict:
             if "error" in technicals or technicals.get("price", 0) < 5.0:
                 continue
             cached_technicals[symbol] = technicals
-            quick_conf = compute_confidence_score(technicals, 5, regime=regime)
+            from utils import get_symbol_info as _gsi
+            _sector = _gsi(symbol).get("sector")
+            quick_conf = compute_confidence_score(technicals, 5, regime=regime, sector=_sector)
             pre_scored[symbol] = quick_conf.get("total", 0)
         except Exception:
             continue
@@ -247,7 +249,11 @@ def run_full_screen() -> dict:
                 n_score = 5
                 headlines = []
 
-            confidence = compute_confidence_score(technicals, n_score, regime=regime)
+            from utils import get_symbol_info as _gsi2
+            confidence = compute_confidence_score(
+                technicals, n_score, regime=regime,
+                sector=_gsi2(symbol).get("sector"),
+            )
 
             scored[symbol] = {
                 "technicals": technicals,
