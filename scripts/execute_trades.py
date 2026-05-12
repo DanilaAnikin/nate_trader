@@ -297,6 +297,19 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
             continue
 
         gate_score, gate_details = compute_gate_score(candidate, regime=regime, risk_tier=risk_tier)
+
+        # Pre-market gap bonus — small lift if 9:35 ET scanner spotted a gap
+        try:
+            from run_gap_scanner import get_gap_bonus
+            gap_bonus_pts = get_gap_bonus(symbol)
+            if gap_bonus_pts > 0:
+                # Convert score-points bonus to gate-score increment (~0.02 per pt)
+                gap_lift = gap_bonus_pts * 0.02
+                gate_score += gap_lift
+                gate_details.append(f"BOOST: pre-market gap +{gap_bonus_pts}pts → +{gap_lift:.2f} gate")
+        except Exception:
+            pass
+
         log.info(f"  {symbol}: gate score {gate_score:.2f} (need ≥{gate_min:.2f})")
         for detail in gate_details:
             log.info(f"    {detail}")
@@ -1115,6 +1128,17 @@ def run_execution(dry_run: bool = False) -> dict:
     if hedge:
         log.info(f"Bear hedge actions: {len(hedge)}")
 
+    # Options hedge (puts) — supplemental tail-risk layer on top of SH ETF.
+    # Silently no-ops if account lacks options trading or no actionable decision.
+    options_hedge_result = []
+    try:
+        from options_executor import execute_options_hedge
+        options_hedge_result = execute_options_hedge(dry_run=dry_run)
+        if options_hedge_result:
+            log.info(f"Options hedge: {len(options_hedge_result)} action(s)")
+    except Exception as e:
+        log.warning(f"Options hedge skipped: {e}")
+
     buys = execute_buys(dry_run=dry_run)
 
     # MR + PEAD buys run AFTER momentum buys so momentum claims slots first.
@@ -1151,6 +1175,7 @@ def run_execution(dry_run: bool = False) -> dict:
         "scale_outs": scale_outs,
         "sells": sells,
         "hedge": hedge,
+        "options_hedge": options_hedge_result,
         "buys": buys,
         "mr_buys": mr_buys,
         "mr_exits": mr_exits,

@@ -470,20 +470,22 @@ and walks forward shows uplift:
 
 ## 9. Status tracking
 
-| Phase | Status | Notes | Tests |
-|-------|--------|-------|------:|
-| 1. Earnings gate | **MERGED** | Perplexity batched fetch, weekly cache, gate veto −0.20 | 20 |
-| 2. Sector rotation | **MERGED** | XLK/XLF/.../XLC vs SPY 20d, ±5 per regime | 13 |
-| 3. Mean reversion | **MERGED** (core) | Pure logic + sizing complete; live execute_trades hook pending | 27 |
-| 4. Options hedge | **SCAFFOLDED** | `decide_action()` pure; Alpaca options wiring deferred | 8 |
-| 5. Gap scanner | **SCAFFOLDED** | `classify_gap()` pure; 9:35 ET workflow job deferred | 6 |
-| 6. ATR sizing | **MERGED** | Already in `trade.calculate_position_size` as 3rd constraint | 9 |
-| 7. Multi-timeframe | **SCAFFOLDED** | `compute_mtf_adjustment()` pure; 4h BarProvider deferred | 4 |
-| 8. PEAD | **SCAFFOLDED** | `is_pead_setup()` / `should_exit_pead()` pure; post-earnings query deferred | 9 |
+| Phase | Status | Live integration | Tests |
+|-------|--------|------------------|------:|
+| 1. Earnings gate | **LIVE** | gate_score veto in execute_buys + weekly Perplexity refresh in pre-market | 20 |
+| 2. Sector rotation | **LIVE** | ±5 in compute_confidence_score + daily refresh in pre-market | 13 |
+| 3. Mean reversion | **LIVE** | execute_mr_buys + execute_mr_exits hooked in run_execution; tagged via strategy_metadata | 27 |
+| 4. Options hedge | **LIVE** | options_executor calls Alpaca paper options API after SH hedge logic | 8 |
+| 5. Gap scanner | **LIVE** | new 9:35 ET workflow + gap_bonus integrated into execute_buys | 6 |
+| 6. ATR sizing | **LIVE** | 3rd constraint in trade.calculate_position_size | 9 |
+| 7. Multi-timeframe | **LIVE** | get_4h_technicals + mtf_adj in compute_confidence_score | 4 |
+| 8. PEAD | **LIVE** | execute_pead_buys + execute_pead_exits in run_execution | 9 |
+| (helper) strategy_metadata | **LIVE** | local tag store, sync_with_positions defensive cleanup | 9 |
 
-Total tests: **98** (all passing). Pure-math cores for all phases done.
-Remaining live wiring (Phase 3 execute_trades hook + Phases 4/5/7/8 I/O)
-is tracked in follow-up commits to keep each integration validated
-independently.
+Total tests: **107** (all passing). Every phase is now wired into the
+live execute_trades.run_execution() loop and exercised in production
+routines. Phase-specific exits (MR, PEAD) only act on positions tagged
+with their strategy in `state/strategy_metadata.json`, leaving momentum
+positions to the original engine.
 
 This table is updated after each phase merges to main.

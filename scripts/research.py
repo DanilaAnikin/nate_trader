@@ -46,6 +46,50 @@ def get_bars(symbol: str, days: int = 80, timeframe: TimeFrame = TimeFrame.Day) 
     return df.tail(days)
 
 
+def get_4h_technicals(symbol: str) -> dict:
+    """Multi-timeframe overlay — compact 4-hour indicators for MTF scoring.
+
+    Pulls ~33 days of 4-hour bars (≈ 200 bars at 6 trading-day bars / day),
+    computes RSI(14), MACD signal cross, and price-vs-SMA20. Used by
+    multi_timeframe.compute_mtf_adjustment to add a confirmation bonus to
+    daily-bar scoring.
+
+    Returns: dict with `rsi_14`, `macd_above_signal`, `price_above_sma20`
+    (or None entries on failure / insufficient data).
+    """
+    from alpaca.data.timeframe import TimeFrame as _TF, TimeFrameUnit as _TFU
+    import ta
+    try:
+        tf = _TF(amount=4, unit=_TFU.Hour)
+        end = datetime.now()
+        start = end - timedelta(days=45)  # ~33 trading days × 6 bars
+        request = StockBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=tf,
+            start=start, end=end, feed=DataFeed.IEX,
+        )
+        bars = data_client.get_stock_bars(request)
+        df = bars.df
+        if isinstance(df.index, pd.MultiIndex):
+            df = df.droplevel("symbol")
+        if len(df) < 30:
+            return {"rsi_14": None, "macd_above_signal": False, "price_above_sma20": False}
+        close = df["close"].astype(float)
+        rsi = ta.momentum.rsi(close, window=14).iloc[-1]
+        sma20 = ta.trend.sma_indicator(close, window=20).iloc[-1]
+        macd_line = ta.trend.macd(close, window_slow=26, window_fast=12).iloc[-1]
+        macd_sig = ta.trend.macd_signal(close, window_slow=26, window_fast=12, window_sign=9).iloc[-1]
+        price = float(close.iloc[-1])
+        return {
+            "rsi_14": float(rsi) if pd.notna(rsi) else None,
+            "macd_above_signal": bool(pd.notna(macd_line) and pd.notna(macd_sig) and macd_line > macd_sig),
+            "price_above_sma20": bool(pd.notna(sma20) and price > float(sma20)),
+        }
+    except Exception as e:
+        log.warning(f"  {symbol}: 4h fetch failed — {e}")
+        return {"rsi_14": None, "macd_above_signal": False, "price_above_sma20": False}
+
+
 def get_latest_quote(symbol: str) -> dict:
     """Get latest quote for a symbol."""
     request = StockLatestQuoteRequest(symbol_or_symbols=symbol, feed=DataFeed.IEX)
@@ -217,6 +261,7 @@ def compute_confidence_score(
     risk_tier: str | None = None,
     spy_20d_return: float | None = None,
     sector: str | None = None,
+    four_h: dict | None = None,
 ) -> dict:
     """Compute composite confidence score (0-100), regime-aware.
 
@@ -355,7 +400,32 @@ def compute_confidence_score(
         except Exception:
             sector_adj = 0
 
-    total = tech_score + catalyst_score + alpha_score + sector_adj
+    # ── Multi-timeframe adjustment (−5 to +8) ──
+    # 4h bar confirmation of daily signals. Strong agreement bonuses,
+    # divergence penalty. Missing 4h data → 0 (graceful degrade).
+    mtf_adj = 0
+    if four_h is not None:
+        try:
+            from multi_timeframe import compute_mtf_adjustment, TimeframeTechnicals
+            daily_tf = TimeframeTechnicals(
+                rsi_14=technicals.get("rsi_14"),
+                macd_above_signal=(
+                    technicals.get("macd") is not None
+                    and technicals.get("macd_signal") is not None
+                    and technicals["macd"] > technicals["macd_signal"]
+                ),
+                price_above_sma20=bool(technicals.get("above_sma20")),
+            )
+            four_h_tf = TimeframeTechnicals(
+                rsi_14=four_h.get("rsi_14"),
+                macd_above_signal=four_h.get("macd_above_signal", False),
+                price_above_sma20=four_h.get("price_above_sma20", False),
+            )
+            mtf_adj = compute_mtf_adjustment(daily_tf, four_h_tf, regime=regime)
+        except Exception:
+            mtf_adj = 0
+
+    total = tech_score + catalyst_score + alpha_score + sector_adj + mtf_adj
 
     threshold = params["score_threshold"]
     # Action bands scale with regime (lower thresholds = wider HOLD band)
@@ -374,6 +444,7 @@ def compute_confidence_score(
         "catalyst_score": catalyst_score,
         "alpha_score": alpha_score,
         "sector_adj": sector_adj,
+        "mtf_adj": mtf_adj,
         "total": total,
         "action": action,
         "threshold_used": threshold,
@@ -532,9 +603,17 @@ def build_research_report() -> dict:
 
             # Confidence score — regime-aware, include preserved Perplexity score
             sym_info_for_score = get_symbol_info(symbol)
+
+            # 4h MTF data — optional, fetch best-effort (skipped on failure)
+            try:
+                four_h_data = get_4h_technicals(symbol)
+            except Exception:
+                four_h_data = None
+
             confidence = compute_confidence_score(
                 technicals, n_score, existing_px_score, regime=regime,
                 spy_20d_return=spy_20d, sector=sym_info_for_score.get("sector"),
+                four_h=four_h_data,
             )
 
             sym_data = {
