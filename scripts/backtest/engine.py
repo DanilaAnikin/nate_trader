@@ -53,6 +53,15 @@ log = setup_logging("backtest_engine")
 SLIPPAGE_BPS = 5  # 0.05% each side, conservative for SPY/AAPL-class liquidity
 HEDGE_SYMBOL = "SH"
 
+# SPDR sector ETFs used to derive per-day historical sector strength.
+# Must match the watchlist taxonomy in scripts/sector_rotation.py.
+_SECTOR_ETFS = {
+    "Technology": "XLK", "Financial": "XLF", "Healthcare": "XLV",
+    "Industrial": "XLI", "Consumer": "XLY", "Energy": "XLE",
+    "Materials": "XLB", "Utilities": "XLU", "RealEstate": "XLRE",
+    "Communication": "XLC",
+}
+
 
 @dataclass
 class BacktestConfig:
@@ -111,6 +120,37 @@ def _spy_returns(provider: BarProvider, today: str) -> tuple[float, float]:
     five = (last / float(closes.iloc[-6]) - 1) * 100 if len(closes) >= 6 else 0.0
     twenty = (last / float(closes.iloc[-21]) - 1) * 100
     return (five, twenty)
+
+
+def _historical_sector_state(provider: BarProvider, today: str,
+                             spy_20d: float) -> dict:
+    """Compute sector rotation state from bars up to `today`.
+
+    Without this the backtest would read state/sector_strength.json which
+    is today's snapshot — a serious look-ahead bias when replaying 2021.
+    """
+    from sector_rotation import (
+        compute_sector_alpha, rank_sectors,
+    )
+    returns: dict[str, float | None] = {}
+    for sec, etf in _SECTOR_ETFS.items():
+        bars = provider.bars_up_to(etf, today, lookback_days=30)
+        if len(bars) < 21:
+            returns[etf] = None
+            continue
+        closes = bars["close"].astype(float)
+        ret = (float(closes.iloc[-1]) / float(closes.iloc[-21]) - 1) * 100
+        returns[etf] = ret
+
+    alpha = compute_sector_alpha(returns, spy_return=spy_20d)
+    top, bottom = rank_sectors(alpha)
+    return {
+        "lookback_days": 20,
+        "spy_return": spy_20d,
+        "sector_alpha": alpha,
+        "top_sectors": top,
+        "bottom_sectors": bottom,
+    }
 
 
 # ─────────────────────────── risk-tier escalation ──────────────────────────
@@ -455,6 +495,7 @@ def run_backtest(config: BacktestConfig) -> dict:
         prev_day = all_days[idx - 1] if idx > 0 else date
         regime = _spy_regime(provider, prev_day)
         _, spy_20d = _spy_returns(provider, prev_day)
+        sector_state = _historical_sector_state(provider, prev_day, spy_20d)
         risk_tier = _risk_tier(portfolio)
         params = _resolve_params(regime, risk_tier, config.param_overrides)
 
@@ -469,10 +510,11 @@ def run_backtest(config: BacktestConfig) -> dict:
             news = news_proxy_score(bars, symbol=sym, date=prev_day)
             px = perplexity_proxy_score(bars, symbol=sym, date=prev_day)
             sec = get_symbol_info(sym).get("sector")
-            conf = compute_confidence_score(tech, news, px, regime=regime,
-                                            risk_tier=risk_tier,
-                                            spy_20d_return=spy_20d,
-                                            sector=sec)
+            conf = compute_confidence_score(
+                tech, news, px, regime=regime, risk_tier=risk_tier,
+                spy_20d_return=spy_20d, sector=sec,
+                sector_state=sector_state,  # historical recompute per day
+            )
             scored[sym] = {"technicals": tech, "confidence": conf}
 
         # 6. Catalyst flips (close existing positions whose score dropped below 40)

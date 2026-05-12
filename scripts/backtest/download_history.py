@@ -41,9 +41,16 @@ DEFAULT_START = "2020-01-01"
 
 
 def universe() -> list[str]:
-    """Watchlist tradeable symbols + benchmarks/hedge."""
+    """Watchlist tradeable symbols + benchmarks/hedge + sector ETFs.
+
+    Sector ETFs are required for the historical sector-rotation recompute
+    inside the backtest engine. Without them the engine falls back to
+    today's snapshot, which is a strong look-ahead bias.
+    """
     base = set(get_tradeable_symbols())
     base.update({"SPY", "SH"})  # benchmark + hedge
+    base.update({"XLK", "XLF", "XLV", "XLI", "XLY", "XLE",
+                 "XLB", "XLU", "XLRE", "XLC"})  # SPDR sector ETFs
     return sorted(base)
 
 

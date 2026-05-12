@@ -25,21 +25,25 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-# Tunables — moderately conservative defaults; tuned by sweep later.
-RSI_OVERSOLD = 30
-PRICE_BELOW_SMA20_PCT = 8.0       # require price ≥ 8% below 20-SMA
-VOLUME_CAPITULATION_RATIO = 1.5    # volume ≥ 1.5× 20d avg (washout selling)
-RS_FLOOR = -15.0                   # don't pick names down >15% vs SPY 20d (catching falling knives)
+# Tunables — tightened after v3 backtest showed MR firing too loose and
+# producing falling-knife trades. New defaults require deeper oversold
+# (RSI<25), bigger volume spike (≥2.5× = real capitulation), and exclude
+# names underperforming SPY by >3% over 20d (so we only buy names that
+# *temporarily* sold off rather than chronic underperformers).
+RSI_OVERSOLD = 25
+PRICE_BELOW_SMA20_PCT = 10.0       # require price ≥ 10% below 20-SMA (was 8%)
+VOLUME_CAPITULATION_RATIO = 2.5    # volume ≥ 2.5× 20d avg (was 1.5×)
+RS_FLOOR = -3.0                    # only −3% vs SPY tolerable (was −15%)
 
-# Exit triggers
-RSI_EXIT = 55                      # close on bounce confirmation
-GAIN_TARGET_PCT = 5.0              # take-profit
-LOSS_STOP_PCT = -3.0               # tight stop
-TIME_STOP_DAYS = 5                 # close after 5 trading days regardless
+# Exit triggers — slightly faster turns
+RSI_EXIT = 50                      # close earlier on bounce (was 55)
+GAIN_TARGET_PCT = 4.0              # take-profit sooner (was 5%)
+LOSS_STOP_PCT = -2.5               # tighter stop (was −3%)
+TIME_STOP_DAYS = 4                 # close 4 trading days regardless (was 5)
 
-# Sleeve sizing
-MR_SLEEVE_PCT = 25.0               # max % of equity allocated to MR positions
-MR_POSITION_PCT = 3.0              # max % per individual MR position
+# Sleeve sizing — smaller cap so MR errors don't dominate
+MR_SLEEVE_PCT = 15.0               # was 25%
+MR_POSITION_PCT = 2.0              # was 3%
 
 ACTIVE_REGIMES = {"NEUTRAL", "BEAR"}
 

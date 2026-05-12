@@ -16,13 +16,17 @@ from mean_reversion import (
 
 
 def _good_setup(**overrides):
-    """Helper: build a technicals dict that *just barely* passes all checks."""
+    """Helper: build a technicals dict that *just barely* passes all checks.
+
+    Updated post-tightening (Phase 3 v2):
+      RSI<25, 10% below SMA20, volume ≥2.5×, RS floor −3% vs SPY.
+    """
     base = {
-        "rsi_14": 25.0,
-        "price": 90.0,
-        "sma_20": 100.0,           # 10% below
-        "volume_ratio": 2.0,        # 2× avg
-        "twenty_day_return": -8.0,
+        "rsi_14": 22.0,                # below 25
+        "price": 88.0,
+        "sma_20": 100.0,               # 12% below
+        "volume_ratio": 3.0,            # 3× avg
+        "twenty_day_return": -2.0,     # within RS floor
     }
     base.update(overrides)
     return base
@@ -52,17 +56,17 @@ def test_setup_fails_low_volume():
 
 
 def test_setup_filters_falling_knife():
-    """20d alpha −20% vs SPY → falling knife, reject."""
-    tech = _good_setup(twenty_day_return=-25.0)
+    """RS floor is −3%; anything worse should reject."""
+    tech = _good_setup(twenty_day_return=-10.0)
     ok, reasons = is_mr_setup(tech, spy_20d_return=0.0)
     assert ok is False
     assert any("falling knife" in r for r in reasons)
 
 
 def test_setup_accepts_oversold_relative_to_market_decline():
-    """SPY is down −12% in 20d, stock is down −15% — only −3% alpha → not falling knife."""
-    tech = _good_setup(twenty_day_return=-15.0)
-    ok, _ = is_mr_setup(tech, spy_20d_return=-12.0)
+    """SPY down −10% in 20d, stock down −12% → only −2% alpha → not falling knife."""
+    tech = _good_setup(twenty_day_return=-12.0)
+    ok, _ = is_mr_setup(tech, spy_20d_return=-10.0)
     assert ok is True
 
 
@@ -161,8 +165,8 @@ def test_find_candidates_empty_in_bull():
 def test_find_candidates_returns_passing_setups():
     tech = {
         "AAPL": _good_setup(),
-        "MSFT": _good_setup(rsi_14=40.0),     # fails RSI check
-        "GOOG": _good_setup(volume_ratio=1.0),  # fails volume
+        "MSFT": _good_setup(rsi_14=40.0),       # fails RSI check
+        "GOOG": _good_setup(volume_ratio=1.2),   # fails volume (need ≥2.5×)
     }
     sectors = {"AAPL": "Technology", "MSFT": "Technology", "GOOG": "Technology"}
     out = find_candidates(tech, sectors, regime="NEUTRAL", spy_20d_return=0.0)
@@ -174,9 +178,9 @@ def test_find_candidates_returns_passing_setups():
 
 def test_find_candidates_sorted_by_score_desc():
     tech = {
-        "A": _good_setup(rsi_14=29.0),   # weakest oversold
-        "B": _good_setup(rsi_14=12.0),   # strongest oversold
-        "C": _good_setup(rsi_14=20.0),
+        "A": _good_setup(rsi_14=24.0),   # just barely under sweet spot
+        "B": _good_setup(rsi_14=10.0),    # deeply oversold
+        "C": _good_setup(rsi_14=18.0),
     }
     sectors = {k: "Technology" for k in tech}
     out = find_candidates(tech, sectors, regime="BEAR", spy_20d_return=0.0)
@@ -195,11 +199,11 @@ def test_find_candidates_skips_error_technicals():
 
 
 def test_size_caps_at_per_position_pct():
-    """At a fresh sleeve, sizing is capped by MR_POSITION_PCT (3% default)."""
+    """At a fresh sleeve, sizing is capped by MR_POSITION_PCT (2% default)."""
     shares = mr_position_size(equity=1_000_000, entry_price=100.0,
                               mr_sleeve_committed=0)
-    # 3% of $1M = $30k → 300 shares at $100
-    assert shares == 300
+    # 2% of $1M = $20k → 200 shares at $100
+    assert shares == 200
 
 
 def test_size_zero_when_sleeve_full():
@@ -211,13 +215,12 @@ def test_size_zero_when_sleeve_full():
 
 
 def test_size_remaining_sleeve_below_per_position_cap():
-    """Sleeve almost full → new size is capped by remaining sleeve, not per-pos."""
-    # Sleeve = 25% = $250k, committed = $240k, remaining = $10k
+    """Sleeve almost full → remaining sleeve is binding, not per-pos cap."""
+    # Sleeve = 15% = $150k, committed = $145k, remaining = $5k
     shares = mr_position_size(equity=1_000_000, entry_price=50.0,
-                              mr_sleeve_committed=240_000)
-    # remaining $10k > per-pos $30k? No, $10k < $30k → remaining binds
-    # $10k / $50 = 200 shares
-    assert shares == 200
+                              mr_sleeve_committed=145_000)
+    # remaining $5k < per-pos $20k → remaining binds: $5k / $50 = 100 shares
+    assert shares == 100
 
 
 def test_size_zero_for_huge_price():

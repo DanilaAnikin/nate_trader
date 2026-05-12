@@ -208,18 +208,21 @@ def get_bear_hedge_target_pct(regime: str | None = None,
     if risk_tier is None:
         risk_tier = get_risk_tier()
 
+    # NEUTRAL hedge removed — backtest showed always-on 10% SH cost
+    # ~$112k in drift bleed during NEUTRAL periods while delivering
+    # almost no protection (NEUTRAL = chop, not crash). Reactivate only
+    # when conditions actually deteriorate (CAUTIOUS or BEAR).
     base = {
         "BULL": 0.0,
-        "NEUTRAL": 10.0,
+        "NEUTRAL": 0.0,
         "BEAR": 25.0,
-    }.get(regime, 10.0)
+    }.get(regime, 0.0)
 
     # Tier modifiers — drawdown adds protection on top of regime
     if risk_tier == "CAUTIOUS":
-        base += 5.0
+        base += 8.0  # mild hedge when we're already bleeding
     elif risk_tier == "HALT":
-        # Floor at 20%: even if regime is technically BULL but we're in HALT,
-        # something is wrong with our positions — hedge until it clears.
+        # Floor at 20% — drawdown is real, hedge no matter what regime
         base = max(base + 10.0, 20.0)
 
     return min(base, 35.0)  # absolute cap

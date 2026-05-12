@@ -262,6 +262,7 @@ def compute_confidence_score(
     spy_20d_return: float | None = None,
     sector: str | None = None,
     four_h: dict | None = None,
+    sector_state: dict | None = None,
 ) -> dict:
     """Compute composite confidence score (0-100), regime-aware.
 
@@ -390,13 +391,15 @@ def compute_confidence_score(
             alpha_score = 5
 
     # ── Sector rotation adjustment (±5) ──
-    # Top-3 sectors by 20d alpha get +5, bottom-3 get −5. Read from
-    # state/sector_strength.json (refreshed daily). Missing data → 0.
+    # Top-3 sectors by 20d alpha get +5, bottom-3 get −5.
+    # Live: reads state/sector_strength.json (refreshed daily pre-market).
+    # Backtest: receives a per-day historical state dict from engine to
+    # avoid the look-ahead bias of using today's snapshot for past days.
     sector_adj = 0
     if sector:
         try:
             from sector_rotation import compute_sector_adjustment
-            sector_adj = compute_sector_adjustment(sector)
+            sector_adj = compute_sector_adjustment(sector, state=sector_state)
         except Exception:
             sector_adj = 0
 
