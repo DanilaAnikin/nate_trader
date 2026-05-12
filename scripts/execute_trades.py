@@ -761,6 +761,317 @@ def manage_bear_hedge(dry_run: bool = False) -> list[dict]:
     return []
 
 
+# ──────────────────────── Mean reversion overlay ───────────────────────────
+
+
+def execute_mr_buys(dry_run: bool = False) -> list[dict]:
+    """Open MR positions in NEUTRAL/BEAR regimes within sleeve cap."""
+    from mean_reversion import (
+        find_candidates as mr_find_candidates,
+        mr_position_size, is_active as mr_is_active,
+        MR_SLEEVE_PCT,
+    )
+    import strategy_metadata as sm
+    from portfolio import get_positions, get_account
+    from research import get_latest_quote
+    from trade import place_limit_order
+
+    regime = get_market_regime()
+    risk_tier = get_risk_tier()
+    if risk_tier == "HALT" or not mr_is_active(regime):
+        return []
+
+    research = load_json(RESEARCH_STATE)
+    spy_20d = research.get("spy", {}).get("twenty_day_return", 0.0)
+
+    symbol_technicals: dict[str, dict] = {}
+    symbol_sectors: dict[str, str | None] = {}
+    for sym, data in research.get("symbols", {}).items():
+        if "error" in data:
+            continue
+        symbol_technicals[sym] = data.get("technicals", {})
+        symbol_sectors[sym] = data.get("info", {}).get("sector")
+
+    candidates = mr_find_candidates(symbol_technicals, symbol_sectors,
+                                    regime, spy_20d_return=spy_20d)
+    if not candidates:
+        return []
+
+    try:
+        acct = get_account()
+        equity = acct["equity"]
+        cash = acct["cash"]
+    except Exception as e:
+        log.error(f"MR: failed to get account — {e}")
+        return [{"action": "ERROR", "reason": str(e)}]
+
+    positions = get_positions()
+    held = {p["symbol"] for p in positions}
+    by_strategy = sm.positions_by_strategy()
+    mr_symbols = set(by_strategy.get("mr", []))
+    sleeve_committed = sum(
+        p["market_value"] for p in positions if p["symbol"] in mr_symbols
+    )
+
+    log.info(f"MR scan ({regime}): {len(candidates)} candidates, "
+             f"sleeve committed ${sleeve_committed:,.0f} / "
+             f"${equity * MR_SLEEVE_PCT / 100:,.0f}")
+
+    results = []
+    for c in candidates[:5]:  # cap top-5 per cycle
+        if c.symbol in held:
+            continue  # already a momentum/MR/PEAD position — skip
+
+        try:
+            quote = get_latest_quote(c.symbol)
+            price = quote["ask"] if quote["ask"] > 0 else quote["mid"]
+        except Exception as e:
+            log.warning(f"  MR {c.symbol}: quote failed — {e}")
+            continue
+
+        qty = mr_position_size(equity, price, sleeve_committed)
+        if qty <= 0:
+            continue
+
+        cost = qty * price
+        if cost > cash:
+            continue
+
+        if dry_run:
+            results.append({"symbol": c.symbol, "action": "DRY_RUN_MR_BUY",
+                            "qty": qty, "price": price, "score": c.score})
+            continue
+
+        try:
+            order = place_limit_order(c.symbol, qty, "buy", price)
+            sm.mark_position(c.symbol, "mr")
+            sleeve_committed += cost
+            cash -= cost
+            log.info(f"  MR BUY {qty} {c.symbol} @ ${price:.2f} (score {c.score:.2f})")
+            results.append({"symbol": c.symbol, "action": "MR_BUY",
+                            "qty": qty, "price": price, "score": c.score,
+                            "order_id": order["id"]})
+        except Exception as e:
+            log.error(f"  MR {c.symbol}: order failed — {e}")
+            results.append({"symbol": c.symbol, "action": "ERROR",
+                            "reason": str(e)})
+
+    return results
+
+
+def execute_mr_exits(dry_run: bool = False) -> list[dict]:
+    """Close MR positions on target / stop / RSI bounce / time-stop."""
+    from mean_reversion import should_exit_mr
+    import strategy_metadata as sm
+    from portfolio import get_positions
+    from trade import close_position
+
+    research = load_json(RESEARCH_STATE)
+    positions = get_positions()
+    by_strategy = sm.positions_by_strategy()
+    mr_symbols = set(by_strategy.get("mr", []))
+
+    results = []
+    for pos in positions:
+        symbol = pos["symbol"]
+        if symbol not in mr_symbols:
+            continue
+
+        rsi = research.get("symbols", {}).get(symbol, {}).get("technicals", {}).get("rsi_14")
+        held = sm.days_held(symbol) or 0
+        pnl_pct = pos["unrealized_plpc"]
+
+        should_exit, reason = should_exit_mr(pnl_pct, rsi, held)
+        if not should_exit:
+            continue
+
+        if dry_run:
+            results.append({"symbol": symbol, "action": "DRY_RUN_MR_EXIT",
+                            "reason": reason, "pnl_pct": pnl_pct})
+            continue
+
+        try:
+            r = close_position(symbol)
+            sm.unmark_position(symbol)
+            log.info(f"  MR EXIT {symbol}: {reason}")
+            results.append({"symbol": symbol, "action": "MR_EXIT",
+                            "reason": reason, "pnl_pct": pnl_pct,
+                            "order_id": r.get("order_id")})
+        except Exception as e:
+            log.error(f"  MR exit {symbol} failed: {e}")
+            results.append({"symbol": symbol, "action": "ERROR",
+                            "reason": str(e)})
+
+    return results
+
+
+# ──────────────────────────── PEAD overlay ─────────────────────────────────
+
+
+def execute_pead_buys(dry_run: bool = False) -> list[dict]:
+    """PEAD = Post-Earnings Announcement Drift. Buys 1-2 days after a beat.
+
+    Reads `state/earnings_surprises.json` (refreshed by Perplexity in
+    pre-market routine). Falls back to price-action proxy if data is
+    missing — yesterday's close > 3% above prior close + volume > 2× avg
+    + earnings 1-2 days ago counts as a "soft beat".
+    """
+    from pead_strategy import is_pead_setup, score_pead
+    from earnings_calendar import days_until_earnings, load_calendar
+    import strategy_metadata as sm
+    from portfolio import get_positions, get_account
+    from research import get_latest_quote
+    from trade import place_limit_order
+
+    if get_risk_tier() == "HALT":
+        return []
+
+    surprises = load_json(STATE_DIR / "earnings_surprises.json") or {}
+    cal = load_calendar()
+
+    research = load_json(RESEARCH_STATE)
+    positions = get_positions()
+    held = {p["symbol"] for p in positions}
+
+    try:
+        acct = get_account()
+        equity = acct["equity"]
+        cash = acct["cash"]
+    except Exception:
+        return []
+
+    # PEAD sleeve cap — 15% of equity, 3% per position
+    PEAD_SLEEVE_PCT = 15.0
+    PEAD_POSITION_PCT = 3.0
+    by_strategy = sm.positions_by_strategy()
+    pead_symbols = set(by_strategy.get("pead", []))
+    sleeve_committed = sum(
+        p["market_value"] for p in positions if p["symbol"] in pead_symbols
+    )
+    sleeve_remaining = equity * PEAD_SLEEVE_PCT / 100 - sleeve_committed
+
+    results = []
+    for sym, data in research.get("symbols", {}).items():
+        if "error" in data or sym in held:
+            continue
+        if sleeve_remaining <= 0:
+            break
+
+        # Look up earnings recency
+        # Try days_until: a recent earnings means it would be in the past
+        # (negative) so we estimate days_since via opposite logic
+        sym_cal = cal.get("dates", {}).get(sym)
+        days_since: int | None = None
+        if sym_cal:
+            try:
+                next_er = datetime.strptime(sym_cal, "%Y-%m-%d").date()
+                # next earnings ~90 days out implies last was ~90 days ago
+                today_d = datetime.now().date()
+                if next_er > today_d:
+                    # Look at distance from the typical 90d cycle
+                    quarter = 91
+                    days_since = quarter - (next_er - today_d).days
+                    if days_since < 0 or days_since > 14:
+                        days_since = None
+            except ValueError:
+                pass
+
+        # Surprise data (Perplexity-fetched) takes precedence
+        info = surprises.get(sym, {})
+        eps_surprise_pct = info.get("eps_surprise_pct")
+        gap_up_pct = info.get("gap_up_pct")
+        volume_ratio_post = info.get("volume_ratio")
+        days_since_earnings = info.get("days_since") if info else days_since
+
+        # Price-action proxy if no explicit data
+        tech = data.get("technicals", {})
+        if eps_surprise_pct is None:
+            # Use 5d return > +5% as proxy for "stock reacted positively"
+            five_d = tech.get("five_day_return", 0)
+            if five_d > 5:
+                eps_surprise_pct = 6.0  # proxy
+        if gap_up_pct is None:
+            five_d = tech.get("five_day_return", 0)
+            if five_d > 3:
+                gap_up_pct = 4.0  # proxy
+        if volume_ratio_post is None:
+            volume_ratio_post = tech.get("volume_ratio")
+
+        if not is_pead_setup(eps_surprise_pct, gap_up_pct,
+                             volume_ratio_post, days_since_earnings):
+            continue
+
+        score = score_pead(eps_surprise_pct, gap_up_pct, volume_ratio_post)
+
+        try:
+            quote = get_latest_quote(sym)
+            price = quote["ask"] if quote["ask"] > 0 else quote["mid"]
+        except Exception:
+            continue
+
+        per_pos_dollars = min(equity * PEAD_POSITION_PCT / 100, sleeve_remaining)
+        qty = max(0, int(per_pos_dollars / price))
+        if qty <= 0 or qty * price > cash:
+            continue
+
+        if dry_run:
+            results.append({"symbol": sym, "action": "DRY_RUN_PEAD_BUY",
+                            "qty": qty, "score": score})
+            continue
+
+        try:
+            order = place_limit_order(sym, qty, "buy", price)
+            sm.mark_position(sym, "pead")
+            sleeve_remaining -= qty * price
+            cash -= qty * price
+            log.info(f"  PEAD BUY {qty} {sym} @ ${price:.2f} (score {score:.2f})")
+            results.append({"symbol": sym, "action": "PEAD_BUY",
+                            "qty": qty, "score": score, "order_id": order["id"]})
+        except Exception as e:
+            results.append({"symbol": sym, "action": "ERROR", "reason": str(e)})
+
+    return results
+
+
+def execute_pead_exits(dry_run: bool = False) -> list[dict]:
+    """Close PEAD positions on target / stop / 10d time-stop."""
+    from pead_strategy import should_exit_pead
+    import strategy_metadata as sm
+    from portfolio import get_positions
+    from trade import close_position
+
+    positions = get_positions()
+    by_strategy = sm.positions_by_strategy()
+    pead_symbols = set(by_strategy.get("pead", []))
+
+    results = []
+    for pos in positions:
+        symbol = pos["symbol"]
+        if symbol not in pead_symbols:
+            continue
+        held = sm.days_held(symbol) or 0
+        pnl_pct = pos["unrealized_plpc"]
+        should_exit, reason = should_exit_pead(pnl_pct, held)
+        if not should_exit:
+            continue
+        if dry_run:
+            results.append({"symbol": symbol, "action": "DRY_RUN_PEAD_EXIT",
+                            "reason": reason, "pnl_pct": pnl_pct})
+            continue
+        try:
+            r = close_position(symbol)
+            sm.unmark_position(symbol)
+            log.info(f"  PEAD EXIT {symbol}: {reason}")
+            results.append({"symbol": symbol, "action": "PEAD_EXIT",
+                            "reason": reason, "pnl_pct": pnl_pct,
+                            "order_id": r.get("order_id")})
+        except Exception as e:
+            results.append({"symbol": symbol, "action": "ERROR",
+                            "reason": str(e)})
+
+    return results
+
+
 # ───────────────────────────── orchestration ──────────────────────────────
 
 
@@ -790,17 +1101,46 @@ def run_execution(dry_run: bool = False) -> dict:
 
     sells = execute_sells(dry_run=dry_run)
 
+    # Strategy-specific exits run BEFORE buys so they free cash for next picks
+    mr_exits = execute_mr_exits(dry_run=dry_run)
+    if mr_exits:
+        log.info(f"MR exits: {len([e for e in mr_exits if e.get('action') == 'MR_EXIT'])}")
+
+    pead_exits = execute_pead_exits(dry_run=dry_run)
+    if pead_exits:
+        log.info(f"PEAD exits: {len([e for e in pead_exits if e.get('action') == 'PEAD_EXIT'])}")
+
     # Hedge sizing runs BEFORE directional buys so it can claim cash first
     hedge = manage_bear_hedge(dry_run=dry_run)
     if hedge:
         log.info(f"Bear hedge actions: {len(hedge)}")
 
     buys = execute_buys(dry_run=dry_run)
+
+    # MR + PEAD buys run AFTER momentum buys so momentum claims slots first.
+    # Sleeve caps prevent them from over-allocating.
+    mr_buys = execute_mr_buys(dry_run=dry_run)
+    if mr_buys:
+        log.info(f"MR buys: {len([m for m in mr_buys if m.get('action') == 'MR_BUY'])}")
+
+    pead_buys = execute_pead_buys(dry_run=dry_run)
+    if pead_buys:
+        log.info(f"PEAD buys: {len([p for p in pead_buys if p.get('action') == 'PEAD_BUY'])}")
+
     time_stops = execute_time_stops(dry_run=dry_run)
 
     from portfolio import save_positions_state, update_performance_state
     save_positions_state()
     update_performance_state()
+
+    # Sync metadata with reality (in case Alpaca closed positions externally)
+    try:
+        from portfolio import get_positions
+        import strategy_metadata as sm
+        current = {p["symbol"] for p in get_positions()}
+        sm.sync_with_positions(current)
+    except Exception as e:
+        log.warning(f"strategy_metadata sync skipped: {e}")
 
     result = {
         "timestamp": get_now_str(),
@@ -812,6 +1152,10 @@ def run_execution(dry_run: bool = False) -> dict:
         "sells": sells,
         "hedge": hedge,
         "buys": buys,
+        "mr_buys": mr_buys,
+        "mr_exits": mr_exits,
+        "pead_buys": pead_buys,
+        "pead_exits": pead_exits,
         "time_stops": time_stops,
         "dry_run": dry_run,
     }
