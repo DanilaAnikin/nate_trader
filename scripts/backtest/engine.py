@@ -513,10 +513,23 @@ def run_backtest(config: BacktestConfig) -> dict:
             news = news_proxy_score(bars, symbol=sym, date=prev_day)
             px = perplexity_proxy_score(bars, symbol=sym, date=prev_day)
             sec = get_symbol_info(sym).get("sector")
+
+            # ML features — extracted once per (symbol, day), then attached
+            # to the technicals dict via "_ml_features" so compute_
+            # confidence_score can call predict_proba without re-fetching bars.
+            try:
+                from ml_signals import extract_features as _ml_extract
+                ml_feat = _ml_extract(bars, regime=regime)
+                if ml_feat:
+                    tech["_ml_features"] = ml_feat
+            except Exception:
+                pass
+            tech["_symbol"] = sym  # let sentiment lookup find it
+
             conf = compute_confidence_score(
                 tech, news, px, regime=regime, risk_tier=risk_tier,
                 spy_20d_return=spy_20d, sector=sec,
-                sector_state=sector_state,  # historical recompute per day
+                sector_state=sector_state,
             )
             scored[sym] = {"technicals": tech, "confidence": conf}
 

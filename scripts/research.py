@@ -428,7 +428,35 @@ def compute_confidence_score(
         except Exception:
             mtf_adj = 0
 
-    total = tech_score + catalyst_score + alpha_score + sector_adj + mtf_adj
+    # ── ML aggregator adjustment (−5 to +5) ──
+    # Random-forest classifier trained on engineered features (RSI, MACD,
+    # returns, regime, etc) predicts forward 5-day return > +2%. The
+    # probability is mapped to ±5 score points. Silently returns 0 if
+    # no model trained yet (graceful degrade).
+    ml_adj = 0
+    try:
+        from ml_signals import extract_features as _ml_features, predict_proba, ml_score_from_proba
+        # We don't have the bars df here — caller can pre-compute features
+        # and pass via technicals.get("_ml_features"). Otherwise we skip.
+        ml_features = technicals.get("_ml_features")
+        if ml_features:
+            proba = predict_proba(ml_features)
+            ml_adj = ml_score_from_proba(proba)
+    except Exception:
+        ml_adj = 0
+
+    # ── Retail sentiment adjustment (−3 to +3) ──
+    sent_adj = 0
+    try:
+        from sentiment import get_sentiment_score, sentiment_to_adjustment
+        # Use technicals._symbol shortcut, or skip if absent
+        sym = technicals.get("_symbol")
+        if sym:
+            sent_adj = sentiment_to_adjustment(get_sentiment_score(sym))
+    except Exception:
+        sent_adj = 0
+
+    total = tech_score + catalyst_score + alpha_score + sector_adj + mtf_adj + ml_adj + sent_adj
 
     threshold = params["score_threshold"]
     # Action bands scale with regime (lower thresholds = wider HOLD band)
@@ -448,6 +476,8 @@ def compute_confidence_score(
         "alpha_score": alpha_score,
         "sector_adj": sector_adj,
         "mtf_adj": mtf_adj,
+        "ml_adj": ml_adj,
+        "sent_adj": sent_adj,
         "total": total,
         "action": action,
         "threshold_used": threshold,
