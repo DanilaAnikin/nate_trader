@@ -1,0 +1,67 @@
+name: Auto-Sweep (weekly param search)
+
+on:
+  schedule:
+    - cron: '0 6 * * 0'  # Sunday 06:00 UTC — quiet weekend window
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v6
+      - run: git pull --rebase origin main
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+
+      - name: Download fresh historical bars
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python3 scripts/backtest/run.py download --start 2020-01-01
+
+      - name: Train ML model
+        run: python3 scripts/ml_signals.py train
+
+      - name: Run parameter sweep
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python3 scripts/backtest/run.py sweep --start 2021-01-01
+
+      - name: Run walk-forward
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python3 scripts/backtest/run.py walk-forward --start 2021-01-01
+
+      - name: Run compare (defaults vs sweep best)
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python3 scripts/backtest/run.py compare --start 2021-01-01
+
+      - name: Track + commit
+        run: |
+          python3 scripts/auto_iteration.py track || true
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git checkout state/backtest/manifest.json 2>/dev/null || true
+            git pull --rebase=true --autostash origin main || { git rebase --abort 2>/dev/null; sleep 5; continue; }
+            python3 scripts/backtest/rebuild_manifest.py
+            git add state/ -A
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "auto-sweep weekly run $(date +%Y-%m-%d)"
+            if git push origin main; then exit 0; fi
+            git reset --soft HEAD~1
+            sleep 5
+          done
