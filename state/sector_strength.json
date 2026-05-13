@@ -1,0 +1,39 @@
+{
+  "updated_at": "2026-05-13 12:09:04",
+  "lookback_days": 20,
+  "spy_return": 5.790639514112184,
+  "sector_returns": {
+    "Technology": 17.353391466418167,
+    "Financial": -2.2143404907975395,
+    "Healthcare": -1.0928407091622794,
+    "Industrial": 1.442841287458374,
+    "Consumer": 0.41470949176927174,
+    "Energy": 2.6091634537792396,
+    "Materials": 1.6355140186915973,
+    "Utilities": -3.171844449272221,
+    "RealEstate": 1.7509503513420066,
+    "Communication": -0.9286870580216489
+  },
+  "sector_alpha": {
+    "Technology": 11.562751952305984,
+    "Financial": -8.004980004909722,
+    "Healthcare": -6.8834802232744625,
+    "Industrial": -4.3477982266538096,
+    "Consumer": -5.375930022342912,
+    "Energy": -3.181476060332944,
+    "Materials": -4.155125495420586,
+    "Utilities": -8.962483963384404,
+    "RealEstate": -4.039689162770177,
+    "Communication": -6.719326572133832
+  },
+  "top_sectors": [
+    "Technology",
+    "Energy",
+    "RealEstate"
+  ],
+  "bottom_sectors": [
+    "Healthcare",
+    "Financial",
+    "Utilities"
+  ]
+}
