@@ -1,0 +1,36 @@
+{
+  "history": [
+    {
+      "date": "2026-05-14",
+      "timestamp": "2026-05-14 03:01:59",
+      "run_id": "single_20260514_070159",
+      "alpha_annual_pct": -13.3292,
+      "total_return_pct": 12.315,
+      "annual_return_pct": 2.1982,
+      "sharpe_ratio": 0.1845,
+      "max_drawdown_pct": -21.5675,
+      "n_trades": 3085,
+      "win_rate_pct": 48.85,
+      "ml_test_auc": 0.5689483348100958,
+      "ml_test_accuracy": 0.6493849867800897,
+      "ml_trained_at": "2026-05-14 02:20:46"
+    }
+  ],
+  "best_run": {
+    "date": "2026-05-14",
+    "timestamp": "2026-05-14 03:01:59",
+    "run_id": "single_20260514_070159",
+    "alpha_annual_pct": -13.3292,
+    "total_return_pct": 12.315,
+    "annual_return_pct": 2.1982,
+    "sharpe_ratio": 0.1845,
+    "max_drawdown_pct": -21.5675,
+    "n_trades": 3085,
+    "win_rate_pct": 48.85,
+    "ml_test_auc": 0.5689483348100958,
+    "ml_test_accuracy": 0.6493849867800897,
+    "ml_trained_at": "2026-05-14 02:20:46"
+  },
+  "last_updated": "2026-05-14 03:01:59",
+  "n_iterations": 1
+}
