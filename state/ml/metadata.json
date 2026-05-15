@@ -1,47 +1,47 @@
 {
-  "trained_at": "2026-05-14 02:20:46",
-  "n_samples_total": 43492,
-  "n_samples_train": 34793,
-  "n_samples_test": 8699,
+  "trained_at": "2026-05-15 02:27:23",
+  "n_samples_total": 43526,
+  "n_samples_train": 34820,
+  "n_samples_test": 8706,
   "label_threshold_pct": 2.0,
   "label_horizon_days": 5,
-  "positive_class_rate": 0.34277568288420857,
-  "train_accuracy": 0.682666053516512,
-  "test_accuracy": 0.6493849867800897,
-  "train_auc": 0.733285514966044,
-  "test_auc": 0.5689483348100958,
+  "positive_class_rate": 0.34285254790240316,
+  "train_accuracy": 0.6827685238368754,
+  "test_accuracy": 0.6498966230186078,
+  "train_auc": 0.73364551331958,
+  "test_auc": 0.5696837216119132,
   "top_features": [
     {
       "name": "atr_pct",
-      "importance": 0.15315667783402234
+      "importance": 0.15084721907370546
     },
     {
       "name": "vol_20d_std",
-      "importance": 0.11432331351030788
+      "importance": 0.11655981169011659
     },
     {
       "name": "ret_60d",
-      "importance": 0.1031256810604895
+      "importance": 0.10397246396574189
     },
     {
       "name": "ret_5d",
-      "importance": 0.08559478538888135
+      "importance": 0.08402479129447549
     },
     {
       "name": "rsi_14",
-      "importance": 0.08308956792640998
+      "importance": 0.08319067443655546
     },
     {
       "name": "high_low_range_pct",
-      "importance": 0.08051818030642567
+      "importance": 0.08194366594476041
     },
     {
       "name": "ret_20d",
-      "importance": 0.07736100701985092
+      "importance": 0.07855574575928821
     },
     {
       "name": "volume_ratio",
-      "importance": 0.07001588536696059
+      "importance": 0.07013706846881367
     }
   ],
   "feature_names": [
