@@ -30,3 +30,7 @@ Trading lessons captured from experience. Updated weekly during the Friday revie
 ## Week Ending 2026-05-08
 - Grade: C | Weekly: +0.53% | Alpha: -1.83%
 - Positions: 5 | Risk Tier: NORMAL
+
+## Week Ending 2026-05-15
+- Grade: F | Weekly: -2.05% | Alpha: -2.73%
+- Positions: 11 | Risk Tier: CAUTIOUS
