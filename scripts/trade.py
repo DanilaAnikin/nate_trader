@@ -143,36 +143,35 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
 
 def calculate_position_size(symbol: str, entry_price: float,
                             atr: float | None = None) -> int:
-    """Calculate position size respecting all limits — regime adaptive.
+    """Calculate position size — v3 vol-targeted with allocation cap.
 
-    Three sizing methods, take the smallest:
-      1. Allocation cap: max_position_pct of equity (from strategy_config)
-      2. Risk-based: risk_per_trade_pct of equity, assuming trailing_stop_pct loss
-      3. ATR-based: (equity * risk_pct) / (ATR_14 * 2) — volatility-aware sizing
+    Primary rule: shares = (equity × risk_pct) / (k × ATR_14)
+      where k = `atr_stop_multiple` from strategy_config (2.0 BULL / 2.5 NEUTRAL
+      / 3.0 BEAR). Normalises **dollar risk per trade across volatility regimes** —
+      a 2-ATR move stops us out for ~risk_pct of equity, regardless of whether
+      the name moves 1 %/day or 6 %/day.
 
-    All knobs scale up in BULL/NORMAL and down in BEAR/CAUTIOUS.
+    Allocation cap: never more than `max_position_pct` of equity.
+
+    Fallback when ATR is unavailable: legacy %-trail-stop sizing.
     """
     from strategy_config import get_strategy_params
     acct = client.get_account()
     equity = float(acct.equity)
     params = get_strategy_params()
 
-    # 1. Allocation limit
     max_pct = params["max_position_pct"] / 100.0
+    risk_pct = params["risk_per_trade_pct"] / 100.0
     alloc_shares = int((equity * max_pct) / entry_price)
 
-    # 2. Risk-based sizing
-    risk_pct = params["risk_per_trade_pct"] / 100.0
-    stop_pct = params["trailing_stop_pct"] / 100.0
-    risk_shares = int((equity * risk_pct) / (entry_price * stop_pct))
-
-    # 3. ATR-based sizing — smaller positions in volatile names
     if atr and atr > 0:
-        atr_shares = int((equity * risk_pct) / (atr * 2))
+        k = params.get("atr_stop_multiple", 2.0)
+        primary = int((equity * risk_pct) / (k * atr))
     else:
-        atr_shares = alloc_shares  # no ATR data → don't constrain
+        stop_pct = params["trailing_stop_pct"] / 100.0
+        primary = int((equity * risk_pct) / (entry_price * stop_pct))
 
-    shares = min(alloc_shares, risk_shares, atr_shares)
+    shares = min(primary, alloc_shares)
 
     # Subtract existing position
     try:

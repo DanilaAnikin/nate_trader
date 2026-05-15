@@ -277,18 +277,19 @@ def _compute_gate_score(
 
 def _position_size(equity: float, entry_price: float, params: dict,
                     atr: float | None = None) -> int:
-    """Mirror trade.calculate_position_size — regime-adaptive with ATR."""
+    """Mirror trade.calculate_position_size — v3 vol-targeted with cap."""
     max_pct = params["max_position_pct"] / 100.0
-    alloc_shares = int((equity * max_pct) / entry_price)
     risk_pct = params["risk_per_trade_pct"] / 100.0
-    stop_pct = params["trailing_stop_pct"] / 100.0
-    risk_shares = int((equity * risk_pct) / (entry_price * stop_pct))
-    # ATR-based sizing — smaller positions in volatile names
+    alloc_shares = int((equity * max_pct) / entry_price)
+
     if atr and atr > 0:
-        atr_shares = int((equity * risk_pct) / (atr * 2))
+        k = params.get("atr_stop_multiple", 2.0)
+        primary = int((equity * risk_pct) / (k * atr))
     else:
-        atr_shares = alloc_shares
-    return max(0, min(alloc_shares, risk_shares, atr_shares))
+        stop_pct = params["trailing_stop_pct"] / 100.0
+        primary = int((equity * risk_pct) / (entry_price * stop_pct))
+
+    return max(0, min(primary, alloc_shares))
 
 
 # ─────────────────────────── trade-day mechanics ───────────────────────────
@@ -359,18 +360,21 @@ def _check_scale_outs(portfolio: SimulatedPortfolio, day_highs: dict[str, float]
 def _check_time_stops(portfolio: SimulatedPortfolio, day_opens: dict[str, float],
                       date: str, params: dict, slippage_bps: float,
                       provider: BarProvider) -> int:
-    """Close positions held > time_stop_days without time_stop_min_gain."""
+    """Close positions held > time_stop_days **and** currently in the red.
+
+    v3: a flat/positive position at day 30 is *not* a failed momentum trade —
+    it just hasn't broken out yet. Only stop out losers; let trailing stop
+    handle winners.
+    """
     closed = 0
     max_days = params["time_stop_days"]
-    min_gain = params["time_stop_min_gain"]
 
     for symbol in list(portfolio.positions.keys()):
         p = portfolio.positions[symbol]
         if p.is_hedge:
             continue
-        if p.unrealized_plpc >= min_gain:
+        if p.unrealized_plpc >= 0:
             continue
-        # Count trading days held using SPY calendar
         held_days = len(provider.all_trading_days("SPY", start=p.entry_date, end=date)) - 1
         if held_days < max_days:
             continue
@@ -401,11 +405,31 @@ def _check_catalyst_flips(portfolio: SimulatedPortfolio, scored: dict[str, dict]
     return closed
 
 
+def _spy_below_sma200(provider: BarProvider, today: str) -> bool:
+    """Backtest equivalent of strategy_config._spy_below_sma200.
+
+    Reads bars up to `today`, compares the most recent close to its 200-SMA.
+    Fail-safe: insufficient history → True (don't strip an existing hedge).
+    """
+    bars = provider.bars_up_to("SPY", today, lookback_days=210)
+    if bars is None or len(bars) < 200:
+        return True
+    closes = bars["close"].astype(float)
+    sma_200 = float(closes.rolling(window=200).mean().iloc[-1])
+    return float(closes.iloc[-1]) < sma_200
+
+
 def _manage_hedge(portfolio: SimulatedPortfolio, provider: BarProvider,
                   date: str, regime: str, risk_tier: str,
                   slippage_bps: float) -> None:
-    """Buy/trim/exit SH to match target % for regime + risk tier."""
-    target_pct = get_bear_hedge_target_pct(regime, risk_tier)
+    """Buy/trim/exit SH to match target % for regime + risk tier.
+
+    v3: hedge target zeroed when SPY ≥ SMA200 (structural uptrend).
+    """
+    if not _spy_below_sma200(provider, date):
+        target_pct = 0.0
+    else:
+        target_pct = get_bear_hedge_target_pct(regime, risk_tier)
     equity = portfolio.equity()
     if equity <= 0:
         return
@@ -540,8 +564,10 @@ def run_backtest(config: BacktestConfig) -> dict:
         _manage_hedge(portfolio, provider, date, regime, risk_tier, config.slippage_bps)
 
         # 8-10. Score-sorted buys subject to gate score + caps + cash floor
+        # v3: NEUTRAL regime can opt out of new buys entirely (still holds + hedges)
         gate_min = params.get("gate_score_min", 0.65)
-        if risk_tier != "HALT":
+        block_buys = params.get("block_new_buys", False)
+        if risk_tier != "HALT" and not block_buys:
             ranked = sorted(scored.items(),
                             key=lambda kv: kv[1]["confidence"]["total"],
                             reverse=True)

@@ -272,6 +272,12 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
         log.warning("HALT mode — no new buys allowed")
         return [{"action": "HALT", "reason": "Risk tier is HALT — no new buys"}]
 
+    params = get_strategy_params(regime, risk_tier)
+    if params.get("block_new_buys"):
+        log.info(f"{regime}/{risk_tier}: new directional buys blocked by strategy_config "
+                 "(v3 — sells, scale-outs and hedge still active).")
+        return [{"action": "BLOCK", "reason": f"{regime}/{risk_tier} blocks new buys (v3)"}]
+
     try:
         acct = get_account()
         cash_pct = acct.get("cash_pct", 50.0)
@@ -285,7 +291,7 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
         f"| cash={cash_pct:.1f}% | threshold={min_score}"
     )
 
-    gate_min = get_strategy_params(regime, risk_tier).get("gate_score_min", 0.65)
+    gate_min = params.get("gate_score_min", 0.65)
 
     for candidate in candidates:
         symbol = candidate["symbol"]
@@ -504,7 +510,11 @@ def execute_scale_outs(dry_run: bool = False) -> list[dict]:
 
 
 def execute_time_stops(dry_run: bool = False) -> list[dict]:
-    """Close positions held > time_stop_days without time_stop_min_gain.
+    """Close positions held > time_stop_days **and** currently in the red.
+
+    v3 rule: a flat/positive position is *not* a failed momentum trade —
+    it just hasn't broken out yet. Only force-close losers; the trailing
+    stop manages winners.
 
     Uses Alpaca order history to determine real entry date. Falls back to
     skipping if entry date can't be determined.
@@ -515,7 +525,6 @@ def execute_time_stops(dry_run: bool = False) -> list[dict]:
 
     params = get_strategy_params()
     max_days = params["time_stop_days"]
-    min_gain = params["time_stop_min_gain"]
 
     results = []
     positions = get_positions()
@@ -524,8 +533,9 @@ def execute_time_stops(dry_run: bool = False) -> list[dict]:
     for pos in positions:
         symbol = pos["symbol"]
         pnl_pct = pos["unrealized_plpc"]
-        if pnl_pct >= min_gain:
-            continue  # making enough progress — leave it alone
+        # v3 rule: only close if held too long AND in the red
+        if pnl_pct >= 0:
+            continue
 
         entry = _get_position_entry_date(symbol)
         if entry is None:
@@ -534,7 +544,7 @@ def execute_time_stops(dry_run: bool = False) -> list[dict]:
         if days_held < max_days:
             continue
 
-        log.info(f"  {symbol}: time stop — held {days_held}d at {pnl_pct:+.2f}% (max {max_days}d / min +{min_gain}%)")
+        log.info(f"  {symbol}: time stop — held {days_held}d at {pnl_pct:+.2f}% (max {max_days}d, gate pnl<0)")
         if dry_run:
             results.append({"symbol": symbol, "action": "DRY_RUN_TIME_STOP",
                             "days_held": days_held, "pnl_pct": pnl_pct})

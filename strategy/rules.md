@@ -37,7 +37,7 @@ exceeds `max_cash_pct` (forces capital deployment).
 
 ## Confidence Scoring (0–100) — Rebalanced
 
-### Technical Score (max 50)
+### Technical Score (max 50) — v3 momentum-aligned
 | Signal | Points |
 |--------|--------|
 | Price > 20-SMA AND 50-SMA (uptrend) | 12 |
@@ -46,9 +46,11 @@ exceeds `max_cash_pct` (forces capital deployment).
 | MACD > signal line | 7 |
 | MACD > 0 (above zero line bonus) | 3 |
 | Volume confirmation (≥ vol_min_ratio) | up to 5 |
-| ATR squeeze (ATR% < 2.5% = low vol entry) | up to 5 |
-| Bollinger position (price near lower BB) | up to 3 |
+| 20-day high breakout (within 2% = 4, within 5% = 2) | up to 4 |
+| 50-day high breakout (new high = 6, within 3% = 3) | up to 6 |
 | 20-day momentum (≥+10% = 5, ≥+5% = 3, ≥0% = 1) | up to 5 |
+
+*v3 removed mean-reversion bonuses (ATR squeeze, Bollinger lower-band).*
 
 ### Catalyst Score (max 25) — combined news + perplexity
 - News: rescaled from 0-35 → 0-12

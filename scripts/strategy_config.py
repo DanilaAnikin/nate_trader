@@ -47,10 +47,12 @@ _PARAMS = {
         "tightened_stop_pct": 6.0,
         "scale_out_at_gain": 12.0,       # was 15 — bank profits earlier
         "final_target_gain": 25.0,       # was 30 — still ambitious but realistic
-        "time_stop_days": 12,            # was 15 — flush stale positions sooner
-        "time_stop_min_gain": 4.0,
+        "time_stop_days": 30,            # v3: let momentum trades mature
+        "time_stop_min_gain": 0.0,       # v3: close only if in the red
         "max_positions": 14,             # was 12 — more diversification slots
         "gate_score_min": 0.55,
+        "block_new_buys": False,         # v3: BULL trades freely
+        "atr_stop_multiple": 2.0,        # v3: vol-target sizing — tighter in BULL
     },
     ("BULL", "CAUTIOUS"): {
         "score_threshold": 55,
@@ -70,10 +72,12 @@ _PARAMS = {
         "tightened_stop_pct": 5.0,
         "scale_out_at_gain": 10.0,
         "final_target_gain": 20.0,
-        "time_stop_days": 12,
-        "time_stop_min_gain": 4.0,
+        "time_stop_days": 30,            # v3
+        "time_stop_min_gain": 0.0,       # v3
         "max_positions": 10,
         "gate_score_min": 0.60,
+        "block_new_buys": False,
+        "atr_stop_multiple": 2.0,
     },
     # ────────────────────── NEUTRAL regime ─────────────────────
     ("NEUTRAL", "NORMAL"): {
@@ -94,10 +98,13 @@ _PARAMS = {
         "tightened_stop_pct": 5.0,
         "scale_out_at_gain": 12.0,
         "final_target_gain": 20.0,
-        "time_stop_days": 12,
-        "time_stop_min_gain": 4.0,
+        "time_stop_days": 30,            # v3
+        "time_stop_min_gain": 0.0,       # v3
         "max_positions": 12,
         "gate_score_min": 0.65,
+        # v3: NEUTRAL was −12% over 5y. Hold winners + hedge, do not open new.
+        "block_new_buys": True,
+        "atr_stop_multiple": 2.5,        # wider stops in choppier tape
     },
     ("NEUTRAL", "CAUTIOUS"): {
         "score_threshold": 65,
@@ -117,10 +124,12 @@ _PARAMS = {
         "tightened_stop_pct": 4.0,
         "scale_out_at_gain": 10.0,
         "final_target_gain": 15.0,
-        "time_stop_days": 10,
-        "time_stop_min_gain": 4.0,
+        "time_stop_days": 30,            # v3
+        "time_stop_min_gain": 0.0,       # v3
         "max_positions": 10,
         "gate_score_min": 0.70,
+        "block_new_buys": True,          # v3
+        "atr_stop_multiple": 2.5,
     },
     # ──────────────────────── BEAR regime ──────────────────────
     ("BEAR", "NORMAL"): {
@@ -141,10 +150,12 @@ _PARAMS = {
         "tightened_stop_pct": 4.0,
         "scale_out_at_gain": 8.0,
         "final_target_gain": 15.0,
-        "time_stop_days": 8,
-        "time_stop_min_gain": 3.0,
+        "time_stop_days": 30,            # v3
+        "time_stop_min_gain": 0.0,       # v3
         "max_positions": 8,
         "gate_score_min": 0.80,
+        "block_new_buys": False,         # BEAR trades RS-strong names only — gate is enough
+        "atr_stop_multiple": 3.0,        # v3: widest stops in BEAR — vol is highest
     },
     ("BEAR", "CAUTIOUS"): {
         "score_threshold": 80,           # was 90 — still very selective
@@ -164,10 +175,12 @@ _PARAMS = {
         "tightened_stop_pct": 3.0,
         "scale_out_at_gain": 7.0,
         "final_target_gain": 12.0,
-        "time_stop_days": 6,
-        "time_stop_min_gain": 3.0,
+        "time_stop_days": 30,            # v3
+        "time_stop_min_gain": 0.0,       # v3
         "max_positions": 5,
         "gate_score_min": 0.85,
+        "block_new_buys": False,
+        "atr_stop_multiple": 3.0,
     },
 }
 
@@ -195,27 +208,49 @@ def get_strategy_params(regime: str | None = None, risk_tier: str | None = None)
     return dict(_PARAMS[(regime, risk_tier)])  # copy so callers can mutate safely
 
 
+def _spy_below_sma200() -> bool:
+    """Return True iff most recent SPY close is below its 200-day SMA.
+
+    v3 hard gate: SH hedge only activates in a structural downtrend, defined
+    as "SPY below 200-SMA" (canonical institutional bull/bear line). Without
+    this gate, even BEAR-regime detection sometimes fires in multi-week
+    pullbacks within a structural uptrend and bleeds via the hedge.
+
+    Fail-safe: if research state lacks the SMA200 field, default to True so
+    we DON'T strip an existing hedge based on missing data.
+    """
+    research = load_json(RESEARCH_STATE)
+    spy = research.get("spy", {})
+    price = spy.get("price")
+    sma200 = spy.get("sma_200")
+    if price is None or sma200 is None:
+        return True  # fail-safe
+    return float(price) < float(sma200)
+
+
 def get_bear_hedge_target_pct(regime: str | None = None,
                               risk_tier: str | None = None) -> float:
     """Target SH (inverse SPY) allocation as % of equity.
 
-    The hedge sizing follows two signals:
+    The hedge sizing follows three signals:
+      • SPY 200-day SMA — structural bull (above) vs bear (below). v3 HARD GATE.
+        If SPY ≥ SMA200, target is 0 regardless of regime/tier.
       • Market regime — how directional is the downside risk?
       • Risk tier    — are we already in drawdown?
 
-    Designed so transitions are gradual (no whipsaw): NEUTRAL holds a small
-    hedge, BEAR scales it up, and a CAUTIOUS/HALT tier adds extra protection
-    regardless of regime. Max possible target is 35%.
+    NEUTRAL was already de-hedged in v2 (backtest showed ~$112k drift bleed).
+    v3 layers the SMA200 gate on top of that so even BEAR-regime fires don't
+    activate the hedge during multi-year SPY uptrends.
     """
     if regime is None:
         regime = get_market_regime()
     if risk_tier is None:
         risk_tier = get_risk_tier()
 
-    # NEUTRAL hedge removed — backtest showed always-on 10% SH cost
-    # ~$112k in drift bleed during NEUTRAL periods while delivering
-    # almost no protection (NEUTRAL = chop, not crash). Reactivate only
-    # when conditions actually deteriorate (CAUTIOUS or BEAR).
+    # v3 hard gate — no hedge in structural uptrend
+    if not _spy_below_sma200():
+        return 0.0
+
     base = {
         "BULL": 0.0,
         "NEUTRAL": 0.0,
@@ -224,9 +259,8 @@ def get_bear_hedge_target_pct(regime: str | None = None,
 
     # Tier modifiers — drawdown adds protection on top of regime
     if risk_tier == "CAUTIOUS":
-        base += 8.0  # mild hedge when we're already bleeding
+        base += 8.0
     elif risk_tier == "HALT":
-        # Floor at 20% — drawdown is real, hedge no matter what regime
         base = max(base + 10.0, 20.0)
 
     return min(base, 35.0)  # absolute cap

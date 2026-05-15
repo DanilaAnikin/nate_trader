@@ -68,7 +68,7 @@ block. Rebalances when actual drift > 2% of equity. See `strategy_config.get_bea
 
 ## Confidence Scoring System (0–100)
 
-### Technical Score (max 50) — regime-adaptive RSI
+### Technical Score (max 50) — regime-adaptive, momentum-aligned (v3)
 | Signal | Points |
 |--------|--------|
 | Price > 20-SMA and 50-SMA | 12 |
@@ -77,9 +77,11 @@ block. Rebalances when actual drift > 2% of equity. See `strategy_config.get_bea
 | MACD > signal | 7 |
 | MACD > 0 (above zero line) | 3 |
 | Volume confirmation (vs `volume_min_ratio`) | up to 5 |
-| ATR squeeze (ATR% < 2.5%) | up to 5 |
-| Bollinger position (near lower band) | up to 3 |
+| 20-day high breakout (within 2% = 4, within 5% = 2) | up to 4 |
+| 50-day high breakout (new high = 6, within 3% = 3) | up to 6 |
 | 20-day momentum (≥+10% = 5 / ≥+5% = 3 / ≥0% = 1) | up to 5 |
+
+*v3 removed (mean-reversion noise): ATR squeeze bonus, Bollinger lower-band bonus.*
 
 ### Catalyst Score (max 25) — combined news + perplexity
 News (0-35) rescaled to 0-12, Perplexity (0-30) rescaled to 0-13.

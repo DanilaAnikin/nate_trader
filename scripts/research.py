@@ -200,6 +200,22 @@ def compute_technicals(df: pd.DataFrame) -> dict:
     else:
         current_atr = None
 
+    # v3 — Donchian-style highs for breakout scoring. Uses the 20/50 days
+    # BEFORE today, so "new high" means today actually broke out.
+    high_series = high.astype(float)
+    if len(high_series) >= 21:
+        high_20d = float(high_series.iloc[-21:-1].max())
+    else:
+        high_20d = float(high_series.iloc[:-1].max()) if len(high_series) >= 2 else current_price
+    if len(high_series) >= 51:
+        high_50d = float(high_series.iloc[-51:-1].max())
+    elif len(high_series) >= 2:
+        high_50d = float(high_series.iloc[:-1].max())
+    else:
+        high_50d = current_price
+    pct_from_20d_high = (current_price / high_20d - 1) * 100 if high_20d > 0 else 0.0
+    pct_from_50d_high = (current_price / high_50d - 1) * 100 if high_50d > 0 else 0.0
+
     return {
         "price": current_price,
         "sma_20": current_sma20,
@@ -219,6 +235,13 @@ def compute_technicals(df: pd.DataFrame) -> dict:
         "atr_pct": (current_atr / current_price * 100) if current_atr and current_price else None,
         "above_sma20": current_price > current_sma20 if current_sma20 else None,
         "above_sma50": current_price > current_sma50 if current_sma50 else None,
+        # v3 momentum fields
+        "high_20d": high_20d,
+        "high_50d": high_50d,
+        "pct_from_20d_high": pct_from_20d_high,
+        "pct_from_50d_high": pct_from_50d_high,
+        "new_20d_high": current_price >= high_20d,
+        "new_50d_high": current_price >= high_50d,
     }
 
 
@@ -327,24 +350,25 @@ def compute_confidence_score(
         elif vol_ratio >= params["volume_min_ratio"]:
             tech_score += 3
 
-    # 5) ATR squeeze — low volatility entry signal (max 5)
-    atr_pct = technicals.get("atr_pct")
-    if atr_pct is not None:
-        if atr_pct < 1.5:
-            tech_score += 5   # very tight — coiled spring
-        elif atr_pct < 2.5:
-            tech_score += 3   # moderate squeeze
+    # 5) 20-day high breakout (max 4) — v3 momentum signal
+    pct_from_20d = technicals.get("pct_from_20d_high")
+    if pct_from_20d is not None:
+        if pct_from_20d >= -2.0:     # within 2% of (or above) 20-day high
+            tech_score += 4
+        elif pct_from_20d >= -5.0:   # within 5%
+            tech_score += 2
 
-    # 6) Bollinger position — near lower band = entry (max 3)
-    price = technicals.get("price")
-    bb_lower = technicals.get("bb_lower")
-    bb_upper = technicals.get("bb_upper")
-    if price and bb_lower and bb_upper and bb_upper > bb_lower:
-        bb_position = (price - bb_lower) / (bb_upper - bb_lower)
-        if bb_position < 0.3:
-            tech_score += 3   # near lower band
-        elif bb_position < 0.5:
-            tech_score += 1   # lower half
+    # 6) 50-day high breakout (max 6) — v3 new structural high
+    pct_from_50d = technicals.get("pct_from_50d_high")
+    new_50d = technicals.get("new_50d_high")
+    if pct_from_50d is not None:
+        if new_50d or pct_from_50d >= 0.0:
+            tech_score += 6
+        elif pct_from_50d >= -3.0:
+            tech_score += 3
+
+    # v3 removed: ATR squeeze (+5), Bollinger lower-band (+3) — mean-rev noise
+    # conflicted with momentum thesis. The 10 points reallocated to breakout.
 
     # 7) 20-day momentum (max 5)
     twenty_d = technicals.get("twenty_day_return")
@@ -487,7 +511,7 @@ def compute_confidence_score(
 
 def get_spy_benchmark() -> dict:
     """Get SPY benchmark data for comparison."""
-    df = get_bars("SPY", days=80)
+    df = get_bars("SPY", days=220)  # v3: enough for 200-SMA
     technicals = compute_technicals(df)
 
     # Monthly return (approx 22 trading days)
@@ -502,6 +526,12 @@ def get_spy_benchmark() -> dict:
         twenty_day_return = (float(close.iloc[-1]) / float(close.iloc[-21]) - 1) * 100
     else:
         twenty_day_return = month_return
+
+    # 200-day SMA — v3 hedge gate uses this
+    if len(close) >= 200:
+        sma_200 = float(close.rolling(window=200).mean().iloc[-1])
+    else:
+        sma_200 = None
 
     # Market regime
     price = technicals.get("price", 0)
@@ -522,6 +552,8 @@ def get_spy_benchmark() -> dict:
         "price": technicals.get("price"),
         "sma_20": sma20,
         "sma_50": sma50,
+        "sma_200": sma_200,
+        "below_sma_200": (price < sma_200) if (price and sma_200) else None,
         "rsi_14": technicals.get("rsi_14"),
         "five_day_return": technicals.get("five_day_return"),
         "twenty_day_return": twenty_day_return,
