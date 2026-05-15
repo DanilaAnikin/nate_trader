@@ -29,6 +29,7 @@ class Position:
     scaled_out: bool = False
     tightened_stop: bool = False
     is_hedge: bool = False
+    is_base: bool = False  # v4: SPY structural beta position
 
     @property
     def market_value(self) -> float:
@@ -60,8 +61,9 @@ class ClosedTrade:
     exit_price: float
     pnl: float
     pnl_pct: float
-    reason: str  # "stop" | "scale_out" | "final_target" | "time_stop" | "catalyst_flip" | "hedge_exit"
+    reason: str  # "stop" | "scale_out" | "final_target" | "time_stop" | "catalyst_flip" | "hedge_exit" | "base_rebal" | "flatten_transition"
     is_hedge: bool = False
+    is_base: bool = False
 
 
 @dataclass
@@ -97,7 +99,7 @@ class SimulatedPortfolio:
         return (self.cash / e * 100) if e > 0 else 0.0
 
     def open(self, symbol: str, qty: int, fill_price: float, date: str,
-             is_hedge: bool = False) -> bool:
+             is_hedge: bool = False, is_base: bool = False) -> bool:
         """Open or augment a position. Returns True if filled."""
         if qty <= 0 or fill_price <= 0:
             return False
@@ -122,6 +124,7 @@ class SimulatedPortfolio:
                 current_price=fill_price,
                 high_since_entry=fill_price,
                 is_hedge=is_hedge,
+                is_base=is_base,
             )
         self.cash -= cost
         return True
@@ -145,6 +148,7 @@ class SimulatedPortfolio:
             pnl_pct=pnl_pct,
             reason=reason,
             is_hedge=p.is_hedge,
+            is_base=p.is_base,
         )
         p.qty -= qty
         self.cash += proceeds
@@ -173,6 +177,7 @@ class SimulatedPortfolio:
             pnl_pct=pnl_pct,
             reason=reason,
             is_hedge=p.is_hedge,
+            is_base=p.is_base,
         )
         self.cash += proceeds
         self.closed_trades.append(trade)
@@ -193,10 +198,16 @@ class SimulatedPortfolio:
         return self.positions.get(symbol)
 
     def non_hedge_position_count(self) -> int:
-        return sum(1 for p in self.positions.values() if not p.is_hedge)
+        """Count of directional bets — excludes hedge AND base (v4)."""
+        return sum(1 for p in self.positions.values()
+                   if not p.is_hedge and not p.is_base)
 
     def hedge_value(self) -> float:
         return sum(p.market_value for p in self.positions.values() if p.is_hedge)
+
+    def base_value(self) -> float:
+        """Total market value of structural beta positions (SPY core)."""
+        return sum(p.market_value for p in self.positions.values() if p.is_base)
 
     def has_scaled_out(self, symbol: str) -> bool:
         return symbol in self._scaled_out_symbols
@@ -246,6 +257,7 @@ class SimulatedPortfolio:
                     "entry_price": t.entry_price, "exit_price": t.exit_price,
                     "pnl": t.pnl, "pnl_pct": t.pnl_pct,
                     "reason": t.reason, "is_hedge": t.is_hedge,
+                    "is_base": t.is_base,
                 }
                 for t in self.closed_trades
             ],
@@ -255,7 +267,7 @@ class SimulatedPortfolio:
                     "qty": p.qty, "avg_entry_price": p.avg_entry_price,
                     "current_price": p.current_price, "market_value": p.market_value,
                     "unrealized_pl": p.unrealized_pl, "unrealized_plpc": p.unrealized_plpc,
-                    "is_hedge": p.is_hedge,
+                    "is_hedge": p.is_hedge, "is_base": p.is_base,
                 }
                 for p in self.positions.values()
             ],

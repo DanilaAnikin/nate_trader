@@ -30,29 +30,31 @@ _PARAMS = {
     # keep BULL aggressive enough to harvest momentum but pull back on
     # individual-position blast radius.
     ("BULL", "NORMAL"): {
-        "score_threshold": 48,           # was 45 — slightly more selective
+        "score_threshold": 48,
         "rsi_sweet_low": 55,
         "rsi_sweet_high": 80,
         "rsi_acceptable_low": 45,
         "rsi_acceptable_high": 88,
-        "volume_min_ratio": 1.1,         # was 1.0 — require modest conviction
+        "volume_min_ratio": 1.1,
         "rs_lookback_days": 20,
-        "rs_alpha_min": -3.0,            # was −5: don't load up on chronic laggards
-        "min_cash_pct": 5.0,             # was 3 — keep small dry-powder buffer
+        "rs_alpha_min": -3.0,
+        "min_cash_pct": 5.0,
         "max_cash_pct": 15.0,
-        "cash_starve_bonus": 8,          # was 10 — less aggressive starve
-        "risk_per_trade_pct": 1.2,       # was 1.5 — smaller per-trade risk
-        "max_position_pct": 7.0,         # was 10 — less concentrated single-name risk
-        "trailing_stop_pct": 9.0,        # was 10 — slightly tighter
-        "tightened_stop_pct": 6.0,
-        "scale_out_at_gain": 12.0,       # was 15 — bank profits earlier
-        "final_target_gain": 25.0,       # was 30 — still ambitious but realistic
-        "time_stop_days": 30,            # v3: let momentum trades mature
-        "time_stop_min_gain": 0.0,       # v3: close only if in the red
-        "max_positions": 14,             # was 12 — more diversification slots
+        "cash_starve_bonus": 8,
+        "risk_per_trade_pct": 1.2,
+        "max_position_pct": 7.0,
+        "trailing_stop_pct": 14.0,       # v4: was 9 — ride normal pullbacks
+        "tightened_stop_pct": 9.0,       # v4: was 6 — same reasoning
+        "scale_out_at_gain": 999.0,      # v4: disabled — let winners run
+        "final_target_gain": 999.0,      # v4: disabled — trailing stop manages exit
+        "time_stop_days": 30,
+        "time_stop_min_gain": 0.0,
+        "max_positions": 14,
         "gate_score_min": 0.55,
-        "block_new_buys": False,         # v3: BULL trades freely
-        "atr_stop_multiple": 2.0,        # v3: vol-target sizing — tighter in BULL
+        "block_new_buys": False,
+        "atr_stop_multiple": 2.5,        # v4: wider — matches widened trail
+        "spy_base_pct": 50.0,            # v4: 50% SPY core during BULL/NORMAL
+        "flatten_on_transition": False,  # v4: BULL doesn't flatten
     },
     ("BULL", "CAUTIOUS"): {
         "score_threshold": 55,
@@ -68,20 +70,22 @@ _PARAMS = {
         "cash_starve_bonus": 5,
         "risk_per_trade_pct": 0.8,
         "max_position_pct": 5.0,
-        "trailing_stop_pct": 8.0,
-        "tightened_stop_pct": 5.0,
-        "scale_out_at_gain": 10.0,
-        "final_target_gain": 20.0,
-        "time_stop_days": 30,            # v3
-        "time_stop_min_gain": 0.0,       # v3
+        "trailing_stop_pct": 12.0,       # v4: was 8 — still tighter than NORMAL
+        "tightened_stop_pct": 8.0,       # v4
+        "scale_out_at_gain": 999.0,      # v4: disabled
+        "final_target_gain": 999.0,      # v4: disabled
+        "time_stop_days": 30,
+        "time_stop_min_gain": 0.0,
         "max_positions": 10,
         "gate_score_min": 0.60,
         "block_new_buys": False,
-        "atr_stop_multiple": 2.0,
+        "atr_stop_multiple": 2.5,
+        "spy_base_pct": 30.0,            # v4: smaller SPY core when CAUTIOUS
+        "flatten_on_transition": False,
     },
     # ────────────────────── NEUTRAL regime ─────────────────────
     ("NEUTRAL", "NORMAL"): {
-        "score_threshold": 55,           # was 65 — more deployment
+        "score_threshold": 55,
         "rsi_sweet_low": 50,
         "rsi_sweet_high": 70,
         "rsi_acceptable_low": 40,
@@ -93,18 +97,21 @@ _PARAMS = {
         "max_cash_pct": 30.0,
         "cash_starve_bonus": 8,
         "risk_per_trade_pct": 1.0,
-        "max_position_pct": 8.0,         # was 5%
+        "max_position_pct": 8.0,
         "trailing_stop_pct": 8.0,
         "tightened_stop_pct": 5.0,
         "scale_out_at_gain": 12.0,
         "final_target_gain": 20.0,
-        "time_stop_days": 30,            # v3
-        "time_stop_min_gain": 0.0,       # v3
+        "time_stop_days": 30,
+        "time_stop_min_gain": 0.0,
         "max_positions": 12,
         "gate_score_min": 0.65,
-        # v3: NEUTRAL was −12% over 5y. Hold winners + hedge, do not open new.
         "block_new_buys": True,
-        "atr_stop_multiple": 2.5,        # wider stops in choppier tape
+        "atr_stop_multiple": 2.5,
+        # v4 iter 2: keep SPY base in NEUTRAL — captures sideways/slow-up market beta.
+        # Flushing the SPY core forces re-entry at higher prices and racks up slippage.
+        "spy_base_pct": 30.0,
+        "flatten_on_transition": False,  # v4 iter 2: only flatten on BULL→BEAR
     },
     ("NEUTRAL", "CAUTIOUS"): {
         "score_threshold": 65,
@@ -124,41 +131,45 @@ _PARAMS = {
         "tightened_stop_pct": 4.0,
         "scale_out_at_gain": 10.0,
         "final_target_gain": 15.0,
-        "time_stop_days": 30,            # v3
-        "time_stop_min_gain": 0.0,       # v3
+        "time_stop_days": 30,
+        "time_stop_min_gain": 0.0,
         "max_positions": 10,
         "gate_score_min": 0.70,
-        "block_new_buys": True,          # v3
+        "block_new_buys": True,
         "atr_stop_multiple": 2.5,
+        "spy_base_pct": 20.0,            # v4 iter 2: lighter but still present
+        "flatten_on_transition": False,
     },
     # ──────────────────────── BEAR regime ──────────────────────
     ("BEAR", "NORMAL"): {
-        "score_threshold": 70,           # was 80 — still high but not frozen
+        "score_threshold": 70,
         "rsi_sweet_low": 35,
         "rsi_sweet_high": 60,
         "rsi_acceptable_low": 30,
         "rsi_acceptable_high": 65,
         "volume_min_ratio": 1.3,
         "rs_lookback_days": 20,
-        "rs_alpha_min": 2.0,             # was 5.0 — less restrictive
+        "rs_alpha_min": 2.0,
         "min_cash_pct": 30.0,
         "max_cash_pct": 80.0,
         "cash_starve_bonus": 0,
         "risk_per_trade_pct": 0.5,
-        "max_position_pct": 4.0,         # was 2%
+        "max_position_pct": 4.0,
         "trailing_stop_pct": 6.0,
         "tightened_stop_pct": 4.0,
         "scale_out_at_gain": 8.0,
         "final_target_gain": 15.0,
-        "time_stop_days": 30,            # v3
-        "time_stop_min_gain": 0.0,       # v3
+        "time_stop_days": 30,
+        "time_stop_min_gain": 0.0,
         "max_positions": 8,
         "gate_score_min": 0.80,
-        "block_new_buys": False,         # BEAR trades RS-strong names only — gate is enough
-        "atr_stop_multiple": 3.0,        # v3: widest stops in BEAR — vol is highest
+        "block_new_buys": True,          # v4: BEAR also blocks new buys
+        "atr_stop_multiple": 3.0,
+        "spy_base_pct": 0.0,
+        "flatten_on_transition": True,   # v4: flatten on BULL→BEAR too
     },
     ("BEAR", "CAUTIOUS"): {
-        "score_threshold": 80,           # was 90 — still very selective
+        "score_threshold": 80,
         "rsi_sweet_low": 30,
         "rsi_sweet_high": 55,
         "rsi_acceptable_low": 25,
@@ -175,12 +186,14 @@ _PARAMS = {
         "tightened_stop_pct": 3.0,
         "scale_out_at_gain": 7.0,
         "final_target_gain": 12.0,
-        "time_stop_days": 30,            # v3
-        "time_stop_min_gain": 0.0,       # v3
+        "time_stop_days": 30,
+        "time_stop_min_gain": 0.0,
         "max_positions": 5,
         "gate_score_min": 0.85,
-        "block_new_buys": False,
+        "block_new_buys": True,
         "atr_stop_multiple": 3.0,
+        "spy_base_pct": 0.0,
+        "flatten_on_transition": True,
     },
 }
 

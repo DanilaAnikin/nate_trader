@@ -305,8 +305,8 @@ def _check_trailing_stops(portfolio: SimulatedPortfolio, day_lows: dict[str, flo
 
     for symbol in list(portfolio.positions.keys()):
         p = portfolio.positions[symbol]
-        if p.is_hedge:
-            continue  # hedge exit is regime-driven, not stop-driven
+        if p.is_hedge or p.is_base:
+            continue  # hedge + base are regime-driven, not stop-driven
         if symbol not in day_lows:
             continue
         trail = tight_trail if p.tightened_stop else base_trail
@@ -334,7 +334,7 @@ def _check_scale_outs(portfolio: SimulatedPortfolio, day_highs: dict[str, float]
 
     for symbol in list(portfolio.positions.keys()):
         p = portfolio.positions[symbol]
-        if p.is_hedge:
+        if p.is_hedge or p.is_base:
             continue
         if symbol not in day_highs:
             continue
@@ -371,7 +371,7 @@ def _check_time_stops(portfolio: SimulatedPortfolio, day_opens: dict[str, float]
 
     for symbol in list(portfolio.positions.keys()):
         p = portfolio.positions[symbol]
-        if p.is_hedge:
+        if p.is_hedge or p.is_base:
             continue
         if p.unrealized_plpc >= 0:
             continue
@@ -392,7 +392,7 @@ def _check_catalyst_flips(portfolio: SimulatedPortfolio, scored: dict[str, dict]
     closed = 0
     for symbol in list(portfolio.positions.keys()):
         p = portfolio.positions[symbol]
-        if p.is_hedge:
+        if p.is_hedge or p.is_base:
             continue
         s = scored.get(symbol)
         if not s:
@@ -417,6 +417,85 @@ def _spy_below_sma200(provider: BarProvider, today: str) -> bool:
     closes = bars["close"].astype(float)
     sma_200 = float(closes.rolling(window=200).mean().iloc[-1])
     return float(closes.iloc[-1]) < sma_200
+
+
+SPY_BASE_SYMBOL = "SPY"
+BASE_REBALANCE_THRESHOLD_PCT = 2.0  # only rebalance when drift > 2% of equity
+
+
+def _manage_spy_base(portfolio: SimulatedPortfolio, provider: BarProvider,
+                     date: str, params: dict, slippage_bps: float) -> None:
+    """v4 — maintain a SPY core position at `spy_base_pct` of equity.
+
+    SPY base captures market beta we'd otherwise miss when 100 % in stock
+    picks. Mirrors `_manage_hedge` but for the long side.
+    """
+    target_pct = params.get("spy_base_pct", 0.0)
+    equity = portfolio.equity()
+    if equity <= 0:
+        return
+
+    bar = provider.bar_at(SPY_BASE_SYMBOL, date)
+    if bar is None:
+        return
+    spy_open = bar["open"]
+
+    current_value = portfolio.base_value()
+    target_value = equity * (target_pct / 100)
+    delta = target_value - current_value
+    delta_pct = abs(delta) / equity * 100 if equity > 0 else 0.0
+
+    # Exit entirely if target is 0 and we still hold a SPY base
+    if target_pct == 0.0:
+        p = portfolio.get_position(SPY_BASE_SYMBOL)
+        if p is not None and p.is_base:
+            fill = _sell_fill(spy_open, slippage_bps)
+            portfolio.close(SPY_BASE_SYMBOL, fill, date, reason="base_exit")
+        return
+
+    if delta_pct < BASE_REBALANCE_THRESHOLD_PCT:
+        return
+
+    if delta > 0:
+        fill = _buy_fill(spy_open, slippage_bps)
+        qty = int(delta / fill)
+        if qty >= 1:
+            portfolio.open(SPY_BASE_SYMBOL, qty, fill, date, is_base=True)
+    else:
+        p = portfolio.get_position(SPY_BASE_SYMBOL)
+        if not p:
+            return
+        fill = _sell_fill(spy_open, slippage_bps)
+        qty = int(abs(delta) / fill)
+        qty = min(qty, p.qty - 1) if p.qty > 1 else p.qty
+        if qty >= 1:
+            if qty >= p.qty:
+                portfolio.close(SPY_BASE_SYMBOL, fill, date, reason="base_exit")
+            else:
+                portfolio.partial_close(SPY_BASE_SYMBOL, qty, fill, date, reason="base_rebal")
+
+
+def _flatten_on_transition(portfolio: SimulatedPortfolio, day_opens: dict[str, float],
+                           date: str, slippage_bps: float) -> int:
+    """v4 — close all DIRECTIONAL positions (non-hedge, non-base) at today's open.
+
+    Triggered when regime transitions BULL → NEUTRAL/BEAR. SPY base is
+    handled separately (target drops to 0). SH hedge is managed by
+    `_manage_hedge`.
+
+    Trades a small "could have recovered" optionality for ~zero NEUTRAL bleed.
+    """
+    closed = 0
+    for symbol in list(portfolio.positions.keys()):
+        p = portfolio.positions[symbol]
+        if p.is_hedge or p.is_base:
+            continue
+        if symbol not in day_opens:
+            continue
+        fill = _sell_fill(day_opens[symbol], slippage_bps)
+        portfolio.close(symbol, fill, date, reason="flatten_transition")
+        closed += 1
+    return closed
 
 
 def _manage_hedge(portfolio: SimulatedPortfolio, provider: BarProvider,
@@ -495,6 +574,7 @@ def run_backtest(config: BacktestConfig) -> dict:
     log.info(f"Starting cash: ${config.starting_cash:,.0f} | slippage: {config.slippage_bps} bps")
 
     last_progress = 0
+    prev_regime = None  # v4: track for transition detection
     for idx, date in enumerate(all_days):
         # Build a snapshot of OHLC for all relevant symbols today
         opens, highs, lows, closes = {}, {}, {}, {}
@@ -508,6 +588,18 @@ def run_backtest(config: BacktestConfig) -> dict:
 
         # 1. Mark to market at today's OPEN before any trades fire
         portfolio.mark_to_market(opens)
+
+        # v4: detect regime transition from yesterday's regime to today's
+        regime_today = _spy_regime(provider, date)
+        risk_today_for_trans = _risk_tier(portfolio)
+        params_today = _resolve_params(regime_today, risk_today_for_trans,
+                                       config.param_overrides)
+        if (prev_regime == "BULL" and regime_today in ("NEUTRAL", "BEAR")
+                and params_today.get("flatten_on_transition", False)):
+            flushed = _flatten_on_transition(portfolio, opens, date, config.slippage_bps)
+            if flushed:
+                log.info(f"  {date}: flattened {flushed} directional positions "
+                         f"(BULL→{regime_today} transition)")
 
         # 2-4. Stops, scale-outs, time stops (use highs/lows of TODAY)
         regime_for_stops = _spy_regime(provider, date)
@@ -563,6 +655,9 @@ def run_backtest(config: BacktestConfig) -> dict:
         # 7. Hedge sizing — runs BEFORE buys so it claims cash first
         _manage_hedge(portfolio, provider, date, regime, risk_tier, config.slippage_bps)
 
+        # 7b. v4: SPY base position — capture market beta during BULL regimes
+        _manage_spy_base(portfolio, provider, date, params, config.slippage_bps)
+
         # 8-10. Score-sorted buys subject to gate score + caps + cash floor
         # v3: NEUTRAL regime can opt out of new buys entirely (still holds + hedges)
         gate_min = params.get("gate_score_min", 0.65)
@@ -609,13 +704,15 @@ def run_backtest(config: BacktestConfig) -> dict:
 
         # 11. Daily snapshot
         portfolio.record_snapshot(date, regime, risk_tier)
+        prev_regime = regime_today  # v4: feed tomorrow's transition detector
 
         # Progress logging every 5%
         progress = int(idx / len(all_days) * 100)
         if progress >= last_progress + 5:
+            base_pct = portfolio.base_value() / portfolio.equity() * 100 if portfolio.equity() > 0 else 0
             log.info(f"  [{progress:>3}%] {date} | equity=${portfolio.equity():,.0f} | "
                      f"cash={portfolio.cash_pct():.1f}% | pos={portfolio.non_hedge_position_count()} | "
-                     f"regime={regime}/{risk_tier}")
+                     f"spy_base={base_pct:.0f}% | regime={regime}/{risk_tier}")
             last_progress = progress
 
     final_equity = portfolio.equity()
