@@ -26,14 +26,16 @@ from strategy_config import (
 HEDGE_SYMBOL = "SH"  # ProShares Short S&P500 — 1× inverse, non-leveraged
 HEDGE_REBALANCE_THRESHOLD_PCT = 2.0  # only act on hedge drift > 2% of equity
 SPY_BASE_SYMBOL = "SPY"             # v4: long market beta core position
-BASE_REBALANCE_THRESHOLD_PCT = 2.0  # v4: only act on base drift > 2% equity
+SSO_BASE_SYMBOL = "SSO"             # v7: 2× SPY leveraged BULL base
+BASE_REBALANCE_THRESHOLD_PCT = 2.0
+BASE_CANDIDATES = (SPY_BASE_SYMBOL, SSO_BASE_SYMBOL)
 
 
 def _is_infrastructure(symbol: str) -> bool:
-    """True iff `symbol` is a regime-driven infrastructure position (SPY base
-    or SH hedge), exempt from trading mechanics like trail stops, scale-out,
-    time stops, catalyst flips, and sector caps. v4."""
-    return symbol in (SPY_BASE_SYMBOL, HEDGE_SYMBOL)
+    """True iff `symbol` is a regime-driven infrastructure position (SPY/SSO
+    base, SH hedge), exempt from trading mechanics like trail stops,
+    scale-out, time stops, catalyst flips, and sector caps. v7."""
+    return symbol in (*BASE_CANDIDATES, HEDGE_SYMBOL)
 
 log = setup_logging("execute_trades")
 
@@ -827,14 +829,20 @@ def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
 # ─────────────────── v4: SPY base + regime-transition flatten ───────────
 
 
-def manage_spy_base(dry_run: bool = False) -> list[dict]:
-    """v4 — maintain a SPY core position at `spy_base_pct` of equity.
+def manage_base_position(dry_run: bool = False) -> list[dict]:
+    """v7 — maintain the structural base position at `base_pct` of equity.
 
-    Captures market beta we'd otherwise miss while waiting for stock-pick
-    signals. Mirrors `manage_bear_hedge` but for the long side.
+    The base instrument is `params["base_instrument"]` — SPY or SSO.
+    Different regimes use different instruments:
+      • BULL/NORMAL    → SSO 60 % (≈1.2× effective beta)
+      • NEUTRAL/NORMAL → SPY 40 % (deleveraged)
+      • BEAR           → 0 %     (full cash)
 
-    The SPY base is exempt from sector cap, position-count cap, and HALT
-    block (it's structural infrastructure, not a directional bet).
+    On any regime change that swaps the instrument, the stale base is
+    liquidated first, then the target instrument is sized to target_pct.
+
+    Base positions are exempt from sector cap, position-count cap, and the
+    HALT block (they're structural infrastructure, not directional bets).
     """
     from portfolio import get_positions, get_account
     from research import get_latest_quote
@@ -843,12 +851,13 @@ def manage_spy_base(dry_run: bool = False) -> list[dict]:
     regime = get_market_regime()
     risk_tier = get_risk_tier()
     params = get_strategy_params(regime, risk_tier)
-    target_pct = params.get("spy_base_pct", 0.0)
+    target_pct = params.get("base_pct", params.get("spy_base_pct", 0.0))
+    target_sym = params.get("base_instrument", SPY_BASE_SYMBOL)
 
     try:
         acct = get_account()
     except Exception as e:
-        log.error(f"SPY base: account fetch failed — {e}")
+        log.error(f"Base position: account fetch failed — {e}")
         return [{"action": "ERROR", "reason": f"account: {e}"}]
 
     equity = acct.get("equity", 0.0)
@@ -856,125 +865,168 @@ def manage_spy_base(dry_run: bool = False) -> list[dict]:
         return []
 
     positions = get_positions()
-    spy_pos = next((p for p in positions if p["symbol"] == SPY_BASE_SYMBOL), None)
-    spy_value = spy_pos["market_value"] if spy_pos else 0.0
-    spy_pct = (spy_value / equity * 100.0) if equity > 0 else 0.0
+    held = {p["symbol"]: p for p in positions}
+    results: list[dict] = []
+
+    # Step 1: swap out any base position in a non-target instrument.
+    for sym in BASE_CANDIDATES:
+        if sym == target_sym:
+            continue
+        pos = held.get(sym)
+        if pos is None:
+            continue
+        log.info(f"  Closing stale base {sym} ({pos['qty']:.0f} sh) — swap to {target_sym}")
+        if dry_run:
+            results.append({"symbol": sym, "action": "DRY_RUN_BASE_SWAP",
+                            "qty": pos["qty"], "to": target_sym})
+            continue
+        try:
+            close_position(sym)
+            results.append({"symbol": sym, "action": "BASE_SWAP_OUT",
+                            "qty": pos["qty"], "to": target_sym})
+        except Exception as e:
+            log.error(f"  {sym} swap-out failed — {e}")
+            results.append({"symbol": sym, "action": "ERROR", "reason": str(e)})
+
+    # Step 2: size the target instrument
+    cur_pos = held.get(target_sym)
+    cur_value = cur_pos["market_value"] if cur_pos else 0.0
+    cur_pct = (cur_value / equity * 100.0) if equity > 0 else 0.0
     target_value = equity * (target_pct / 100.0)
-    delta_value = target_value - spy_value
+    delta_value = target_value - cur_value
     delta_pct = abs(delta_value) / equity * 100.0 if equity > 0 else 0.0
 
     log.info(
-        f"SPY base: regime={regime} tier={risk_tier} target={target_pct:.1f}% "
-        f"current={spy_pct:.1f}% delta=${delta_value:+,.0f} ({delta_pct:.1f}%)"
+        f"Base position: regime={regime} tier={risk_tier} target={target_pct:.1f}% "
+        f"{target_sym} current={cur_pct:.1f}% delta=${delta_value:+,.0f} ({delta_pct:.1f}%)"
     )
 
-    # Exit entirely if target is 0
-    if target_pct == 0.0 and spy_pos:
-        log.info(f"  Closing SPY base ({spy_pos['qty']:.0f} sh @ ${spy_pos['current_price']:.2f})")
+    if target_pct == 0.0 and cur_pos:
+        log.info(f"  Closing {target_sym} base ({cur_pos['qty']:.0f} sh)")
         if dry_run:
-            return [{"symbol": SPY_BASE_SYMBOL, "action": "DRY_RUN_BASE_EXIT",
-                     "qty": spy_pos["qty"], "value": spy_value}]
+            results.append({"symbol": target_sym, "action": "DRY_RUN_BASE_EXIT",
+                            "qty": cur_pos["qty"], "value": cur_value})
+            return results
         try:
-            result = close_position(SPY_BASE_SYMBOL)
-            return [{"symbol": SPY_BASE_SYMBOL, "action": "BASE_EXIT",
-                     "qty": spy_pos["qty"], **result}]
+            close_position(target_sym)
+            results.append({"symbol": target_sym, "action": "BASE_EXIT",
+                            "qty": cur_pos["qty"]})
         except Exception as e:
-            log.error(f"  SPY base exit failed — {e}")
-            return [{"symbol": SPY_BASE_SYMBOL, "action": "ERROR", "reason": str(e)}]
+            log.error(f"  {target_sym} base exit failed — {e}")
+            results.append({"symbol": target_sym, "action": "ERROR", "reason": str(e)})
+        return results
 
     if delta_pct < BASE_REBALANCE_THRESHOLD_PCT:
-        return []
+        return results
 
-    # Need to add or trim
     try:
-        quote = get_latest_quote(SPY_BASE_SYMBOL)
+        quote = get_latest_quote(target_sym)
         price = quote["ask"] if delta_value > 0 else quote["bid"]
         if price <= 0:
             price = quote["mid"]
     except Exception as e:
-        log.error(f"  SPY base: quote failed — {e}")
-        return [{"symbol": SPY_BASE_SYMBOL, "action": "ERROR", "reason": f"quote: {e}"}]
+        log.error(f"  {target_sym} base: quote failed — {e}")
+        results.append({"symbol": target_sym, "action": "ERROR", "reason": f"quote: {e}"})
+        return results
 
     if delta_value > 0:
         qty = int(delta_value / price)
         if qty < 1:
-            return []
+            return results
         if dry_run:
-            log.info(f"  DRY RUN — would BUY {qty} SPY @ ${price:.2f} (${qty*price:,.0f})")
-            return [{"symbol": SPY_BASE_SYMBOL, "action": "DRY_RUN_BASE_BUY",
-                     "qty": qty, "price": price, "target_pct": target_pct}]
+            log.info(f"  DRY RUN — would BUY {qty} {target_sym} @ ${price:.2f}")
+            results.append({"symbol": target_sym, "action": "DRY_RUN_BASE_BUY",
+                            "qty": qty, "price": price, "target_pct": target_pct})
+            return results
         try:
-            order = place_limit_order(SPY_BASE_SYMBOL, qty, "buy", price)
-            log.info(f"  SPY BASE BUY {qty} @ ${price:.2f} (order {order['id']})")
-            return [{"symbol": SPY_BASE_SYMBOL, "action": "BASE_BUY",
-                     "qty": qty, "price": price, "target_pct": target_pct,
-                     "order_id": order["id"]}]
+            order = place_limit_order(target_sym, qty, "buy", price)
+            log.info(f"  {target_sym} BASE BUY {qty} @ ${price:.2f}")
+            results.append({"symbol": target_sym, "action": "BASE_BUY",
+                            "qty": qty, "price": price, "target_pct": target_pct,
+                            "order_id": order["id"]})
         except Exception as e:
-            log.error(f"  SPY base BUY failed — {e}")
-            return [{"symbol": SPY_BASE_SYMBOL, "action": "ERROR", "reason": str(e)}]
+            log.error(f"  {target_sym} base BUY failed — {e}")
+            results.append({"symbol": target_sym, "action": "ERROR", "reason": str(e)})
+        return results
 
     # Trim
-    if spy_pos:
+    if cur_pos:
         trim_qty = int(abs(delta_value) / price)
         if trim_qty < 1:
-            return []
-        trim_qty = min(trim_qty, int(spy_pos["qty"]))
+            return results
+        trim_qty = min(trim_qty, int(cur_pos["qty"]))
         if dry_run:
-            log.info(f"  DRY RUN — would TRIM {trim_qty} SPY @ ${price:.2f}")
-            return [{"symbol": SPY_BASE_SYMBOL, "action": "DRY_RUN_BASE_TRIM",
-                     "qty": trim_qty, "price": price, "target_pct": target_pct}]
+            log.info(f"  DRY RUN — would TRIM {trim_qty} {target_sym} @ ${price:.2f}")
+            results.append({"symbol": target_sym, "action": "DRY_RUN_BASE_TRIM",
+                            "qty": trim_qty, "price": price, "target_pct": target_pct})
+            return results
         try:
-            order = place_limit_order(SPY_BASE_SYMBOL, trim_qty, "sell",
+            order = place_limit_order(target_sym, trim_qty, "sell",
                                       round(price * 0.999, 2))
-            log.info(f"  SPY BASE TRIM {trim_qty} @ ${price:.2f}")
-            return [{"symbol": SPY_BASE_SYMBOL, "action": "BASE_TRIM",
-                     "qty": trim_qty, "price": price, "target_pct": target_pct,
-                     "order_id": order["id"]}]
+            log.info(f"  {target_sym} BASE TRIM {trim_qty} @ ${price:.2f}")
+            results.append({"symbol": target_sym, "action": "BASE_TRIM",
+                            "qty": trim_qty, "price": price, "target_pct": target_pct,
+                            "order_id": order["id"]})
         except Exception as e:
-            log.error(f"  SPY base TRIM failed — {e}")
-            return [{"symbol": SPY_BASE_SYMBOL, "action": "ERROR", "reason": str(e)}]
+            log.error(f"  {target_sym} base TRIM failed — {e}")
+            results.append({"symbol": target_sym, "action": "ERROR", "reason": str(e)})
 
-    return []
+    return results
+
+
+# v6-compat alias — call sites in run_execution still call manage_spy_base.
+manage_spy_base = manage_base_position
 
 
 def manage_regime_transition(dry_run: bool = False) -> list[dict]:
-    """v4 — close all directional positions on BULL → NEUTRAL/BEAR transition.
+    """v7 — close all directional positions on CONFIRMED BULL→NEUTRAL/BEAR.
 
-    Reads previous regime from `state/performance.json` (persisted by this
-    function at end). If today's regime is NEUTRAL/BEAR AND yesterday's
-    was BULL AND the current regime cell has `flatten_on_transition=True`,
-    close every non-SPY, non-SH position at market.
+    Confirmation = `REGIME_CONFIRMATION_DAYS` consecutive routine runs with
+    the same raw regime. Avoids the BULL↔NEUTRAL daily-flip churn that
+    cost ~1 %/flip in slippage during v6 iter 1.
 
-    First run (no recorded prev regime) → no-op + record today's regime.
+    State persisted to `state/performance.json`:
+      • regime_history: list of last N raw-regime strings
+      • last_confirmed_regime: the regime once confirmed
     """
     from portfolio import get_positions
     from trade import close_position
     from notify import send_trade_alert
+    from strategy_config import REGIME_CONFIRMATION_DAYS
 
     regime = get_market_regime()
     risk_tier = get_risk_tier()
     params = get_strategy_params(regime, risk_tier)
 
     perf = load_json(PERFORMANCE_STATE) or {}
-    prev_regime = perf.get("previous_regime")
+    history: list[str] = perf.get("regime_history", []) or []
+    history.append(regime)
+    history = history[-REGIME_CONFIRMATION_DAYS:]
 
-    # Always record today's regime for tomorrow's transition check
+    prev_confirmed = perf.get("last_confirmed_regime")
+    if len(history) == REGIME_CONFIRMATION_DAYS and len(set(history)) == 1:
+        confirmed = history[-1]
+    else:
+        confirmed = prev_confirmed or regime
+
+    # Always persist forward
     if not dry_run:
-        perf["previous_regime"] = regime
+        perf["regime_history"] = history
+        perf["last_confirmed_regime"] = confirmed
+        perf["previous_regime"] = regime  # legacy field — kept for back-compat
         save_json(PERFORMANCE_STATE, perf)
 
     if not params.get("flatten_on_transition", False):
         return []
-    if prev_regime != "BULL" or regime not in ("NEUTRAL", "BEAR"):
+    if prev_confirmed != "BULL" or confirmed not in ("NEUTRAL", "BEAR"):
         return []
 
     positions = get_positions()
-    to_flatten = [p for p in positions
-                  if p["symbol"] not in (SPY_BASE_SYMBOL, HEDGE_SYMBOL)]
+    to_flatten = [p for p in positions if not _is_infrastructure(p["symbol"])]
     if not to_flatten:
         return []
 
-    log.info(f"Regime transition {prev_regime} → {regime}: flattening "
+    log.info(f"Confirmed regime {prev_confirmed} → {confirmed}: flattening "
              f"{len(to_flatten)} directional positions")
 
     results = []

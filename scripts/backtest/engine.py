@@ -423,8 +423,12 @@ def _spy_below_sma200(provider: BarProvider, today: str) -> bool:
 
 
 SPY_BASE_SYMBOL = "SPY"
-TQQQ_SYMBOL = "TQQQ"  # v5: leveraged BULL beta (3× QQQ)
+SSO_BASE_SYMBOL = "SSO"  # v7: 2× SPY ProShares — leveraged BULL base
+TQQQ_SYMBOL = "TQQQ"  # v5: leveraged BULL beta (3× QQQ) — disabled in v6+
 BASE_REBALANCE_THRESHOLD_PCT = 2.0  # only rebalance when drift > 2% of equity
+# v7: symbols that may act as the structural base position. Used by
+# _manage_base_position to close stale base instruments on regime change.
+BASE_CANDIDATES = (SPY_BASE_SYMBOL, SSO_BASE_SYMBOL)
 
 
 def _spy_above_sma50_and_sma200(provider: BarProvider, today: str) -> bool:
@@ -444,56 +448,89 @@ def _spy_above_sma50_and_sma200(provider: BarProvider, today: str) -> bool:
     return last > sma50 and last > sma200
 
 
-def _manage_spy_base(portfolio: SimulatedPortfolio, provider: BarProvider,
-                     date: str, params: dict, slippage_bps: float) -> None:
-    """v4 — maintain a SPY core position at `spy_base_pct` of equity.
+def _manage_base_position(portfolio: SimulatedPortfolio, provider: BarProvider,
+                          date: str, params: dict, slippage_bps: float) -> None:
+    """v7 — maintain the structural base position at `base_pct` of equity.
 
-    SPY base captures market beta we'd otherwise miss when 100 % in stock
-    picks. Mirrors `_manage_hedge` but for the long side.
+    The base instrument is `params["base_instrument"]` — either SPY (1× beta)
+    or SSO (2× SPY beta, ProShares Ultra). Different regime cells specify
+    different instruments, e.g.:
+      • BULL/NORMAL    → SSO 60 % (effective 1.2× beta)
+      • NEUTRAL/NORMAL → SPY 40 % (deleveraged)
+      • BEAR           → 0 %     (full cash)
+
+    On regime transitions that change the instrument (e.g. BULL→NEUTRAL
+    swaps SSO for SPY), any existing base position in a non-target
+    instrument is liquidated FIRST, then the target instrument is sized
+    to the new target_pct. This keeps the design compatible with the
+    portfolio_sim `is_base` flag.
+
+    Falls back gracefully if `base_pct` / `base_instrument` are missing
+    (legacy v4-v6 cells use spy_base_pct → defaults).
     """
-    target_pct = params.get("spy_base_pct", 0.0)
+    target_pct = params.get("base_pct", params.get("spy_base_pct", 0.0))
+    target_sym = params.get("base_instrument", SPY_BASE_SYMBOL)
     equity = portfolio.equity()
     if equity <= 0:
         return
 
-    bar = provider.bar_at(SPY_BASE_SYMBOL, date)
+    # Step 1: close any base position that isn't the target instrument.
+    # The freed cash funds the target instrument below.
+    for sym in BASE_CANDIDATES:
+        if sym == target_sym:
+            continue
+        p = portfolio.get_position(sym)
+        if p is None or not p.is_base:
+            continue
+        bar = provider.bar_at(sym, date)
+        if bar is None:
+            continue  # can't sell what we can't price today; carry over
+        fill = _sell_fill(bar["open"], slippage_bps)
+        portfolio.close(sym, fill, date, reason="base_swap")
+
+    # Step 2: size the target instrument.
+    bar = provider.bar_at(target_sym, date)
     if bar is None:
         return
-    spy_open = bar["open"]
+    target_open = bar["open"]
 
-    current_value = portfolio.base_value()
+    current_value = portfolio.base_value()  # only counts is_base positions
     target_value = equity * (target_pct / 100)
     delta = target_value - current_value
     delta_pct = abs(delta) / equity * 100 if equity > 0 else 0.0
 
-    # Exit entirely if target is 0 and we still hold a SPY base
+    # Exit entirely if target is 0 and we still hold a base in target_sym
     if target_pct == 0.0:
-        p = portfolio.get_position(SPY_BASE_SYMBOL)
+        p = portfolio.get_position(target_sym)
         if p is not None and p.is_base:
-            fill = _sell_fill(spy_open, slippage_bps)
-            portfolio.close(SPY_BASE_SYMBOL, fill, date, reason="base_exit")
+            fill = _sell_fill(target_open, slippage_bps)
+            portfolio.close(target_sym, fill, date, reason="base_exit")
         return
 
     if delta_pct < BASE_REBALANCE_THRESHOLD_PCT:
         return
 
     if delta > 0:
-        fill = _buy_fill(spy_open, slippage_bps)
+        fill = _buy_fill(target_open, slippage_bps)
         qty = int(delta / fill)
         if qty >= 1:
-            portfolio.open(SPY_BASE_SYMBOL, qty, fill, date, is_base=True)
+            portfolio.open(target_sym, qty, fill, date, is_base=True)
     else:
-        p = portfolio.get_position(SPY_BASE_SYMBOL)
+        p = portfolio.get_position(target_sym)
         if not p:
             return
-        fill = _sell_fill(spy_open, slippage_bps)
+        fill = _sell_fill(target_open, slippage_bps)
         qty = int(abs(delta) / fill)
         qty = min(qty, p.qty - 1) if p.qty > 1 else p.qty
         if qty >= 1:
             if qty >= p.qty:
-                portfolio.close(SPY_BASE_SYMBOL, fill, date, reason="base_exit")
+                portfolio.close(target_sym, fill, date, reason="base_exit")
             else:
-                portfolio.partial_close(SPY_BASE_SYMBOL, qty, fill, date, reason="base_rebal")
+                portfolio.partial_close(target_sym, qty, fill, date, reason="base_rebal")
+
+
+# v6-compat alias — old call sites still work.
+_manage_spy_base = _manage_base_position
 
 
 def _manage_tqqq(portfolio: SimulatedPortfolio, provider: BarProvider,
@@ -774,11 +811,18 @@ def run_backtest(config: BacktestConfig) -> dict:
     log.info(f"Starting cash: ${config.starting_cash:,.0f} | slippage: {config.slippage_bps} bps")
 
     last_progress = 0
-    prev_regime = None  # v4: track for transition detection
+    # v7: confirmed_regime requires N consecutive days of the same raw regime
+    # before "confirming" a transition. Avoids the BULL↔NEUTRAL daily flips
+    # that wrecked v6 iter 1 (every flip costs ~1 % slippage when we
+    # flatten the directional book).
+    from strategy_config import REGIME_CONFIRMATION_DAYS  # noqa: PLC0415
+    regime_history: list[str] = []
+    confirmed_regime: str | None = None
+    prev_confirmed_regime: str | None = None
     for idx, date in enumerate(all_days):
         # Build a snapshot of OHLC for all relevant symbols today
         opens, highs, lows, closes = {}, {}, {}, {}
-        for sym in candidates + ["SPY", "SH", "TQQQ"]:
+        for sym in candidates + ["SPY", "SH", "TQQQ", "SSO"]:
             bar = provider.bar_at(sym, date)
             if bar:
                 opens[sym] = bar["open"]
@@ -789,22 +833,32 @@ def run_backtest(config: BacktestConfig) -> dict:
         # 1. Mark to market at today's OPEN before any trades fire
         portfolio.mark_to_market(opens)
 
-        # v4: detect regime transition from yesterday's regime to today's
-        regime_today = _spy_regime(provider, date)
+        # v7: smooth raw regime via N-day confirmation window
+        raw_regime = _spy_regime(provider, date)
+        regime_history.append(raw_regime)
+        if len(regime_history) > REGIME_CONFIRMATION_DAYS:
+            regime_history.pop(0)
+        if len(regime_history) == REGIME_CONFIRMATION_DAYS and len(set(regime_history)) == 1:
+            confirmed_regime = regime_history[-1]
+        elif confirmed_regime is None:
+            confirmed_regime = raw_regime  # bootstrap before first confirmation
+
+        regime_today = confirmed_regime
         risk_today_for_trans = _risk_tier(portfolio)
         params_today = _resolve_params(regime_today, risk_today_for_trans,
                                        config.param_overrides)
-        if (prev_regime == "BULL" and regime_today in ("NEUTRAL", "BEAR")
+        if (prev_confirmed_regime == "BULL"
+                and regime_today in ("NEUTRAL", "BEAR")
                 and params_today.get("flatten_on_transition", False)):
             flushed = _flatten_on_transition(portfolio, opens, date, config.slippage_bps)
             if flushed:
                 log.info(f"  {date}: flattened {flushed} directional positions "
-                         f"(BULL→{regime_today} transition)")
+                         f"(confirmed BULL→{regime_today} transition)")
 
         # 2-4. Stops, scale-outs, time stops (use highs/lows of TODAY)
-        regime_for_stops = _spy_regime(provider, date)
+        # v7: use confirmed_regime so stop widths don't whipsaw on single-day flips.
         risk_for_stops = _risk_tier(portfolio)
-        stop_params = _resolve_params(regime_for_stops, risk_for_stops, config.param_overrides)
+        stop_params = _resolve_params(confirmed_regime, risk_for_stops, config.param_overrides)
 
         _check_trailing_stops(portfolio, lows, opens, date, stop_params, config.slippage_bps)
         _check_scale_outs(portfolio, highs, date, stop_params, config.slippage_bps)
@@ -812,7 +866,8 @@ def run_backtest(config: BacktestConfig) -> dict:
 
         # 5. Decide candidates / scores depending on strategy mode.
         prev_day = all_days[idx - 1] if idx > 0 else date
-        regime = _spy_regime(provider, prev_day)
+        # v7: use confirmed_regime for momentum / base / hedge sizing too.
+        regime = confirmed_regime
         _, spy_20d = _spy_returns(provider, prev_day)
         risk_tier = _risk_tier(portfolio)
         params = _resolve_params(regime, risk_tier, config.param_overrides)
@@ -860,7 +915,7 @@ def run_backtest(config: BacktestConfig) -> dict:
         _manage_hedge(portfolio, provider, date, regime, risk_tier, config.slippage_bps)
 
         # 7b. v4: SPY base position — capture market beta during BULL regimes
-        _manage_spy_base(portfolio, provider, date, params, config.slippage_bps)
+        _manage_base_position(portfolio, provider, date, params, config.slippage_bps)
 
         # 7c. v5: TQQQ leveraged BULL beta — gated by SMA50+SMA200 + hard stop
         _manage_tqqq(portfolio, provider, date, params, lows, config.slippage_bps)
@@ -926,7 +981,7 @@ def run_backtest(config: BacktestConfig) -> dict:
 
         # 11. Daily snapshot
         portfolio.record_snapshot(date, regime, risk_tier)
-        prev_regime = regime_today  # v4: feed tomorrow's transition detector
+        prev_confirmed_regime = confirmed_regime  # v7: feed tomorrow's transition
 
         # Progress logging every 5%
         progress = int(idx / len(all_days) * 100)

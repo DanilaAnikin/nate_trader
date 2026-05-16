@@ -53,15 +53,18 @@ _PARAMS = {
         "gate_score_min": 0.55,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,        # v4: wider — matches widened trail
-        # v6: SPY core boosted, TQQQ disabled (multi-regime alpha drag),
-        # momentum_mode enables monthly dual-momentum stock selection.
+        # v7: 60 % SSO (2× SPY leverage) in confirmed BULL/NORMAL — captures
+        # ~1.2× effective beta while top-5 momentum picks add concentrated alpha.
+        "base_pct": 60.0,
+        "base_instrument": "SSO",
+        # v6 back-compat: spy_base_pct mirrors base_pct (legacy live code path).
         "spy_base_pct": 60.0,
         "flatten_on_transition": False,
-        "tqqq_pct": 0.0,                 # v6: leverage off (v5 net-negative alpha)
+        "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
-        "momentum_mode": True,           # v6: 12m dual-momentum stock selection
-        "momentum_min_hold_days": 21,    # v6: monthly rebalance cadence
-        "momentum_top_n": 10,            # v6: concentrate on top-10 (Antonacci)
+        "momentum_mode": True,
+        "momentum_min_hold_days": 21,
+        "momentum_top_n": 5,             # v7: top-5 — academic concentration finding
     },
     ("BULL", "CAUTIOUS"): {
         "score_threshold": 55,
@@ -87,13 +90,16 @@ _PARAMS = {
         "gate_score_min": 0.60,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,
-        "spy_base_pct": 50.0,            # v6: SPY core when CAUTIOUS
+        # v7: CAUTIOUS BULL still uses leverage but smaller allocation
+        "base_pct": 50.0,
+        "base_instrument": "SSO",
+        "spy_base_pct": 50.0,
         "flatten_on_transition": False,
-        "tqqq_pct": 0.0,                 # v6: leverage off
+        "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
-        "momentum_top_n": 8,
+        "momentum_top_n": 4,             # v7: even tighter when CAUTIOUS
     },
     # ────────────────────── NEUTRAL regime ─────────────────────
     ("NEUTRAL", "NORMAL"): {
@@ -118,18 +124,19 @@ _PARAMS = {
         "time_stop_min_gain": 0.0,
         "max_positions": 12,
         "gate_score_min": 0.65,
-        "block_new_buys": True,          # v6: in NEUTRAL, no NEW stock buys
+        "block_new_buys": True,
         "atr_stop_multiple": 2.5,
-        # v6: NEUTRAL holds reduced SPY core for partial market beta; no
-        # new stock picks (chop hurts momentum). Existing positions ride
-        # their trailing stops.
+        # v7: deleverage to plain SPY in NEUTRAL (1× beta), 40% allocation,
+        # and FLATTEN directional positions on confirmed BULL→NEUTRAL.
+        "base_pct": 40.0,
+        "base_instrument": "SPY",
         "spy_base_pct": 40.0,
-        "flatten_on_transition": False,
+        "flatten_on_transition": True,   # v7: cut stocks on regime weakness
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
-        "momentum_top_n": 0,             # v6: no new picks in NEUTRAL
+        "momentum_top_n": 0,
     },
     ("NEUTRAL", "CAUTIOUS"): {
         "score_threshold": 65,
@@ -155,8 +162,11 @@ _PARAMS = {
         "gate_score_min": 0.70,
         "block_new_buys": True,
         "atr_stop_multiple": 2.5,
-        "spy_base_pct": 25.0,            # v6: minimal but non-zero core
-        "flatten_on_transition": False,
+        # v7: same shape as NEUTRAL/NORMAL but smaller — already shaky
+        "base_pct": 25.0,
+        "base_instrument": "SPY",
+        "spy_base_pct": 25.0,
+        "flatten_on_transition": True,
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
@@ -186,15 +196,17 @@ _PARAMS = {
         "time_stop_min_gain": 0.0,
         "max_positions": 8,
         "gate_score_min": 0.80,
-        "block_new_buys": True,          # v4: BEAR also blocks new buys
+        "block_new_buys": True,
         "atr_stop_multiple": 3.0,
-        "spy_base_pct": 0.0,             # v6: 100 % cash in BEAR — capital preservation
-        "flatten_on_transition": True,   # v4: flatten on BULL→BEAR too
+        "base_pct": 0.0,
+        "base_instrument": "SPY",
+        "spy_base_pct": 0.0,
+        "flatten_on_transition": True,
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
-        "momentum_top_n": 0,             # v6: no stock picks in BEAR
+        "momentum_top_n": 0,
     },
     ("BEAR", "CAUTIOUS"): {
         "score_threshold": 80,
@@ -220,6 +232,8 @@ _PARAMS = {
         "gate_score_min": 0.85,
         "block_new_buys": True,
         "atr_stop_multiple": 3.0,
+        "base_pct": 0.0,
+        "base_instrument": "SPY",
         "spy_base_pct": 0.0,
         "flatten_on_transition": True,
         "tqqq_pct": 0.0,
@@ -229,6 +243,12 @@ _PARAMS = {
         "momentum_top_n": 0,
     },
 }
+
+
+# v7: regime confirmation — require N consecutive days of the same SPY/SMA
+# classifier output before treating a transition as "confirmed". Avoids
+# the BULL↔NEUTRAL daily-flip churn that wrecked v6 iter 1.
+REGIME_CONFIRMATION_DAYS = 3
 
 
 def get_strategy_params(regime: str | None = None, risk_tier: str | None = None) -> dict:
