@@ -191,3 +191,74 @@ For live: routines already wired. Just monitor `state/positions.json`,
 For tuning: edit `scripts/strategy_config.py` `_PARAMS` table. The
 cell-table is the single source of truth — every regime/risk_tier
 behaviour flows from there.
+
+---
+
+## Post-revert production hardening (final)
+
+Three corrections were applied after the v9 revert to make v7 truly
+production-ready:
+
+### Fix 1 — `execute_sells` gated by momentum_mode (BUG)
+Before: `execute_sells` read legacy `research.json` scores and would
+close any held position whose `action == "SELL"`. In v7 momentum_mode,
+momentum-picked names also live in research.json, and their legacy
+score could mark them SELL — **prematurely closing winners that
+`manage_momentum_picks` would hold for the full month.**
+
+After: `execute_sells` short-circuits when `momentum_mode=True` (same
+pattern as `execute_buys`). Momentum exits are handled exclusively by:
+- trail stops (ATR-based)
+- time stops (30 days, only if pnl < 0)
+- monthly rebalance drop-from-top-N
+- flatten-on-confirmed-regime-transition
+
+### Fix 2 — Earnings veto in `manage_momentum_picks` (TAIL-RISK)
+Before: the legacy `compute_gate_score` checked `has_earnings_risk()`
+to block buys within 5 trading days of earnings. In v7 momentum_mode
+that path is bypassed → momentum picker could enter a position right
+before binary earnings risk (the worst trade in our 5-y backtest was
+NVO −24 % in a single session — almost certainly an earnings event).
+
+After: `manage_momentum_picks` filters its top-N through
+`has_earnings_risk()` BEFORE deploying capital. Vetoed picks are
+replaced from the next-best momentum names to refill the slate. Filter
+fails open (logs a warning and skips veto) if Perplexity calendar is
+unavailable.
+
+### Fix 3 — SPY 12m return missing → abort, not assume zero (SAFETY)
+Before: when Alpaca couldn't return SPY bars (weekend run, holiday,
+data feed glitch), `_12m_return("SPY") or 0.0` fell back to 0 %.
+That made every stock with positive 12m return appear to "beat SPY"
+and triggered low-quality entries.
+
+After: when `_12m_return("SPY")` returns None, `manage_momentum_picks`
+aborts the rebalance entirely with a warning. Trading will retry on
+the next routine when data is back.
+
+### Other minor cleanups
+- Dry-run CLI handles `result["hedge"]`/`result["buys"]` entries
+  missing a `symbol` key (the SKIP returns from gated paths don't
+  carry a symbol; we don't crash on them).
+- All live module imports verified — fresh checkout passes smoke test.
+
+---
+
+## Validated production state — checklist
+
+- ✓ `strategy_config.py` v7 cells: 60% SSO BULL/N, 50% BULL/C, 40% SPY NEUTRAL/N, 25% NEUTRAL/C, 0% BEAR
+- ✓ `momentum_picker.py` quality filter default OFF (was source of v9 regression)
+- ✓ Sector rotation `pct=0` in all cells (was source of v9 regression)
+- ✓ `execute_sells` skipped in momentum_mode (Fix 1)
+- ✓ `manage_momentum_picks` honours earnings veto (Fix 2)
+- ✓ SPY data-loss abort (Fix 3)
+- ✓ All routines (execute_trades dry-run / midday / candidates,
+  research.py spy, trade.py market) smoke-pass
+- ✓ STATE_DIR import in execute_trades.py (earlier fix preserved)
+- ✓ 549-symbol watchlist with bars cached for all
+- ✓ Slippage 7 bps blended (realistic for the mixed universe)
+
+If a future iteration wants to test small-cap momentum or other v9
+experiments, the infrastructure is present and dormant — just flip
+`sector_rotation_pct` / `apply_quality_filter` / `momentum_top_n`
+back to non-zero values.

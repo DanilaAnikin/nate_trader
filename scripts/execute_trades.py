@@ -398,9 +398,28 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
 
 
 def execute_sells(dry_run: bool = False) -> list[dict]:
-    """Close positions with score < 40."""
+    """Close positions with score < 40 (legacy scoring path).
+
+    v7 production: skipped when momentum_mode is on. The legacy scoring
+    can mark momentum-picked positions as SELL (research.json scores are
+    stale for momentum-mode picks), which would prematurely close winners
+    that `manage_momentum_picks` would otherwise hold for the full month.
+    Momentum-mode exits are managed by:
+      • trail stops (ATR-based)
+      • time stops (30 days, only if pnl < 0)
+      • monthly momentum rebalance (drop-from-top-N)
+      • flatten-on-confirmed-transition (BULL→NEUTRAL/BEAR)
+    """
     from trade import close_position
     from notify import send_trade_alert
+
+    regime = get_market_regime()
+    risk_tier = get_risk_tier()
+    params = get_strategy_params(regime, risk_tier)
+    if params.get("momentum_mode", False):
+        log.info(f"{regime}/{risk_tier}: execute_sells skipped — momentum_mode "
+                 "manages exits via trail stops + monthly rebalance + flatten.")
+        return [{"action": "SKIP", "reason": "momentum_mode active"}]
 
     results = []
     candidates = get_sell_candidates()
@@ -728,7 +747,16 @@ def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
         except Exception:
             return None
 
-    spy_12m = _12m_return("SPY") or 0.0
+    spy_12m_raw = _12m_return("SPY")
+    if spy_12m_raw is None:
+        # v7 hardening: SPY data unavailable (weekend, API outage, holiday).
+        # Bailing out is safer than deploying capital with spy_12m=0 — every
+        # stock with positive 12m return would appear to "beat SPY".
+        log.warning("Momentum rebalance aborted — SPY 12m return unavailable "
+                    "(market closed, holiday, or Alpaca data feed glitch). "
+                    "Will retry on next routine.")
+        return [{"action": "ABORT", "reason": "SPY 12m unavailable"}]
+    spy_12m = spy_12m_raw
 
     ranked: list[tuple[str, float]] = []
     for sym in get_tradeable_symbols():
@@ -738,7 +766,40 @@ def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
         ranked.append((sym, r))
     ranked.sort(key=lambda x: -x[1])
 
-    top_picks = {s for s, _ in ranked[:top_n]} if top_n > 0 else set()
+    raw_top = [s for s, _ in ranked[:top_n]] if top_n > 0 else []
+
+    # v7 production hardening: earnings veto. Block any pick within 5 trading
+    # days of a known earnings release. Binary-risk events (±10-25 % overnight
+    # moves) have no momentum-style edge, and the worst trade in our 5-y
+    # backtest was an earnings-day disaster (NVO −24 % in one session).
+    # Replacement picks are drawn from the next-best momentum names so the
+    # top-N slate is still filled when possible.
+    try:
+        from earnings_calendar import has_earnings_risk
+        ranked_syms_iter = iter(s for s, _ in ranked)
+        clean_top: list[str] = []
+        for sym in raw_top:
+            if has_earnings_risk(sym):
+                log.info(f"  earnings veto: skipping {sym} (within 5 trading days of report)")
+                continue
+            clean_top.append(sym)
+        # Top up with next-best to refill the slate if any were vetoed
+        while len(clean_top) < top_n:
+            try:
+                next_sym = next(ranked_syms_iter)
+            except StopIteration:
+                break
+            if next_sym in clean_top or next_sym in raw_top:
+                continue
+            if has_earnings_risk(next_sym):
+                continue
+            clean_top.append(next_sym)
+        top_picks = set(clean_top)
+    except Exception as e:
+        # Fail-open: if earnings calendar is unavailable, don't block trading
+        log.warning(f"  earnings filter unavailable, no veto applied: {e}")
+        top_picks = set(raw_top)
+
     log.info(f"  SPY 12m={spy_12m:+.1f}%  |  top picks ({len(top_picks)}): "
              f"{', '.join(sorted(top_picks))}")
 
@@ -1673,10 +1734,13 @@ if __name__ == "__main__":
               f"scale-out: {len([s for s in result['scale_outs'] if s.get('action') in ('DRY_RUN_SCALE_OUT', 'DRY_RUN_FINAL_TARGET')])} | "
               f"time-stop: {len([t for t in result['time_stops'] if t.get('action') == 'DRY_RUN_TIME_STOP'])}")
         for h in result["hedge"]:
-            print(f"  {h['symbol']}: {h['action']} — qty={h.get('qty', '?')} target={h.get('target_pct', '?')}%")
+            sym = h.get('symbol', 'SH')
+            print(f"  {sym}: {h.get('action', '?')} — qty={h.get('qty', '?')} target={h.get('target_pct', '?')}%")
         for b in result["buys"]:
+            sym = b.get('symbol', '?')
+            action = b.get('action', '?')
             reason = b.get('reason', f"qty={b.get('qty')} @ ${b.get('price', 0):.2f} score={b.get('score')}")
-            print(f"  {b['symbol']}: {b['action']} — {reason}")
+            print(f"  {sym}: {action} — {reason}")
 
     elif cmd == "midday":
         from trade import execute_stop_losses, sync_trailing_stops
