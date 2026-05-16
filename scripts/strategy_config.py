@@ -53,10 +53,15 @@ _PARAMS = {
         "gate_score_min": 0.55,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,        # v4: wider — matches widened trail
-        "spy_base_pct": 40.0,            # v5: 40% plain SPY core + 30% leveraged
+        # v6: SPY core boosted, TQQQ disabled (multi-regime alpha drag),
+        # momentum_mode enables monthly dual-momentum stock selection.
+        "spy_base_pct": 60.0,
         "flatten_on_transition": False,
-        "tqqq_pct": 30.0,                # v5: 30% TQQQ in confirmed BULL
-        "tqqq_stop_pct": 20.0,           # v5: hard −20% stop on TQQQ leverage sleeve
+        "tqqq_pct": 0.0,                 # v6: leverage off (v5 net-negative alpha)
+        "tqqq_stop_pct": 20.0,
+        "momentum_mode": True,           # v6: 12m dual-momentum stock selection
+        "momentum_min_hold_days": 21,    # v6: monthly rebalance cadence
+        "momentum_top_n": 10,            # v6: concentrate on top-10 (Antonacci)
     },
     ("BULL", "CAUTIOUS"): {
         "score_threshold": 55,
@@ -82,10 +87,13 @@ _PARAMS = {
         "gate_score_min": 0.60,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,
-        "spy_base_pct": 35.0,            # v5: SPY core when CAUTIOUS
+        "spy_base_pct": 50.0,            # v6: SPY core when CAUTIOUS
         "flatten_on_transition": False,
-        "tqqq_pct": 15.0,                # v5: half-size leverage in CAUTIOUS BULL
+        "tqqq_pct": 0.0,                 # v6: leverage off
         "tqqq_stop_pct": 20.0,
+        "momentum_mode": True,
+        "momentum_min_hold_days": 21,
+        "momentum_top_n": 8,
     },
     # ────────────────────── NEUTRAL regime ─────────────────────
     ("NEUTRAL", "NORMAL"): {
@@ -110,14 +118,18 @@ _PARAMS = {
         "time_stop_min_gain": 0.0,
         "max_positions": 12,
         "gate_score_min": 0.65,
-        "block_new_buys": True,
+        "block_new_buys": True,          # v6: in NEUTRAL, no NEW stock buys
         "atr_stop_multiple": 2.5,
-        # v4 iter 2: keep SPY base in NEUTRAL — captures sideways/slow-up market beta.
-        # Flushing the SPY core forces re-entry at higher prices and racks up slippage.
-        "spy_base_pct": 30.0,
-        "flatten_on_transition": False,  # v4 iter 2: only flatten on BULL→BEAR
-        "tqqq_pct": 0.0,                 # v5: no leverage in NEUTRAL chop
+        # v6: NEUTRAL holds reduced SPY core for partial market beta; no
+        # new stock picks (chop hurts momentum). Existing positions ride
+        # their trailing stops.
+        "spy_base_pct": 40.0,
+        "flatten_on_transition": False,
+        "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
+        "momentum_mode": True,
+        "momentum_min_hold_days": 21,
+        "momentum_top_n": 0,             # v6: no new picks in NEUTRAL
     },
     ("NEUTRAL", "CAUTIOUS"): {
         "score_threshold": 65,
@@ -143,10 +155,13 @@ _PARAMS = {
         "gate_score_min": 0.70,
         "block_new_buys": True,
         "atr_stop_multiple": 2.5,
-        "spy_base_pct": 20.0,            # v4 iter 2: lighter but still present
+        "spy_base_pct": 25.0,            # v6: minimal but non-zero core
         "flatten_on_transition": False,
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
+        "momentum_mode": True,
+        "momentum_min_hold_days": 21,
+        "momentum_top_n": 0,
     },
     # ──────────────────────── BEAR regime ──────────────────────
     ("BEAR", "NORMAL"): {
@@ -173,10 +188,13 @@ _PARAMS = {
         "gate_score_min": 0.80,
         "block_new_buys": True,          # v4: BEAR also blocks new buys
         "atr_stop_multiple": 3.0,
-        "spy_base_pct": 0.0,
+        "spy_base_pct": 0.0,             # v6: 100 % cash in BEAR — capital preservation
         "flatten_on_transition": True,   # v4: flatten on BULL→BEAR too
-        "tqqq_pct": 0.0,                 # v5: never hold TQQQ in BEAR
+        "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
+        "momentum_mode": True,
+        "momentum_min_hold_days": 21,
+        "momentum_top_n": 0,             # v6: no stock picks in BEAR
     },
     ("BEAR", "CAUTIOUS"): {
         "score_threshold": 80,
@@ -206,6 +224,9 @@ _PARAMS = {
         "flatten_on_transition": True,
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
+        "momentum_mode": True,
+        "momentum_min_hold_days": 21,
+        "momentum_top_n": 0,
     },
 }
 

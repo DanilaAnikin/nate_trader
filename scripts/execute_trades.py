@@ -269,7 +269,13 @@ def _trading_days_between(start: datetime, end: datetime) -> int:
 
 
 def execute_buys(dry_run: bool = False) -> list[dict]:
-    """Execute BUY orders for qualifying candidates."""
+    """Execute BUY orders for qualifying candidates.
+
+    In v6 momentum_mode this short-circuits — the monthly momentum
+    rebalance handled by `manage_momentum_picks()` is the canonical buy
+    path. We keep the legacy score-driven loop in place so an explicit
+    override (`momentum_mode: False`) falls back cleanly.
+    """
     from trade import validate_order, place_limit_order, calculate_position_size
     from research import get_latest_quote
     from notify import send_trade_alert
@@ -284,6 +290,11 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
         return [{"action": "HALT", "reason": "Risk tier is HALT — no new buys"}]
 
     params = get_strategy_params(regime, risk_tier)
+    if params.get("momentum_mode", False):
+        log.info(f"{regime}/{risk_tier}: execute_buys skipped — momentum_mode "
+                 "uses manage_momentum_picks() instead.")
+        return [{"action": "SKIP", "reason": "momentum_mode active — see manage_momentum_picks"}]
+
     if params.get("block_new_buys"):
         log.info(f"{regime}/{risk_tier}: new directional buys blocked by strategy_config "
                  "(v3 — sells, scale-outs and hedge still active).")
@@ -649,6 +660,165 @@ def tighten_stops_in_profit(dry_run: bool = False) -> list[dict]:
         # Keep only symbols we still hold
         held = {p["symbol"] for p in positions}
         perf["tightened_stops"] = sorted(s for s in tightened if s in held)
+        save_json(PERFORMANCE_STATE, perf)
+
+    return results
+
+
+# ─────────────────── v6: monthly dual-momentum rebalance ────────────────
+
+
+def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
+    """v6 — monthly dual-momentum rebalance for live trading.
+
+    Mirror of `backtest.engine._execute_momentum_picks` for the Alpaca path.
+
+    Trigger: first execution of each calendar month. The previous-execution
+    month is persisted in performance.json under `last_momentum_rebal_ym`.
+
+    Steps when triggered:
+      1. Rank watchlist by 12-month total return (from Alpaca daily bars)
+      2. Filter survivors: must beat SPY's 12m return AND > 0
+      3. Take top-N (regime-tuned, default 10 in BULL/NORMAL)
+      4. Sell currently-held non-infrastructure positions that aren't in
+         the new top-N (only if held ≥ `momentum_min_hold_days`)
+      5. Buy new top-N members not yet held — equal-weight, capped by
+         `max_position_pct` and `min_cash_pct` floor
+    """
+    from datetime import datetime, timezone
+    from research import get_bars, get_latest_quote
+    from trade import place_limit_order, close_position, validate_order
+    from portfolio import get_positions, get_account
+    from notify import send_trade_alert
+    from utils import get_tradeable_symbols, get_symbol_info
+
+    regime = get_market_regime()
+    risk_tier = get_risk_tier()
+    params = get_strategy_params(regime, risk_tier)
+
+    if not params.get("momentum_mode", False):
+        return []
+
+    top_n = int(params.get("momentum_top_n", 10))
+    min_hold = int(params.get("momentum_min_hold_days", 21))
+
+    # Once per month — gated by performance.json
+    today_ym = datetime.now(timezone.utc).strftime("%Y-%m")
+    perf = load_json(PERFORMANCE_STATE) or {}
+    last_ym = perf.get("last_momentum_rebal_ym")
+    if last_ym == today_ym:
+        log.info(f"Momentum rebalance already done for {today_ym} — skipping")
+        return []
+
+    if risk_tier == "HALT":
+        top_n = 0  # HALT means no entries, but SELL of stale picks still OK
+
+    # ──────────── compute 12m returns ────────────
+    log.info(f"Momentum rebalance for {today_ym} — regime={regime}/{risk_tier}, top_n={top_n}")
+
+    def _12m_return(symbol: str) -> float | None:
+        try:
+            df = get_bars(symbol, days=270)  # enough history for 252-day lookback
+            if df is None or len(df) < 252:
+                return None
+            closes = df["close"].astype(float)
+            return (float(closes.iloc[-1]) / float(closes.iloc[-252]) - 1) * 100
+        except Exception:
+            return None
+
+    spy_12m = _12m_return("SPY") or 0.0
+
+    ranked: list[tuple[str, float]] = []
+    for sym in get_tradeable_symbols():
+        r = _12m_return(sym)
+        if r is None or r <= 0 or r <= spy_12m:
+            continue
+        ranked.append((sym, r))
+    ranked.sort(key=lambda x: -x[1])
+
+    top_picks = {s for s, _ in ranked[:top_n]} if top_n > 0 else set()
+    log.info(f"  SPY 12m={spy_12m:+.1f}%  |  top picks ({len(top_picks)}): "
+             f"{', '.join(sorted(top_picks))}")
+
+    results: list[dict] = []
+    positions = get_positions()
+    now = datetime.now(timezone.utc)
+
+    # ──────────── SELL leg ────────────
+    for pos in positions:
+        symbol = pos["symbol"]
+        if _is_infrastructure(symbol):
+            continue
+        if symbol in top_picks:
+            continue
+        entry = _get_position_entry_date(symbol)
+        if entry is None:
+            continue
+        days_held = _trading_days_between(entry, now)
+        if days_held < min_hold:
+            results.append({"symbol": symbol, "action": "SKIP_MIN_HOLD",
+                            "days_held": days_held, "min": min_hold})
+            continue
+        if dry_run:
+            results.append({"symbol": symbol, "action": "DRY_RUN_MOMENTUM_EXIT"})
+            continue
+        try:
+            close_position(symbol)
+            send_trade_alert(symbol, "sell", int(pos["qty"]), pos["current_price"],
+                             f"Momentum rebalance — dropped from top-{top_n}")
+            results.append({"symbol": symbol, "action": "MOMENTUM_EXIT"})
+        except Exception as e:
+            log.error(f"  {symbol}: momentum exit failed — {e}")
+            results.append({"symbol": symbol, "action": "ERROR", "reason": str(e)})
+
+    # ──────────── BUY leg ────────────
+    if top_n > 0 and not params.get("block_new_buys", False):
+        try:
+            acct = get_account()
+            equity = acct.get("equity", 0.0)
+        except Exception as e:
+            log.error(f"Momentum BUY: account fetch failed — {e}")
+            equity = 0.0
+
+        if equity > 0:
+            max_pct = params["max_position_pct"] / 100.0
+            target_value = min(equity / max(top_n, 1) * 0.95, equity * max_pct)
+            held_syms = {p["symbol"] for p in positions}
+            for sym, _r in ranked[:top_n]:
+                if sym in held_syms:
+                    continue
+                try:
+                    quote = get_latest_quote(sym)
+                    price = quote["ask"] if quote["ask"] > 0 else quote["mid"]
+                except Exception as e:
+                    log.warning(f"  {sym}: quote failed — {e}")
+                    continue
+                qty = int(target_value / price)
+                if qty <= 0:
+                    continue
+                validation = validate_order(sym, qty, "buy", price)
+                if not validation["valid"]:
+                    results.append({"symbol": sym, "action": "REJECTED",
+                                    "reasons": validation["reasons"]})
+                    continue
+                if dry_run:
+                    results.append({"symbol": sym, "action": "DRY_RUN_MOMENTUM_BUY",
+                                    "qty": qty, "price": price})
+                    continue
+                try:
+                    order = place_limit_order(sym, qty, "buy", price)
+                    send_trade_alert(sym, "buy", qty, price,
+                                     f"Momentum top-{top_n} pick ({regime})")
+                    results.append({"symbol": sym, "action": "MOMENTUM_BUY",
+                                    "qty": qty, "price": price,
+                                    "order_id": order["id"]})
+                except Exception as e:
+                    log.error(f"  {sym}: momentum buy failed — {e}")
+                    results.append({"symbol": sym, "action": "ERROR", "reason": str(e)})
+
+    # ──────────── persist month marker ────────────
+    if not dry_run:
+        perf["last_momentum_rebal_ym"] = today_ym
         save_json(PERFORMANCE_STATE, perf)
 
     return results
@@ -1339,6 +1509,12 @@ def run_execution(dry_run: bool = False) -> dict:
     spy_base = manage_spy_base(dry_run=dry_run)
     if spy_base:
         log.info(f"SPY base actions: {len(spy_base)}")
+
+    # v6: monthly dual-momentum rebalance — runs BEFORE execute_buys.
+    # When momentum_mode is True (default), execute_buys is a no-op.
+    momentum_picks = manage_momentum_picks(dry_run=dry_run)
+    if momentum_picks:
+        log.info(f"Momentum rebalance actions: {len(momentum_picks)}")
 
     # Options hedge (puts) — supplemental tail-risk layer on top of SH ETF.
     # Silently no-ops if account lacks options trading or no actionable decision.

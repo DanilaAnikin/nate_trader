@@ -43,6 +43,9 @@ from strategy_config import (  # noqa: E402
     get_strategy_params, get_bear_hedge_target_pct,
 )
 from research import compute_confidence_score, compute_technicals  # noqa: E402
+from momentum_picker import (  # noqa: E402
+    rank_universe, select_top_n, spy_12m_return, is_month_start,
+)
 
 from backtest.data_provider import BarProvider
 from backtest.news_proxy import news_proxy_score, perplexity_proxy_score
@@ -638,6 +641,117 @@ def _manage_hedge(portfolio: SimulatedPortfolio, provider: BarProvider,
                 portfolio.partial_close(HEDGE_SYMBOL, qty, fill, date, reason="hedge_trim")
 
 
+# ──────────────────────── v6 momentum execution ────────────────────────
+
+
+def _execute_momentum_picks(*, portfolio: SimulatedPortfolio,
+                            provider: BarProvider,
+                            candidates: list[str],
+                            prev_day: str,
+                            today: str,
+                            params: dict,
+                            opens: dict[str, float],
+                            slippage_bps: float,
+                            risk_tier: str,
+                            block_buys: bool,
+                            prev_date: str | None) -> None:
+    """v6 — monthly dual-momentum rebalance.
+
+    Behaviour:
+      • Rank `candidates` by 12-month return as of `prev_day`. Only stocks
+        with positive 12m return AND beating SPY's 12m return survive.
+      • On the first trading day of each new month (`prev_date`'s YYYY-MM
+        differs from `today`'s), do a clean rebalance: sell positions no
+        longer in the top-N, then buy any new top-N members not yet held.
+      • Minimum hold of `momentum_min_hold_days` (default 21) before any
+        momentum-driven exit. Trailing stops still fire normally.
+      • Equal-weight sizing capped at `max_position_pct` of equity.
+      • Standard 25 % sector cap and `min_cash_pct` floor enforced.
+      • Skipped entirely when `block_buys=True` (NEUTRAL / BEAR) — but
+        the SELL leg of the rebalance still runs so we don't accumulate
+        dead-weight from prior regimes.
+
+    Pure orchestration over the existing portfolio + provider; no I/O.
+    """
+    top_n = int(params.get("momentum_top_n", 10))
+    min_hold = int(params.get("momentum_min_hold_days", 21))
+
+    if risk_tier == "HALT":
+        # HALT means no new entries, but the SELL leg of rebalance is fine.
+        top_n = 0
+
+    # On non-rebalance days, just hold. Stops, SPY base, hedge already ran.
+    if not is_month_start(prev_date, today):
+        return
+
+    # Compute SPY 12-month return as the relative-momentum bar.
+    spy_12m = spy_12m_return(provider, prev_day) or 0.0
+
+    # Rank survivors and pick the top-N (top_n=0 → empty set → pure SELL).
+    ranked = rank_universe(provider, candidates, prev_day, spy_12m)
+    top_picks = set(select_top_n(ranked, top_n))
+
+    # SELL leg — close any directional position no longer in top-N, provided
+    # it has cleared the minimum hold. Infrastructure (SPY base / SH hedge)
+    # is exempt; those are managed by their own functions.
+    for held_sym in list(portfolio.positions.keys()):
+        p = portfolio.positions[held_sym]
+        if p.is_hedge or p.is_base:
+            continue
+        if held_sym in top_picks:
+            continue
+        held_days = max(
+            0,
+            len(provider.all_trading_days("SPY", start=p.entry_date, end=today)) - 1,
+        )
+        if held_days < min_hold:
+            continue
+        if held_sym not in opens:
+            continue
+        fill = _sell_fill(opens[held_sym], slippage_bps)
+        portfolio.close(held_sym, fill, today, reason="momentum_rebal_exit")
+
+    if block_buys or top_n <= 0:
+        return  # no new entries in NEUTRAL / BEAR / HALT
+
+    # BUY leg — equal-weight target per slot, capped by max_position_pct.
+    equity = portfolio.equity()
+    if equity <= 0:
+        return
+    max_pct = params["max_position_pct"] / 100.0
+    target_value_per_slot = min(
+        equity / max(top_n, 1) * 0.95,  # 5 % cushion for slippage / cash floor
+        equity * max_pct,
+    )
+    min_cash = equity * (params.get("min_cash_pct", 5.0) / 100.0)
+
+    for sym in select_top_n(ranked, top_n):
+        if portfolio.non_hedge_position_count() >= top_n:
+            break
+        if portfolio.has_position(sym):
+            continue
+        if sym not in opens:
+            continue
+        fill_price = _buy_fill(opens[sym], slippage_bps)
+        qty = int(target_value_per_slot / fill_price)
+        if qty <= 0:
+            continue
+        cost = qty * fill_price
+        if portfolio.cash - cost < min_cash:
+            continue
+        # 25 % sector cap (treat unknown sector as bypass — same as legacy).
+        info = get_symbol_info(sym)
+        sec = info.get("sector", "Unknown")
+        if sec not in ("Hedge", "Unknown"):
+            sector_value = cost
+            for held_sym, held_p in portfolio.positions.items():
+                if get_symbol_info(held_sym).get("sector") == sec:
+                    sector_value += held_p.market_value
+            if sector_value / equity > 0.25:
+                continue
+        portfolio.open(sym, qty, fill_price, today)
+
+
 # ────────────────────────────── main loop ──────────────────────────────────
 
 
@@ -696,47 +810,51 @@ def run_backtest(config: BacktestConfig) -> dict:
         _check_scale_outs(portfolio, highs, date, stop_params, config.slippage_bps)
         _check_time_stops(portfolio, opens, date, stop_params, config.slippage_bps, provider)
 
-        # 5. Compute today's scores using bars UP TO YESTERDAY (no peeking)
+        # 5. Decide candidates / scores depending on strategy mode.
         prev_day = all_days[idx - 1] if idx > 0 else date
         regime = _spy_regime(provider, prev_day)
         _, spy_20d = _spy_returns(provider, prev_day)
-        sector_state = _historical_sector_state(provider, prev_day, spy_20d)
         risk_tier = _risk_tier(portfolio)
         params = _resolve_params(regime, risk_tier, config.param_overrides)
 
+        # v6: momentum_mode bypasses the heavy compute_confidence_score path
+        # (technicals + news + perplexity + sector + ML + sentiment) entirely.
+        # Pure 12-month-momentum picking is faster AND produces measurably
+        # better alpha in academic literature (Jegadeesh & Titman 1993,
+        # Asness et al 2013, Antonacci 2014). Disable by setting
+        # `momentum_mode: False` per regime cell to fall back to scoring.
+        momentum_mode = params.get("momentum_mode", False)
+
         scored: dict[str, dict] = {}
-        for sym in candidates:
-            bars = provider.bars_up_to(sym, prev_day, lookback_days=80)
-            if len(bars) < 21:
-                continue
-            tech = _technicals_from_bars(bars)
-            if tech is None or "error" in tech:
-                continue
-            news = news_proxy_score(bars, symbol=sym, date=prev_day)
-            px = perplexity_proxy_score(bars, symbol=sym, date=prev_day)
-            sec = get_symbol_info(sym).get("sector")
+        if not momentum_mode:
+            sector_state = _historical_sector_state(provider, prev_day, spy_20d)
+            for sym in candidates:
+                bars = provider.bars_up_to(sym, prev_day, lookback_days=80)
+                if len(bars) < 21:
+                    continue
+                tech = _technicals_from_bars(bars)
+                if tech is None or "error" in tech:
+                    continue
+                news = news_proxy_score(bars, symbol=sym, date=prev_day)
+                px = perplexity_proxy_score(bars, symbol=sym, date=prev_day)
+                sec = get_symbol_info(sym).get("sector")
+                try:
+                    from ml_signals import extract_features as _ml_extract
+                    ml_feat = _ml_extract(bars, regime=regime)
+                    if ml_feat:
+                        tech["_ml_features"] = ml_feat
+                except Exception:
+                    pass
+                tech["_symbol"] = sym
+                conf = compute_confidence_score(
+                    tech, news, px, regime=regime, risk_tier=risk_tier,
+                    spy_20d_return=spy_20d, sector=sec,
+                    sector_state=sector_state,
+                )
+                scored[sym] = {"technicals": tech, "confidence": conf}
 
-            # ML features — extracted once per (symbol, day), then attached
-            # to the technicals dict via "_ml_features" so compute_
-            # confidence_score can call predict_proba without re-fetching bars.
-            try:
-                from ml_signals import extract_features as _ml_extract
-                ml_feat = _ml_extract(bars, regime=regime)
-                if ml_feat:
-                    tech["_ml_features"] = ml_feat
-            except Exception:
-                pass
-            tech["_symbol"] = sym  # let sentiment lookup find it
-
-            conf = compute_confidence_score(
-                tech, news, px, regime=regime, risk_tier=risk_tier,
-                spy_20d_return=spy_20d, sector=sec,
-                sector_state=sector_state,
-            )
-            scored[sym] = {"technicals": tech, "confidence": conf}
-
-        # 6. Catalyst flips (close existing positions whose score dropped below 40)
-        _check_catalyst_flips(portfolio, scored, opens, date, config.slippage_bps)
+            # 6. Catalyst flips (score-driven exits)
+            _check_catalyst_flips(portfolio, scored, opens, date, config.slippage_bps)
 
         # 7. Hedge sizing — runs BEFORE buys so it claims cash first
         _manage_hedge(portfolio, provider, date, regime, risk_tier, config.slippage_bps)
@@ -747,48 +865,63 @@ def run_backtest(config: BacktestConfig) -> dict:
         # 7c. v5: TQQQ leveraged BULL beta — gated by SMA50+SMA200 + hard stop
         _manage_tqqq(portfolio, provider, date, params, lows, config.slippage_bps)
 
-        # 8-10. Score-sorted buys subject to gate score + caps + cash floor
-        # v3: NEUTRAL regime can opt out of new buys entirely (still holds + hedges)
-        gate_min = params.get("gate_score_min", 0.65)
+        # 8-10. Stock-pick management — branch on strategy mode.
         block_buys = params.get("block_new_buys", False)
-        if risk_tier != "HALT" and not block_buys:
-            ranked = sorted(scored.items(),
-                            key=lambda kv: kv[1]["confidence"]["total"],
-                            reverse=True)
-            for sym, data in ranked:
-                if portfolio.non_hedge_position_count() >= params["max_positions"]:
-                    break
-                gate_score, _checks = _compute_gate_score(
-                    sym, data["technicals"], data["confidence"], spy_20d, params,
-                )
-                if gate_score < gate_min:
-                    continue
-                if portfolio.has_position(sym):
-                    continue  # don't add to existing in backtest (matches live UX)
-
-                if sym not in opens:
-                    continue  # no trading today
-                fill_price = _buy_fill(opens[sym], config.slippage_bps)
-                atr = data["technicals"].get("atr_14")
-                qty = _position_size(portfolio.equity(), fill_price, params, atr=atr)
-                if qty <= 0:
-                    continue
-                cost = qty * fill_price
-                # Cash floor — never breach min_cash_pct
-                cash_after = portfolio.cash - cost
-                min_cash = portfolio.equity() * (params["min_cash_pct"] / 100)
-                if cash_after < min_cash:
-                    continue
-                # Sector cap — skip if would breach 25%
-                info = get_symbol_info(sym)
-                sec = info.get("sector", "Unknown")
-                if sec != "Hedge" and sec != "Unknown":
-                    sector_value = cost
-                    for held_sym, p in portfolio.positions.items():
-                        if get_symbol_info(held_sym).get("sector") == sec:
-                            sector_value += p.market_value
-                    if sector_value / portfolio.equity() > 0.25:
+        if momentum_mode:
+            _execute_momentum_picks(
+                portfolio=portfolio,
+                provider=provider,
+                candidates=candidates,
+                prev_day=prev_day,
+                today=date,
+                params=params,
+                opens=opens,
+                slippage_bps=config.slippage_bps,
+                risk_tier=risk_tier,
+                block_buys=block_buys,
+                prev_date=(all_days[idx - 1] if idx > 0 else None),
+            )
+        else:
+            # Legacy v3-v5 path: score-sorted gate-filtered buys.
+            gate_min = params.get("gate_score_min", 0.65)
+            if risk_tier != "HALT" and not block_buys:
+                ranked = sorted(scored.items(),
+                                key=lambda kv: kv[1]["confidence"]["total"],
+                                reverse=True)
+                for sym, data in ranked:
+                    if portfolio.non_hedge_position_count() >= params["max_positions"]:
+                        break
+                    gate_score, _checks = _compute_gate_score(
+                        sym, data["technicals"], data["confidence"], spy_20d, params,
+                    )
+                    if gate_score < gate_min:
                         continue
+                    if portfolio.has_position(sym):
+                        continue  # don't add to existing in backtest (matches live UX)
+
+                    if sym not in opens:
+                        continue  # no trading today
+                    fill_price = _buy_fill(opens[sym], config.slippage_bps)
+                    atr = data["technicals"].get("atr_14")
+                    qty = _position_size(portfolio.equity(), fill_price, params, atr=atr)
+                    if qty <= 0:
+                        continue
+                    cost = qty * fill_price
+                    # Cash floor — never breach min_cash_pct
+                    cash_after = portfolio.cash - cost
+                    min_cash = portfolio.equity() * (params["min_cash_pct"] / 100)
+                    if cash_after < min_cash:
+                        continue
+                    # Sector cap — skip if would breach 25%
+                    info = get_symbol_info(sym)
+                    sec = info.get("sector", "Unknown")
+                    if sec != "Hedge" and sec != "Unknown":
+                        sector_value = cost
+                        for held_sym, p in portfolio.positions.items():
+                            if get_symbol_info(held_sym).get("sector") == sec:
+                                sector_value += p.market_value
+                        if sector_value / portfolio.equity() > 0.25:
+                            continue
                 portfolio.open(sym, qty, fill_price, date)
 
         # 11. Daily snapshot
