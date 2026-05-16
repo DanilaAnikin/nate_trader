@@ -1,6 +1,22 @@
 {
-  "updated_at": "2026-05-16 07:39:09",
+  "updated_at": "2026-05-16 07:41:27",
   "runs": [
+    {
+      "id": "single_20260516_114126",
+      "kind": "single",
+      "generated_at": "2026-05-16 07:41:26",
+      "start_date": "2023-01-01",
+      "end_date": "2024-12-31",
+      "filename": "runs/single_20260516_114126.json",
+      "summary": {
+        "total_return_pct": 57.1562,
+        "annual_return_pct": 25.4749,
+        "alpha_annual_pct": -0.4168,
+        "sharpe_ratio": 1.6724,
+        "max_drawdown_pct": -11.6511,
+        "n_trades": 93
+      }
+    },
     {
       "id": "single_20260516_113908",
       "kind": "single",
