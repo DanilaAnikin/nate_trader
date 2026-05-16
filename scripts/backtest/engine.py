@@ -53,7 +53,15 @@ from backtest.portfolio_sim import SimulatedPortfolio
 
 log = setup_logging("backtest_engine")
 
-SLIPPAGE_BPS = 5  # 0.05% each side, conservative for SPY/AAPL-class liquidity
+SLIPPAGE_BPS = 7  # v9: blended for mixed mid+small-cap universe.
+# Realistic per-asset:
+#   • ETFs (SPY, SSO, SH, XL*, TQQQ): 2-4 bps actual
+#   • Mega-cap stocks (top 50 by mkt cap): 3-5 bps actual
+#   • Mid-cap ($2B-$20B): 7-10 bps actual
+#   • Small-cap (under $2B): 10-20 bps actual
+# 7 bps is a single-value compromise that slightly over-pays for ETFs
+# (acceptable) and slightly under-models true small-cap drag. Per-symbol
+# slippage modelling is a future iteration.
 HEDGE_SYMBOL = "SH"
 
 # SPDR sector ETFs used to derive per-day historical sector strength.
@@ -430,6 +438,22 @@ BASE_REBALANCE_THRESHOLD_PCT = 2.0  # only rebalance when drift > 2% of equity
 # _manage_base_position to close stale base instruments on regime change.
 BASE_CANDIDATES = (SPY_BASE_SYMBOL, SSO_BASE_SYMBOL)
 
+# v9 Phase 2 — sector rotation overlay. Universe is the same SPDR sector
+# ETFs already used for historical sector-strength reads in the engine.
+SECTOR_ETF_UNIVERSE = (
+    "XLK",   # Technology
+    "XLF",   # Financial
+    "XLV",   # Healthcare
+    "XLI",   # Industrial
+    "XLY",   # Consumer Discretionary
+    "XLP",   # Consumer Staples (may not be cached; will be skipped if missing)
+    "XLE",   # Energy
+    "XLB",   # Materials
+    "XLU",   # Utilities
+    "XLRE",  # Real Estate
+    "XLC",   # Communication
+)
+
 
 def _spy_above_sma50_and_sma200(provider: BarProvider, today: str) -> bool:
     """v5 — TQQQ confirmation gate. Both lines must be cleared to risk leverage.
@@ -599,6 +623,112 @@ def _manage_tqqq(portfolio: SimulatedPortfolio, provider: BarProvider,
                 portfolio.close(TQQQ_SYMBOL, fill, date, reason="tqqq_exit")
             else:
                 portfolio.partial_close(TQQQ_SYMBOL, qty, fill, date, reason="tqqq_rebal")
+
+
+def _sector_etf_6m_returns(provider: BarProvider, today: str) -> list[tuple[str, float]]:
+    """v9 Phase 2 — rank sector ETFs by 6-month total return as of `today`.
+
+    Returns descending list of (symbol, 6m_return_pct). Skips ETFs without
+    sufficient history. Used by `_manage_sector_rotation` to pick top-N.
+    """
+    from momentum_picker import compute_6m_return
+    rows: list[tuple[str, float]] = []
+    for sym in SECTOR_ETF_UNIVERSE:
+        r = compute_6m_return(provider, sym, today)
+        if r is None:
+            continue
+        rows.append((sym, r))
+    rows.sort(key=lambda r: -r[1])
+    return rows
+
+
+def _manage_sector_rotation(portfolio: SimulatedPortfolio,
+                            provider: BarProvider, date: str, params: dict,
+                            opens: dict[str, float], slippage_bps: float,
+                            prev_date: str | None) -> None:
+    """v9 Phase 2 — overlay `sector_rotation_pct` into top-N sector ETFs.
+
+    The overlay is intentionally simple:
+      • Only acts on the first trading day of the month (in sync with the
+        momentum rebalance).
+      • Picks top-N XL* ETFs by 6-month total return.
+      • Equal-weights them — each sized to
+        `sector_rotation_pct / N` of equity.
+      • Each ETF is opened with `is_base=True` so it's exempt from
+        trail-stops, scale-outs, etc. (regime-driven infrastructure).
+      • On the month-start rebalance, any non-top-N sector ETF currently
+        held is closed; the surviving ones are trimmed/topped-up to target.
+
+    Disabled when `sector_rotation_pct == 0` (NEUTRAL / BEAR cells).
+    """
+    from momentum_picker import is_month_start
+    target_total = params.get("sector_rotation_pct", 0.0)
+    top_n = int(params.get("sector_rotation_top_n", 0))
+    if target_total <= 0 or top_n <= 0:
+        # Disabled — but if we still hold sector ETFs from a previous BULL,
+        # close them at the month-start (so transitions clean up).
+        if is_month_start(prev_date, date):
+            for sym in SECTOR_ETF_UNIVERSE:
+                p = portfolio.get_position(sym)
+                if p is None or not p.is_base:
+                    continue
+                if sym not in opens:
+                    continue
+                fill = _sell_fill(opens[sym], slippage_bps)
+                portfolio.close(sym, fill, date, reason="sector_rotation_exit")
+        return
+
+    # Only rebalance on month start.
+    if not is_month_start(prev_date, date):
+        return
+
+    ranked = _sector_etf_6m_returns(provider, date)
+    if not ranked:
+        return
+    top = set(s for s, _r in ranked[:top_n])
+
+    # Close ETFs no longer in top-N
+    for sym in SECTOR_ETF_UNIVERSE:
+        if sym in top:
+            continue
+        p = portfolio.get_position(sym)
+        if p is None or not p.is_base:
+            continue
+        if sym not in opens:
+            continue
+        fill = _sell_fill(opens[sym], slippage_bps)
+        portfolio.close(sym, fill, date, reason="sector_rotation_rebal")
+
+    equity = portfolio.equity()
+    if equity <= 0:
+        return
+    per_etf_value = equity * (target_total / 100.0) / top_n
+
+    # Open / resize each ETF in top-N to its per-ETF target
+    for sym in top:
+        if sym not in opens:
+            continue
+        fill_buy = _buy_fill(opens[sym], slippage_bps)
+        fill_sell = _sell_fill(opens[sym], slippage_bps)
+        p = portfolio.get_position(sym)
+        current = p.market_value if (p and p.is_base) else 0.0
+        delta = per_etf_value - current
+        delta_pct = abs(delta) / equity * 100.0
+        if delta_pct < BASE_REBALANCE_THRESHOLD_PCT:
+            continue
+        if delta > 0:
+            qty = int(delta / fill_buy)
+            if qty >= 1:
+                portfolio.open(sym, qty, fill_buy, date, is_base=True)
+        elif p is not None:
+            qty = int(abs(delta) / fill_sell)
+            qty = min(qty, p.qty - 1) if p.qty > 1 else p.qty
+            if qty >= 1:
+                if qty >= p.qty:
+                    portfolio.close(sym, fill_sell, date, reason="sector_rotation_trim")
+                else:
+                    portfolio.partial_close(sym, qty, fill_sell, date,
+                                            reason="sector_rotation_trim")
 
 
 def _flatten_on_transition(portfolio: SimulatedPortfolio, day_opens: dict[str, float],
@@ -831,7 +961,7 @@ def run_backtest(config: BacktestConfig) -> dict:
     for idx, date in enumerate(all_days):
         # Build a snapshot of OHLC for all relevant symbols today
         opens, highs, lows, closes = {}, {}, {}, {}
-        for sym in candidates + ["SPY", "SH", "TQQQ", "SSO"]:
+        for sym in candidates + ["SPY", "SH", "TQQQ", "SSO", *SECTOR_ETF_UNIVERSE]:
             bar = provider.bar_at(sym, date)
             if bar:
                 opens[sym] = bar["open"]
@@ -939,6 +1069,14 @@ def run_backtest(config: BacktestConfig) -> dict:
 
         # 7c. v5: TQQQ leveraged BULL beta — gated by SMA50+SMA200 + hard stop
         _manage_tqqq(portfolio, provider, date, params, lows, config.slippage_bps)
+
+        # 7d. v9 Phase 2: sector rotation overlay — top-N XL* by 6m return,
+        # equal-weighted, rebalanced on month start. is_base=True so exempt
+        # from per-stock mechanics (trail stops, scale-outs, time stops).
+        _manage_sector_rotation(
+            portfolio, provider, date, params, opens, config.slippage_bps,
+            prev_date=(all_days[idx - 1] if idx > 0 else None),
+        )
 
         # 8-10. Stock-pick management — branch on strategy mode.
         block_buys = params.get("block_new_buys", False)

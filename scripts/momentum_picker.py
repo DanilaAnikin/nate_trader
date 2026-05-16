@@ -70,20 +70,64 @@ def compute_6m_return(provider, symbol: str, today: str) -> Optional[float]:
     return _total_return_pct(bars["close"].astype(float), LOOKBACK_6M)
 
 
-def rank_universe(provider, candidates: Iterable[str], today: str,
-                  spy_12m: float, min_abs_return: float = 0.0
-                  ) -> list[tuple[str, float, float]]:
-    """Rank `candidates` by 12-month momentum after dual-momentum filters.
+def _above_sma200(provider, symbol: str, today: str) -> bool | None:
+    """True iff most recent close is above 200-day SMA. None on insufficient
+    history. v9 Phase 3 — long-term trend filter; junk momentum (dead-cat
+    bounce in a downtrend) fails this test."""
+    bars = provider.bars_up_to(symbol, today, lookback_days=210)
+    if bars is None or len(bars) < 200:
+        return None
+    closes = bars["close"].astype(float)
+    sma200 = float(closes.rolling(window=200).mean().iloc[-1])
+    return float(closes.iloc[-1]) > sma200
 
-    Filter rules (both must pass):
+
+def _annualised_volatility(provider, symbol: str, today: str,
+                            lookback: int = 63) -> float | None:
+    """Annualised stdev of daily log returns over `lookback` (default 63 → ~3m).
+    Used to reject extreme-vol junk caps. v9 Phase 3."""
+    import math
+    bars = provider.bars_up_to(symbol, today, lookback_days=lookback + 10)
+    if bars is None or len(bars) < lookback + 1:
+        return None
+    closes = bars["close"].astype(float).iloc[-(lookback + 1):]
+    # Daily log returns
+    log_returns = (closes / closes.shift(1)).apply(lambda x: math.log(x) if x > 0 else 0).dropna()
+    if len(log_returns) < 10:
+        return None
+    daily_std = float(log_returns.std())
+    return daily_std * math.sqrt(252) * 100  # annualised %
+
+
+def rank_universe(provider, candidates: Iterable[str], today: str,
+                  spy_12m: float, min_abs_return: float = 0.0,
+                  apply_quality_filter: bool = True,
+                  max_annual_vol_pct: float = 80.0,
+                  ) -> list[tuple[str, float, float]]:
+    """Rank `candidates` by 12-month momentum after dual-momentum + quality
+    filters.
+
+    Filter rules (in order, all must pass):
       1. 12-month return > `min_abs_return` (absolute momentum, default 0 %)
       2. 12-month return > `spy_12m` (relative momentum — must beat SPY)
+      3. **v9 quality**: close > 200-day SMA (long-term uptrend confirmation).
+         Filters out bear-market dead-cat bounces and other "junk momentum"
+         where 12m return is positive only because of one big rally on a
+         broken downtrend.
+      4. **v9 quality**: 6-month return > 0.5 × 12-month return.
+         Catches names where momentum is concentrated in a single old spike
+         (1-month return ≈ 12-month return) — those tend to mean-revert.
+      5. **v9 quality**: annualised volatility (63-day) < `max_annual_vol_pct`.
+         Rejects extreme-vol micro-caps that are momentum picks one month and
+         50 % drawdown the next.
+
+    Quality filters can be disabled by passing `apply_quality_filter=False`
+    (used for legacy/large-cap-only universes).
 
     Returns a list of (symbol, 12m_return_pct, 6m_return_pct) sorted by
-    `12m_return_pct` desc, with 6m as a tie-breaker (also desc).
+    `12m_return_pct` desc, with 6m as a tie-breaker.
 
-    Pure function — no I/O outside the provider, no global state, no caching.
-    Bias: skips symbols with insufficient history rather than penalising them.
+    Pure function over the provider — no global state, no caching.
     """
     rows: list[tuple[str, float, float]] = []
     for sym in candidates:
@@ -95,8 +139,23 @@ def rank_universe(provider, candidates: Iterable[str], today: str,
         if r12 <= spy_12m:
             continue
         r6 = compute_6m_return(provider, sym, today) or 0.0
+
+        if apply_quality_filter:
+            # 3) Long-term trend confirmation
+            trend_ok = _above_sma200(provider, sym, today)
+            if trend_ok is False:
+                continue  # below 200-SMA → junk momentum
+            # 4) 6m must be reasonable fraction of 12m (consistency)
+            #    Skip when 12m is small (avoid division noise)
+            if r12 > 5.0 and r6 <= 0.5 * r12:
+                continue
+            # 5) Volatility cap
+            vol = _annualised_volatility(provider, sym, today)
+            if vol is not None and vol > max_annual_vol_pct:
+                continue
+
         rows.append((sym, r12, r6))
-    rows.sort(key=lambda r: (-r[1], -r[2]))  # primary 12m desc, tiebreaker 6m
+    rows.sort(key=lambda r: (-r[1], -r[2]))
     return rows
 
 

@@ -53,18 +53,22 @@ _PARAMS = {
         "gate_score_min": 0.55,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,        # v4: wider — matches widened trail
-        # v8: 70 % SSO (was 60). Walk-forward showed SSO is the #1 P&L
-        # contributor in every single test — push the leverage further while
-        # the SMA200 gate + flatten-on-confirmed-NEUTRAL handle the downside.
-        "base_pct": 70.0,
+        # v9: REVERTED to v7 levels — v8 70%/top-4 amplified whipsaw losses
+        # in transition windows. v7's 60 %/top-5/21-day was the local optimum.
+        # We keep 10-day hold (the one v8 change that didn't backfire — small
+        # caps need faster rotation than mega-caps anyway).
+        "base_pct": 60.0,
         "base_instrument": "SSO",
-        "spy_base_pct": 70.0,
+        "spy_base_pct": 60.0,
         "flatten_on_transition": False,
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
-        "momentum_min_hold_days": 10,    # v8: was 21 — faster rotation through hot names
-        "momentum_top_n": 4,             # v8: was 5 — tighter concentration
+        "momentum_min_hold_days": 10,
+        "momentum_top_n": 5,
+        # v9 Phase 2: sector rotation overlay
+        "sector_rotation_pct": 20.0,     # 20 % into top-3 XL* sector ETFs
+        "sector_rotation_top_n": 3,
     },
     ("BULL", "CAUTIOUS"): {
         "score_threshold": 55,
@@ -90,16 +94,18 @@ _PARAMS = {
         "gate_score_min": 0.60,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,
-        # v8: CAUTIOUS BULL — keep moderate leverage, faster rotation
-        "base_pct": 55.0,
+        # v9: REVERTED CAUTIOUS BULL
+        "base_pct": 50.0,
         "base_instrument": "SSO",
-        "spy_base_pct": 55.0,
+        "spy_base_pct": 50.0,
         "flatten_on_transition": False,
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 10,
-        "momentum_top_n": 3,             # v8: even tighter
+        "momentum_top_n": 4,
+        "sector_rotation_pct": 15.0,     # smaller sector overlay when CAUTIOUS
+        "sector_rotation_top_n": 2,
     },
     # ────────────────────── NEUTRAL regime ─────────────────────
     ("NEUTRAL", "NORMAL"): {
@@ -137,6 +143,8 @@ _PARAMS = {
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
         "momentum_top_n": 0,
+        "sector_rotation_pct": 0.0,
+        "sector_rotation_top_n": 0,
     },
     ("NEUTRAL", "CAUTIOUS"): {
         "score_threshold": 65,
@@ -172,6 +180,8 @@ _PARAMS = {
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
         "momentum_top_n": 0,
+        "sector_rotation_pct": 0.0,
+        "sector_rotation_top_n": 0,
     },
     # ──────────────────────── BEAR regime ──────────────────────
     ("BEAR", "NORMAL"): {
@@ -207,6 +217,8 @@ _PARAMS = {
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
         "momentum_top_n": 0,
+        "sector_rotation_pct": 0.0,
+        "sector_rotation_top_n": 0,
     },
     ("BEAR", "CAUTIOUS"): {
         "score_threshold": 80,
@@ -241,6 +253,8 @@ _PARAMS = {
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
         "momentum_top_n": 0,
+        "sector_rotation_pct": 0.0,
+        "sector_rotation_top_n": 0,
     },
 }
 
@@ -254,9 +268,10 @@ _PARAMS = {
 # 3-day buffer protects against chop but costs ~5-10 pp in recovery legs.
 # Fast entry (1-day) + slow exit (3-day) gives back most of that without
 # reopening the churn problem.
-REGIME_CONFIRMATION_DAYS = 3  # legacy alias — exit_from_bull confirmation
-REGIME_CONFIRMATION_DAYS_ENTRY = 1   # v8: fast entry TO BULL
-REGIME_CONFIRMATION_DAYS_EXIT = 3    # v8: slow exit FROM BULL
+REGIME_CONFIRMATION_DAYS = 3  # legacy alias — single-value
+REGIME_CONFIRMATION_DAYS_ENTRY = 3   # v9: REVERTED to symmetric (v8 1-day caused whipsaw)
+REGIME_CONFIRMATION_DAYS_EXIT = 3    # v9: kept symmetric — v8 walk-forward proved
+                                      # asymmetric backfires on bear-bounce false signals
 
 
 def get_strategy_params(regime: str | None = None, risk_tier: str | None = None) -> dict:

@@ -1386,6 +1386,1914 @@
       "max_allocation_pct": 5,
       "tradeable": true,
       "notes": "v6.1 universe \u2014 Southern Company"
+    },
+    "AAON": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "AAP": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "ABCB": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "ACAD": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "ACI": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "AEE": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "AGNC": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "AJG": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "ALB": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "ALKS": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "ALLE": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "ALLY": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "ALRM": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "ANF": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "AOS": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "AR": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap energy momentum candidate"
+    },
+    "ARCB": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "ARCT": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "ARE": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "ARWR": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "ASAN": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "ASH": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "ATKR": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "ATO": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "AVAV": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "AVNT": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "AVY": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "AWK": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "AX": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "AXTA": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "AYI": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "BAH": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "BARK": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "BCC": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "BCO": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "BDN": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "BEAM": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "BG": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "BILL": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "BJRI": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "BKH": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "BLD": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "BLKB": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "BMRN": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "BOOT": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "BPOP": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "BR": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "BRO": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "BRX": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "BRZE": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "BSY": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "BTU": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap energy momentum candidate"
+    },
+    "BURL": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "BXP": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "BYD": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "CAG": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "CASY": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "CBOE": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "CC": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "CE": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "CFG": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "CGNX": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "CHD": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "CHEF": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "CHRW": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "CHWY": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "CLX": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "CMC": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "CMS": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "COLD": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "COTY": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "CPB": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "CROX": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "CRUS": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "CUBE": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "CW": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "CWH": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "CZR": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "DBX": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "DHI": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "DLB": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap comm momentum candidate"
+    },
+    "DRI": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "EAT": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "ED": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "EDIT": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "EFX": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "EHC": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "EIX": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "EMN": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "ENR": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "EPC": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "EPR": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "EQT": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap energy momentum candidate"
+    },
+    "ESNT": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "ESTC": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "ETR": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "ETSY": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "EVCM": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "EVR": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "EVRG": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "EWBC": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "EXEL": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "EXLS": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "EXP": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "EXR": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "EXTR": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "EYE": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "FAST": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "FCN": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "FE": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "FELE": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "FITB": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "FIVE": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "FLEX": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "FLS": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "FMC": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "FORM": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "FOUR": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "FOXA": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap comm momentum candidate"
+    },
+    "FOXF": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "FROG": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "FRPT": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "FRSH": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "FRT": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "FWONA": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap comm momentum candidate"
+    },
+    "FWONK": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap comm momentum candidate"
+    },
+    "GAP": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "GGG": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "GHC": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "GIS": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "GKOS": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "GLPI": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "GNRC": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "GPI": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "GRC": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "GTES": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "GTLB": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "GVA": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "GWW": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "HALO": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "HBAN": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "HIW": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "HR": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "HRI": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "HRL": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "HUBS": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "HUN": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "HXL": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "IBKR": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "ICUI": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "IDA": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "INMD": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "INSM": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "IONS": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "IOT": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "IPAR": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "IPGP": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "IPI": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "IRM": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "IRTC": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "ITGR": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "ITT": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "JACK": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "JBHT": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "JCI": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "JEF": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "KAI": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "KBH": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "KBR": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "KEX": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "KEY": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "KIM": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "KNX": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "KR": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "KRC": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "KRG": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "KSS": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "KWR": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "LBRDA": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap comm momentum candidate"
+    },
+    "LBRT": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap energy momentum candidate"
+    },
+    "LEN": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "LITE": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "LNT": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "LPLA": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "LVS": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "LYB": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "MAC": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "MASI": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "MASS": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "MD": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "MEOH": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "MGM": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "MGNI": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "MGY": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap energy momentum candidate"
+    },
+    "MIDD": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "MKC": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "MKTX": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "MLI": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "MMSI": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "MNDY": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "MSTR": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "MTB": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "MTDR": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap energy momentum candidate"
+    },
+    "MTG": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "MTH": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "MTN": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "MTRN": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "MUSA": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "MWA": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "NABL": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "NDSN": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "NEOG": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "NJR": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "NLY": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "NOG": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap energy momentum candidate"
+    },
+    "NPO": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "NSA": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "NTLA": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "NTNX": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "NTRS": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "NVCR": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "NVR": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "NWBI": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "NWE": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "NWL": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "NWSA": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap comm momentum candidate"
+    },
+    "NYT": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap comm momentum candidate"
+    },
+    "ODFL": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "OGS": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "OLLI": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "OLN": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "OMC": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap comm momentum candidate"
+    },
+    "OMCL": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "OPCH": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "OVV": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap energy momentum candidate"
+    },
+    "OZK": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "PARR": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap energy momentum candidate"
+    },
+    "PCOR": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "PD": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "PEN": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "PENN": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "PFGC": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "PHM": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "PI": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "PII": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "PODD": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "POR": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "POWL": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "PR": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap energy momentum candidate"
+    },
+    "PRGO": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "QLYS": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "RBA": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "RDN": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "REG": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "REXR": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "RGEN": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "RJF": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "ROG": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "ROL": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "ROST": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "RPAY": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "RPD": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "RPM": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "RRC": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap energy momentum candidate"
+    },
+    "RS": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "RVMD": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "SAIC": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "SAIL": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "SANM": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "SCCO": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "SFM": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "SHAK": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "SJM": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "SLG": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "SMTC": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "SOFI": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "SR": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "STAG": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "SYNA": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "TDC": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "TDOC": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "TENB": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "TFX": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "TJX": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "TKO": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap comm momentum candidate"
+    },
+    "TKR": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "TMP": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "TNDM": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "TREX": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "TRMB": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "TRMK": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "TSN": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "TWLO": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "TXRH": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "TYL": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "UMBF": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "UPST": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "USFD": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "USPH": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "VEEV": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+    },
+    "VNO": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "VRSN": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "VRT": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "VTR": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
+    },
+    "WAB": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "WAFD": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "WAL": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "WBS": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
+    },
+    "WCC": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "WEC": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "WERN": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "WIX": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
+    },
+    "WLK": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
+    },
+    "WSO": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "WTS": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
+    },
+    "WYNN": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+    },
+    "XEL": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 utilities momentum candidate"
+    },
+    "ZION": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
     }
   }
 }
