@@ -1,41 +1,41 @@
 {
-  "updated_at": "2026-05-11",
+  "updated_at": "2026-05-16",
   "symbols": {
     "SPY": {
       "sector": "Benchmark",
       "max_allocation_pct": 0,
       "tradeable": false,
-      "notes": "S&P 500 benchmark — track only, do not trade"
+      "notes": "S&P 500 benchmark \u2014 track only, do not trade"
     },
     "QQQ": {
       "sector": "Technology",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Nasdaq 100 ETF — broad tech exposure"
+      "notes": "Nasdaq 100 ETF \u2014 broad tech exposure"
     },
     "NVDA": {
       "sector": "Technology",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "AI/GPU leader — high momentum"
+      "notes": "AI/GPU leader \u2014 high momentum"
     },
     "AAPL": {
       "sector": "Technology",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Mega-cap anchor — services growth"
+      "notes": "Mega-cap anchor \u2014 services growth"
     },
     "MSFT": {
       "sector": "Technology",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Cloud + AI — Azure + Copilot"
+      "notes": "Cloud + AI \u2014 Azure + Copilot"
     },
     "META": {
       "sector": "Technology",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Social + AI — ad revenue + Llama"
+      "notes": "Social + AI \u2014 ad revenue + Llama"
     },
     "AMZN": {
       "sector": "Consumer",
@@ -53,19 +53,19 @@
       "sector": "Technology",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Broadcom — AI networking + VMware"
+      "notes": "Broadcom \u2014 AI networking + VMware"
     },
     "AMD": {
       "sector": "Technology",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "GPU competitor — data center growth"
+      "notes": "GPU competitor \u2014 data center growth"
     },
     "TSLA": {
       "sector": "Consumer",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "EV + energy + robotaxi — high vol"
+      "notes": "EV + energy + robotaxi \u2014 high vol"
     },
     "CRM": {
       "sector": "Technology",
@@ -77,13 +77,13 @@
       "sector": "Technology",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Defense + commercial AI — high momentum"
+      "notes": "Defense + commercial AI \u2014 high momentum"
     },
     "ANET": {
       "sector": "Technology",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "AI data-center networking — Meta/MSFT supplier"
+      "notes": "AI data-center networking \u2014 Meta/MSFT supplier"
     },
     "SNOW": {
       "sector": "Technology",
@@ -95,61 +95,61 @@
       "sector": "Technology",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Oracle Cloud — AI infrastructure surge"
+      "notes": "Oracle Cloud \u2014 AI infrastructure surge"
     },
     "JPM": {
       "sector": "Financial",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Largest US bank — rate-cycle leader"
+      "notes": "Largest US bank \u2014 rate-cycle leader"
     },
     "V": {
       "sector": "Financial",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Payments — secular cashless growth"
+      "notes": "Payments \u2014 secular cashless growth"
     },
     "MA": {
       "sector": "Financial",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Payments — wider margins than V"
+      "notes": "Payments \u2014 wider margins than V"
     },
     "GS": {
       "sector": "Financial",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Investment banking — M&A + trading"
+      "notes": "Investment banking \u2014 M&A + trading"
     },
     "BX": {
       "sector": "Financial",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Alt assets — private credit/equity AUM growth"
+      "notes": "Alt assets \u2014 private credit/equity AUM growth"
     },
     "LLY": {
       "sector": "Healthcare",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "GLP-1 leader — Zepbound/Mounjaro"
+      "notes": "GLP-1 leader \u2014 Zepbound/Mounjaro"
     },
     "UNH": {
       "sector": "Healthcare",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Managed care giant — Optum services"
+      "notes": "Managed care giant \u2014 Optum services"
     },
     "NVO": {
       "sector": "Healthcare",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Novo Nordisk — Ozempic/Wegovy"
+      "notes": "Novo Nordisk \u2014 Ozempic/Wegovy"
     },
     "ISRG": {
       "sector": "Healthcare",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Surgical robotics — recurring instruments revenue"
+      "notes": "Surgical robotics \u2014 recurring instruments revenue"
     },
     "CAT": {
       "sector": "Industrial",
@@ -161,7 +161,7 @@
       "sector": "Industrial",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Aerospace — engines + services"
+      "notes": "Aerospace \u2014 engines + services"
     },
     "DE": {
       "sector": "Industrial",
@@ -173,31 +173,31 @@
       "sector": "Industrial",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Electrification + power management — AI data centers"
+      "notes": "Electrification + power management \u2014 AI data centers"
     },
     "XOM": {
       "sector": "Energy",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Integrated energy — capital discipline"
+      "notes": "Integrated energy \u2014 capital discipline"
     },
     "CVX": {
       "sector": "Energy",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Integrated energy — dividend anchor"
+      "notes": "Integrated energy \u2014 dividend anchor"
     },
     "COST": {
       "sector": "Consumer",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Membership warehouse — recession-resistant"
+      "notes": "Membership warehouse \u2014 recession-resistant"
     },
     "NFLX": {
       "sector": "Consumer",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "Streaming — ads + sports + password sharing crackdown"
+      "notes": "Streaming \u2014 ads + sports + password sharing crackdown"
     },
     "WMT": {
       "sector": "Consumer",
@@ -211,57 +211,1181 @@
       "tradeable": true,
       "notes": "Brand turnaround + China recovery"
     },
-    "MU": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — HBM memory cycle"},
-    "ASML": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — EUV lithography monopoly"},
-    "TSM": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — foundry, AI demand"},
-    "QCOM": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — mobile + auto chips"},
-    "MRVL": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — custom AI silicon"},
-    "ARM": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — IP licensing + AI edge"},
-    "SMCI": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — AI server vol"},
-    "PANW": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — cybersecurity"},
-    "CRWD": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — endpoint security growth"},
-    "NET": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — edge + zero trust"},
-    "DDOG": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — observability"},
-    "NOW": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — enterprise workflows"},
-    "INTU": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — Turbotax/Quickbooks moat"},
-    "ADBE": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — Creative Cloud + Firefly"},
-    "COIN": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — crypto cycle beta"},
-    "SHOP": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — e-commerce SaaS"},
-    "APP": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — mobile ad platform"},
-    "U": {"sector": "Technology", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — Unity engine + ads"},
-    "BAC": {"sector": "Financial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — money-center bank"},
-    "WFC": {"sector": "Financial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — consumer + commercial banking"},
-    "MS": {"sector": "Financial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — wealth + IB"},
-    "KKR": {"sector": "Financial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — alt assets peer to BX"},
-    "BLK": {"sector": "Financial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — ETF + active flows"},
-    "SCHW": {"sector": "Financial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — brokerage + rates"},
-    "AXP": {"sector": "Financial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — premium card spend"},
-    "JNJ": {"sector": "Healthcare", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — pharma + devices"},
-    "MRK": {"sector": "Healthcare", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — Keytruda anchor"},
-    "ABBV": {"sector": "Healthcare", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — immunology post-Humira"},
-    "TMO": {"sector": "Healthcare", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — lab instruments"},
-    "AMGN": {"sector": "Healthcare", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — biotech anchor + GLP-1"},
-    "VRTX": {"sector": "Healthcare", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — CF franchise + pain"},
-    "REGN": {"sector": "Healthcare", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — Eylea + immunology"},
-    "BA": {"sector": "Industrial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — aerospace recovery"},
-    "LMT": {"sector": "Industrial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — defense prime"},
-    "RTX": {"sector": "Industrial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — defense + Pratt engines"},
-    "HON": {"sector": "Industrial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — diversified industrial"},
-    "UPS": {"sector": "Industrial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — logistics beta"},
-    "UNP": {"sector": "Industrial", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — class-I rail"},
-    "COP": {"sector": "Energy", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — large-cap E&P"},
-    "OXY": {"sector": "Energy", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — Permian leader"},
-    "SLB": {"sector": "Energy", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — oilfield services"},
-    "EOG": {"sector": "Energy", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — shale capital discipline"},
-    "HD": {"sector": "Consumer", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — home improvement"},
-    "MCD": {"sector": "Consumer", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — franchise model"},
-    "SBUX": {"sector": "Consumer", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — turnaround story"},
-    "BKNG": {"sector": "Consumer", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — travel asset-light"},
-    "TGT": {"sector": "Consumer", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — discretionary recovery"},
-    "UBER": {"sector": "Consumer", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — rideshare + delivery"},
-    "ABNB": {"sector": "Consumer", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — short-term rental"},
-    "MELI": {"sector": "Consumer", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — LATAM ecomm + fintech"},
-    "TMUS": {"sector": "Communication", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — wireless leader"},
-    "DIS": {"sector": "Communication", "max_allocation_pct": 5, "tradeable": true, "notes": "v3 universe — streaming pivot"}
+    "MU": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 HBM memory cycle"
+    },
+    "ASML": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 EUV lithography monopoly"
+    },
+    "TSM": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 foundry, AI demand"
+    },
+    "QCOM": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 mobile + auto chips"
+    },
+    "MRVL": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 custom AI silicon"
+    },
+    "ARM": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 IP licensing + AI edge"
+    },
+    "SMCI": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 AI server vol"
+    },
+    "PANW": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 cybersecurity"
+    },
+    "CRWD": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 endpoint security growth"
+    },
+    "NET": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 edge + zero trust"
+    },
+    "DDOG": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 observability"
+    },
+    "NOW": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 enterprise workflows"
+    },
+    "INTU": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 Turbotax/Quickbooks moat"
+    },
+    "ADBE": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 Creative Cloud + Firefly"
+    },
+    "COIN": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 crypto cycle beta"
+    },
+    "SHOP": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 e-commerce SaaS"
+    },
+    "APP": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 mobile ad platform"
+    },
+    "U": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 Unity engine + ads"
+    },
+    "BAC": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 money-center bank"
+    },
+    "WFC": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 consumer + commercial banking"
+    },
+    "MS": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 wealth + IB"
+    },
+    "KKR": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 alt assets peer to BX"
+    },
+    "BLK": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 ETF + active flows"
+    },
+    "SCHW": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 brokerage + rates"
+    },
+    "AXP": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 premium card spend"
+    },
+    "JNJ": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 pharma + devices"
+    },
+    "MRK": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 Keytruda anchor"
+    },
+    "ABBV": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 immunology post-Humira"
+    },
+    "TMO": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 lab instruments"
+    },
+    "AMGN": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 biotech anchor + GLP-1"
+    },
+    "VRTX": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 CF franchise + pain"
+    },
+    "REGN": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 Eylea + immunology"
+    },
+    "BA": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 aerospace recovery"
+    },
+    "LMT": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 defense prime"
+    },
+    "RTX": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 defense + Pratt engines"
+    },
+    "HON": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 diversified industrial"
+    },
+    "UPS": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 logistics beta"
+    },
+    "UNP": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 class-I rail"
+    },
+    "COP": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 large-cap E&P"
+    },
+    "OXY": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 Permian leader"
+    },
+    "SLB": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 oilfield services"
+    },
+    "EOG": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 shale capital discipline"
+    },
+    "HD": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 home improvement"
+    },
+    "MCD": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 franchise model"
+    },
+    "SBUX": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 turnaround story"
+    },
+    "BKNG": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 travel asset-light"
+    },
+    "TGT": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 discretionary recovery"
+    },
+    "UBER": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 rideshare + delivery"
+    },
+    "ABNB": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 short-term rental"
+    },
+    "MELI": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 LATAM ecomm + fintech"
+    },
+    "TMUS": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 wireless leader"
+    },
+    "DIS": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v3 universe \u2014 streaming pivot"
+    },
+    "GFS": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Foundry \u2014 leading-edge logic + analog"
+    },
+    "ON": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Power semis \u2014 EV/auto cycle"
+    },
+    "KLAC": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Wafer inspection \u2014 moat"
+    },
+    "LRCX": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Etch + deposition \u2014 semicap"
+    },
+    "AMAT": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Wafer fab equipment \u2014 broad"
+    },
+    "ADI": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Analog/mixed-signal \u2014 secular"
+    },
+    "TXN": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Analog leader \u2014 capex cycle"
+    },
+    "MCHP": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 MCU + analog \u2014 IoT exposure"
+    },
+    "MPWR": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Power management \u2014 high growth"
+    },
+    "SWKS": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 RF front-end \u2014 wireless cycle"
+    },
+    "ENPH": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Microinverters \u2014 solar momentum"
+    },
+    "FSLR": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Thin-film solar \u2014 IRA beneficiary"
+    },
+    "AKAM": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 CDN + edge \u2014 cybersec pivot"
+    },
+    "ANSS": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Engineering simulation \u2014 high moat"
+    },
+    "CDNS": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 EDA software"
+    },
+    "SNPS": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 EDA software"
+    },
+    "FTNT": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Network security"
+    },
+    "OKTA": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Identity SaaS"
+    },
+    "MDB": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 NoSQL DB \u2014 Atlas growth"
+    },
+    "TEAM": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Jira / Confluence"
+    },
+    "WDAY": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 HR/Fin SaaS"
+    },
+    "RBLX": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Gaming platform"
+    },
+    "S": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Endpoint security"
+    },
+    "ZS": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Zero trust SaaS"
+    },
+    "JNPR": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Networking \u2014 AI datacenter"
+    },
+    "FFIV": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 App delivery \u2014 security pivot"
+    },
+    "NTAP": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Hybrid cloud storage"
+    },
+    "DELL": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Servers \u2014 AI infra"
+    },
+    "HPQ": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 PCs + printers"
+    },
+    "IBM": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Hybrid cloud + AI consulting"
+    },
+    "CSCO": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Networking incumbent"
+    },
+    "GLW": {
+      "sector": "Technology",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Glass + optical \u2014 Apple supplier"
+    },
+    "WBD": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Warner-Discovery"
+    },
+    "ROKU": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Connected TV ads"
+    },
+    "PINS": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Visual social \u2014 ad recovery"
+    },
+    "SNAP": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Social \u2014 AR pivot"
+    },
+    "MTCH": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Dating apps"
+    },
+    "EA": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Game publisher \u2014 sports"
+    },
+    "TTWO": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Game publisher \u2014 GTA"
+    },
+    "T": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 AT&T \u2014 wireless"
+    },
+    "VZ": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Verizon \u2014 wireless"
+    },
+    "CMCSA": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Comcast \u2014 cable + NBCU"
+    },
+    "SIRI": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 SiriusXM"
+    },
+    "CHTR": {
+      "sector": "Communication",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Charter \u2014 cable"
+    },
+    "PYPL": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Payments \u2014 turnaround"
+    },
+    "SQ": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Block \u2014 Square + Cash App"
+    },
+    "AFRM": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 BNPL"
+    },
+    "HOOD": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Retail brokerage"
+    },
+    "ICE": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Exchanges \u2014 fixed income"
+    },
+    "CME": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Derivatives exchange"
+    },
+    "NDAQ": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Nasdaq \u2014 data + listings"
+    },
+    "MSCI": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Indices"
+    },
+    "STT": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 State Street \u2014 custodian"
+    },
+    "PGR": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Auto insurance \u2014 secular winner"
+    },
+    "MET": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 MetLife \u2014 life insurance"
+    },
+    "PRU": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Prudential \u2014 life insurance"
+    },
+    "ALL": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Allstate \u2014 P&C"
+    },
+    "TRV": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Travelers \u2014 P&C"
+    },
+    "AON": {
+      "sector": "Financial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Insurance brokerage"
+    },
+    "ZTS": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Animal health"
+    },
+    "IDXX": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Vet diagnostics"
+    },
+    "DXCM": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 CGM \u2014 diabetes growth"
+    },
+    "EW": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Heart valves \u2014 TAVR"
+    },
+    "ALGN": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Invisalign"
+    },
+    "ILMN": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Sequencing \u2014 genomics"
+    },
+    "A": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Agilent \u2014 life sciences tools"
+    },
+    "IQV": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Clinical research orgs"
+    },
+    "ELV": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Anthem/Elevance"
+    },
+    "HUM": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Humana"
+    },
+    "CI": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Cigna"
+    },
+    "MCK": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 McKesson \u2014 distribution"
+    },
+    "COR": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Cencora \u2014 distribution"
+    },
+    "HCA": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Hospital chain"
+    },
+    "BSX": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Boston Sci \u2014 medtech"
+    },
+    "SYK": {
+      "sector": "Healthcare",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Stryker \u2014 ortho/medtech"
+    },
+    "GD": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 General Dynamics"
+    },
+    "NOC": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Northrop \u2014 defense"
+    },
+    "HEI": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 HEICO \u2014 aero aftermarket"
+    },
+    "AXON": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Tasers + body cams"
+    },
+    "TDG": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 TransDigm"
+    },
+    "EMR": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Emerson \u2014 automation"
+    },
+    "ITW": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Illinois Tool Works"
+    },
+    "MMM": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 3M"
+    },
+    "ROK": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Rockwell automation"
+    },
+    "AME": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Ametek \u2014 instruments"
+    },
+    "PCAR": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Paccar \u2014 trucks"
+    },
+    "URI": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 United Rentals"
+    },
+    "PWR": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Quanta \u2014 electrical contracting"
+    },
+    "FDX": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 FedEx \u2014 logistics"
+    },
+    "CSX": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 CSX \u2014 rail"
+    },
+    "NSC": {
+      "sector": "Industrial",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Norfolk Southern \u2014 rail"
+    },
+    "LULU": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Athleisure premium"
+    },
+    "KMX": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 CarMax"
+    },
+    "ULTA": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Beauty retail"
+    },
+    "DECK": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 UGG/Hoka \u2014 high momentum"
+    },
+    "RH": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Restoration Hardware"
+    },
+    "WSM": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Williams Sonoma"
+    },
+    "BBY": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Best Buy"
+    },
+    "ORLY": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 O'Reilly Auto"
+    },
+    "AZO": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 AutoZone"
+    },
+    "LKQ": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Aftermarket parts"
+    },
+    "FND": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Floor & Decor"
+    },
+    "RCL": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Royal Caribbean"
+    },
+    "NCLH": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Norwegian Cruise"
+    },
+    "MAR": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Marriott"
+    },
+    "HLT": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Hilton"
+    },
+    "KO": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Coca-Cola"
+    },
+    "PEP": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 PepsiCo"
+    },
+    "MNST": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Monster \u2014 beverages"
+    },
+    "CMG": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Chipotle"
+    },
+    "DPZ": {
+      "sector": "Consumer",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Domino's"
+    },
+    "HAL": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Halliburton \u2014 services"
+    },
+    "BKR": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Baker Hughes"
+    },
+    "DVN": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Devon \u2014 E&P"
+    },
+    "APA": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 APA \u2014 E&P"
+    },
+    "PSX": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Phillips 66 \u2014 refining"
+    },
+    "MPC": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Marathon Petroleum"
+    },
+    "VLO": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Valero \u2014 refining"
+    },
+    "KMI": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Kinder Morgan \u2014 midstream"
+    },
+    "WMB": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Williams \u2014 midstream"
+    },
+    "FANG": {
+      "sector": "Energy",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Diamondback \u2014 Permian"
+    },
+    "APD": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Air Products"
+    },
+    "LIN": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Linde \u2014 industrial gases"
+    },
+    "SHW": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Sherwin-Williams \u2014 paint"
+    },
+    "ECL": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Ecolab"
+    },
+    "NUE": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Nucor \u2014 steel"
+    },
+    "MLM": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Martin Marietta \u2014 aggregates"
+    },
+    "VMC": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Vulcan \u2014 aggregates"
+    },
+    "NEM": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Newmont \u2014 gold"
+    },
+    "FCX": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Freeport \u2014 copper"
+    },
+    "IFF": {
+      "sector": "Materials",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Intl Flavors"
+    },
+    "PLD": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Prologis \u2014 industrial REIT"
+    },
+    "AMT": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 American Tower"
+    },
+    "EQIX": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Equinix \u2014 data centers"
+    },
+    "CCI": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Crown Castle"
+    },
+    "SPG": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Simon Property"
+    },
+    "DLR": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Digital Realty"
+    },
+    "O": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Realty Income"
+    },
+    "WELL": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Welltower"
+    },
+    "AVB": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 AvalonBay"
+    },
+    "EQR": {
+      "sector": "RealEstate",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Equity Residential"
+    },
+    "NEE": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 NextEra \u2014 regulated + renewables"
+    },
+    "DUK": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Duke Energy"
+    },
+    "SO": {
+      "sector": "Utilities",
+      "max_allocation_pct": 5,
+      "tradeable": true,
+      "notes": "v6.1 universe \u2014 Southern Company"
+    }
   }
 }
