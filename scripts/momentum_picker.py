@@ -101,7 +101,7 @@ def _annualised_volatility(provider, symbol: str, today: str,
 
 def rank_universe(provider, candidates: Iterable[str], today: str,
                   spy_12m: float, min_abs_return: float = 0.0,
-                  apply_quality_filter: bool = True,
+                  apply_quality_filter: bool = False,   # v9 default OFF — caused regression
                   max_annual_vol_pct: float = 80.0,
                   ) -> list[tuple[str, float, float]]:
     """Rank `candidates` by 12-month momentum after dual-momentum + quality

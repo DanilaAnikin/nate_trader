@@ -53,10 +53,10 @@ _PARAMS = {
         "gate_score_min": 0.55,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,        # v4: wider — matches widened trail
-        # v9: REVERTED to v7 levels — v8 70%/top-4 amplified whipsaw losses
-        # in transition windows. v7's 60 %/top-5/21-day was the local optimum.
-        # We keep 10-day hold (the one v8 change that didn't backfire — small
-        # caps need faster rotation than mega-caps anyway).
+        # PRODUCTION v7 — best version after 9 iterations.
+        # v8 (asymmetric confirmation + 70% SSO + top-4) regressed.
+        # v9 (548 universe + sector rotation + quality filter) regressed harder.
+        # v7 is the documented production ceiling on this universe + epoch.
         "base_pct": 60.0,
         "base_instrument": "SSO",
         "spy_base_pct": 60.0,
@@ -64,11 +64,12 @@ _PARAMS = {
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
-        "momentum_min_hold_days": 10,
+        "momentum_min_hold_days": 21,
         "momentum_top_n": 5,
-        # v9 Phase 2: sector rotation overlay
-        "sector_rotation_pct": 20.0,     # 20 % into top-3 XL* sector ETFs
-        "sector_rotation_top_n": 3,
+        # v9 sector rotation DISABLED — overlay competed with momentum picks
+        # for capital, dropped BULL P&L from +83% (v7) to +41% (v9).
+        "sector_rotation_pct": 0.0,
+        "sector_rotation_top_n": 0,
     },
     ("BULL", "CAUTIOUS"): {
         "score_threshold": 55,
@@ -94,7 +95,7 @@ _PARAMS = {
         "gate_score_min": 0.60,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,
-        # v9: REVERTED CAUTIOUS BULL
+        # PRODUCTION v7 CAUTIOUS BULL
         "base_pct": 50.0,
         "base_instrument": "SSO",
         "spy_base_pct": 50.0,
@@ -102,10 +103,10 @@ _PARAMS = {
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
-        "momentum_min_hold_days": 10,
+        "momentum_min_hold_days": 21,
         "momentum_top_n": 4,
-        "sector_rotation_pct": 15.0,     # smaller sector overlay when CAUTIOUS
-        "sector_rotation_top_n": 2,
+        "sector_rotation_pct": 0.0,
+        "sector_rotation_top_n": 0,
     },
     # ────────────────────── NEUTRAL regime ─────────────────────
     ("NEUTRAL", "NORMAL"): {
