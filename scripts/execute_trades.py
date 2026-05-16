@@ -979,35 +979,53 @@ manage_spy_base = manage_base_position
 
 
 def manage_regime_transition(dry_run: bool = False) -> list[dict]:
-    """v7 — close all directional positions on CONFIRMED BULL→NEUTRAL/BEAR.
+    """v8 — close all directional positions on CONFIRMED BULL→NEUTRAL/BEAR
+    using **asymmetric** confirmation windows:
+      • Entering BULL: ENTRY days (default 1)  — fast
+      • Exiting  BULL: EXIT  days (default 3)  — slow
 
-    Confirmation = `REGIME_CONFIRMATION_DAYS` consecutive routine runs with
-    the same raw regime. Avoids the BULL↔NEUTRAL daily-flip churn that
-    cost ~1 %/flip in slippage during v6 iter 1.
+    Walk-forward W2/W3 showed −16 pp/yr OOS alpha from 3-day-delayed entry
+    into BULL after the 2022 bottom + 2023 H1 rally. Fast entry recovers
+    most of that without re-introducing daily-flip churn (slow exit
+    keeps the flatten path stable).
 
     State persisted to `state/performance.json`:
-      • regime_history: list of last N raw-regime strings
+      • regime_history: last max(ENTRY, EXIT) raw-regime strings
       • last_confirmed_regime: the regime once confirmed
     """
     from portfolio import get_positions
     from trade import close_position
     from notify import send_trade_alert
-    from strategy_config import REGIME_CONFIRMATION_DAYS
+    from strategy_config import (
+        REGIME_CONFIRMATION_DAYS_ENTRY,
+        REGIME_CONFIRMATION_DAYS_EXIT,
+    )
 
     regime = get_market_regime()
     risk_tier = get_risk_tier()
     params = get_strategy_params(regime, risk_tier)
 
     perf = load_json(PERFORMANCE_STATE) or {}
+    buffer_size = max(REGIME_CONFIRMATION_DAYS_ENTRY, REGIME_CONFIRMATION_DAYS_EXIT)
     history: list[str] = perf.get("regime_history", []) or []
     history.append(regime)
-    history = history[-REGIME_CONFIRMATION_DAYS:]
+    history = history[-buffer_size:]
 
     prev_confirmed = perf.get("last_confirmed_regime")
-    if len(history) == REGIME_CONFIRMATION_DAYS and len(set(history)) == 1:
-        confirmed = history[-1]
+    if prev_confirmed is None:
+        confirmed = regime  # bootstrap
+    elif regime == prev_confirmed:
+        confirmed = prev_confirmed
     else:
-        confirmed = prev_confirmed or regime
+        # Transition candidate — apply the right window
+        is_entering_bull = (regime == "BULL")
+        window = (REGIME_CONFIRMATION_DAYS_ENTRY if is_entering_bull
+                  else REGIME_CONFIRMATION_DAYS_EXIT)
+        recent = history[-window:]
+        if len(recent) >= window and all(r == regime for r in recent):
+            confirmed = regime
+        else:
+            confirmed = prev_confirmed
 
     # Always persist forward
     if not dry_run:

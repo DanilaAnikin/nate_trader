@@ -53,18 +53,18 @@ _PARAMS = {
         "gate_score_min": 0.55,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,        # v4: wider — matches widened trail
-        # v7: 60 % SSO (2× SPY leverage) in confirmed BULL/NORMAL — captures
-        # ~1.2× effective beta while top-5 momentum picks add concentrated alpha.
-        "base_pct": 60.0,
+        # v8: 70 % SSO (was 60). Walk-forward showed SSO is the #1 P&L
+        # contributor in every single test — push the leverage further while
+        # the SMA200 gate + flatten-on-confirmed-NEUTRAL handle the downside.
+        "base_pct": 70.0,
         "base_instrument": "SSO",
-        # v6 back-compat: spy_base_pct mirrors base_pct (legacy live code path).
-        "spy_base_pct": 60.0,
+        "spy_base_pct": 70.0,
         "flatten_on_transition": False,
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
-        "momentum_min_hold_days": 21,
-        "momentum_top_n": 5,             # v7: top-5 — academic concentration finding
+        "momentum_min_hold_days": 10,    # v8: was 21 — faster rotation through hot names
+        "momentum_top_n": 4,             # v8: was 5 — tighter concentration
     },
     ("BULL", "CAUTIOUS"): {
         "score_threshold": 55,
@@ -90,16 +90,16 @@ _PARAMS = {
         "gate_score_min": 0.60,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,
-        # v7: CAUTIOUS BULL still uses leverage but smaller allocation
-        "base_pct": 50.0,
+        # v8: CAUTIOUS BULL — keep moderate leverage, faster rotation
+        "base_pct": 55.0,
         "base_instrument": "SSO",
-        "spy_base_pct": 50.0,
+        "spy_base_pct": 55.0,
         "flatten_on_transition": False,
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
-        "momentum_min_hold_days": 21,
-        "momentum_top_n": 4,             # v7: even tighter when CAUTIOUS
+        "momentum_min_hold_days": 10,
+        "momentum_top_n": 3,             # v8: even tighter
     },
     # ────────────────────── NEUTRAL regime ─────────────────────
     ("NEUTRAL", "NORMAL"): {
@@ -248,7 +248,15 @@ _PARAMS = {
 # v7: regime confirmation — require N consecutive days of the same SPY/SMA
 # classifier output before treating a transition as "confirmed". Avoids
 # the BULL↔NEUTRAL daily-flip churn that wrecked v6 iter 1.
-REGIME_CONFIRMATION_DAYS = 3
+#
+# v8: asymmetric — walk-forward showed −16 pp/yr OOS alpha in W2/W3 came
+# from late entry into BULL after the 2022 bear bottom + 2023 rally. The
+# 3-day buffer protects against chop but costs ~5-10 pp in recovery legs.
+# Fast entry (1-day) + slow exit (3-day) gives back most of that without
+# reopening the churn problem.
+REGIME_CONFIRMATION_DAYS = 3  # legacy alias — exit_from_bull confirmation
+REGIME_CONFIRMATION_DAYS_ENTRY = 1   # v8: fast entry TO BULL
+REGIME_CONFIRMATION_DAYS_EXIT = 3    # v8: slow exit FROM BULL
 
 
 def get_strategy_params(regime: str | None = None, risk_tier: str | None = None) -> dict:

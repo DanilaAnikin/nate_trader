@@ -811,11 +811,20 @@ def run_backtest(config: BacktestConfig) -> dict:
     log.info(f"Starting cash: ${config.starting_cash:,.0f} | slippage: {config.slippage_bps} bps")
 
     last_progress = 0
-    # v7: confirmed_regime requires N consecutive days of the same raw regime
-    # before "confirming" a transition. Avoids the BULL↔NEUTRAL daily flips
-    # that wrecked v6 iter 1 (every flip costs ~1 % slippage when we
-    # flatten the directional book).
-    from strategy_config import REGIME_CONFIRMATION_DAYS  # noqa: PLC0415
+    # v8: asymmetric regime confirmation.
+    #   • entering BULL takes ENTRY days (default 1 → fast)
+    #   • exiting BULL  takes EXIT  days (default 3 → cautious)
+    # Walk-forward W2/W3 showed −16 pp/yr alpha from 3-day-delayed entry
+    # into the BULL after the 2022 bottom + the 2023 H1 rally. The slow
+    # exit prevents BULL↔NEUTRAL daily-flip churn that wrecked v6 iter 1.
+    from strategy_config import (  # noqa: PLC0415
+        REGIME_CONFIRMATION_DAYS_ENTRY,
+        REGIME_CONFIRMATION_DAYS_EXIT,
+    )
+    # We carry max(ENTRY, EXIT) days of raw history so we can answer
+    # both confirmations from one buffer.
+    _REGIME_BUFFER = max(REGIME_CONFIRMATION_DAYS_ENTRY,
+                         REGIME_CONFIRMATION_DAYS_EXIT)
     regime_history: list[str] = []
     confirmed_regime: str | None = None
     prev_confirmed_regime: str | None = None
@@ -833,15 +842,26 @@ def run_backtest(config: BacktestConfig) -> dict:
         # 1. Mark to market at today's OPEN before any trades fire
         portfolio.mark_to_market(opens)
 
-        # v7: smooth raw regime via N-day confirmation window
+        # v8: asymmetric regime confirmation.
         raw_regime = _spy_regime(provider, date)
         regime_history.append(raw_regime)
-        if len(regime_history) > REGIME_CONFIRMATION_DAYS:
+        if len(regime_history) > _REGIME_BUFFER:
             regime_history.pop(0)
-        if len(regime_history) == REGIME_CONFIRMATION_DAYS and len(set(regime_history)) == 1:
-            confirmed_regime = regime_history[-1]
-        elif confirmed_regime is None:
-            confirmed_regime = raw_regime  # bootstrap before first confirmation
+
+        # Bootstrap: before the buffer fills, accept the raw regime.
+        if confirmed_regime is None:
+            confirmed_regime = raw_regime
+        else:
+            # Detect a candidate transition vs the current confirmed state.
+            if raw_regime != confirmed_regime:
+                # Different from current confirmed → check the appropriate
+                # confirmation window.
+                is_entering_bull = (raw_regime == "BULL")
+                window = (REGIME_CONFIRMATION_DAYS_ENTRY if is_entering_bull
+                          else REGIME_CONFIRMATION_DAYS_EXIT)
+                recent = regime_history[-window:] if window > 0 else [raw_regime]
+                if len(recent) >= window and all(r == raw_regime for r in recent):
+                    confirmed_regime = raw_regime
 
         regime_today = confirmed_regime
         risk_today_for_trans = _risk_tier(portfolio)
