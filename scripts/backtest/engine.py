@@ -420,7 +420,25 @@ def _spy_below_sma200(provider: BarProvider, today: str) -> bool:
 
 
 SPY_BASE_SYMBOL = "SPY"
+TQQQ_SYMBOL = "TQQQ"  # v5: leveraged BULL beta (3× QQQ)
 BASE_REBALANCE_THRESHOLD_PCT = 2.0  # only rebalance when drift > 2% of equity
+
+
+def _spy_above_sma50_and_sma200(provider: BarProvider, today: str) -> bool:
+    """v5 — TQQQ confirmation gate. Both lines must be cleared to risk leverage.
+
+    Why both: SMA50 catches the medium-term trend, SMA200 catches the
+    structural cycle. Either alone is too noisy (mid-2022 had a 50-day
+    cross above 200 briefly during the bear-market rally).
+    """
+    bars = provider.bars_up_to("SPY", today, lookback_days=210)
+    if bars is None or len(bars) < 200:
+        return False  # not enough history → don't risk leverage
+    closes = bars["close"].astype(float)
+    last = float(closes.iloc[-1])
+    sma50 = float(closes.rolling(window=50).mean().iloc[-1])
+    sma200 = float(closes.rolling(window=200).mean().iloc[-1])
+    return last > sma50 and last > sma200
 
 
 def _manage_spy_base(portfolio: SimulatedPortfolio, provider: BarProvider,
@@ -473,6 +491,74 @@ def _manage_spy_base(portfolio: SimulatedPortfolio, provider: BarProvider,
                 portfolio.close(SPY_BASE_SYMBOL, fill, date, reason="base_exit")
             else:
                 portfolio.partial_close(SPY_BASE_SYMBOL, qty, fill, date, reason="base_rebal")
+
+
+def _manage_tqqq(portfolio: SimulatedPortfolio, provider: BarProvider,
+                 date: str, params: dict, day_lows: dict[str, float],
+                 slippage_bps: float) -> None:
+    """v5 — leveraged BULL beta via TQQQ (3× QQQ).
+
+    Three guards prevent the 2022-style TQQQ implosion (−79 %):
+      1. Target is 0 unless `tqqq_pct` > 0 in current regime cell (BULL only).
+      2. Even with target > 0, only opens when SPY > SMA50 AND SMA200.
+      3. Hard intraday stop at entry × (1 − `tqqq_stop_pct`/100). If today's
+         low pierces the line we exit at the stop price (slippage applied).
+    """
+    target_pct = params.get("tqqq_pct", 0.0)
+
+    # Circuit breaker — hard −% stop on any existing TQQQ position
+    p = portfolio.get_position(TQQQ_SYMBOL)
+    if p is not None and p.is_base:
+        stop_pct = params.get("tqqq_stop_pct", 20.0)
+        stop_price = p.avg_entry_price * (1 - stop_pct / 100)
+        today_low = day_lows.get(TQQQ_SYMBOL)
+        if today_low is not None and today_low <= stop_price:
+            fill = _sell_fill(min(stop_price, today_low), slippage_bps)
+            portfolio.close(TQQQ_SYMBOL, fill, date, reason="tqqq_circuit_breaker")
+            return  # stop fired — don't immediately re-enter the same day
+
+    # Regime gate — leverage only when both SMA lines are cleared
+    if target_pct > 0 and not _spy_above_sma50_and_sma200(provider, date):
+        target_pct = 0.0
+
+    bar = provider.bar_at(TQQQ_SYMBOL, date)
+    if bar is None:
+        return
+    tqqq_open = bar["open"]
+    equity = portfolio.equity()
+    if equity <= 0:
+        return
+
+    p = portfolio.get_position(TQQQ_SYMBOL)
+    current_value = p.market_value if (p and p.is_base) else 0.0
+    target_value = equity * (target_pct / 100)
+    delta = target_value - current_value
+    delta_pct = abs(delta) / equity * 100 if equity > 0 else 0.0
+
+    # Exit entirely if target is 0
+    if target_pct == 0.0:
+        if p is not None and p.is_base:
+            fill = _sell_fill(tqqq_open, slippage_bps)
+            portfolio.close(TQQQ_SYMBOL, fill, date, reason="tqqq_exit")
+        return
+
+    if delta_pct < BASE_REBALANCE_THRESHOLD_PCT:
+        return
+
+    if delta > 0:
+        fill = _buy_fill(tqqq_open, slippage_bps)
+        qty = int(delta / fill)
+        if qty >= 1:
+            portfolio.open(TQQQ_SYMBOL, qty, fill, date, is_base=True)
+    elif p is not None:
+        fill = _sell_fill(tqqq_open, slippage_bps)
+        qty = int(abs(delta) / fill)
+        qty = min(qty, p.qty - 1) if p.qty > 1 else p.qty
+        if qty >= 1:
+            if qty >= p.qty:
+                portfolio.close(TQQQ_SYMBOL, fill, date, reason="tqqq_exit")
+            else:
+                portfolio.partial_close(TQQQ_SYMBOL, qty, fill, date, reason="tqqq_rebal")
 
 
 def _flatten_on_transition(portfolio: SimulatedPortfolio, day_opens: dict[str, float],
@@ -578,7 +664,7 @@ def run_backtest(config: BacktestConfig) -> dict:
     for idx, date in enumerate(all_days):
         # Build a snapshot of OHLC for all relevant symbols today
         opens, highs, lows, closes = {}, {}, {}, {}
-        for sym in candidates + ["SPY", "SH"]:
+        for sym in candidates + ["SPY", "SH", "TQQQ"]:
             bar = provider.bar_at(sym, date)
             if bar:
                 opens[sym] = bar["open"]
@@ -657,6 +743,9 @@ def run_backtest(config: BacktestConfig) -> dict:
 
         # 7b. v4: SPY base position — capture market beta during BULL regimes
         _manage_spy_base(portfolio, provider, date, params, config.slippage_bps)
+
+        # 7c. v5: TQQQ leveraged BULL beta — gated by SMA50+SMA200 + hard stop
+        _manage_tqqq(portfolio, provider, date, params, lows, config.slippage_bps)
 
         # 8-10. Score-sorted buys subject to gate score + caps + cash floor
         # v3: NEUTRAL regime can opt out of new buys entirely (still holds + hedges)

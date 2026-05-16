@@ -53,8 +53,10 @@ _PARAMS = {
         "gate_score_min": 0.55,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,        # v4: wider — matches widened trail
-        "spy_base_pct": 50.0,            # v4: 50% SPY core during BULL/NORMAL
-        "flatten_on_transition": False,  # v4: BULL doesn't flatten
+        "spy_base_pct": 40.0,            # v5: 40% plain SPY core + 30% leveraged
+        "flatten_on_transition": False,
+        "tqqq_pct": 30.0,                # v5: 30% TQQQ in confirmed BULL
+        "tqqq_stop_pct": 20.0,           # v5: hard −20% stop on TQQQ leverage sleeve
     },
     ("BULL", "CAUTIOUS"): {
         "score_threshold": 55,
@@ -80,8 +82,10 @@ _PARAMS = {
         "gate_score_min": 0.60,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,
-        "spy_base_pct": 30.0,            # v4: smaller SPY core when CAUTIOUS
+        "spy_base_pct": 35.0,            # v5: SPY core when CAUTIOUS
         "flatten_on_transition": False,
+        "tqqq_pct": 15.0,                # v5: half-size leverage in CAUTIOUS BULL
+        "tqqq_stop_pct": 20.0,
     },
     # ────────────────────── NEUTRAL regime ─────────────────────
     ("NEUTRAL", "NORMAL"): {
@@ -112,6 +116,8 @@ _PARAMS = {
         # Flushing the SPY core forces re-entry at higher prices and racks up slippage.
         "spy_base_pct": 30.0,
         "flatten_on_transition": False,  # v4 iter 2: only flatten on BULL→BEAR
+        "tqqq_pct": 0.0,                 # v5: no leverage in NEUTRAL chop
+        "tqqq_stop_pct": 20.0,
     },
     ("NEUTRAL", "CAUTIOUS"): {
         "score_threshold": 65,
@@ -139,6 +145,8 @@ _PARAMS = {
         "atr_stop_multiple": 2.5,
         "spy_base_pct": 20.0,            # v4 iter 2: lighter but still present
         "flatten_on_transition": False,
+        "tqqq_pct": 0.0,
+        "tqqq_stop_pct": 20.0,
     },
     # ──────────────────────── BEAR regime ──────────────────────
     ("BEAR", "NORMAL"): {
@@ -167,6 +175,8 @@ _PARAMS = {
         "atr_stop_multiple": 3.0,
         "spy_base_pct": 0.0,
         "flatten_on_transition": True,   # v4: flatten on BULL→BEAR too
+        "tqqq_pct": 0.0,                 # v5: never hold TQQQ in BEAR
+        "tqqq_stop_pct": 20.0,
     },
     ("BEAR", "CAUTIOUS"): {
         "score_threshold": 80,
@@ -194,6 +204,8 @@ _PARAMS = {
         "atr_stop_multiple": 3.0,
         "spy_base_pct": 0.0,
         "flatten_on_transition": True,
+        "tqqq_pct": 0.0,
+        "tqqq_stop_pct": 20.0,
     },
 }
 

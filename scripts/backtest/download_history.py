@@ -49,6 +49,7 @@ def universe() -> list[str]:
     """
     base = set(get_tradeable_symbols())
     base.update({"SPY", "SH"})  # benchmark + hedge
+    base.update({"TQQQ"})  # v5: leveraged BULL beta (3x QQQ)
     base.update({"XLK", "XLF", "XLV", "XLI", "XLY", "XLE",
                  "XLB", "XLU", "XLRE", "XLC"})  # SPDR sector ETFs
     return sorted(base)
