@@ -7,6 +7,6 @@ pytz
 # Phase 9+ — autonomous improvement layer
 scikit-learn>=1.5
 joblib>=1.3
-yfinance>=0.2.40
+yfinance>=1.3.0
 praw>=7.7
 numpy>=1.26
