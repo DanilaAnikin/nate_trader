@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-05-17 02:14:47",
+  "updated_at": "2026-05-18 02:46:28",
   "history": {
     "A": [
       {
@@ -621,8 +621,8 @@
       {
         "date": "2026-04-30",
         "eps_actual": 2.86,
-        "eps_estimate": 2.68393,
-        "surprise_pct": 6.56
+        "eps_estimate": 2.68636,
+        "surprise_pct": 6.46
       }
     ],
     "AMD": [
@@ -933,8 +933,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 3.56,
-        "eps_estimate": 3.45757,
-        "surprise_pct": 2.96
+        "eps_estimate": 3.44326,
+        "surprise_pct": 3.39
       }
     ],
     "AR": [
@@ -6991,8 +6991,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 1.19,
-        "eps_estimate": 1.11793,
-        "surprise_pct": 6.45
+        "eps_estimate": 1.11781,
+        "surprise_pct": 6.46
       }
     ],
     "JEF": [
@@ -7719,8 +7719,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 0.82,
-        "eps_estimate": 0.78891,
-        "surprise_pct": 3.94
+        "eps_estimate": 0.7973,
+        "surprise_pct": 2.85
       }
     ],
     "LPLA": [
@@ -11957,8 +11957,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": -0.05,
-        "eps_estimate": -0.06885,
-        "surprise_pct": 27.38
+        "eps_estimate": -0.067,
+        "surprise_pct": 25.37
       }
     ],
     "SNOW": [
@@ -12425,8 +12425,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 1.39,
-        "eps_estimate": 1.22,
-        "surprise_pct": 13.93
+        "eps_estimate": 1.214,
+        "surprise_pct": 14.5
       }
     ],
     "TGT": [
@@ -13783,12 +13783,6 @@
     ],
     "WIX": [
       {
-        "date": "2025-03-31",
-        "eps_actual": 1.55,
-        "eps_estimate": 1.65586,
-        "surprise_pct": -6.39
-      },
-      {
         "date": "2025-06-30",
         "eps_actual": 2.28,
         "eps_estimate": 1.75798,
@@ -13805,6 +13799,12 @@
         "eps_actual": 1.81,
         "eps_estimate": 1.47212,
         "surprise_pct": 22.95
+      },
+      {
+        "date": "2026-03-31",
+        "eps_actual": NaN,
+        "eps_estimate": 1.21819,
+        "surprise_pct": NaN
       }
     ],
     "WLK": [
