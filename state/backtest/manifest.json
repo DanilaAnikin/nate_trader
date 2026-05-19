@@ -1,6 +1,34 @@
 {
-  "updated_at": "2026-05-19 10:20:04",
+  "updated_at": "2026-05-19 11:23:32",
   "runs": [
+    {
+      "id": "walk_forward_20260519_172332",
+      "kind": "walk_forward",
+      "generated_at": "2026-05-19 11:23:32",
+      "start_date": null,
+      "end_date": null,
+      "filename": "runs/walk_forward_20260519_172332.json",
+      "summary": {
+        "n_windows": 4,
+        "mean_oos_alpha_annual_pct": 67.1497,
+        "mean_oos_sharpe": 2.0014,
+        "mean_oos_max_drawdown_pct": -13.8946
+      }
+    },
+    {
+      "id": "walk_forward_20260519_170913",
+      "kind": "walk_forward",
+      "generated_at": "2026-05-19 11:09:13",
+      "start_date": null,
+      "end_date": null,
+      "filename": "runs/walk_forward_20260519_170913.json",
+      "summary": {
+        "n_windows": 4,
+        "mean_oos_alpha_annual_pct": 46.3707,
+        "mean_oos_sharpe": 1.5678,
+        "mean_oos_max_drawdown_pct": -12.3573
+      }
+    },
     {
       "id": "single_20260519_162004",
       "kind": "single",

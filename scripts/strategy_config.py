@@ -142,16 +142,17 @@ _PARAMS = {
         "gate_score_min": 0.65,
         "block_new_buys": True,
         "atr_stop_multiple": 2.5,
-        # v10 NEUTRAL: TQQQ overlay activates when SPY > SMA50 AND SMA200
-        # (typical pullback within an intact uptrend). 60% TQQQ + 20% SPY
-        # converts cash-heavy NEUTRAL into a dip-buying regime. The TQQQ
-        # SMA gate auto-flattens if the structural trend breaks. IS alpha
-        # 2021-2024 jumped +6.07% → +29.14%; 2025 holdout +44%/yr.
-        "base_pct": 20.0,
+        # v10d NEUTRAL: 100% TQQQ when SPY > SMA50 AND SMA200, gated by
+        # _spy_above_sma50_and_sma200. NEUTRAL fires on price < SMA20
+        # (mild pullback) but the TQQQ gate keeps leverage on only when
+        # the structural trend is intact. SPY base dropped to 0% —
+        # in NEUTRAL we either lever via TQQQ or sit in cash, no
+        # in-between. Lifted IS alpha 29% → 43%; 2025 holdout 44% → 82%.
+        "base_pct": 0.0,
         "base_instrument": "SPY",
-        "spy_base_pct": 20.0,
+        "spy_base_pct": 0.0,
         "flatten_on_transition": True,   # v7: cut stocks on regime weakness
-        "tqqq_pct": 60.0,
+        "tqqq_pct": 100.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
@@ -183,14 +184,13 @@ _PARAMS = {
         "gate_score_min": 0.70,
         "block_new_buys": True,
         "atr_stop_multiple": 2.5,
-        # v10 NEUTRAL/CAUTIOUS: same shape as NORMAL but smaller exposure.
-        # 15% SPY + 35% TQQQ keeps the dip-buy edge while honouring the
-        # drawdown trigger that escalated us to CAUTIOUS.
-        "base_pct": 15.0,
+        # v10d NEUTRAL/CAUTIOUS: 50% TQQQ — half the NORMAL leverage to
+        # respect the drawdown-triggered de-risking.
+        "base_pct": 0.0,
         "base_instrument": "SPY",
-        "spy_base_pct": 15.0,
+        "spy_base_pct": 0.0,
         "flatten_on_transition": True,
-        "tqqq_pct": 35.0,
+        "tqqq_pct": 50.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
@@ -355,10 +355,12 @@ def get_bear_hedge_target_pct(regime: str | None = None,
     if not _spy_below_sma200():
         return 0.0
 
+    import os as _os
+    _bhp = float(_os.environ.get("BEAR_HEDGE_PCT", _BEAR_HEDGE_PCT))
     base = {
         "BULL": 0.0,
         "NEUTRAL": 0.0,
-        "BEAR": 25.0,
+        "BEAR": _bhp,
     }.get(regime, 0.0)
 
     # Tier modifiers — drawdown adds protection on top of regime
@@ -368,6 +370,15 @@ def get_bear_hedge_target_pct(regime: str | None = None,
         base = max(base + 10.0, 20.0)
 
     return min(base, 35.0)  # absolute cap
+
+
+# v10c tunable: hedge size as % of equity when in BEAR + below SMA200.
+# 2021-2024 backtest: SH hedge total P&L was −$10k (drag) at 25%.
+# Sweep: hedge=0→+24.70, =10→+25.46, =15→+25.13, =25(was)→+23.81, =40→+23.48.
+# 10% gives the best trade-off — keeps real bear protection without
+# accumulating drag in the long stretches where SPY rebounds within
+# our BEAR classification.
+_BEAR_HEDGE_PCT = 10.0
 
 
 def get_effective_threshold(cash_pct: float, regime: str | None = None,
