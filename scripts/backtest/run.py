@@ -92,29 +92,42 @@ def cmd_single(args) -> None:
 def cmd_sweep(args) -> None:
     from backtest.sweep import run_sweep
     end = args.end or datetime.now().strftime("%Y-%m-%d")
-    grid = run_sweep(args.start, end, args.starting_cash)
+    sweep = run_sweep(
+        args.start, end, args.starting_cash,
+        metric=args.metric,
+        holdout_start=args.holdout_start,
+        wf_window_months=args.wf_window_months,
+        wf_step_months=args.wf_step_months,
+    )
     out = {
         "kind": "sweep",
         "generated_at": get_now_str(),
-        "start_date": args.start,
-        "end_date": end,
-        "results": grid,
+        "start_date": sweep["start_date"],
+        "end_date": sweep["end_date"],
+        "metric": sweep["metric"],
+        "holdout_start": sweep["holdout_start"],
+        "results": sweep["results"],
+        "best": sweep["best"],
     }
     run_id = record_run("sweep", out, latest_path=RESULT_SWEEP)
     log.info(f"Saved → {RESULT_SWEEP} (archived as runs/{run_id}.json)")
-    # Top 5
-    sorted_grid = sorted(grid, key=lambda r: r["metrics"]["alpha_annual_pct"], reverse=True)
+    # Top 5 by chosen metric
+    grid = sweep["results"]
+    sorted_grid = sorted(grid, key=lambda r: r.get("metric_value", -999.0), reverse=True)
     print(f"\n{'=' * 70}")
-    print(f"  TOP 5 PARAM SETS BY ANNUAL ALPHA")
+    print(f"  TOP 5 PARAM SETS BY {sweep['metric'].upper()}")
     print(f"{'=' * 70}")
     for r in sorted_grid[:5]:
         p = r["params"]
-        m = r["metrics"]
+        mv = r.get("metric_value")
+        sub = r.get("metrics", {})
+        sharpe = sub.get("sharpe_ratio") or sub.get("mean_oos_sharpe")
+        dd = sub.get("max_drawdown_pct") or sub.get("mean_oos_max_drawdown_pct")
         print(f"  threshold={p.get('score_threshold_delta', 0):+d} | "
               f"risk={p.get('risk_per_trade_pct', '-')}% | "
-              f"alpha={m['alpha_annual_pct']:+.2f}% | "
-              f"sharpe={m['sharpe_ratio']:.2f} | "
-              f"max_dd={m['max_drawdown_pct']:.1f}%")
+              f"{sweep['metric']}={mv:+.2f}% | "
+              f"sharpe={sharpe:.2f} | "
+              f"max_dd={dd:.1f}%")
 
 
 def cmd_monte_carlo(args) -> None:
@@ -243,6 +256,19 @@ def main() -> None:
     p_sweep.add_argument("--start", default="2021-01-01")
     p_sweep.add_argument("--end", default=None)
     p_sweep.add_argument("--starting-cash", type=float, default=1_000_000)
+    p_sweep.add_argument("--metric", choices=["is_alpha", "wf_alpha"],
+                         default="is_alpha",
+                         help="Optimization metric. wf_alpha = mean OOS alpha "
+                              "across rolling windows (recommended).")
+    p_sweep.add_argument("--holdout-start", default=None,
+                         help="YYYY-MM-DD — reserves data on/after this date "
+                              "from the sweep (final-verification holdout).")
+    p_sweep.add_argument("--wf-window-months", type=int, default=12,
+                         help="Length of each WF window (only used with "
+                              "--metric=wf_alpha).")
+    p_sweep.add_argument("--wf-step-months", type=int, default=12,
+                         help="Step between WF windows (default = window size, "
+                              "non-overlapping).")
 
     p_monte = sub.add_parser("monte-carlo", help="Monte Carlo bootstrap of daily returns")
     p_monte.add_argument("--start", default="2021-01-01")
