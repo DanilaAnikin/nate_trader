@@ -30,6 +30,7 @@ class Position:
     tightened_stop: bool = False
     is_hedge: bool = False
     is_base: bool = False  # v4: SPY structural beta position
+    entry_reason: str = ""  # v10g: tag PEAD positions so exits can find them
 
     @property
     def market_value(self) -> float:

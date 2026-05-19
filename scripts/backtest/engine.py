@@ -810,6 +810,149 @@ def _manage_cash_sleeve(portfolio: SimulatedPortfolio, provider: BarProvider,
                 portfolio.partial_close(SGOV_SYMBOL, qty, fill, date, reason="cash_sleeve_rebal")
 
 
+PEAD_PREFIX = "PEAD:"  # marker key in portfolio.positions metadata (unused —
+                        # we use the strategy_metadata sm.mark_position pattern
+                        # in live; backtest tracks via the entry_reason field)
+
+
+def _scan_pead_candidates(provider: BarProvider, candidates: list[str],
+                          prev_day: str, spy_12m: float = 0.0) -> list[tuple[str, float]]:
+    """Quality-filtered PEAD scan: find gap-up + volume names that are ALSO
+    in long-term uptrend (12m return > SPY's 12m return). Without earnings
+    data the quality filter is what makes this an alpha source vs noise.
+
+    Requirements:
+      • Today's gap > 5% (was 3% — tightened)
+      • Volume > 3× 20d avg (was 2× — tightened)
+      • Today's close > today's open (no intraday reversal)
+      • Name has positive 12m return AND beats SPY's 12m
+
+    Returns list of (symbol, score) ranked by score descending.
+    """
+    from momentum_picker import compute_12m_return
+    out: list[tuple[str, float]] = []
+    for sym in candidates:
+        bars = provider.bars_up_to(sym, prev_day, lookback_days=25)
+        if len(bars) < 22:
+            continue
+        closes = bars["close"].astype(float)
+        opens = bars["open"].astype(float)
+        volumes = bars["volume"].astype(float)
+        prev_close = float(closes.iloc[-2])
+        today_open = float(opens.iloc[-1])
+        today_close = float(closes.iloc[-1])
+        if prev_close <= 0 or today_open <= 0:
+            continue
+        gap_pct = (today_open - prev_close) / prev_close * 100
+        intraday_pct = (today_close - today_open) / today_open * 100
+        if gap_pct < 5.0 or intraday_pct < 0.0:
+            continue
+        avg_vol = float(volumes.iloc[-21:-1].mean())
+        today_vol = float(volumes.iloc[-1])
+        if avg_vol <= 0 or today_vol / avg_vol < 3.0:
+            continue
+        # Quality: only strong momentum leaders (12m > SPY + 20pp)
+        r12 = compute_12m_return(provider, sym, prev_day)
+        if r12 is None or r12 < spy_12m + 20.0:
+            continue
+        score = min(1.0, gap_pct / 10.0) * 0.4 \
+                + min(1.0, today_vol / avg_vol / 5.0) * 0.3 \
+                + min(1.0, r12 / 100.0) * 0.3
+        out.append((sym, score))
+    out.sort(key=lambda r: -r[1])
+    return out
+
+
+def _manage_pead_sleeve(portfolio: SimulatedPortfolio, provider: BarProvider,
+                        candidates: list[str], prev_day: str, today: str,
+                        params: dict, opens: dict[str, float],
+                        slippage_bps: float) -> None:
+    """v10g — PEAD sleeve: buy gap-up + volume names, hold 10d max.
+
+    Sleeve cap: `pead_sleeve_pct` of equity (default 15%).
+    Per-position cap: `pead_position_pct` (default 3%).
+    Exit: +8% target / −3% stop / 10-day time limit.
+
+    Position-tracking: PEAD entries are tagged via a "_pead_<date>" marker
+    in the position's `entry_reason` so we can exit on age + condition.
+    """
+    sleeve_pct = float(params.get("pead_sleeve_pct", 0.0))
+    if sleeve_pct <= 0:
+        return
+    per_pos_pct = float(params.get("pead_position_pct", 3.0))
+    target_pct = float(params.get("pead_profit_target_pct", 8.0))
+    stop_pct = float(params.get("pead_stop_pct", -3.0))
+    time_stop = int(params.get("pead_time_stop_days", 10))
+
+    equity = portfolio.equity()
+    if equity <= 0:
+        return
+
+    # First: exit any existing PEAD positions on target / stop / time
+    for sym in list(portfolio.positions.keys()):
+        p = portfolio.positions[sym]
+        if p.is_hedge or p.is_base:
+            continue
+        if not str(p.entry_reason or "").startswith("pead_"):
+            continue
+        if sym not in opens:
+            continue
+        cur_pnl = (opens[sym] - p.avg_entry_price) / p.avg_entry_price * 100
+        # Age in trading days
+        try:
+            held = max(0, len(provider.all_trading_days("SPY",
+                                                        start=p.entry_date,
+                                                        end=today)) - 1)
+        except Exception:
+            held = 0
+        should_exit = False
+        reason = ""
+        if cur_pnl >= target_pct:
+            should_exit, reason = True, f"pead_target+{cur_pnl:.1f}"
+        elif cur_pnl <= stop_pct:
+            should_exit, reason = True, f"pead_stop{cur_pnl:.1f}"
+        elif held >= time_stop:
+            should_exit, reason = True, f"pead_time_stop{held}d"
+        if should_exit:
+            fill = _sell_fill(opens[sym], slippage_bps)
+            portfolio.close(sym, fill, today, reason=reason)
+
+    # Compute headroom
+    sleeve_value = sum(
+        p.market_value for p in portfolio.positions.values()
+        if str(p.entry_reason or "").startswith("pead_")
+    )
+    headroom = max(0.0, equity * sleeve_pct / 100.0 - sleeve_value)
+    if headroom < equity * 0.005:  # < 0.5% headroom → skip
+        return
+
+    # Buy leg: scan and rank (quality-filtered by 12m return vs SPY)
+    spy_12m_for_pead = spy_12m_return(provider, prev_day) or 0.0
+    ranked = _scan_pead_candidates(provider, candidates, prev_day,
+                                    spy_12m=spy_12m_for_pead)
+    if not ranked:
+        return
+    per_pos_value = min(equity * per_pos_pct / 100.0, headroom)
+
+    for sym, score in ranked[:5]:  # top-5 at most per day
+        if portfolio.has_position(sym):
+            continue
+        if sym not in opens:
+            continue
+        if headroom < per_pos_value * 0.5:
+            break
+        fill_price = _buy_fill(opens[sym], slippage_bps)
+        qty = int(per_pos_value / fill_price)
+        if qty <= 0:
+            continue
+        if portfolio.cash < qty * fill_price:
+            continue
+        portfolio.open(sym, qty, fill_price, today)
+        # Tag the position so exits can recognise it
+        portfolio.positions[sym].entry_reason = f"pead_score{score:.2f}"
+        headroom -= qty * fill_price
+
+
 def _sector_etf_6m_returns(provider: BarProvider, today: str) -> list[tuple[str, float]]:
     """v9 Phase 2 — rank sector ETFs by 6-month total return as of `today`.
 
@@ -1300,6 +1443,14 @@ def run_backtest(config: BacktestConfig) -> dict:
         # 7c''. v10f: UPRO (3× SPY) parallel sleeve — same SMA gate as TQQQ.
         # Adds broad-market leverage so the strategy isn't purely tech-biased.
         _manage_upro(portfolio, provider, date, params, lows, config.slippage_bps)
+
+        # 7c'''. v10g: PEAD sleeve — gap-up + volume continuation, 10d max hold.
+        # Price-action proxy for post-earnings drift since historical EPS
+        # data isn't cached. Caps at pead_sleeve_pct of equity.
+        _manage_pead_sleeve(
+            portfolio, provider, candidates, prev_day, date,
+            params, opens, config.slippage_bps,
+        )
 
         # 7d. v9 Phase 2: sector rotation overlay — top-N XL* by 6m return,
         # equal-weighted, rebalanced on month start. is_base=True so exempt
