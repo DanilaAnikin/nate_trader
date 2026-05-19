@@ -388,11 +388,23 @@ def compute_confidence_score(
     rescaled_px = min(13, round(perplexity_score * 13 / 30)) if perplexity_score else 0
     catalyst_score = min(25, rescaled_news + rescaled_px)
 
-    # ── Momentum Alpha Score (max 25) — relative strength vs SPY ──
+    # ── Momentum Alpha Score (max 25) — sector-relative RS, fallback to SPY ──
+    # Phase C of ALPHA_PLAN.md: prefer sector-relative RS over SPY-relative.
+    # Within a leading sector we want the leader; within a lagging sector we
+    # want to skip even names that are beating SPY because they're getting
+    # lifted by the broader move rather than earning real selection alpha.
+    # Sector return is sourced from sector_state["sector_returns"][sector],
+    # which is produced by the pre-market routine (live) or per-day
+    # historical state (backtest, look-ahead-safe).
     alpha_score = 0
     stock_20d = technicals.get("twenty_day_return")
-    if stock_20d is not None and spy_20d_return is not None:
-        alpha = stock_20d - spy_20d_return
+    sector_20d = None
+    if sector and sector_state:
+        sector_returns = sector_state.get("sector_returns") or {}
+        sector_20d = sector_returns.get(sector)
+    rs_benchmark = sector_20d if sector_20d is not None else spy_20d_return
+    if stock_20d is not None and rs_benchmark is not None:
+        alpha = stock_20d - rs_benchmark
         if alpha >= 15:
             alpha_score = 25
         elif alpha >= 10:
@@ -404,7 +416,7 @@ def compute_confidence_score(
         elif alpha >= 0:
             alpha_score = 5
     elif stock_20d is not None:
-        # No SPY data — use absolute momentum as fallback
+        # No benchmark data — use absolute momentum as fallback
         if stock_20d >= 15:
             alpha_score = 20
         elif stock_20d >= 10:

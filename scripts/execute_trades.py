@@ -174,17 +174,28 @@ def compute_gate_score(candidate: dict, regime: str | None = None,
     else:
         details.append("FAIL: Volume (no data)")
 
-    # 4) Relative strength — 20-day return vs SPY 20-day return
+    # 4) Relative strength — 20-day return vs sector ETF (fallback: SPY).
+    # Phase C of ALPHA_PLAN.md: sector-relative RS picks the leader within a
+    # leading sector instead of any name that happened to ride the market.
     research = load_json(RESEARCH_STATE)
     spy = research.get("spy", {})
     spy_20d = spy.get("twenty_day_return", spy.get("monthly_return", 0))
     stock_20d = tech.get("twenty_day_return", tech.get("five_day_return", 0))
-    alpha_20d = stock_20d - spy_20d
+    sector_name = candidate.get("info", {}).get("sector") or candidate.get("sector")
+    sector_state = load_json(STATE_DIR / "sector_strength.json") or {}
+    sector_returns = sector_state.get("sector_returns") or {}
+    sector_20d = sector_returns.get(sector_name) if sector_name else None
+    rs_benchmark = sector_20d if sector_20d is not None else spy_20d
+    benchmark_label = (f"{sector_name}({sector_20d:+.2f}%)"
+                       if sector_20d is not None
+                       else f"SPY {spy_20d:+.2f}%")
+    alpha_20d = stock_20d - rs_benchmark
     rs_pass = alpha_20d >= params["rs_alpha_min"]
     checks["rs"] = 1.0 if rs_pass else 0.0
     details.append(
         f"{'PASS' if rs_pass else 'FAIL'}: 20d alpha "
-        f"({stock_20d:+.2f}% − SPY {spy_20d:+.2f}% = {alpha_20d:+.2f}%, need ≥{params['rs_alpha_min']:+.2f}%)"
+        f"({stock_20d:+.2f}% − {benchmark_label} = {alpha_20d:+.2f}%, "
+        f"need ≥{params['rs_alpha_min']:+.2f}%)"
     )
 
     # 5) Confidence — regime-adaptive threshold (effective, with cash-starve bonus)
