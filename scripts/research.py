@@ -422,8 +422,10 @@ def compute_confidence_score(
     sector_adj = 0
     if sector:
         try:
+            from ablation_flags import ABLATE_SECTOR_ROT
             from sector_rotation import compute_sector_adjustment
-            sector_adj = compute_sector_adjustment(sector, state=sector_state)
+            if not ABLATE_SECTOR_ROT:
+                sector_adj = compute_sector_adjustment(sector, state=sector_state)
         except Exception:
             sector_adj = 0
 
@@ -433,6 +435,9 @@ def compute_confidence_score(
     mtf_adj = 0
     if four_h is not None:
         try:
+            from ablation_flags import ABLATE_MULTI_TF
+            if ABLATE_MULTI_TF:
+                raise RuntimeError("ablated")
             from multi_timeframe import compute_mtf_adjustment, TimeframeTechnicals
             daily_tf = TimeframeTechnicals(
                 rsi_14=technicals.get("rsi_14"),
@@ -459,6 +464,9 @@ def compute_confidence_score(
     # no model trained yet (graceful degrade).
     ml_adj = 0
     try:
+        from ablation_flags import ABLATE_ML
+        if ABLATE_ML:
+            raise RuntimeError("ablated")
         from ml_signals import extract_features as _ml_features, predict_proba, ml_score_from_proba
         # We don't have the bars df here — caller can pre-compute features
         # and pass via technicals.get("_ml_features"). Otherwise we skip.
@@ -472,6 +480,9 @@ def compute_confidence_score(
     # ── Retail sentiment adjustment (−3 to +3) ──
     sent_adj = 0
     try:
+        from ablation_flags import ABLATE_SENTIMENT
+        if ABLATE_SENTIMENT:
+            raise RuntimeError("ablated")
         from sentiment import get_sentiment_score, sentiment_to_adjustment
         # Use technicals._symbol shortcut, or skip if absent
         sym = technicals.get("_symbol")

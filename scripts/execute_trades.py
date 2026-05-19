@@ -139,7 +139,9 @@ def compute_gate_score(candidate: dict, regime: str | None = None,
     next 5 trading days, applies a hard penalty (−0.20) regardless of
     the weighted score. Binary risk events have no edge for momentum.
     """
-    from earnings_calendar import has_earnings_risk, days_until_earnings
+    from ablation_flags import ABLATE_EARNINGS_FILTER
+    from earnings_calendar import has_earnings_risk as _has_er_real, days_until_earnings
+    has_earnings_risk = (lambda *a, **kw: False) if ABLATE_EARNINGS_FILTER else _has_er_real
 
     params = get_strategy_params(regime, risk_tier)
     tech = candidate.get("technicals", {})
@@ -775,7 +777,9 @@ def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
     # Replacement picks are drawn from the next-best momentum names so the
     # top-N slate is still filled when possible.
     try:
-        from earnings_calendar import has_earnings_risk
+        from ablation_flags import ABLATE_EARNINGS_FILTER
+        from earnings_calendar import has_earnings_risk as _has_er_real
+        has_earnings_risk = (lambda *a, **kw: False) if ABLATE_EARNINGS_FILTER else _has_er_real
         ranked_syms_iter = iter(s for s, _ in ranked)
         clean_top: list[str] = []
         for sym in raw_top:
@@ -1282,6 +1286,9 @@ def manage_bear_hedge(dry_run: bool = False) -> list[dict]:
 
 def execute_mr_buys(dry_run: bool = False) -> list[dict]:
     """Open MR positions in NEUTRAL/BEAR regimes within sleeve cap."""
+    from ablation_flags import ABLATE_MEAN_REV
+    if ABLATE_MEAN_REV:
+        return []
     from mean_reversion import (
         find_candidates as mr_find_candidates,
         mr_position_size, is_active as mr_is_active,
@@ -1432,6 +1439,9 @@ def execute_pead_buys(dry_run: bool = False) -> list[dict]:
     missing — yesterday's close > 3% above prior close + volume > 2× avg
     + earnings 1-2 days ago counts as a "soft beat".
     """
+    from ablation_flags import ABLATE_PEAD
+    if ABLATE_PEAD:
+        return []
     from pead_strategy import is_pead_setup, score_pead
     from earnings_calendar import days_until_earnings, load_calendar
     import strategy_metadata as sm

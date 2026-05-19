@@ -1044,10 +1044,12 @@ def run_backtest(config: BacktestConfig) -> dict:
                 px = perplexity_proxy_score(bars, symbol=sym, date=prev_day)
                 sec = get_symbol_info(sym).get("sector")
                 try:
-                    from ml_signals import extract_features as _ml_extract
-                    ml_feat = _ml_extract(bars, regime=regime)
-                    if ml_feat:
-                        tech["_ml_features"] = ml_feat
+                    from ablation_flags import ABLATE_ML
+                    if not ABLATE_ML:
+                        from ml_signals import extract_features as _ml_extract
+                        ml_feat = _ml_extract(bars, regime=regime)
+                        if ml_feat:
+                            tech["_ml_features"] = ml_feat
                 except Exception:
                     pass
                 tech["_symbol"] = sym
