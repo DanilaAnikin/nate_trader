@@ -91,6 +91,39 @@ def classify_gap(prior_close: float, today_open: float,
     return None
 
 
+def score_gap_from_technicals(technicals: dict) -> int:
+    """Score the overnight gap component from a technicals dict.
+
+    Inputs (all from compute_technicals output):
+      • `prev_close` — yesterday's close
+      • `today_open` — today's open
+      • `volume_ratio` — today's volume / 20d-avg volume
+
+    Returns:
+      • +5 for a confirmed gap-up (≥3% on ≥1.5× volume)
+      • +3 for a confirmed gap-down (oversold continuation, MR sleeve)
+      • 0 otherwise — including missing data, low volume, or sub-threshold gap
+
+    This is the live/backtest-friendly variant: no quote stream, no
+    pre-market data — uses last two completed bars + volume ratio that
+    are already on the technicals dict. The full pre-market `run_gap_scan`
+    can layer on top of this when its workflow job lands.
+    """
+    prev_close = technicals.get("prev_close")
+    today_open = technicals.get("today_open")
+    volume_ratio = technicals.get("volume_ratio")
+    if not prev_close or not today_open or prev_close <= 0:
+        return 0
+    if volume_ratio is None or volume_ratio < MIN_VOLUME_RATIO:
+        return 0
+    gap_pct = (today_open - prev_close) / prev_close * 100
+    if gap_pct >= GAP_THRESHOLD_PCT:
+        return GAP_UP_BONUS
+    if gap_pct <= -GAP_THRESHOLD_PCT:
+        return GAP_DOWN_BONUS
+    return 0
+
+
 # Live wiring deferred — needs new workflow job at 9:35 ET. Stub below.
 def run_gap_scan() -> list[GapSignal]:
     """Live scan (not yet wired). Returns empty list until implementation lands."""

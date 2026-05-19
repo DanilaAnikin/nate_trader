@@ -172,6 +172,13 @@ def compute_technicals(df: pd.DataFrame) -> dict:
 
     current_price = float(close.iloc[-1])
     current_volume = float(volume.iloc[-1])
+    # Phase E (gap_scanner wiring): expose prior close + today's open so the
+    # gap score can run on completed bars without a separate quote feed.
+    prev_close = float(close.iloc[-2]) if len(close) >= 2 else None
+    if "open" in df.columns and len(df) >= 1:
+        today_open = float(df["open"].astype(float).iloc[-1])
+    else:
+        today_open = None
     current_sma20 = float(sma_20.iloc[-1]) if pd.notna(sma_20.iloc[-1]) else None
     current_sma50 = float(sma_50.iloc[-1]) if pd.notna(sma_50.iloc[-1]) else None
     current_rsi = float(rsi.iloc[-1]) if pd.notna(rsi.iloc[-1]) else None
@@ -247,6 +254,8 @@ def compute_technicals(df: pd.DataFrame) -> dict:
         "atr_14": current_atr,
         "atr_pct": (current_atr / current_price * 100) if current_atr and current_price else None,
         "vol_20d_annualized_pct": vol_20d_annualized_pct,
+        "prev_close": prev_close,
+        "today_open": today_open,
         "above_sma20": current_price > current_sma20 if current_sma20 else None,
         "above_sma50": current_price > current_sma50 if current_sma50 else None,
         # v3 momentum fields
@@ -517,7 +526,19 @@ def compute_confidence_score(
     except Exception:
         sent_adj = 0
 
-    total = tech_score + catalyst_score + alpha_score + sector_adj + mtf_adj + ml_adj + sent_adj
+    # ── Gap-scanner adjustment (0 to +5) ──
+    # Phase E of ALPHA_PLAN.md: catches overnight gap-ups with volume
+    # confirmation as a momentum-continuation bonus. Uses last 2 completed
+    # bars so it works in both live and backtest without a pre-market feed.
+    gap_adj = 0
+    try:
+        from gap_scanner import score_gap_from_technicals
+        gap_adj = score_gap_from_technicals(technicals)
+    except Exception:
+        gap_adj = 0
+
+    total = (tech_score + catalyst_score + alpha_score
+             + sector_adj + mtf_adj + ml_adj + sent_adj + gap_adj)
 
     threshold = params["score_threshold"]
     # Action bands scale with regime (lower thresholds = wider HOLD band)
@@ -539,6 +560,7 @@ def compute_confidence_score(
         "mtf_adj": mtf_adj,
         "ml_adj": ml_adj,
         "sent_adj": sent_adj,
+        "gap_adj": gap_adj,
         "total": total,
         "action": action,
         "threshold_used": threshold,
