@@ -326,15 +326,23 @@ def sync_trailing_stops() -> list[dict]:
 
 
 def execute_stop_losses() -> list[dict]:
-    """Manual hard stop-loss for positions whose unrealized loss exceeds the trail percent."""
+    """Manual hard stop-loss for positions whose unrealized loss exceeds the trail percent.
+
+    Infrastructure positions (SPY/SSO/TQQQ base + SH hedge) are skipped —
+    they're regime-driven and managed by their dedicated functions, which
+    have their own circuit-breaker logic.
+    """
     from strategy_config import get_strategy_params
     params = get_strategy_params()
     stop_pct = params["trailing_stop_pct"]
 
     positions = client.get_all_positions()
     actions = []
+    _INFRASTRUCTURE = {"SPY", "SSO", "TQQQ", "SH"}
 
     for p in positions:
+        if p.symbol in _INFRASTRUCTURE:
+            continue
         pnl_pct = float(p.unrealized_plpc) * 100
         if pnl_pct <= -stop_pct:
             log.warning(f"Stop-loss triggered for {p.symbol}: {pnl_pct:.2f}% (limit -{stop_pct}%)")
