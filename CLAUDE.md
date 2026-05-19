@@ -44,32 +44,56 @@ See `strategy/rules.md` for the full table.
 
 ---
 
-## Hard Rules (Regime-Adaptive — see `scripts/strategy_config.py`)
+## Hard Rules (Regime-Adaptive — see `scripts/strategy_config.py`, v10d)
 
 | Rule | BULL/NORMAL | NEUTRAL/NORMAL | BEAR/NORMAL |
 |------|-------------|----------------|-------------|
-| Max position size | 10% | 8% | 4% |
-| Min cash reserve | 3% | 10% | 30% |
-| Risk per trade | 1.5% | 1.0% | 0.5% |
-| Trailing stop | 10% | 8% | 6% |
-| Scale-out gain | +15% | +12% | +8% |
-| Final target | +30% | +20% | +15% |
-| Time stop | 15d / +4% | 12d / +4% | 8d / +3% |
+| **SSO base allocation** | 20% | 0% | 0% |
+| **TQQQ overlay** | 80% (gated) | 100% (gated) | 0% |
+| **SPY base** | — | 0% | 0% |
+| Max position (stocks) | 15% | 8% | 4% |
+| Min cash reserve | 5% | 10% | 30% |
+| Risk per trade | 1.2% | 1.0% | 0.5% |
+| Trailing stop | 40% | 8% | 6% |
+| Scale-out gain | disabled | +12% | +8% |
+| Final target | disabled | +20% | +15% |
+| Time stop | 30d | 30d | 30d |
 | Daily loss halt | −3% (universal) | | |
-| Max positions | 12 | 12 | 8 |
+| Max positions | 14 | 12 | 8 |
 | Sector cap | 25% | 25% | 25% |
 | Order type | Limit only | Limit only | Limit only |
-| Gate score min | 0.55 | 0.65 | 0.80 |
+| Momentum top-N | 5 | 0 | 0 |
 
-CAUTIOUS tier tightens thresholds and reduces sizing. HALT blocks new
-directional buys (hedges still allowed).
+The TQQQ overlay is **gated by SPY > SMA50 AND SMA200**. If the gate is
+off, target drops to 0% regardless of the regime-specific tqqq_pct.
+This is what auto-flattens leveraged exposure during structural
+breakdowns (e.g. 2022 H2).
+
+CAUTIOUS tier reduces TQQQ allocation by ~half and tightens thresholds.
+HALT blocks new directional buys (hedges + base allocations still
+allowed because they're regime-driven infrastructure).
 
 ### Bear hedge (SH inverse SPY)
 
 Engine maintains an automatic SH position when regime weakens. Target as
-% of equity: 0% BULL/NORMAL, 10% NEUTRAL, 25% BEAR (CAUTIOUS +5pp, HALT +10pp,
-max 35%). Hedge is exempt from sector cap, position-count cap, and HALT
-block. Rebalances when actual drift > 2% of equity. See `strategy_config.get_bear_hedge_target_pct()`.
+% of equity: 0% BULL/NORMAL, 0% NEUTRAL, **10% BEAR** (CAUTIOUS +8pp,
+HALT +10pp, max 35%). Hedge is also gated by **SPY < SMA200** — no
+hedge in a structural uptrend regardless of regime. Rebalances when
+actual drift > 2% of equity. Tunable via `_BEAR_HEDGE_PCT` constant or
+`BEAR_HEDGE_PCT` env var.
+
+### Source of the alpha (v10d, 2026-05-19)
+
+Most of the +5–10%/yr alpha goal comes from two structural changes:
+1. **TQQQ overlay in BULL** (80% of equity, gated by SPY ≥ SMA50/SMA200).
+2. **TQQQ overlay in NEUTRAL** (100% of equity, same gate — converts the
+   regime from "cash heavy waiting" to "dip-buy via leverage").
+
+The momentum stock-picker (top-5 by 12m return) contributes ~+1.5pp on
+top of the overlays. The PEAD, mean-reversion, sentiment, ML, MTF, and
+sector-rotation modules are wired but DO NOT FIRE on the backtest BULL
+path (momentum_mode=True) — they may still earn alpha live. See
+`strategy/v10_upgrade_plan.md`.
 
 ---
 
