@@ -646,6 +646,170 @@ def _manage_tqqq(portfolio: SimulatedPortfolio, provider: BarProvider,
                 portfolio.partial_close(TQQQ_SYMBOL, qty, fill, date, reason="tqqq_rebal")
 
 
+SGOV_SYMBOL = "BIL"  # v10e: T-bill ETF (1-3mo) for idle cash. Was SGOV
+                      # but SGOV bars have 247 missing days from 2021 — BIL
+                      # has near-complete coverage.
+
+
+UPRO_SYMBOL = "UPRO"  # v10f: 3× SPY leveraged ETF, parallel to TQQQ.
+                       # Adds broad-market leverage so the strategy isn't
+                       # purely tech-biased.
+
+
+def _manage_upro(portfolio: SimulatedPortfolio, provider: BarProvider,
+                 date: str, params: dict, day_lows: dict[str, float],
+                 slippage_bps: float) -> None:
+    """v10f — UPRO (3× SPY) parallel leveraged sleeve, mirrors _manage_tqqq.
+
+    Same SMA50+SMA200 gate as TQQQ — leverage only when the structural
+    trend is intact. Same circuit breaker on entry × (1 − upro_stop_pct).
+
+    Whereas TQQQ captures the QQQ-led leg, UPRO captures the broad-market
+    leg. In 2021 (tech rotation out) UPRO would have continued running
+    even as TQQQ lagged. Together they form a more robust leveraged sleeve.
+    """
+    target_pct = params.get("upro_pct", 0.0)
+
+    # Circuit breaker
+    p = portfolio.get_position(UPRO_SYMBOL)
+    if p is not None and p.is_base:
+        stop_pct = params.get("upro_stop_pct", 15.0)
+        stop_price = p.avg_entry_price * (1 - stop_pct / 100)
+        today_low = day_lows.get(UPRO_SYMBOL)
+        if today_low is not None and today_low <= stop_price:
+            fill = _sell_fill(min(stop_price, today_low), slippage_bps)
+            portfolio.close(UPRO_SYMBOL, fill, date, reason="upro_circuit_breaker")
+            return
+
+    # SMA gate — share TQQQ's gate (both leveraged sleeves use same trigger)
+    if target_pct > 0 and not _spy_above_sma50_and_sma200(provider, date):
+        target_pct = 0.0
+
+    bar = provider.bar_at(UPRO_SYMBOL, date)
+    if bar is None:
+        return
+    upro_open = bar["open"]
+    equity = portfolio.equity()
+    if equity <= 0:
+        return
+
+    p = portfolio.get_position(UPRO_SYMBOL)
+    current_value = p.market_value if (p and p.is_base) else 0.0
+    target_value = equity * (target_pct / 100)
+    delta = target_value - current_value
+    delta_pct = abs(delta) / equity * 100 if equity > 0 else 0.0
+
+    if target_pct == 0.0:
+        if p is not None and p.is_base:
+            fill = _sell_fill(upro_open, slippage_bps)
+            portfolio.close(UPRO_SYMBOL, fill, date, reason="upro_exit")
+        return
+
+    if delta_pct < BASE_REBALANCE_THRESHOLD_PCT:
+        return
+
+    if delta > 0:
+        fill = _buy_fill(upro_open, slippage_bps)
+        qty = int(delta / fill)
+        if qty >= 1:
+            portfolio.open(UPRO_SYMBOL, qty, fill, date, is_base=True)
+    elif p is not None:
+        fill = _sell_fill(upro_open, slippage_bps)
+        qty = int(abs(delta) / fill)
+        qty = min(qty, p.qty - 1) if p.qty > 1 else p.qty
+        if qty >= 1:
+            if qty >= p.qty:
+                portfolio.close(UPRO_SYMBOL, fill, date, reason="upro_exit")
+            else:
+                portfolio.partial_close(UPRO_SYMBOL, qty, fill, date, reason="upro_rebal")
+
+
+def _manage_cash_sleeve(portfolio: SimulatedPortfolio, provider: BarProvider,
+                        date: str, params: dict, slippage_bps: float) -> None:
+    """v10e — park idle cash in SGOV (T-bill ETF) to earn the risk-free rate.
+
+    Sized to the *residual* cash after all other sleeves have claimed
+    their targets. If params say tqqq_pct=80 + base_pct=20, the residual
+    is 0 and SGOV stays empty. If params say tqqq_pct=0 + base_pct=0
+    (e.g. BEAR), the residual is up to 100% minus the hedge target.
+
+    Critically: SGOV exits IMMEDIATELY when leveraged sleeves need cash
+    so the higher-priority sleeves are never starved.
+
+    SGOV is treated as infrastructure (is_base=True) so it's exempt from
+    stops, sector caps, and the HALT block.
+    """
+    # Only active in regimes designed to hold cash. In BULL/NORMAL and
+    # NEUTRAL/NORMAL the strategy targets ~100% deployment via leveraged
+    # ETFs; when their gate is temporarily off (e.g. early in the
+    # backtest before SMA200 is computable), we don't want SGOV
+    # hoarding the cash that will soon be claimed by TQQQ.
+    cap_pct = float(params.get("cash_sleeve_pct", 0.0))
+    if cap_pct <= 0:
+        # Sleeve disabled — close any existing SGOV
+        p = portfolio.get_position(SGOV_SYMBOL)
+        if p is not None and p.is_base:
+            bar = provider.bar_at(SGOV_SYMBOL, date)
+            if bar is not None:
+                fill = _sell_fill(bar["open"], slippage_bps)
+                portfolio.close(SGOV_SYMBOL, fill, date, reason="cash_sleeve_off")
+        return
+
+    bar = provider.bar_at(SGOV_SYMBOL, date)
+    if bar is None:
+        return
+    open_price = bar["open"]
+    equity = portfolio.equity()
+    if equity <= 0:
+        return
+
+    # Compute residual = 100% − (target % from other sleeves). Using TARGET
+    # percentages (not current values) so SGOV doesn't hoard cash that
+    # leveraged sleeves will claim once their gate (e.g. SMA200) opens.
+    base_pct = float(params.get("base_pct", 0.0))
+    tqqq_pct = float(params.get("tqqq_pct", 0.0))
+    # Hedge target — only material in BEAR. Approximate inline (the live
+    # function reads from research state which doesn't apply during backtest).
+    hedge_pct = 0.0
+    # Reserve for momentum stock picks
+    stock_reserve_pct = 0.0
+    if int(params.get("momentum_top_n", 0)) > 0:
+        n = int(params["momentum_top_n"])
+        mpct = float(params.get("max_position_pct", 10.0))
+        stock_reserve_pct = min(100.0, n * mpct)
+
+    residual_pct = max(0.0, 100.0 - base_pct - tqqq_pct - hedge_pct - stock_reserve_pct)
+    # Target SGOV value = min(cap_pct, residual_pct) × equity
+    target_value = equity * min(cap_pct, residual_pct) / 100.0
+
+    p = portfolio.get_position(SGOV_SYMBOL)
+    current_value = p.market_value if (p and p.is_base) else 0.0
+    delta = target_value - current_value
+    delta_pct = abs(delta) / equity * 100 if equity > 0 else 0.0
+
+    if delta_pct < BASE_REBALANCE_THRESHOLD_PCT:
+        return
+
+    if delta > 0:
+        max_buy = max(0.0, portfolio.cash - equity * 0.005)  # tiny liquidity buffer
+        delta = min(delta, max_buy)
+        if delta < equity * 0.005:
+            return
+        fill = _buy_fill(open_price, slippage_bps)
+        qty = int(delta / fill)
+        if qty >= 1:
+            portfolio.open(SGOV_SYMBOL, qty, fill, date, is_base=True)
+    elif p is not None:
+        fill = _sell_fill(open_price, slippage_bps)
+        qty = int(abs(delta) / fill)
+        qty = min(qty, p.qty - 1) if p.qty > 1 else p.qty
+        if qty >= 1:
+            if qty >= p.qty:
+                portfolio.close(SGOV_SYMBOL, fill, date, reason="cash_sleeve_trim")
+            else:
+                portfolio.partial_close(SGOV_SYMBOL, qty, fill, date, reason="cash_sleeve_rebal")
+
+
 def _sector_etf_6m_returns(provider: BarProvider, today: str) -> list[tuple[str, float]]:
     """v9 Phase 2 — rank sector ETFs by 6-month total return as of `today`.
 
@@ -914,6 +1078,9 @@ def _execute_momentum_picks(*, portfolio: SimulatedPortfolio,
         return  # no new entries in NEUTRAL / BEAR / HALT
 
     # BUY leg — equal-weight target per slot, capped by max_position_pct.
+    # v10f: when target_vol_per_position_pct is set, size each name to
+    # contribute equal portfolio variance instead — bigger size on calm
+    # names, smaller on volatile names. Cap still applies.
     equity = portfolio.equity()
     if equity <= 0:
         return
@@ -923,6 +1090,7 @@ def _execute_momentum_picks(*, portfolio: SimulatedPortfolio,
         equity * max_pct,
     )
     min_cash = equity * (params.get("min_cash_pct", 5.0) / 100.0)
+    target_vol = float(params.get("target_vol_per_position_pct", 0.0))
 
     for sym in select_top_n(ranked, top_n):
         if portfolio.non_hedge_position_count() >= top_n:
@@ -932,7 +1100,26 @@ def _execute_momentum_picks(*, portfolio: SimulatedPortfolio,
         if sym not in opens:
             continue
         fill_price = _buy_fill(opens[sym], slippage_bps)
-        qty = int(target_value_per_slot / fill_price)
+        # Vol-targeted sizing override
+        if target_vol > 0:
+            bars = provider.bars_up_to(sym, prev_day, lookback_days=30)
+            if len(bars) >= 21:
+                closes = bars["close"].astype(float)
+                rets = closes.pct_change().dropna().iloc[-20:]
+                if len(rets) >= 5 and rets.std() > 0:
+                    vol_frac = float(rets.std()) * (252 ** 0.5)
+                    if vol_frac > 0:
+                        target_v = equity * (target_vol / 100.0) / vol_frac
+                        target_value_per_slot_this_name = min(target_v, equity * max_pct)
+                        qty = int(target_value_per_slot_this_name / fill_price)
+                    else:
+                        qty = int(target_value_per_slot / fill_price)
+                else:
+                    qty = int(target_value_per_slot / fill_price)
+            else:
+                qty = int(target_value_per_slot / fill_price)
+        else:
+            qty = int(target_value_per_slot / fill_price)
         if qty <= 0:
             continue
         cost = qty * fill_price
@@ -1101,8 +1288,18 @@ def run_backtest(config: BacktestConfig) -> dict:
         # 7b. v4: SPY base position — capture market beta during BULL regimes
         _manage_base_position(portfolio, provider, date, params, config.slippage_bps)
 
+        # 7b'. v10e: SGOV cash sleeve — runs BEFORE TQQQ + base so that on
+        # regime transitions (BEAR→BULL), SGOV liquidates first and frees
+        # cash for the leveraged sleeves. Sizing uses regime TARGETS (not
+        # current values) so it won't grab cash that TQQQ would want.
+        _manage_cash_sleeve(portfolio, provider, date, params, config.slippage_bps)
+
         # 7c. v5: TQQQ leveraged BULL beta — gated by SMA50+SMA200 + hard stop
         _manage_tqqq(portfolio, provider, date, params, lows, config.slippage_bps)
+
+        # 7c''. v10f: UPRO (3× SPY) parallel sleeve — same SMA gate as TQQQ.
+        # Adds broad-market leverage so the strategy isn't purely tech-biased.
+        _manage_upro(portfolio, provider, date, params, lows, config.slippage_bps)
 
         # 7d. v9 Phase 2: sector rotation overlay — top-N XL* by 6m return,
         # equal-weighted, rebalanced on month start. is_base=True so exempt

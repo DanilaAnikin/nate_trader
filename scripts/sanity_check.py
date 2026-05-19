@@ -58,20 +58,25 @@ def check_strategy_config() -> list[str]:
                 if k not in p:
                     failures.append(f"{regime}/{tier} missing key '{k}'")
 
-    # Specific v10d expectations
+    # Specific v10f expectations
     bull_n = get_strategy_params("BULL", "NORMAL")
-    if bull_n["tqqq_pct"] != 80.0:
-        failures.append(f"BULL/NORMAL tqqq_pct expected 80, got {bull_n['tqqq_pct']}")
+    if bull_n["tqqq_pct"] != 75.0:
+        failures.append(f"BULL/NORMAL tqqq_pct expected 75, got {bull_n['tqqq_pct']}")
+    if bull_n.get("upro_pct", 0) != 25.0:
+        failures.append(f"BULL/NORMAL upro_pct expected 25, got {bull_n.get('upro_pct')}")
     if bull_n["trailing_stop_pct"] != 40.0:
         failures.append(f"BULL/NORMAL trailing_stop_pct expected 40, "
                         f"got {bull_n['trailing_stop_pct']}")
     neut_n = get_strategy_params("NEUTRAL", "NORMAL")
-    if neut_n["tqqq_pct"] != 100.0:
-        failures.append(f"NEUTRAL/NORMAL tqqq_pct expected 100, "
+    if neut_n["tqqq_pct"] != 75.0:
+        failures.append(f"NEUTRAL/NORMAL tqqq_pct expected 75, "
                         f"got {neut_n['tqqq_pct']}")
+    if neut_n.get("upro_pct", 0) != 25.0:
+        failures.append(f"NEUTRAL/NORMAL upro_pct expected 25, "
+                        f"got {neut_n.get('upro_pct')}")
     if not failures:
-        _ok(f"strategy_config: BULL tqqq={bull_n['tqqq_pct']}%, "
-            f"NEUTRAL tqqq={neut_n['tqqq_pct']}%, "
+        _ok(f"strategy_config: BULL {bull_n['tqqq_pct']}TQQQ+{bull_n['upro_pct']}UPRO, "
+            f"NEUTRAL {neut_n['tqqq_pct']}TQQQ+{neut_n['upro_pct']}UPRO, "
             f"trail={bull_n['trailing_stop_pct']}%")
     return failures
 

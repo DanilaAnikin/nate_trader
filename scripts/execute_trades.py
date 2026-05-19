@@ -28,6 +28,7 @@ HEDGE_REBALANCE_THRESHOLD_PCT = 2.0  # only act on hedge drift > 2% of equity
 SPY_BASE_SYMBOL = "SPY"             # v4: long market beta core position
 SSO_BASE_SYMBOL = "SSO"             # v7: 2× SPY leveraged BULL base
 TQQQ_BASE_SYMBOL = "TQQQ"           # v10d: 3× QQQ leveraged BULL/NEUTRAL overlay
+UPRO_BASE_SYMBOL = "UPRO"           # v10f: 3× SPY parallel sleeve, same SMA gate
 BASE_REBALANCE_THRESHOLD_PCT = 2.0
 # SPY/SSO are mutually-exclusive bases swapped in manage_base_position;
 # TQQQ is a *parallel* overlay managed independently in
@@ -38,9 +39,10 @@ BASE_CANDIDATES = (SPY_BASE_SYMBOL, SSO_BASE_SYMBOL)
 
 def _is_infrastructure(symbol: str) -> bool:
     """True iff `symbol` is a regime-driven infrastructure position (SPY/SSO
-    base, TQQQ overlay, SH hedge), exempt from trading mechanics like trail
-    stops, scale-out, time stops, catalyst flips, and sector caps. v7/v10d."""
-    return symbol in (*BASE_CANDIDATES, TQQQ_BASE_SYMBOL, HEDGE_SYMBOL)
+    base, TQQQ + UPRO overlays, SH hedge), exempt from trading mechanics
+    like trail stops, scale-out, time stops, catalyst flips, and sector
+    caps. v7/v10d/v10f."""
+    return symbol in (*BASE_CANDIDATES, TQQQ_BASE_SYMBOL, UPRO_BASE_SYMBOL, HEDGE_SYMBOL)
 
 log = setup_logging("execute_trades")
 
@@ -1221,6 +1223,127 @@ def manage_tqqq_position(dry_run: bool = False) -> list[dict]:
     return results
 
 
+def manage_upro_position(dry_run: bool = False) -> list[dict]:
+    """v10f — UPRO (3× SPY) parallel sleeve, mirrors manage_tqqq_position.
+
+    Same SMA50+SMA200 gate as TQQQ. Reads `upro_pct` from strategy_config
+    (BULL/NEUTRAL 25, CAUTIOUS slightly lower, BEAR 0).
+    """
+    from portfolio import get_positions, get_account
+    from research import get_latest_quote
+    from trade import place_limit_order, close_position
+
+    regime = get_market_regime()
+    risk_tier = get_risk_tier()
+    params = get_strategy_params(regime, risk_tier)
+    target_pct = float(params.get("upro_pct", 0.0))
+
+    if target_pct > 0 and not _spy_above_sma50_and_sma200_live():
+        log.info(f"UPRO: regime={regime} target was {target_pct:.1f}% but "
+                 f"SMA50/SMA200 gate is off → target=0")
+        target_pct = 0.0
+
+    try:
+        acct = get_account()
+    except Exception as e:
+        log.error(f"UPRO: account fetch failed — {e}")
+        return [{"action": "ERROR", "reason": f"account: {e}"}]
+
+    equity = acct.get("equity", 0.0)
+    if equity <= 0:
+        return []
+
+    positions = get_positions()
+    held = {p["symbol"]: p for p in positions}
+    results: list[dict] = []
+
+    cur_pos = held.get(UPRO_BASE_SYMBOL)
+    cur_value = cur_pos["market_value"] if cur_pos else 0.0
+    cur_pct = (cur_value / equity * 100.0) if equity > 0 else 0.0
+    target_value = equity * (target_pct / 100.0)
+    delta_value = target_value - cur_value
+    delta_pct = abs(delta_value) / equity * 100.0 if equity > 0 else 0.0
+
+    log.info(
+        f"UPRO: regime={regime} tier={risk_tier} target={target_pct:.1f}% "
+        f"current={cur_pct:.1f}% delta=${delta_value:+,.0f} ({delta_pct:.1f}%)"
+    )
+
+    if target_pct == 0.0 and cur_pos:
+        if dry_run:
+            results.append({"symbol": UPRO_BASE_SYMBOL, "action": "DRY_RUN_UPRO_EXIT",
+                            "qty": cur_pos["qty"], "value": cur_value})
+            return results
+        try:
+            close_position(UPRO_BASE_SYMBOL)
+            results.append({"symbol": UPRO_BASE_SYMBOL, "action": "UPRO_EXIT",
+                            "qty": cur_pos["qty"]})
+        except Exception as e:
+            log.error(f"  UPRO exit failed — {e}")
+            results.append({"symbol": UPRO_BASE_SYMBOL, "action": "ERROR",
+                            "reason": str(e)})
+        return results
+
+    if delta_pct < BASE_REBALANCE_THRESHOLD_PCT:
+        return results
+
+    try:
+        quote = get_latest_quote(UPRO_BASE_SYMBOL)
+        price = quote["ask"] if delta_value > 0 else quote["bid"]
+        if price <= 0:
+            price = quote["mid"]
+    except Exception as e:
+        log.error(f"  UPRO quote failed — {e}")
+        results.append({"symbol": UPRO_BASE_SYMBOL, "action": "ERROR",
+                        "reason": f"quote: {e}"})
+        return results
+
+    if delta_value > 0:
+        qty = int(delta_value / price)
+        if qty < 1:
+            return results
+        if dry_run:
+            results.append({"symbol": UPRO_BASE_SYMBOL, "action": "DRY_RUN_UPRO_BUY",
+                            "qty": qty, "price": price, "target_pct": target_pct})
+            return results
+        try:
+            order = place_limit_order(UPRO_BASE_SYMBOL, qty, "buy", price)
+            import strategy_metadata as sm
+            sm.mark_position(UPRO_BASE_SYMBOL, "base")
+            log.info(f"  UPRO BUY {qty} @ ${price:.2f}")
+            results.append({"symbol": UPRO_BASE_SYMBOL, "action": "UPRO_BUY",
+                            "qty": qty, "price": price, "target_pct": target_pct,
+                            "order_id": order["id"]})
+        except Exception as e:
+            log.error(f"  UPRO BUY failed — {e}")
+            results.append({"symbol": UPRO_BASE_SYMBOL, "action": "ERROR",
+                            "reason": str(e)})
+        return results
+
+    if cur_pos:
+        trim_qty = int(abs(delta_value) / price)
+        if trim_qty < 1:
+            return results
+        trim_qty = min(trim_qty, int(cur_pos["qty"]))
+        if dry_run:
+            results.append({"symbol": UPRO_BASE_SYMBOL, "action": "DRY_RUN_UPRO_TRIM",
+                            "qty": trim_qty, "price": price, "target_pct": target_pct})
+            return results
+        try:
+            order = place_limit_order(UPRO_BASE_SYMBOL, trim_qty, "sell",
+                                      round(price * 0.999, 2))
+            log.info(f"  UPRO TRIM {trim_qty} @ ${price:.2f}")
+            results.append({"symbol": UPRO_BASE_SYMBOL, "action": "UPRO_TRIM",
+                            "qty": trim_qty, "price": price, "target_pct": target_pct,
+                            "order_id": order["id"]})
+        except Exception as e:
+            log.error(f"  UPRO TRIM failed — {e}")
+            results.append({"symbol": UPRO_BASE_SYMBOL, "action": "ERROR",
+                            "reason": str(e)})
+
+    return results
+
+
 def manage_regime_transition(dry_run: bool = False) -> list[dict]:
     """v8 — close all directional positions on CONFIRMED BULL→NEUTRAL/BEAR
     using **asymmetric** confirmation windows:
@@ -1834,6 +1957,11 @@ def run_execution(dry_run: bool = False) -> dict:
     tqqq_actions = manage_tqqq_position(dry_run=dry_run)
     if tqqq_actions:
         log.info(f"TQQQ overlay actions: {len(tqqq_actions)}")
+
+    # v10f: UPRO (3× SPY) parallel sleeve — same SMA gate as TQQQ.
+    upro_actions = manage_upro_position(dry_run=dry_run)
+    if upro_actions:
+        log.info(f"UPRO overlay actions: {len(upro_actions)}")
 
     # v6: monthly dual-momentum rebalance — runs BEFORE execute_buys.
     # When momentum_mode is True (default), execute_buys is a no-op.

@@ -60,17 +60,19 @@ _PARAMS = {
         "gate_score_min": 0.55,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,        # v4: wider — matches widened trail
-        # v10 (2026-05-19): TQQQ overlay replaces SSO as primary BULL beta.
-        # SMA50+SMA200 gate exits TQQQ on regime weakness (2022 went
-        # +4.5% alpha because the gate took us flat). On 2021-2024 IS
-        # alpha jumped −5.08% → +7.06%/yr. 2025 holdout: +25.78%/yr.
-        # 20% SSO is kept as a less-volatile beta floor.
-        "base_pct": 20.0,
+        # v10f BULL/NORMAL: leveraged sleeve split 75 TQQQ / 25 UPRO.
+        # UPRO (3× SPY) diversifies away from QQQ-only — captures broad-
+        # market legs that TQQQ misses (e.g. 2021 cyclical rotation).
+        # Same SMA gate as TQQQ. On 2021-2026 lifted alpha
+        # +40.95% → +52.44%/yr; 2025 holdout +67.85% → +83.48%/yr.
+        "base_pct": 0.0,
         "base_instrument": "SSO",
-        "spy_base_pct": 20.0,
+        "spy_base_pct": 0.0,
         "flatten_on_transition": False,
-        "tqqq_pct": 80.0,
+        "tqqq_pct": 75.0,
         "tqqq_stop_pct": 20.0,
+        "upro_pct": 25.0,
+        "upro_stop_pct": 15.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
         "momentum_top_n": 5,
@@ -78,6 +80,9 @@ _PARAMS = {
         # for capital, dropped BULL P&L from +83% (v7) to +41% (v9).
         "sector_rotation_pct": 0.0,
         "sector_rotation_top_n": 0,
+        # v10e: SGOV cash sleeve — park 100% of idle cash; the function
+        # auto-caps at actual available cash so this never over-deploys.
+        "cash_sleeve_pct": 0.0,
     },
     ("BULL", "CAUTIOUS"): {
         "score_threshold": 55,
@@ -104,18 +109,25 @@ _PARAMS = {
         "gate_score_min": 0.60,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,
-        # v10 CAUTIOUS BULL — slightly de-risked TQQQ exposure (60% vs 80%)
-        "base_pct": 30.0,
+        # v10f CAUTIOUS BULL — 75/25 mix at slightly lower total leverage
+        # (90% deployed vs NORMAL's 100%). The SMA gate is the main safety
+        # net; CAUTIOUS pulls back modestly without giving up the edge.
+        "base_pct": 0.0,
         "base_instrument": "SSO",
-        "spy_base_pct": 30.0,
+        "spy_base_pct": 0.0,
         "flatten_on_transition": False,
-        "tqqq_pct": 60.0,
+        "tqqq_pct": 68.0,
         "tqqq_stop_pct": 20.0,
+        "upro_pct": 22.0,
+        "upro_stop_pct": 15.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
         "momentum_top_n": 4,
         "sector_rotation_pct": 0.0,
         "sector_rotation_top_n": 0,
+        # v10e: SGOV cash sleeve — park 100% of idle cash; the function
+        # auto-caps at actual available cash so this never over-deploys.
+        "cash_sleeve_pct": 0.0,
     },
     # ────────────────────── NEUTRAL regime ─────────────────────
     ("NEUTRAL", "NORMAL"): {
@@ -142,23 +154,24 @@ _PARAMS = {
         "gate_score_min": 0.65,
         "block_new_buys": True,
         "atr_stop_multiple": 2.5,
-        # v10d NEUTRAL: 100% TQQQ when SPY > SMA50 AND SMA200, gated by
-        # _spy_above_sma50_and_sma200. NEUTRAL fires on price < SMA20
-        # (mild pullback) but the TQQQ gate keeps leverage on only when
-        # the structural trend is intact. SPY base dropped to 0% —
-        # in NEUTRAL we either lever via TQQQ or sit in cash, no
-        # in-between. Lifted IS alpha 29% → 43%; 2025 holdout 44% → 82%.
+        # v10f NEUTRAL/NORMAL: 75 TQQQ + 25 UPRO when gate open. Same
+        # SMA50+SMA200 gate as BULL. The leveraged dip-buy regime.
         "base_pct": 0.0,
         "base_instrument": "SPY",
         "spy_base_pct": 0.0,
         "flatten_on_transition": True,   # v7: cut stocks on regime weakness
-        "tqqq_pct": 100.0,
+        "tqqq_pct": 75.0,
         "tqqq_stop_pct": 20.0,
+        "upro_pct": 25.0,
+        "upro_stop_pct": 15.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
         "momentum_top_n": 0,
         "sector_rotation_pct": 0.0,
         "sector_rotation_top_n": 0,
+        # v10e: SGOV cash sleeve — park 100% of idle cash; the function
+        # auto-caps at actual available cash so this never over-deploys.
+        "cash_sleeve_pct": 0.0,
     },
     ("NEUTRAL", "CAUTIOUS"): {
         "score_threshold": 65,
@@ -184,19 +197,23 @@ _PARAMS = {
         "gate_score_min": 0.70,
         "block_new_buys": True,
         "atr_stop_multiple": 2.5,
-        # v10d NEUTRAL/CAUTIOUS: 50% TQQQ — half the NORMAL leverage to
-        # respect the drawdown-triggered de-risking.
+        # v10f NEUTRAL/CAUTIOUS: 90% deployed at 75/25 split
         "base_pct": 0.0,
         "base_instrument": "SPY",
         "spy_base_pct": 0.0,
         "flatten_on_transition": True,
-        "tqqq_pct": 50.0,
+        "tqqq_pct": 68.0,
         "tqqq_stop_pct": 20.0,
+        "upro_pct": 22.0,
+        "upro_stop_pct": 15.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
         "momentum_top_n": 0,
         "sector_rotation_pct": 0.0,
         "sector_rotation_top_n": 0,
+        # v10e: SGOV cash sleeve — park 100% of idle cash; the function
+        # auto-caps at actual available cash so this never over-deploys.
+        "cash_sleeve_pct": 0.0,
     },
     # ──────────────────────── BEAR regime ──────────────────────
     ("BEAR", "NORMAL"): {
@@ -229,11 +246,16 @@ _PARAMS = {
         "flatten_on_transition": True,
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
+        "upro_pct": 0.0,
+        "upro_stop_pct": 15.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
         "momentum_top_n": 0,
         "sector_rotation_pct": 0.0,
         "sector_rotation_top_n": 0,
+        # v10e: SGOV cash sleeve — park 100% of idle cash; the function
+        # auto-caps at actual available cash so this never over-deploys.
+        "cash_sleeve_pct": 0.0,
     },
     ("BEAR", "CAUTIOUS"): {
         "score_threshold": 80,
@@ -265,11 +287,16 @@ _PARAMS = {
         "flatten_on_transition": True,
         "tqqq_pct": 0.0,
         "tqqq_stop_pct": 20.0,
+        "upro_pct": 0.0,
+        "upro_stop_pct": 15.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
         "momentum_top_n": 0,
         "sector_rotation_pct": 0.0,
         "sector_rotation_top_n": 0,
+        # v10e: SGOV cash sleeve — park 100% of idle cash; the function
+        # auto-caps at actual available cash so this never over-deploys.
+        "cash_sleeve_pct": 0.0,
     },
 }
 

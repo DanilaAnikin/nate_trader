@@ -301,7 +301,7 @@ def sync_trailing_stops() -> list[dict]:
             symbols_with_stops.add(o.symbol)
 
     # Infrastructure positions exempt from trailing stops
-    _INFRASTRUCTURE = {"SPY", "SSO", "TQQQ", "SH"}
+    _INFRASTRUCTURE = {"SPY", "SSO", "TQQQ", "UPRO", "SH"}
 
     results = []
     for p in positions:
@@ -338,7 +338,7 @@ def execute_stop_losses() -> list[dict]:
 
     positions = client.get_all_positions()
     actions = []
-    _INFRASTRUCTURE = {"SPY", "SSO", "TQQQ", "SH"}
+    _INFRASTRUCTURE = {"SPY", "SSO", "TQQQ", "UPRO", "SH"}
 
     for p in positions:
         if p.symbol in _INFRASTRUCTURE:
