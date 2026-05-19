@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-05-18 02:46:28",
+  "updated_at": "2026-05-19 02:41:45",
   "history": {
     "A": [
       {
@@ -1921,8 +1921,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 0.58,
-        "eps_estimate": 0.49364,
-        "surprise_pct": 17.49
+        "eps_estimate": 0.49177,
+        "surprise_pct": 17.94
       }
     ],
     "BLD": [
@@ -8421,8 +8421,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 1.93,
-        "eps_estimate": 1.85782,
-        "surprise_pct": 3.89
+        "eps_estimate": 1.83315,
+        "surprise_pct": 5.28
       }
     ],
     "MMM": [
@@ -10527,8 +10527,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 0.14,
-        "eps_estimate": 0.1428,
-        "surprise_pct": -1.96
+        "eps_estimate": 0.15034,
+        "surprise_pct": -6.88
       }
     ],
     "PII": [
