@@ -51,6 +51,12 @@ jobs:
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
         run: python3 write_journal.py daily
 
+      - name: Drift monitor (live vs backtest alpha)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 monitor_drift.py
+
       - name: Send daily recap notification
         env:
           CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_KEY }}

@@ -1,0 +1,63 @@
+name: Routine Heartbeat
+
+on:
+  schedule:
+    # 5:30 PM ET, Mon-Fri (UTC-4 -> 21:30 UTC).
+    # Runs after End-of-Day Summary (4:15 PM ET) so it catches that routine
+    # silently failing for the same day.
+    - cron: '30 21 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Check that today's journal exists
+        id: check
+        env:
+          TZ: America/New_York
+        run: |
+          today=$(date +%Y-%m-%d)
+          journal="journal/${today}.md"
+          if [ -f "$journal" ]; then
+            echo "status=ok" >> $GITHUB_OUTPUT
+            echo "today=$today" >> $GITHUB_OUTPUT
+            echo "Journal $journal present"
+          else
+            echo "status=missing" >> $GITHUB_OUTPUT
+            echo "today=$today" >> $GITHUB_OUTPUT
+            echo "Journal $journal MISSING — end-of-day routine likely failed"
+          fi
+
+      - name: Open heartbeat issue on missing journal
+        if: steps.check.outputs.status == 'missing'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TODAY: ${{ steps.check.outputs.today }}
+        run: |
+          # Avoid duplicate issues — search for an open heartbeat issue
+          # mentioning today's date before opening a new one.
+          existing=$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --search "Routine heartbeat missing $TODAY in:title" \
+            --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$existing" ]; then
+            echo "Existing heartbeat issue #$existing for $TODAY — skipping"
+            exit 0
+          fi
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Routine heartbeat missing $TODAY — End-of-Day Summary didn't run" \
+            --body "Heartbeat check at 5:30 PM ET (after End-of-Day Summary) found no \
+\`journal/${TODAY}.md\`.\n\nLikely causes:\n- End-of-Day Summary workflow failed silently\n- Alpaca \
+or ClickUp secret expired\n- Pre-Market Research / Market-Open routines also broken upstream\n\
+\nAction: re-run the End-of-Day Summary workflow manually \
+(\`gh workflow run end-of-day-summary.yml\`) and inspect logs." \
+            --label "infra,P1,claude-code"
