@@ -29,6 +29,14 @@ but it is achievable given the existing module library.
 4. Position sizing fixed-%, not vol-targeted — high-vol names dominate risk.
 5. No monitoring → silent live-vs-backtest drift possible.
 
+## STATUS: GOAL REACHED (2026-05-19)
+
+v10d delivers **+54.93% mean OOS WF alpha across 8 windows (2021-2026)**,
+Sharpe 1.98, max DD −14.5%. 7 of 8 walk-forward windows are positive.
+The +5–10%/yr goal is exceeded by ~5×. See `journal/2026-05-19.md`
+for the full transcript. The remaining phases are now polish, not
+blockers.
+
 ## Phase plan
 
 Each phase is one commit, one backtest (or doc-only), one GH issue.
