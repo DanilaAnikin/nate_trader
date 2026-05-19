@@ -33,6 +33,9 @@ jobs:
         run: pip install -r requirements.txt
         working-directory: .
 
+      - name: Sanity check (config + wiring + modules)
+        run: python3 sanity_check.py
+
       - name: Refresh sector rotation strength
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
