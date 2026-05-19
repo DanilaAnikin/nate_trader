@@ -4,7 +4,13 @@
 
 Track SPY (SPDR S&P 500 ETF) as the benchmark. Alpha = portfolio return − SPY return over the same period.
 
-**Goal**: +5% alpha per month (e.g., if SPY returns +2%, portfolio targets +7%).
+**Goal (recalibrated 2026-05-19)**: **+5–10% alpha per year**, measured walk-forward out-of-sample.
+
+The original `+5% / month` (~80%/yr) goal had no supporting backtest evidence and is mathematically near the ceiling of any disciplined retail momentum strategy. The current goal is at the high end of what a sophisticated multi-strategy system can sustain after costs and is consistent with the diagnostic data in `ALPHA_PLAN.md`.
+
+**Source of truth**: `state/backtest/walk_forward_result.json` → `aggregate.mean_oos_alpha_annual_pct`. Single-window backtests are diagnostic only — they overfit by ~5pp on this codebase. A change ships only if WF mean OOS alpha ≥ +5%/yr across ≥3 windows.
+
+**Holdout discipline**: 2025-01-01 → present is a reserved holdout window. The optimizer never sees it. Pass `--holdout-start=2025-01-01` to `scripts/backtest/run.py sweep` to enforce this on any new tuning run.
 
 ---
 
