@@ -1,6 +1,19 @@
 {
-  "updated_at": "2026-05-19 11:34:56",
+  "updated_at": "2026-05-19 11:53:08",
   "runs": [
+    {
+      "id": "sweep_20260519_175308",
+      "kind": "sweep",
+      "generated_at": "2026-05-19 11:53:08",
+      "start_date": "2022-01-01",
+      "end_date": "2024-12-31",
+      "filename": "runs/sweep_20260519_175308.json",
+      "summary": {
+        "n_combinations": 75,
+        "best_alpha_annual_pct": null,
+        "best_params": null
+      }
+    },
     {
       "id": "walk_forward_20260519_173456",
       "kind": "walk_forward",
