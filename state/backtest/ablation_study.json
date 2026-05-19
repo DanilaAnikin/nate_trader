@@ -1,0 +1,66 @@
+{
+  "generated_at": "2026-05-19 10:11:43",
+  "start_date": "2022-01-01",
+  "end_date": "2024-12-31",
+  "holdout_start": "2025-01-01",
+  "results": [
+    {
+      "label": "baseline",
+      "ablated": [],
+      "error": "Command '['/usr/bin/python3', '/home/anakin/programming/nate_trader/scripts/backtest/run.py', 'single', '--start', '2022-01-01', '--end', '2024-12-31', '--starting-cash', '1000000']' returned non-zero exit status 1."
+    },
+    {
+      "label": "no_ml",
+      "ablated": [
+        "ABLATE_ML"
+      ],
+      "error": "Command '['/usr/bin/python3', '/home/anakin/programming/nate_trader/scripts/backtest/run.py', 'single', '--start', '2022-01-01', '--end', '2024-12-31', '--starting-cash', '1000000']' returned non-zero exit status 1."
+    },
+    {
+      "label": "no_pead",
+      "ablated": [
+        "ABLATE_PEAD"
+      ],
+      "error": "Command '['/usr/bin/python3', '/home/anakin/programming/nate_trader/scripts/backtest/run.py', 'single', '--start', '2022-01-01', '--end', '2024-12-31', '--starting-cash', '1000000']' returned non-zero exit status 1."
+    },
+    {
+      "label": "no_mean_rev",
+      "ablated": [
+        "ABLATE_MEAN_REV"
+      ],
+      "error": "Command '['/usr/bin/python3', '/home/anakin/programming/nate_trader/scripts/backtest/run.py', 'single', '--start', '2022-01-01', '--end', '2024-12-31', '--starting-cash', '1000000']' returned non-zero exit status 1."
+    },
+    {
+      "label": "no_sentiment",
+      "ablated": [
+        "ABLATE_SENTIMENT"
+      ],
+      "error": "Command '['/usr/bin/python3', '/home/anakin/programming/nate_trader/scripts/backtest/run.py', 'single', '--start', '2022-01-01', '--end', '2024-12-31', '--starting-cash', '1000000']' returned non-zero exit status 1."
+    },
+    {
+      "label": "no_multi_tf",
+      "ablated": [
+        "ABLATE_MULTI_TF"
+      ],
+      "error": "Command '['/usr/bin/python3', '/home/anakin/programming/nate_trader/scripts/backtest/run.py', 'single', '--start', '2022-01-01', '--end', '2024-12-31', '--starting-cash', '1000000']' returned non-zero exit status 1."
+    },
+    {
+      "label": "no_earnings",
+      "ablated": [
+        "ABLATE_EARNINGS_FILTER"
+      ],
+      "error": "Command '['/usr/bin/python3', '/home/anakin/programming/nate_trader/scripts/backtest/run.py', 'single', '--start', '2022-01-01', '--end', '2024-12-31', '--starting-cash', '1000000']' returned non-zero exit status 1."
+    },
+    {
+      "label": "no_sector_rot",
+      "ablated": [
+        "ABLATE_SECTOR_ROT"
+      ],
+      "error": "Command '['/usr/bin/python3', '/home/anakin/programming/nate_trader/scripts/backtest/run.py', 'single', '--start', '2022-01-01', '--end', '2024-12-31', '--starting-cash', '1000000']' returned non-zero exit status 1."
+    }
+  ],
+  "baseline_alpha_annual_pct": null,
+  "ranked_by_alpha": [],
+  "net_negative_modules": [],
+  "walk_forward_best_aggregate": null
+}

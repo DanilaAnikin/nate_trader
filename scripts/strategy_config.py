@@ -43,8 +43,12 @@ _PARAMS = {
         "cash_starve_bonus": 8,
         "risk_per_trade_pct": 1.2,
         "max_position_pct": 7.0,
-        "trailing_stop_pct": 14.0,       # v4: was 9 — ride normal pullbacks
-        "tightened_stop_pct": 9.0,       # v4: was 6 — same reasoning
+        # v10 (2026-05-19): widened trail 14→40 lets winners run through
+        # normal pullbacks; the monthly momentum rebalance + ATR stop
+        # already do the cutting. Backtest 2021-2024 lifted IS alpha
+        # from −5.08% to −3.28%/yr.
+        "trailing_stop_pct": 40.0,
+        "tightened_stop_pct": 35.0,
         "scale_out_at_gain": 999.0,      # v4: disabled — let winners run
         "final_target_gain": 999.0,      # v4: disabled — trailing stop manages exit
         "time_stop_days": 30,
@@ -53,15 +57,16 @@ _PARAMS = {
         "gate_score_min": 0.55,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,        # v4: wider — matches widened trail
-        # PRODUCTION v7 — best version after 9 iterations.
-        # v8 (asymmetric confirmation + 70% SSO + top-4) regressed.
-        # v9 (548 universe + sector rotation + quality filter) regressed harder.
-        # v7 is the documented production ceiling on this universe + epoch.
-        "base_pct": 60.0,
+        # v10 (2026-05-19): TQQQ overlay replaces SSO as primary BULL beta.
+        # SMA50+SMA200 gate exits TQQQ on regime weakness (2022 went
+        # +4.5% alpha because the gate took us flat). On 2021-2024 IS
+        # alpha jumped −5.08% → +7.06%/yr. 2025 holdout: +25.78%/yr.
+        # 20% SSO is kept as a less-volatile beta floor.
+        "base_pct": 20.0,
         "base_instrument": "SSO",
-        "spy_base_pct": 60.0,
+        "spy_base_pct": 20.0,
         "flatten_on_transition": False,
-        "tqqq_pct": 0.0,
+        "tqqq_pct": 80.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
@@ -85,8 +90,9 @@ _PARAMS = {
         "cash_starve_bonus": 5,
         "risk_per_trade_pct": 0.8,
         "max_position_pct": 5.0,
-        "trailing_stop_pct": 12.0,       # v4: was 8 — still tighter than NORMAL
-        "tightened_stop_pct": 8.0,       # v4
+        # v10: mirror NORMAL widening — same logic applies in CAUTIOUS
+        "trailing_stop_pct": 35.0,
+        "tightened_stop_pct": 30.0,
         "scale_out_at_gain": 999.0,      # v4: disabled
         "final_target_gain": 999.0,      # v4: disabled
         "time_stop_days": 30,
@@ -95,12 +101,12 @@ _PARAMS = {
         "gate_score_min": 0.60,
         "block_new_buys": False,
         "atr_stop_multiple": 2.5,
-        # PRODUCTION v7 CAUTIOUS BULL
-        "base_pct": 50.0,
+        # v10 CAUTIOUS BULL — slightly de-risked TQQQ exposure (60% vs 80%)
+        "base_pct": 30.0,
         "base_instrument": "SSO",
-        "spy_base_pct": 50.0,
+        "spy_base_pct": 30.0,
         "flatten_on_transition": False,
-        "tqqq_pct": 0.0,
+        "tqqq_pct": 60.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
