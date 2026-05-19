@@ -372,6 +372,30 @@ def get_effective_threshold(cash_pct: float, regime: str | None = None,
     return max(30, threshold)  # absolute floor of 30
 
 
+# Phase H of ALPHA_PLAN.md — universe liquidity filter.
+# Applied in screener.py BEFORE quick-scoring so penny stocks and thinly-
+# traded tail names never enter the scoring pipeline. Tunable here so we
+# can sweep them in the future without touching the screener code.
+#
+# Defaults chosen so 2026 large-cap universe passes through unchanged
+# while clearly low-quality names are dropped. Tightening in BEAR regimes
+# adds margin against slippage cliffs that hit small caps first.
+UNIVERSE_FILTER = {
+    "BULL":    {"min_price_usd": 10.0, "min_dollar_volume_usd": 5_000_000},
+    "NEUTRAL": {"min_price_usd": 10.0, "min_dollar_volume_usd": 5_000_000},
+    "BEAR":    {"min_price_usd": 15.0, "min_dollar_volume_usd": 10_000_000},
+}
+
+
+def get_universe_filter(regime: str | None = None) -> dict:
+    """Return liquidity filter thresholds for the current/requested regime."""
+    if regime is None:
+        regime = get_market_regime()
+    if regime not in UNIVERSE_FILTER:
+        regime = "NEUTRAL"
+    return dict(UNIVERSE_FILTER[regime])
+
+
 if __name__ == "__main__":
     import json as _json
     import sys

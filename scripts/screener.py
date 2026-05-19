@@ -208,16 +208,32 @@ def run_full_screen() -> dict:
 
     log.info(f"After leveraged filter: {len(filtered_symbols)} candidates (removed {len(new_symbols) - len(filtered_symbols)})")
 
+    # Phase H of ALPHA_PLAN.md — regime-adaptive liquidity filter.
+    # Drops penny stocks and thin names before they enter scoring.
+    from strategy_config import get_universe_filter
+    universe_filter = get_universe_filter(regime)
+    min_price = universe_filter["min_price_usd"]
+    min_dvol = universe_filter["min_dollar_volume_usd"]
+    log.info(f"Liquidity filter ({regime}): min_price=${min_price:.0f}, "
+             f"min_dollar_vol=${min_dvol/1_000_000:.0f}M (30d avg)")
+
     # Quick-score all candidates to sort by quality before deep analysis
     pre_scored = {}
     cached_technicals = {}  # cache to avoid re-fetching bars
+    dropped_liquidity = 0
     for symbol in filtered_symbols:
         try:
             df = get_bars(symbol, days=60)
             if len(df) < 20:
                 continue
             technicals = compute_technicals(df)
-            if "error" in technicals or technicals.get("price", 0) < 5.0:
+            if "error" in technicals:
+                continue
+            price = technicals.get("price", 0)
+            vol_avg = technicals.get("vol_avg_20") or 0
+            dollar_vol = price * vol_avg
+            if price < min_price or dollar_vol < min_dvol:
+                dropped_liquidity += 1
                 continue
             cached_technicals[symbol] = technicals
             from utils import get_symbol_info as _gsi
@@ -226,6 +242,8 @@ def run_full_screen() -> dict:
             pre_scored[symbol] = quick_conf.get("total", 0)
         except Exception:
             continue
+    if dropped_liquidity:
+        log.info(f"  dropped {dropped_liquidity} names below liquidity floor")
 
     # Sort by quick score descending, take top 30
     ranked_symbols = sorted(pre_scored, key=pre_scored.get, reverse=True)[:30]
