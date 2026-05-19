@@ -374,7 +374,8 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
             continue
 
         atr = candidate.get("technicals", {}).get("atr_14")
-        qty = calculate_position_size(symbol, price, atr=atr)
+        vol_20d = candidate.get("technicals", {}).get("vol_20d_annualized_pct")
+        qty = calculate_position_size(symbol, price, atr=atr, vol_20d_pct=vol_20d)
         if qty <= 0:
             log.info(f"  {symbol}: position size is 0 — skipping")
             results.append({"symbol": symbol, "action": "SKIP", "reason": "Position size 0"})

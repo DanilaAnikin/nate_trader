@@ -142,18 +142,22 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
 
 
 def calculate_position_size(symbol: str, entry_price: float,
-                            atr: float | None = None) -> int:
-    """Calculate position size — v3 vol-targeted with allocation cap.
+                            atr: float | None = None,
+                            vol_20d_pct: float | None = None) -> int:
+    """Calculate position size — v3 risk-budget OR Phase-D vol-target.
 
-    Primary rule: shares = (equity × risk_pct) / (k × ATR_14)
-      where k = `atr_stop_multiple` from strategy_config (2.0 BULL / 2.5 NEUTRAL
-      / 3.0 BEAR). Normalises **dollar risk per trade across volatility regimes** —
-      a 2-ATR move stops us out for ~risk_pct of equity, regardless of whether
-      the name moves 1 %/day or 6 %/day.
+    Phase D mode (preferred when `target_vol_per_position_pct` is set in
+    strategy_config and vol_20d_pct is known):
+      shares = (target_vol_frac × equity) / (entry_price × stock_vol_frac)
+      Each name contributes equal portfolio variance, smoothing the equity
+      curve and ensuring high-vol names (SMCI, MSTR) get smaller weights
+      than low-vol names (MSFT, JNJ) at the same risk budget.
+
+    Legacy fallback (current production):
+      shares = (equity × risk_pct) / (k × ATR_14)
+      Equalises dollar-risk per trade across volatility regimes.
 
     Allocation cap: never more than `max_position_pct` of equity.
-
-    Fallback when ATR is unavailable: legacy %-trail-stop sizing.
     """
     from strategy_config import get_strategy_params
     acct = client.get_account()
@@ -164,7 +168,12 @@ def calculate_position_size(symbol: str, entry_price: float,
     risk_pct = params["risk_per_trade_pct"] / 100.0
     alloc_shares = int((equity * max_pct) / entry_price)
 
-    if atr and atr > 0:
+    target_vol = params.get("target_vol_per_position_pct")
+    if target_vol and vol_20d_pct and vol_20d_pct > 0:
+        target_frac = float(target_vol) / 100.0
+        vol_frac = float(vol_20d_pct) / 100.0
+        primary = int((equity * target_frac) / (entry_price * vol_frac))
+    elif atr and atr > 0:
         k = params.get("atr_stop_multiple", 2.0)
         primary = int((equity * risk_pct) / (k * atr))
     else:

@@ -287,13 +287,31 @@ def _compute_gate_score(
 
 
 def _position_size(equity: float, entry_price: float, params: dict,
-                    atr: float | None = None) -> int:
-    """Mirror trade.calculate_position_size — v3 vol-targeted with cap."""
+                    atr: float | None = None,
+                    vol_20d_pct: float | None = None) -> int:
+    """Mirror trade.calculate_position_size — v3 vol-targeted with cap.
+
+    Two modes:
+      • Legacy (default): risk-budget sizing. Sets qty so a stop-out at the
+        ATR or trailing-stop distance loses exactly `risk_per_trade_pct` of
+        equity. Capped by `max_position_pct`.
+      • vol_target (Phase D of ALPHA_PLAN.md): sets qty so each name's
+        annualized 20d return-vol contributes `target_vol_per_position_pct`
+        of equity-vol. Activated by setting that param in strategy_config.
+        Falls back to legacy if vol data is missing.
+    """
     max_pct = params["max_position_pct"] / 100.0
     risk_pct = params["risk_per_trade_pct"] / 100.0
     alloc_shares = int((equity * max_pct) / entry_price)
 
-    if atr and atr > 0:
+    target_vol = params.get("target_vol_per_position_pct")
+    if target_vol and vol_20d_pct and vol_20d_pct > 0:
+        # Vol-targeted: shares × price × stock_vol ≈ target_vol × equity
+        # so shares = (target_vol_frac × equity) / (price × stock_vol_frac)
+        target_frac = float(target_vol) / 100.0
+        vol_frac = float(vol_20d_pct) / 100.0
+        primary = int((equity * target_frac) / (entry_price * vol_frac))
+    elif atr and atr > 0:
         k = params.get("atr_stop_multiple", 2.0)
         primary = int((equity * risk_pct) / (k * atr))
     else:
@@ -1118,7 +1136,9 @@ def run_backtest(config: BacktestConfig) -> dict:
                         continue  # no trading today
                     fill_price = _buy_fill(opens[sym], config.slippage_bps)
                     atr = data["technicals"].get("atr_14")
-                    qty = _position_size(portfolio.equity(), fill_price, params, atr=atr)
+                    vol_20d = data["technicals"].get("vol_20d_annualized_pct")
+                    qty = _position_size(portfolio.equity(), fill_price, params,
+                                          atr=atr, vol_20d_pct=vol_20d)
                     if qty <= 0:
                         continue
                     cost = qty * fill_price

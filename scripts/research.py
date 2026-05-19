@@ -200,6 +200,19 @@ def compute_technicals(df: pd.DataFrame) -> dict:
     else:
         current_atr = None
 
+    # Annualized 20-day return-vol (% of price) — input to Phase-D vol-targeted
+    # sizing. sqrt(252) is the trading-day annualization factor.
+    if len(close) >= 21:
+        daily_returns = close.pct_change().dropna()
+        # Use the last 20 daily returns for a stable, short-horizon estimate
+        recent = daily_returns.iloc[-20:]
+        if len(recent) >= 5 and pd.notna(recent.std()):
+            vol_20d_annualized_pct = float(recent.std() * (252 ** 0.5) * 100)
+        else:
+            vol_20d_annualized_pct = None
+    else:
+        vol_20d_annualized_pct = None
+
     # v3 — Donchian-style highs for breakout scoring. Uses the 20/50 days
     # BEFORE today, so "new high" means today actually broke out.
     high_series = high.astype(float)
@@ -233,6 +246,7 @@ def compute_technicals(df: pd.DataFrame) -> dict:
         "twenty_day_return": twenty_day_return,
         "atr_14": current_atr,
         "atr_pct": (current_atr / current_price * 100) if current_atr and current_price else None,
+        "vol_20d_annualized_pct": vol_20d_annualized_pct,
         "above_sma20": current_price > current_sma20 if current_sma20 else None,
         "above_sma50": current_price > current_sma50 if current_sma50 else None,
         # v3 momentum fields
