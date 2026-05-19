@@ -139,13 +139,16 @@ _PARAMS = {
         "gate_score_min": 0.65,
         "block_new_buys": True,
         "atr_stop_multiple": 2.5,
-        # v7: deleverage to plain SPY in NEUTRAL (1× beta), 40% allocation,
-        # and FLATTEN directional positions on confirmed BULL→NEUTRAL.
-        "base_pct": 40.0,
+        # v10 NEUTRAL: TQQQ overlay activates when SPY > SMA50 AND SMA200
+        # (typical pullback within an intact uptrend). 60% TQQQ + 20% SPY
+        # converts cash-heavy NEUTRAL into a dip-buying regime. The TQQQ
+        # SMA gate auto-flattens if the structural trend breaks. IS alpha
+        # 2021-2024 jumped +6.07% → +29.14%; 2025 holdout +44%/yr.
+        "base_pct": 20.0,
         "base_instrument": "SPY",
-        "spy_base_pct": 40.0,
+        "spy_base_pct": 20.0,
         "flatten_on_transition": True,   # v7: cut stocks on regime weakness
-        "tqqq_pct": 0.0,
+        "tqqq_pct": 60.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
@@ -177,12 +180,14 @@ _PARAMS = {
         "gate_score_min": 0.70,
         "block_new_buys": True,
         "atr_stop_multiple": 2.5,
-        # v7: same shape as NEUTRAL/NORMAL but smaller — already shaky
-        "base_pct": 25.0,
+        # v10 NEUTRAL/CAUTIOUS: same shape as NORMAL but smaller exposure.
+        # 15% SPY + 35% TQQQ keeps the dip-buy edge while honouring the
+        # drawdown trigger that escalated us to CAUTIOUS.
+        "base_pct": 15.0,
         "base_instrument": "SPY",
-        "spy_base_pct": 25.0,
+        "spy_base_pct": 15.0,
         "flatten_on_transition": True,
-        "tqqq_pct": 0.0,
+        "tqqq_pct": 35.0,
         "tqqq_stop_pct": 20.0,
         "momentum_mode": True,
         "momentum_min_hold_days": 21,
