@@ -42,7 +42,10 @@ _PARAMS = {
         "max_cash_pct": 15.0,
         "cash_starve_bonus": 8,
         "risk_per_trade_pct": 1.2,
-        "max_position_pct": 7.0,
+        # v10c: max_position_pct 7→15 — momentum picks earned ~+1.5pp more
+        # alpha when allowed to size up. Still capped well below the
+        # leveraged ETF allocation (25%) so it can't crowd out beta.
+        "max_position_pct": 15.0,
         # v10 (2026-05-19): widened trail 14→40 lets winners run through
         # normal pullbacks; the monthly momentum rebalance + ATR stop
         # already do the cutting. Backtest 2021-2024 lifted IS alpha

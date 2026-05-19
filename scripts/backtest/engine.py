@@ -479,6 +479,9 @@ def _spy_above_sma50_and_sma200(provider: BarProvider, today: str) -> bool:
     Why both: SMA50 catches the medium-term trend, SMA200 catches the
     structural cycle. Either alone is too noisy (mid-2022 had a 50-day
     cross above 200 briefly during the bear-market rally).
+
+    QQQ-RS gate was tried in v10d/e and regressed alpha (looser cutoffs
+    blocked TQQQ during real BULL legs). Original SMA-only logic kept.
     """
     bars = provider.bars_up_to("SPY", today, lookback_days=210)
     if bars is None or len(bars) < 200:
@@ -872,8 +875,19 @@ def _execute_momentum_picks(*, portfolio: SimulatedPortfolio,
     # Compute SPY 12-month return as the relative-momentum bar.
     spy_12m = spy_12m_return(provider, prev_day) or 0.0
 
+    # v10c: quality filter (SMA200 + 6m/12m consistency + vol cap) is now
+    # configurable per regime. Default OFF on legacy v7, but the v10 TQQQ
+    # overlay lets us be choosier on the momentum sleeve without losing
+    # beta exposure.
+    quality = bool(params.get("momentum_quality_filter", False))
+    min_abs = float(params.get("momentum_min_abs_return", 0.0))
+    max_vol = float(params.get("momentum_max_annual_vol_pct", 80.0))
+
     # Rank survivors and pick the top-N (top_n=0 → empty set → pure SELL).
-    ranked = rank_universe(provider, candidates, prev_day, spy_12m)
+    ranked = rank_universe(provider, candidates, prev_day, spy_12m,
+                            min_abs_return=min_abs,
+                            apply_quality_filter=quality,
+                            max_annual_vol_pct=max_vol)
     top_picks = set(select_top_n(ranked, top_n))
 
     # SELL leg — close any directional position no longer in top-N, provided
