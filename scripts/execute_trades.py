@@ -27,15 +27,20 @@ HEDGE_SYMBOL = "SH"  # ProShares Short S&P500 — 1× inverse, non-leveraged
 HEDGE_REBALANCE_THRESHOLD_PCT = 2.0  # only act on hedge drift > 2% of equity
 SPY_BASE_SYMBOL = "SPY"             # v4: long market beta core position
 SSO_BASE_SYMBOL = "SSO"             # v7: 2× SPY leveraged BULL base
+TQQQ_BASE_SYMBOL = "TQQQ"           # v10d: 3× QQQ leveraged BULL/NEUTRAL overlay
 BASE_REBALANCE_THRESHOLD_PCT = 2.0
+# SPY/SSO are mutually-exclusive bases swapped in manage_base_position;
+# TQQQ is a *parallel* overlay managed independently in
+# manage_tqqq_position. Keep them apart so the SPY↔SSO swap loop
+# doesn't accidentally close TQQQ.
 BASE_CANDIDATES = (SPY_BASE_SYMBOL, SSO_BASE_SYMBOL)
 
 
 def _is_infrastructure(symbol: str) -> bool:
     """True iff `symbol` is a regime-driven infrastructure position (SPY/SSO
-    base, SH hedge), exempt from trading mechanics like trail stops,
-    scale-out, time stops, catalyst flips, and sector caps. v7."""
-    return symbol in (*BASE_CANDIDATES, HEDGE_SYMBOL)
+    base, TQQQ overlay, SH hedge), exempt from trading mechanics like trail
+    stops, scale-out, time stops, catalyst flips, and sector caps. v7/v10d."""
+    return symbol in (*BASE_CANDIDATES, TQQQ_BASE_SYMBOL, HEDGE_SYMBOL)
 
 log = setup_logging("execute_trades")
 
@@ -1055,6 +1060,167 @@ def manage_base_position(dry_run: bool = False) -> list[dict]:
 manage_spy_base = manage_base_position
 
 
+# ─────────────────── v10d: TQQQ leveraged BULL overlay ────────────────────
+
+TQQQ_SYMBOL = "TQQQ"
+
+
+def _spy_above_sma50_and_sma200_live() -> bool:
+    """Live mirror of backtest engine's TQQQ confirmation gate.
+
+    Reads SPY benchmark from state/research.json which the pre-market
+    routine refreshes daily. Falls back to False (no leverage) when data
+    is missing — safer to be in cash than to lever blindly.
+    """
+    research = load_json(RESEARCH_STATE) or {}
+    spy = research.get("spy", {}) or {}
+    price = spy.get("price")
+    sma50 = spy.get("sma_50")
+    sma200 = spy.get("sma_200")
+    if price is None or sma50 is None or sma200 is None:
+        return False
+    try:
+        return float(price) > float(sma50) and float(price) > float(sma200)
+    except (TypeError, ValueError):
+        return False
+
+
+def manage_tqqq_position(dry_run: bool = False) -> list[dict]:
+    """v10d — TQQQ leveraged overlay (3× QQQ) sized by regime.
+
+    Reads `tqqq_pct` from strategy_config (BULL/NORMAL 80, NEUTRAL/NORMAL
+    100, CAUTIOUS tiers smaller, BEAR 0).
+
+    Three safety guards mirror the backtest engine's _manage_tqqq:
+      1. Target is 0 unless tqqq_pct > 0 in the active regime cell.
+      2. Even with target > 0, only opens when SPY > SMA50 AND SMA200.
+      3. Hard circuit-breaker at entry × (1 − tqqq_stop_pct/100). The
+         live engine relies on Alpaca trailing-stop orders for daily
+         protection; the explicit check fires only on extreme gaps.
+
+    The TQQQ position is marked is_base via strategy_metadata so it's
+    exempt from the sector cap, max-positions count, and the HALT
+    block — it's structural leverage, not a directional bet.
+    """
+    from portfolio import get_positions, get_account
+    from research import get_latest_quote
+    from trade import place_limit_order, close_position
+
+    regime = get_market_regime()
+    risk_tier = get_risk_tier()
+    params = get_strategy_params(regime, risk_tier)
+    target_pct = float(params.get("tqqq_pct", 0.0))
+
+    # Confirmation gate — leverage only when both SMA lines clear
+    if target_pct > 0 and not _spy_above_sma50_and_sma200_live():
+        log.info(f"TQQQ: regime={regime} target was {target_pct:.1f}% but "
+                 f"SMA50/SMA200 gate is off → target=0")
+        target_pct = 0.0
+
+    try:
+        acct = get_account()
+    except Exception as e:
+        log.error(f"TQQQ: account fetch failed — {e}")
+        return [{"action": "ERROR", "reason": f"account: {e}"}]
+
+    equity = acct.get("equity", 0.0)
+    if equity <= 0:
+        return []
+
+    positions = get_positions()
+    held = {p["symbol"]: p for p in positions}
+    results: list[dict] = []
+
+    cur_pos = held.get(TQQQ_SYMBOL)
+    cur_value = cur_pos["market_value"] if cur_pos else 0.0
+    cur_pct = (cur_value / equity * 100.0) if equity > 0 else 0.0
+    target_value = equity * (target_pct / 100.0)
+    delta_value = target_value - cur_value
+    delta_pct = abs(delta_value) / equity * 100.0 if equity > 0 else 0.0
+
+    log.info(
+        f"TQQQ: regime={regime} tier={risk_tier} target={target_pct:.1f}% "
+        f"current={cur_pct:.1f}% delta=${delta_value:+,.0f} ({delta_pct:.1f}%)"
+    )
+
+    # Exit if target is 0 (gate off, or regime moved to BEAR)
+    if target_pct == 0.0 and cur_pos:
+        if dry_run:
+            results.append({"symbol": TQQQ_SYMBOL, "action": "DRY_RUN_TQQQ_EXIT",
+                            "qty": cur_pos["qty"], "value": cur_value})
+            return results
+        try:
+            close_position(TQQQ_SYMBOL)
+            results.append({"symbol": TQQQ_SYMBOL, "action": "TQQQ_EXIT",
+                            "qty": cur_pos["qty"]})
+        except Exception as e:
+            log.error(f"  TQQQ exit failed — {e}")
+            results.append({"symbol": TQQQ_SYMBOL, "action": "ERROR",
+                            "reason": str(e)})
+        return results
+
+    if delta_pct < BASE_REBALANCE_THRESHOLD_PCT:
+        return results
+
+    try:
+        quote = get_latest_quote(TQQQ_SYMBOL)
+        price = quote["ask"] if delta_value > 0 else quote["bid"]
+        if price <= 0:
+            price = quote["mid"]
+    except Exception as e:
+        log.error(f"  TQQQ quote failed — {e}")
+        results.append({"symbol": TQQQ_SYMBOL, "action": "ERROR",
+                        "reason": f"quote: {e}"})
+        return results
+
+    if delta_value > 0:
+        qty = int(delta_value / price)
+        if qty < 1:
+            return results
+        if dry_run:
+            log.info(f"  DRY RUN — would BUY {qty} TQQQ @ ${price:.2f}")
+            results.append({"symbol": TQQQ_SYMBOL, "action": "DRY_RUN_TQQQ_BUY",
+                            "qty": qty, "price": price, "target_pct": target_pct})
+            return results
+        try:
+            order = place_limit_order(TQQQ_SYMBOL, qty, "buy", price)
+            import strategy_metadata as sm
+            sm.mark_position(TQQQ_SYMBOL, "base")  # exempts from caps + HALT
+            log.info(f"  TQQQ BUY {qty} @ ${price:.2f}")
+            results.append({"symbol": TQQQ_SYMBOL, "action": "TQQQ_BUY",
+                            "qty": qty, "price": price, "target_pct": target_pct,
+                            "order_id": order["id"]})
+        except Exception as e:
+            log.error(f"  TQQQ BUY failed — {e}")
+            results.append({"symbol": TQQQ_SYMBOL, "action": "ERROR",
+                            "reason": str(e)})
+        return results
+
+    # Trim
+    if cur_pos:
+        trim_qty = int(abs(delta_value) / price)
+        if trim_qty < 1:
+            return results
+        trim_qty = min(trim_qty, int(cur_pos["qty"]))
+        if dry_run:
+            results.append({"symbol": TQQQ_SYMBOL, "action": "DRY_RUN_TQQQ_TRIM",
+                            "qty": trim_qty, "price": price, "target_pct": target_pct})
+            return results
+        try:
+            order = place_limit_order(TQQQ_SYMBOL, trim_qty, "sell",
+                                      round(price * 0.999, 2))
+            log.info(f"  TQQQ TRIM {trim_qty} @ ${price:.2f}")
+            results.append({"symbol": TQQQ_SYMBOL, "action": "TQQQ_TRIM",
+                            "qty": trim_qty, "price": price, "target_pct": target_pct,
+                            "order_id": order["id"]})
+        except Exception as e:
+            log.error(f"  TQQQ TRIM failed — {e}")
+            results.append({"symbol": TQQQ_SYMBOL, "action": "ERROR",
+                            "reason": str(e)})
+
+    return results
+
+
 def manage_regime_transition(dry_run: bool = False) -> list[dict]:
     """v8 — close all directional positions on CONFIRMED BULL→NEUTRAL/BEAR
     using **asymmetric** confirmation windows:
@@ -1662,6 +1828,12 @@ def run_execution(dry_run: bool = False) -> dict:
     spy_base = manage_spy_base(dry_run=dry_run)
     if spy_base:
         log.info(f"SPY base actions: {len(spy_base)}")
+
+    # v10d: TQQQ leveraged BULL/NEUTRAL overlay (3× QQQ).
+    # SMA50+SMA200 gate inside the function auto-flattens on breakdown.
+    tqqq_actions = manage_tqqq_position(dry_run=dry_run)
+    if tqqq_actions:
+        log.info(f"TQQQ overlay actions: {len(tqqq_actions)}")
 
     # v6: monthly dual-momentum rebalance — runs BEFORE execute_buys.
     # When momentum_mode is True (default), execute_buys is a no-op.

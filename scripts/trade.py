@@ -280,6 +280,10 @@ def sync_trailing_stops() -> list[dict]:
 
     Uses regime-adaptive trail_pct from strategy_config (8% default in
     NORMAL/BULL, 5–6% in CAUTIOUS/BEAR).
+
+    Infrastructure positions (SPY/SSO/TQQQ base + SH hedge) are skipped —
+    they're regime-driven and managed by their own functions, not by
+    trailing stops. Matches the backtest engine's is_base/is_hedge skip.
     """
     from strategy_config import get_strategy_params
     params = get_strategy_params()
@@ -296,10 +300,15 @@ def sync_trailing_stops() -> list[dict]:
         if o.side == OrderSide.SELL and o.type == OrderType.TRAILING_STOP:
             symbols_with_stops.add(o.symbol)
 
+    # Infrastructure positions exempt from trailing stops
+    _INFRASTRUCTURE = {"SPY", "SSO", "TQQQ", "SH"}
+
     results = []
     for p in positions:
         symbol = p.symbol
         qty = int(float(p.qty))
+        if symbol in _INFRASTRUCTURE:
+            continue
         if symbol in symbols_with_stops:
             continue
         if qty <= 0:
