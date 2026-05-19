@@ -570,7 +570,11 @@ def compute_confidence_score(
 
 def get_spy_benchmark() -> dict:
     """Get SPY benchmark data for comparison."""
-    df = get_bars("SPY", days=220)  # v3: enough for 200-SMA
+    df = get_bars("SPY", days=320)  # v10f: 200 TRADING-day SMA needs
+                                     # ~290 calendar days; old 220 was
+                                     # calendar-day count and produced
+                                     # sma_200=None, breaking the TQQQ/UPRO
+                                     # leverage gate.
     technicals = compute_technicals(df)
 
     # Monthly return (approx 22 trading days)
