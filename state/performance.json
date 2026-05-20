@@ -2,17 +2,17 @@
   "risk_tier": "NORMAL",
   "risk_tier_updated": "2026-05-20 00:05:00",
   "risk_tier_reason": "v10f cutover \u2014 daily_history rolled forward; new strategy starts NORMAL",
-  "equity": 980613.09,
+  "equity": 985992.86,
   "cash": 104.54,
-  "cash_pct": 0.010660677597114272,
-  "daily_pnl": 3881.219999999972,
-  "daily_pnl_pct": 0.39736801052677556,
-  "weekly_pnl": 5105.729999999981,
-  "weekly_pnl_pct": 0.5233922581578453,
-  "monthly_pnl": 5105.729999999981,
-  "monthly_pnl_pct": 0.5233922581578453,
+  "cash_pct": 0.010602510853881844,
+  "daily_pnl": 9260.98999999999,
+  "daily_pnl_pct": 0.9481609318225677,
+  "weekly_pnl": 10485.5,
+  "weekly_pnl_pct": 1.0748765647447294,
+  "monthly_pnl": 10485.5,
+  "monthly_pnl_pct": 1.0748765647447294,
   "num_positions": 2,
-  "updated_at": "2026-05-20 12:44:07",
+  "updated_at": "2026-05-20 15:23:33",
   "daily_history": [
     {
       "date": "2026-04-24",
@@ -168,18 +168,14 @@
     },
     {
       "date": "2026-05-20",
-      "pnl": 3881.219999999972,
-      "pnl_pct": 0.39736801052677556,
-      "equity": 980613.09,
+      "pnl": 9260.98999999999,
+      "pnl_pct": 0.9481609318225677,
+      "equity": 985992.86,
       "cash": 104.54,
       "num_positions": 2
     }
   ],
-  "tightened_stops": [
-    "AAPL",
-    "COST",
-    "GOOGL"
-  ],
+  "tightened_stops": [],
   "scaled_out": {},
   "regime_history": [
     "BULL",
