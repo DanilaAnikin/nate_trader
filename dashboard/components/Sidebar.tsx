@@ -39,6 +39,18 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: "/trades",
+    label: "Trades",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 6h18M3 12h18M3 18h18" />
+        <circle cx="7" cy="6" r="1.6" fill="currentColor" stroke="none" />
+        <circle cx="13" cy="12" r="1.6" fill="currentColor" stroke="none" />
+        <circle cx="9" cy="18" r="1.6" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
+  {
     href: "/research",
     label: "Research",
     icon: (

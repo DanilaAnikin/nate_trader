@@ -9,6 +9,7 @@ interface Props {
   initialPositions: PositionsData | null;
   initialPerformance: PerformanceData | null;
   initialMarketRegime: string;
+  selectedAccountId?: string | null;
 }
 
 interface LiveAccount {
@@ -41,6 +42,7 @@ export default function PositionsClient({
   initialPositions,
   initialPerformance,
   initialMarketRegime,
+  selectedAccountId,
 }: Props) {
   const [live, setLive] = useState<LivePayload | null>(null);
 
@@ -55,9 +57,12 @@ export default function PositionsClient({
   }, []);
 
   useEffect(() => {
-    // Auto-fetch on every mount (F5 = fresh data)
+    // Auto-fetch on every mount (F5 = fresh data), scoped to the account.
     let cancelled = false;
-    fetch("/api/live", { cache: "no-store" })
+    const liveUrl = selectedAccountId
+      ? `/api/accounts/${selectedAccountId}/live`
+      : "/api/live";
+    fetch(liveUrl, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled || !data || !data.account) return;
@@ -68,10 +73,13 @@ export default function PositionsClient({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedAccountId]);
 
   // Resolve displayed values — prefer live, fall back to GitHub snapshot
-  const positions: Position[] = live?.positions ?? initialPositions?.positions ?? [];
+  const positions: Position[] = useMemo(
+    () => live?.positions ?? initialPositions?.positions ?? [],
+    [live, initialPositions],
+  );
   const equity = live?.account.equity ?? initialPerformance?.equity ?? 0;
   const cashPct = live?.account.cash_pct ?? initialPerformance?.cash_pct ?? 0;
   const updatedAt = live?.timestamp
