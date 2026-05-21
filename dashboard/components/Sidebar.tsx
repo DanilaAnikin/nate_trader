@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "@/app/auth/actions";
+import type { SafeAccount } from "@/lib/accounts/service";
+import AccountSwitcher from "@/components/accounts/AccountSwitcher";
 
 const NAV_ITEMS = [
   {
@@ -14,6 +16,16 @@ const NAV_ITEMS = [
         <rect x="14" y="3" width="7" height="7" rx="1" />
         <rect x="3" y="14" width="7" height="7" rx="1" />
         <rect x="14" y="14" width="7" height="7" rx="1" />
+      </svg>
+    ),
+  },
+  {
+    href: "/accounts",
+    label: "Accounts",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="5" width="20" height="14" rx="2" />
+        <line x1="2" y1="10" x2="22" y2="10" />
       </svg>
     ),
   },
@@ -67,12 +79,18 @@ const NAV_ITEMS = [
   },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({
+  accounts,
+  selectedAccountId,
+}: {
+  accounts: SafeAccount[];
+  selectedAccountId: string | null;
+}) {
   const pathname = usePathname();
 
   return (
     <aside className="w-56 bg-white border-r border-border flex flex-col min-h-screen">
-      <div className="p-5 border-b border-border">
+      <div className="p-4 border-b border-border space-y-3">
         <div className="flex items-center gap-2.5">
           <div className="h-8 w-8 rounded-xl bg-blue/10 flex items-center justify-center">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -85,6 +103,10 @@ export default function Sidebar() {
             <p className="text-[10px] text-muted">Autonomous Agent</p>
           </div>
         </div>
+        <AccountSwitcher
+          accounts={accounts}
+          selectedAccountId={selectedAccountId}
+        />
       </div>
       <nav className="flex-1 p-3 space-y-0.5">
         {NAV_ITEMS.map((item) => {

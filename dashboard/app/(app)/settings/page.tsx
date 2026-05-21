@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
+import type { SafeAccount } from "@/lib/accounts/service";
 
 const SUPABASE_CONFIGURED =
   !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -21,6 +22,11 @@ export default function SettingsPage() {
   const [passwordStatus, setPasswordStatus] = useState<Status>(null);
   const [savingPassword, setSavingPassword] = useState(false);
 
+  const [accounts, setAccounts] = useState<SafeAccount[]>([]);
+  const [defaultAccountId, setDefaultAccountId] = useState("");
+  const [defaultStatus, setDefaultStatus] = useState<Status>(null);
+  const [savingDefault, setSavingDefault] = useState(false);
+
   useEffect(() => {
     if (!SUPABASE_CONFIGURED) return;
     let active = true;
@@ -37,11 +43,16 @@ export default function SettingsPage() {
       setEmail(user.email ?? "");
       const { data } = await supabase
         .from("profiles")
-        .select("display_name")
+        .select("display_name, default_account_id")
         .eq("id", user.id)
         .single();
       if (!active) return;
       setDisplayName(data?.display_name ?? "");
+      setDefaultAccountId(data?.default_account_id ?? "");
+      const accRes = await fetch("/api/accounts", { cache: "no-store" });
+      const accBody = await accRes.json().catch(() => ({ accounts: [] }));
+      if (!active) return;
+      setAccounts(accBody.accounts ?? []);
       setLoading(false);
     })();
     return () => {
@@ -98,6 +109,32 @@ export default function SettingsPage() {
       setPasswordStatus({ kind: "err", text: "Could not update password." });
     } finally {
       setSavingPassword(false);
+    }
+  }
+
+  async function saveDefault(e: React.FormEvent) {
+    e.preventDefault();
+    setDefaultStatus(null);
+    setSavingDefault(true);
+    try {
+      const supabase = getSupabaseBrowser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("not signed in");
+      const { error } = await supabase
+        .from("profiles")
+        .update({ default_account_id: defaultAccountId || null })
+        .eq("id", user.id);
+      if (error) throw error;
+      setDefaultStatus({ kind: "ok", text: "Default account saved." });
+    } catch {
+      setDefaultStatus({
+        kind: "err",
+        text: "Could not save default account.",
+      });
+    } finally {
+      setSavingDefault(false);
     }
   }
 
@@ -163,6 +200,43 @@ export default function SettingsPage() {
                 className="rounded-lg bg-blue text-white text-sm font-medium px-4 py-2 disabled:opacity-50"
               >
                 {savingProfile ? "Saving…" : "Save profile"}
+              </button>
+            </form>
+          </section>
+
+          <section className="bg-white border border-border rounded-2xl p-5">
+            <h2 className="text-sm font-semibold text-foreground mb-1">
+              Default account
+            </h2>
+            <p className="text-xs text-muted mb-4">
+              The account shown first when you open the dashboard.
+            </p>
+            <form onSubmit={saveDefault} className="space-y-3">
+              <select
+                value={defaultAccountId}
+                onChange={(e) => setDefaultAccountId(e.target.value)}
+                className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-blue bg-white"
+              >
+                <option value="">No default — use most recent</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.nickname} ({a.mode})
+                  </option>
+                ))}
+              </select>
+              {defaultStatus && (
+                <p
+                  className={`text-xs ${defaultStatus.kind === "ok" ? "text-green" : "text-red"}`}
+                >
+                  {defaultStatus.text}
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={savingDefault}
+                className="rounded-lg bg-blue text-white text-sm font-medium px-4 py-2 disabled:opacity-50"
+              >
+                {savingDefault ? "Saving…" : "Save default"}
               </button>
             </form>
           </section>
