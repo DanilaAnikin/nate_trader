@@ -1,6 +1,14 @@
 {
-  "updated_at": "2026-05-20 12:38:06",
+  "updated_at": "2026-05-21 12:28:16",
   "threshold_pct": 3.0,
   "n_scanned": 545,
-  "signals": []
+  "signals": [
+    {
+      "symbol": "IBM",
+      "kind": "GAP_UP",
+      "gap_pct": 3.3290339797189046,
+      "bonus_points": 5,
+      "rationale": "Gap-up +3.3% with news"
+    }
+  ]
 }
