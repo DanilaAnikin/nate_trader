@@ -17,7 +17,7 @@ export type SafeAccount = Omit<
   "alpaca_key_secret_id" | "alpaca_secret_secret_id"
 >;
 
-function toSafe(row: AccountRow): SafeAccount {
+export function toSafe(row: AccountRow): SafeAccount {
   return {
     id: row.id,
     owner_id: row.owner_id,
