@@ -96,3 +96,28 @@ def upsert_cash_flows(rows: list[dict]) -> int:
         rows, on_conflict="account_id,external_id"
     ).execute()
     return len(rows)
+
+
+# --- performance / positions ------------------------------------------------
+
+def upsert_performance(row: dict) -> None:
+    """Upsert the singleton performance row for an account."""
+    sb = get_service_client()
+    sb.table("performance").upsert(row, on_conflict="account_id").execute()
+
+
+def replace_positions(account_id: str, rows: list[dict]) -> int:
+    """Replace an account's open positions with the supplied set."""
+    sb = get_service_client()
+    sb.table("positions").delete().eq("account_id", account_id).execute()
+    if rows:
+        sb.table("positions").insert(rows).execute()
+    return len(rows)
+
+
+# --- routine telemetry ------------------------------------------------------
+
+def insert_routine_run(row: dict) -> None:
+    """Record one routine execution in routine_runs."""
+    sb = get_service_client()
+    sb.table("routine_runs").insert(row).execute()

@@ -1,0 +1,42 @@
+name: Supabase Sync
+
+# Mirrors live Alpaca account state into Supabase for the dashboard.
+# Independent of the trading routines — reads Alpaca, writes Supabase,
+# places no orders. Credentials come from Supabase Vault, so this job
+# needs only the Supabase secrets.
+
+on:
+  schedule:
+    - cron: '35 14 * * 1-5'  # 10:35 AM ET — after market-open execution
+    - cron: '0 21 * * 1-5'   # 5:00 PM ET  — after end-of-day summary
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+        working-directory: .
+
+      - name: Sync Alpaca state into Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python3 sync_to_supabase.py
