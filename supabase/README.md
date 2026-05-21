@@ -17,6 +17,8 @@ project shared with another application):
 | `0004_account_state.sql` | `equity_snapshots`, `performance`, `positions`, `trades`, `cash_flows`, `routine_runs`. |
 | `0005_shared.sql` | `strategy_params`, `market_history`, research/screener snapshots, `backtest_runs`, `audit_log`. |
 | `0006_storage_policies.sql` | Storage buckets `backtest-results`, `research-snapshots`. |
+| `0007_advisor_hardening.sql` | Resolve Supabase security-advisor warnings. |
+| `0008_vault_wrappers.sql` | Service-role-only `public` wrappers for Vault writes. |
 
 ### How to apply
 
