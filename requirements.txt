@@ -4,6 +4,7 @@ pandas
 ta
 python-dotenv
 pytz
+supabase>=2.4
 # Phase 9+ — autonomous improvement layer
 scikit-learn>=1.5
 joblib>=1.3
