@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import {
   AreaChart,
   Area,
@@ -11,12 +12,36 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { DailyHistory } from "@/lib/types";
+import { simpleReturn } from "@/lib/returns";
 
 interface EquityChartProps {
   data: DailyHistory[];
 }
 
+type RangeKey = "1W" | "1M" | "3M" | "YTD" | "1Y" | "ALL";
+const RANGES: RangeKey[] = ["1W", "1M", "3M", "YTD", "1Y", "ALL"];
+
+function cutoffFor(range: RangeKey): string {
+  if (range === "ALL") return "0000-00-00";
+  const now = new Date();
+  if (range === "YTD") return `${now.getFullYear()}-01-01`;
+  const days: Record<string, number> = { "1W": 7, "1M": 30, "3M": 90, "1Y": 365 };
+  now.setDate(now.getDate() - days[range]);
+  return now.toISOString().slice(0, 10);
+}
+
 export default function EquityChart({ data }: EquityChartProps) {
+  const [range, setRange] = useState<RangeKey>("ALL");
+
+  // Slice by DATE, not array index — a 1M view is the last 30 calendar days,
+  // whatever the sampling density (fixes DEF-10).
+  const sliced = useMemo(() => {
+    if (!data || data.length === 0) return [];
+    const cutoff = cutoffFor(range);
+    const filtered = data.filter((d) => d.date >= cutoff);
+    return filtered.length >= 2 ? filtered : data;
+  }, [data, range]);
+
   if (!data || data.length === 0) {
     return (
       <div className="glass-card p-6 h-80 flex items-center justify-center">
@@ -47,16 +72,40 @@ export default function EquityChart({ data }: EquityChartProps) {
     );
   }
 
-  const formatted = data.map((d) => ({
-    ...d,
-    date: d.date.slice(5),
-  }));
-
-  const startingEquity = data[0].equity;
+  const formatted = sliced.map((d) => ({ ...d, label: d.date.slice(5) }));
+  const startingEquity = sliced[0].equity;
+  const periodReturn = simpleReturn(
+    sliced.map((d) => ({ date: d.date, equity: d.equity })),
+  );
+  const up = periodReturn >= 0;
 
   return (
     <div className="glass-card p-5">
-      <h3 className="text-sm font-medium text-secondary mb-4">Equity Curve</h3>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-baseline gap-2">
+          <h3 className="text-sm font-medium text-secondary">Equity Curve</h3>
+          <span className={`text-xs font-semibold ${up ? "text-green" : "text-red"}`}>
+            {up ? "+" : ""}
+            {(periodReturn * 100).toFixed(2)}%
+          </span>
+        </div>
+        <div className="flex gap-0.5">
+          {RANGES.map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setRange(r)}
+              className={`text-[11px] px-2 py-1 rounded-md transition-colors ${
+                range === r
+                  ? "bg-blue/10 text-blue font-medium"
+                  : "text-muted hover:text-foreground hover:bg-surface"
+              }`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+      </div>
       <ResponsiveContainer width="100%" height={280}>
         <AreaChart data={formatted}>
           <defs>
@@ -67,10 +116,11 @@ export default function EquityChart({ data }: EquityChartProps) {
           </defs>
           <CartesianGrid stroke="#f0f0f2" strokeDasharray="none" />
           <XAxis
-            dataKey="date"
+            dataKey="label"
             tick={{ fill: "#86868b", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
+            minTickGap={32}
           />
           <YAxis
             tick={{ fill: "#86868b", fontSize: 11 }}

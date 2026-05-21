@@ -11,6 +11,7 @@ import HistoricalComparisonChart from "@/components/HistoricalComparisonChart";
 interface Props {
   performance: PerformanceData | null;
   research: ResearchData | null;
+  selectedAccountId?: string | null;
 }
 
 /**
@@ -37,7 +38,11 @@ interface DisplayMetrics {
  * for that event here and override the displayed metrics with the live
  * Alpaca values. Without a click, we render the GitHub snapshot.
  */
-export default function DashboardClient({ performance, research }: Props) {
+export default function DashboardClient({
+  performance,
+  research,
+  selectedAccountId,
+}: Props) {
   const [live, setLive] = useState<{
     account: {
       equity: number;
@@ -49,6 +54,50 @@ export default function DashboardClient({ performance, research }: Props) {
     };
     timestamp: string;
   } | null>(null);
+
+  // Real equity history for the selected account, pulled from Alpaca
+  // Portfolio History via /api/accounts/[id]/equity (fixes the flat chart).
+  const [snapshotHistory, setSnapshotHistory] = useState<DailyHistory[] | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!selectedAccountId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/accounts/${selectedAccountId}/equity`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) return;
+        const body = await res.json();
+        if (cancelled) return;
+        type Snap = {
+          date: string;
+          equity: number;
+          cash: number | null;
+          pnl: number | null;
+          pnl_pct: number | null;
+          num_positions: number | null;
+        };
+        const hist: DailyHistory[] = (body.snapshots ?? []).map((s: Snap) => ({
+          date: s.date,
+          equity: s.equity,
+          cash: s.cash ?? 0,
+          pnl: s.pnl ?? 0,
+          pnl_pct: s.pnl_pct ?? 0,
+          num_positions: s.num_positions ?? 0,
+        }));
+        setSnapshotHistory(hist);
+      } catch {
+        // Keep the legacy snapshot fallback.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAccountId]);
 
   // Listen for live data dispatched by the Refresh button
   useEffect(() => {
@@ -79,7 +128,10 @@ export default function DashboardClient({ performance, research }: Props) {
   // moment the client mounts.
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/live", { cache: "no-store" })
+    const liveUrl = selectedAccountId
+      ? `/api/accounts/${selectedAccountId}/live`
+      : "/api/live";
+    fetch(liveUrl, { cache: "no-store" })
       .then(async (res) => {
         if (!res.ok) return null;
         return res.json();
@@ -97,12 +149,17 @@ export default function DashboardClient({ performance, research }: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedAccountId]);
 
   // Build display metrics — prefer live values when available, fall back to GitHub snapshot
   const snapshotEquity = performance?.equity ?? 0;
   const snapshotCash = performance?.cash ?? 0;
-  const dailyHistory = performance?.daily_history ?? [];
+  // Prefer the real Alpaca-sourced equity curve; fall back to the legacy
+  // GitHub snapshot until Supabase data is available.
+  const dailyHistory = useMemo(
+    () => snapshotHistory ?? performance?.daily_history ?? [],
+    [snapshotHistory, performance],
+  );
 
   // For monthly P&L we compute from live equity vs the earliest daily_history entry,
   // since /api/live only knows today's account state. Using last-22-day window per
