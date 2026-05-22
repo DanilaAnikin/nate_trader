@@ -115,6 +115,17 @@ def replace_positions(account_id: str, rows: list[dict]) -> int:
     return len(rows)
 
 
+def upsert_trades(rows: list[dict]) -> int:
+    """Upsert trade-fill rows, keyed by (account_id, alpaca_order_id)."""
+    if not rows:
+        return 0
+    sb = get_service_client()
+    sb.table("trades").upsert(
+        rows, on_conflict="account_id,alpaca_order_id"
+    ).execute()
+    return len(rows)
+
+
 # --- routine telemetry ------------------------------------------------------
 
 def insert_routine_run(row: dict) -> None:
