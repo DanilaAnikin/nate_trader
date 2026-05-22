@@ -1,14 +1,21 @@
 {
-  "updated_at": "2026-05-21 12:28:16",
+  "updated_at": "2026-05-22 12:06:28",
   "threshold_pct": 3.0,
   "n_scanned": 545,
   "signals": [
     {
-      "symbol": "IBM",
+      "symbol": "DELL",
       "kind": "GAP_UP",
-      "gap_pct": 3.3290339797189046,
+      "gap_pct": 6.590473177387128,
       "bonus_points": 5,
-      "rationale": "Gap-up +3.3% with news"
+      "rationale": "Gap-up +6.6% with news"
+    },
+    {
+      "symbol": "HPQ",
+      "kind": "GAP_UP",
+      "gap_pct": 3.1478102189780914,
+      "bonus_points": 5,
+      "rationale": "Gap-up +3.1% with news"
     }
   ]
 }
