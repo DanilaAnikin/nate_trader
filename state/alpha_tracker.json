@@ -125,24 +125,40 @@
       "ml_test_accuracy": 0.6582489237361777,
       "ml_trained_at": "2026-05-21 03:36:58",
       "delta_vs_7d_avg": 44.451
+    },
+    {
+      "date": "2026-05-22",
+      "timestamp": "2026-05-22 04:03:03",
+      "run_id": "single_20260522_080303",
+      "alpha_annual_pct": 48.8144,
+      "total_return_pct": 1334.2513,
+      "annual_return_pct": 64.2797,
+      "sharpe_ratio": 2.2174,
+      "max_drawdown_pct": -25.7757,
+      "n_trades": 205,
+      "win_rate_pct": 84.88,
+      "ml_test_auc": 0.5905255665652825,
+      "ml_test_accuracy": 0.6586151582240724,
+      "ml_trained_at": "2026-05-22 04:01:42",
+      "delta_vs_7d_avg": 34.226
     }
   ],
   "best_run": {
-    "date": "2026-05-21",
-    "timestamp": "2026-05-21 03:37:48",
-    "run_id": "single_20260521_073748",
-    "alpha_annual_pct": 48.6213,
-    "total_return_pct": 1321.1112,
-    "annual_return_pct": 64.0582,
-    "sharpe_ratio": 2.209,
+    "date": "2026-05-22",
+    "timestamp": "2026-05-22 04:03:03",
+    "run_id": "single_20260522_080303",
+    "alpha_annual_pct": 48.8144,
+    "total_return_pct": 1334.2513,
+    "annual_return_pct": 64.2797,
+    "sharpe_ratio": 2.2174,
     "max_drawdown_pct": -25.7757,
     "n_trades": 205,
     "win_rate_pct": 84.88,
-    "ml_test_auc": 0.592303593512908,
-    "ml_test_accuracy": 0.6582489237361777,
-    "ml_trained_at": "2026-05-21 03:36:58",
-    "delta_vs_7d_avg": 44.451
+    "ml_test_auc": 0.5905255665652825,
+    "ml_test_accuracy": 0.6586151582240724,
+    "ml_trained_at": "2026-05-22 04:01:42",
+    "delta_vs_7d_avg": 34.226
   },
-  "last_updated": "2026-05-21 03:37:48",
-  "n_iterations": 8
+  "last_updated": "2026-05-22 04:03:03",
+  "n_iterations": 9
 }

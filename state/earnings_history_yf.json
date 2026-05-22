@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-05-21 02:44:31",
+  "updated_at": "2026-05-22 02:41:30",
   "history": {
     "A": [
       {
@@ -55,12 +55,6 @@
     ],
     "AAP": [
       {
-        "date": "2025-03-31",
-        "eps_actual": -0.22,
-        "eps_estimate": -0.68878,
-        "surprise_pct": 68.06
-      },
-      {
         "date": "2025-06-30",
         "eps_actual": 0.69,
         "eps_estimate": 0.58326,
@@ -77,6 +71,12 @@
         "eps_actual": 0.86,
         "eps_estimate": 0.41087,
         "surprise_pct": 109.31
+      },
+      {
+        "date": "2026-03-31",
+        "eps_actual": 0.77,
+        "eps_estimate": 0.43844,
+        "surprise_pct": 75.62
       }
     ],
     "AAPL": [
@@ -11287,12 +11287,6 @@
     ],
     "ROST": [
       {
-        "date": "2025-04-30",
-        "eps_actual": 1.47,
-        "eps_estimate": 1.43351,
-        "surprise_pct": 2.55
-      },
-      {
         "date": "2025-07-31",
         "eps_actual": 1.56,
         "eps_estimate": 1.53912,
@@ -11309,6 +11303,12 @@
         "eps_actual": 2.0,
         "eps_estimate": 1.90645,
         "surprise_pct": 4.91
+      },
+      {
+        "date": "2026-04-30",
+        "eps_actual": 2.02,
+        "eps_estimate": 1.72037,
+        "surprise_pct": 17.42
       }
     ],
     "RPAY": [
