@@ -1,6 +1,55 @@
 {
-  "updated_at": "2026-05-24 03:37:56",
+  "updated_at": "2026-05-24 07:18:43",
   "runs": [
+    {
+      "id": "compare_20260524_111842",
+      "kind": "compare",
+      "generated_at": "2026-05-24 07:18:42",
+      "start_date": "2021-01-01",
+      "end_date": "2026-05-24",
+      "filename": "runs/compare_20260524_111842.json",
+      "summary": {
+        "alpha_annual_pp": -0.3241,
+        "sharpe_delta": -0.011,
+        "max_dd_pp": 0.0,
+        "challenger_params": {
+          "score_threshold_delta": -10,
+          "risk_per_trade_pct": 0.5,
+          "trailing_stop_pct": 8
+        }
+      }
+    },
+    {
+      "id": "walk_forward_20260524_111615",
+      "kind": "walk_forward",
+      "generated_at": "2026-05-24 07:16:15",
+      "start_date": null,
+      "end_date": null,
+      "filename": "runs/walk_forward_20260524_111615.json",
+      "summary": {
+        "n_windows": 3,
+        "mean_oos_alpha_annual_pct": 89.2864,
+        "mean_oos_sharpe": 2.063,
+        "mean_oos_max_drawdown_pct": -14.8388
+      }
+    },
+    {
+      "id": "sweep_20260524_110819",
+      "kind": "sweep",
+      "generated_at": "2026-05-24 07:08:19",
+      "start_date": "2021-01-01",
+      "end_date": "2026-05-24",
+      "filename": "runs/sweep_20260524_110819.json",
+      "summary": {
+        "n_combinations": 75,
+        "best_alpha_annual_pct": 49.1813,
+        "best_params": {
+          "score_threshold_delta": -10,
+          "risk_per_trade_pct": 0.5,
+          "trailing_stop_pct": 8
+        }
+      }
+    },
     {
       "id": "single_20260524_073755",
       "kind": "single",
