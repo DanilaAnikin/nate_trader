@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-05-24 02:29:43",
+  "updated_at": "2026-05-25 03:04:42",
   "history": {
     "A": [
       {
@@ -6523,8 +6523,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 1.15,
-        "eps_estimate": 1.05426,
-        "surprise_pct": 9.08
+        "eps_estimate": 1.05507,
+        "surprise_pct": 9.0
       }
     ],
     "INMD": [
@@ -11489,8 +11489,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": -2.29,
-        "eps_estimate": -1.83184,
-        "surprise_pct": -25.01
+        "eps_estimate": -1.83771,
+        "surprise_pct": -24.61
       }
     ],
     "S": [
@@ -12243,8 +12243,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 1.09,
-        "eps_estimate": 1.00835,
-        "surprise_pct": 8.1
+        "eps_estimate": 1.00771,
+        "surprise_pct": 8.17
       }
     ],
     "T": [
@@ -12399,8 +12399,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 0.47,
-        "eps_estimate": 0.40892,
-        "surprise_pct": 14.94
+        "eps_estimate": 0.40858,
+        "surprise_pct": 15.03
       }
     ],
     "TFX": [
