@@ -1,35 +1,21 @@
 {
-  "updated_at": "2026-05-25 12:09:50",
+  "updated_at": "2026-05-26 13:05:08",
   "threshold_pct": 3.0,
-  "n_scanned": 545,
+  "n_scanned": 544,
   "signals": [
     {
-      "symbol": "COR",
+      "symbol": "APP",
       "kind": "GAP_UP",
-      "gap_pct": 3.0417176758640125,
+      "gap_pct": 7.135146356653532,
       "bonus_points": 5,
-      "rationale": "Gap-up +3.0% with news"
+      "rationale": "Gap-up +7.1% with news"
     },
     {
-      "symbol": "DELL",
+      "symbol": "MRVL",
       "kind": "GAP_UP",
-      "gap_pct": 6.590473177387128,
+      "gap_pct": 7.678007537944376,
       "bonus_points": 5,
-      "rationale": "Gap-up +6.6% with news"
-    },
-    {
-      "symbol": "GNRC",
-      "kind": "GAP_UP",
-      "gap_pct": 4.810248972685532,
-      "bonus_points": 5,
-      "rationale": "Gap-up +4.8% with news"
-    },
-    {
-      "symbol": "HPQ",
-      "kind": "GAP_UP",
-      "gap_pct": 3.1478102189780914,
-      "bonus_points": 5,
-      "rationale": "Gap-up +3.1% with news"
+      "rationale": "Gap-up +7.7% with news"
     }
   ]
 }
