@@ -216,6 +216,21 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
       }
     }
 
+    // If the portfolio has a more recent point than the last SPY bar (e.g.
+    // today, before SPY history caught up), extend the rows so the blue line
+    // reaches its true latest value instead of stopping a day short.
+    if (
+      lastPortfolio &&
+      rows.length > 0 &&
+      lastPortfolio.date > rows[rows.length - 1].date
+    ) {
+      rows.push({
+        date: lastPortfolio.date,
+        spy: rows[rows.length - 1].spy,
+        portfolio: lastPortfolio.equity,
+      });
+    }
+
     const lastSpyValue = rows[rows.length - 1]?.spy ?? anchorValue;
     const lastPortValue = lastPortfolio?.equity ?? anchorValue;
     const spyReturn = ((lastSpyValue - anchorValue) / anchorValue) * 100;
@@ -290,6 +305,16 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
   } = computed;
 
   const tickInterval = Math.max(1, Math.floor(chartRows.length / 12));
+  const spanDays =
+    chartRows.length > 1
+      ? (new Date(chartRows[chartRows.length - 1].date).getTime() -
+          new Date(chartRows[0].date).getTime()) /
+        86_400_000
+      : 0;
+  // Day-level labels for short windows; month + year only for multi-year
+  // spans. Stops the "May '26 / May '26 / May '26" duplicate-tick mess that a
+  // ~5-week "From Start" range produced.
+  const useDayLabels = spanDays <= 120;
   const alpha = portfolioReturn - spyReturn;
 
   return (
@@ -386,11 +411,9 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
             tickFormatter={(date: string) => {
               const d = new Date(date);
               if (Number.isNaN(d.getTime())) return date;
-              // For short ranges show "MMM DD", for long ranges show "MMM 'YY"
-              if (range === "1W" || range === "1M") {
-                return d.toLocaleString("en-US", { month: "short", day: "numeric" });
-              }
-              return `${d.toLocaleString("en-US", { month: "short" })} '${String(d.getFullYear()).slice(2)}`;
+              return useDayLabels
+                ? d.toLocaleString("en-US", { month: "short", day: "numeric" })
+                : `${d.toLocaleString("en-US", { month: "short" })} '${String(d.getFullYear()).slice(2)}`;
             }}
           />
           <YAxis
