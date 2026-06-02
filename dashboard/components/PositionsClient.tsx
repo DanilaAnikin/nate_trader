@@ -70,8 +70,12 @@ export default function PositionsClient({
     };
   }, []);
 
-  // Resolve displayed values — prefer live, fall back to GitHub snapshot
-  const positions: Position[] = live?.positions ?? initialPositions?.positions ?? [];
+  // Resolve displayed values — prefer live, fall back to GitHub snapshot.
+  // Memoised so it's a stable dependency for the totals useMemo below.
+  const positions: Position[] = useMemo(
+    () => live?.positions ?? initialPositions?.positions ?? [],
+    [live, initialPositions],
+  );
   const equity = live?.account.equity ?? initialPerformance?.equity ?? 0;
   const cashPct = live?.account.cash_pct ?? initialPerformance?.cash_pct ?? 0;
   const updatedAt = live?.timestamp

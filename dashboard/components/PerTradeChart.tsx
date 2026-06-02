@@ -55,25 +55,26 @@ export default function PerTradeChart({ trades }: Props) {
     return Array.from(s).sort();
   }, [directionalTrades]);
 
-  const [selected, setSelected] = useState<string>(symbols[0] ?? "");
+  const [rawSelected, setSelected] = useState<string>(symbols[0] ?? "");
+  // Derive the effective selection during render rather than syncing it from
+  // an effect: if the stored symbol is gone (or never set), fall back to the
+  // first available symbol. Avoids a cascading setState-in-effect.
+  const selected =
+    rawSelected && symbols.includes(rawSelected) ? rawSelected : symbols[0] ?? "";
   const [bars, setBars] = useState<SymbolBar[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    if (symbols.length > 0 && (!selected || !symbols.includes(selected))) {
-      setSelected(symbols[0]);
-    }
-  }, [symbols, selected]);
-
-  useEffect(() => {
-    if (!selected) {
-      setBars(null);
-      return;
-    }
+    if (!selected) return;
     let cancelled = false;
+    // Intentional: flip into the loading state before the async fetch so the
+    // spinner shows immediately. The set-state-in-effect rule is overly strict
+    // for this standard data-fetching pattern.
+    /* eslint-disable react-hooks/set-state-in-effect */
     setLoading(true);
     setErrorMsg(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
     fetch(`/api/symbol-bars?symbol=${encodeURIComponent(selected)}`, { cache: "no-store" })
       .then(async (res) => {
         if (cancelled) return;

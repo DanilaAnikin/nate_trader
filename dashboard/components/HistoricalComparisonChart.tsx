@@ -85,7 +85,10 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
   const [spyData, setSpyData] = useState<SpyBar[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [range, setRange] = useState<Range>("FROM_2020");
+  // Default to the portfolio's own lifetime: both lines start together at the
+  // first trading day and diverge to show alpha. "From 2020" buries the few
+  // weeks of real portfolio data under six years of rebased SPY.
+  const [range, setRange] = useState<Range>("ALL_PORTFOLIO");
 
   useEffect(() => {
     let cancelled = false;
