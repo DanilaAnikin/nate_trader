@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-01 04:27:29",
+  "updated_at": "2026-06-02 03:18:37",
   "history": {
     "A": [
       {
@@ -1973,8 +1973,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 12.53,
-        "eps_estimate": 11.49568,
-        "surprise_pct": 9.0
+        "eps_estimate": 11.45866,
+        "surprise_pct": 9.35
       }
     ],
     "BLKB": [
@@ -11521,12 +11521,6 @@
     ],
     "SAIC": [
       {
-        "date": "2025-04-30",
-        "eps_actual": 1.92,
-        "eps_estimate": 2.11625,
-        "surprise_pct": -9.27
-      },
-      {
         "date": "2025-07-31",
         "eps_actual": 3.63,
         "eps_estimate": 2.23728,
@@ -11543,6 +11537,12 @@
         "eps_actual": 2.62,
         "eps_estimate": 2.01498,
         "surprise_pct": 30.03
+      },
+      {
+        "date": "2026-04-30",
+        "eps_actual": 3.23,
+        "eps_estimate": 2.27754,
+        "surprise_pct": 41.82
       }
     ],
     "SAIL": [
