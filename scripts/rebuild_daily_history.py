@@ -21,8 +21,9 @@ import json
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
@@ -34,6 +35,12 @@ PORTFOLIO_HISTORY_URL = (
     "https://paper-api.alpaca.markets/v2/account/portfolio/history"
     "?period=all&timeframe=1D"
 )
+
+# Alpaca's daily timestamps land in the trading day's evening, which is the
+# NEXT calendar day in UTC — labelling Friday's bar as Saturday and dropping
+# Mondays. Convert in market time so dates line up with the ET-dated SPY
+# history the chart plots against.
+_ET = ZoneInfo("America/New_York")
 
 
 def fetch_portfolio_history() -> dict:
@@ -66,7 +73,7 @@ def main() -> int:
         eq = equity[i] if i < len(equity) else None
         if eq is None or eq <= 0:
             continue
-        day = datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%d")
+        day = datetime.fromtimestamp(t, tz=_ET).strftime("%Y-%m-%d")
         by_date[day] = {
             "equity": round(float(eq), 2),
             "pnl": round(float(pl[i]), 2) if i < len(pl) and pl[i] is not None else 0.0,
