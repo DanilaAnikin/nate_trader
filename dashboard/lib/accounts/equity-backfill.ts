@@ -61,10 +61,17 @@ export async function backfillEquity(
 
   // Keyed by date so a duplicated day collapses to its last value.
   const byDate = new Map<string, Database["public"]["Tables"]["equity_snapshots"]["Insert"]>();
+  // Alpaca's daily timestamps fall in the trading day's evening, which is the
+  // next calendar day in UTC — so a UTC slice mislabels Friday as Saturday and
+  // drops Mondays. Format in market time (ET) so dates match the chart's
+  // ET-dated SPY history. en-CA yields YYYY-MM-DD.
+  const etDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+  });
   for (let i = 0; i < ts.length; i++) {
     const eq = equity[i];
     if (eq == null || eq <= 0) continue;
-    const date = new Date(ts[i] * 1000).toISOString().slice(0, 10);
+    const date = etDate.format(new Date(ts[i] * 1000));
     byDate.set(date, {
       account_id: accountId,
       snapshot_date: date,

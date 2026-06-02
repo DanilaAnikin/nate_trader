@@ -478,7 +478,7 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
             strokeWidth={2.5}
             fill="url(#portfolioGrad)"
             dot={false}
-            connectNulls={false}
+            connectNulls
             isAnimationActive={false}
           />
         </AreaChart>
