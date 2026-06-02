@@ -15,26 +15,34 @@
   "updated_at": "2026-06-02 07:26:58",
   "daily_history": [
     {
+      "date": "2026-04-23",
+      "pnl": 0.0,
+      "pnl_pct": 0.0,
+      "equity": 1000000.0,
+      "cash": 0.0,
+      "num_positions": 0
+    },
+    {
       "date": "2026-04-24",
       "pnl": 0.0,
       "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "equity": 1000000.0,
       "cash": 1000000.0,
       "num_positions": 0
     },
     {
-      "date": "2026-04-27",
+      "date": "2026-04-25",
       "pnl": 0.0,
       "pnl_pct": 0.0,
-      "equity": 975507.36,
-      "cash": 1000000.0,
+      "equity": 1000000.0,
+      "cash": 0.0,
       "num_positions": 0
     },
     {
       "date": "2026-04-28",
       "pnl": 0.0,
       "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "equity": 1000000.0,
       "cash": 1000000.0,
       "num_positions": 0
     },
@@ -42,7 +50,7 @@
       "date": "2026-04-29",
       "pnl": 0.0,
       "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "equity": 1000000.0,
       "cash": 1000000.0,
       "num_positions": 0
     },
@@ -50,175 +58,183 @@
       "date": "2026-04-30",
       "pnl": 0.0,
       "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "equity": 1000000.0,
       "cash": 851034.12,
       "num_positions": 3
     },
     {
       "date": "2026-05-01",
-      "pnl": 0.0,
-      "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "pnl": 2120.76,
+      "pnl_pct": 0.21,
+      "equity": 1002120.76,
       "cash": 851034.12,
       "num_positions": 3
     },
     {
-      "date": "2026-05-04",
-      "pnl": 0.0,
+      "date": "2026-05-02",
+      "pnl": 45.27,
       "pnl_pct": 0.0,
-      "equity": 975507.36,
-      "cash": 801201.12,
-      "num_positions": 4
+      "equity": 1002166.03,
+      "cash": 0.0,
+      "num_positions": 0
     },
     {
       "date": "2026-05-05",
       "pnl": 0.0,
       "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "equity": 1002166.03,
       "cash": 846164.28,
       "num_positions": 3
     },
     {
       "date": "2026-05-06",
-      "pnl": 0.0,
-      "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "pnl": -119.51,
+      "pnl_pct": -0.01,
+      "equity": 1002046.52,
       "cash": 798411.33,
       "num_positions": 4
     },
     {
       "date": "2026-05-07",
-      "pnl": 0.0,
-      "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "pnl": 2058.79,
+      "pnl_pct": 0.21,
+      "equity": 1004105.31,
       "cash": 707530.15,
       "num_positions": 6
     },
     {
       "date": "2026-05-08",
-      "pnl": 0.0,
-      "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "pnl": -1941.76,
+      "pnl_pct": -0.19,
+      "equity": 1002163.55,
       "cash": 751773.15,
       "num_positions": 5
     },
     {
-      "date": "2026-05-11",
-      "pnl": 0.0,
-      "pnl_pct": 0.0,
-      "equity": 975507.36,
-      "cash": 489930.96,
-      "num_positions": 9
+      "date": "2026-05-09",
+      "pnl": 3509.41,
+      "pnl_pct": 0.35,
+      "equity": 1005672.96,
+      "cash": 0.0,
+      "num_positions": 0
     },
     {
       "date": "2026-05-12",
-      "pnl": 0.0,
-      "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "pnl": -1853.89,
+      "pnl_pct": -0.18,
+      "equity": 1003819.07,
       "cash": 133337.33,
       "num_positions": 10
     },
     {
       "date": "2026-05-13",
-      "pnl": 0.0,
-      "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "pnl": -10563.89,
+      "pnl_pct": -1.05,
+      "equity": 993255.18,
       "cash": 57955.25,
       "num_positions": 11
     },
     {
       "date": "2026-05-14",
-      "pnl": 0.0,
-      "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "pnl": 7605.77,
+      "pnl_pct": 0.77,
+      "equity": 1000860.95,
       "cash": 56982.07,
       "num_positions": 11
     },
     {
       "date": "2026-05-15",
-      "pnl": 0.0,
-      "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "pnl": 2708.52,
+      "pnl_pct": 0.27,
+      "equity": 1003569.47,
       "cash": 56982.07,
       "num_positions": 11
     },
     {
       "date": "2026-05-16",
-      "pnl": 0.0,
-      "pnl_pct": 0.0,
-      "equity": 975507.36,
+      "pnl": -14735.9,
+      "pnl_pct": -1.47,
+      "equity": 988833.57,
       "cash": 56982.07,
       "num_positions": 11
     },
     {
-      "date": "2026-05-18",
-      "pnl": 0.0,
-      "pnl_pct": 0.0,
-      "equity": 975507.36,
-      "cash": 168153.53,
-      "num_positions": 11
-    },
-    {
       "date": "2026-05-19",
-      "pnl": -9871.060000000056,
-      "pnl_pct": -1.0016523357820262,
-      "equity": 975606.6,
+      "pnl": -3355.91,
+      "pnl_pct": -0.34,
+      "equity": 985477.66,
       "cash": -163678.7,
       "num_positions": 11
     },
     {
       "date": "2026-05-20",
-      "pnl": -3304.930000000051,
-      "pnl_pct": -0.3383661475078162,
-      "equity": 973426.94,
+      "pnl": -8745.79,
+      "pnl_pct": -0.89,
+      "equity": 976731.87,
       "cash": 104.54,
       "num_positions": 2
     },
     {
       "date": "2026-05-21",
-      "pnl": 6340.239999999991,
-      "pnl_pct": 0.6401869064983944,
-      "equity": 996713.51,
+      "pnl": 13641.4,
+      "pnl_pct": 1.4,
+      "equity": 990373.27,
       "cash": 102.74,
       "num_positions": 2
     },
     {
       "date": "2026-05-22",
-      "pnl": 7044.4700000000885,
-      "pnl_pct": 0.707302152452772,
-      "equity": 1003007.79,
+      "pnl": 5590.05,
+      "pnl_pct": 0.56,
+      "equity": 995963.32,
       "cash": 102.74,
       "num_positions": 2
     },
     {
-      "date": "2026-05-25",
-      "pnl": 0.0,
-      "pnl_pct": 0.0,
+      "date": "2026-05-23",
+      "pnl": 11277.3,
+      "pnl_pct": 1.13,
       "equity": 1007240.62,
-      "cash": 102.74,
-      "num_positions": 2
+      "cash": 0.0,
+      "num_positions": 0
     },
     {
-      "date": "2026-05-26",
-      "pnl": 42941.74000000011,
-      "pnl_pct": 4.263305028345671,
-      "equity": 1050182.36,
-      "cash": 102.74,
-      "num_positions": 2
+      "date": "2026-05-27",
+      "pnl": 44816.98,
+      "pnl_pct": 4.45,
+      "equity": 1052057.6,
+      "cash": 0.0,
+      "num_positions": 0
     },
     {
-      "date": "2026-06-01",
-      "pnl": 4101.699999999953,
-      "pnl_pct": 0.37865104183917714,
-      "equity": 1087341.82,
-      "cash": 102.74,
-      "num_positions": 2
+      "date": "2026-05-28",
+      "pnl": -2756.62,
+      "pnl_pct": -0.26,
+      "equity": 1049300.98,
+      "cash": 0.0,
+      "num_positions": 0
+    },
+    {
+      "date": "2026-05-29",
+      "pnl": 23652.05,
+      "pnl_pct": 2.25,
+      "equity": 1072953.03,
+      "cash": 0.0,
+      "num_positions": 0
+    },
+    {
+      "date": "2026-05-30",
+      "pnl": 10287.09,
+      "pnl_pct": 0.96,
+      "equity": 1083240.12,
+      "cash": 0.0,
+      "num_positions": 0
     },
     {
       "date": "2026-06-02",
-      "pnl": -4402.560000000056,
-      "pnl_pct": -0.400389487036716,
-      "equity": 1095166.77,
+      "pnl": 16329.21,
+      "pnl_pct": 1.51,
+      "equity": 1099569.33,
       "cash": 102.74,
       "num_positions": 2
     }
