@@ -32,28 +32,36 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_PREFIXES.some(
-    (p) => path === p || path.startsWith(`${p}/`),
-  );
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const path = request.nextUrl.pathname;
+    const isPublic = PUBLIC_PREFIXES.some(
+      (p) => path === p || path.startsWith(`${p}/`),
+    );
 
-  if (!user && !isPublic) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/login";
-    redirectUrl.search = "";
-    return NextResponse.redirect(redirectUrl);
-  }
-  if (user && path === "/login") {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/";
-    redirectUrl.search = "";
-    return NextResponse.redirect(redirectUrl);
-  }
+    if (!user && !isPublic) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/login";
+      redirectUrl.search = "";
+      return NextResponse.redirect(redirectUrl);
+    }
+    if (user && path === "/login") {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/";
+      redirectUrl.search = "";
+      return NextResponse.redirect(redirectUrl);
+    }
 
-  return response;
+    return response;
+  } catch {
+    // Supabase is configured but unreachable (e.g. the free-tier project
+    // auto-paused after inactivity). Pass the request through instead of
+    // letting `fetch failed` bubble up — otherwise every gated route 504s.
+    // The page layer degrades to legacy mode on the same outage.
+    return response;
+  }
 }
 
 export const config = {

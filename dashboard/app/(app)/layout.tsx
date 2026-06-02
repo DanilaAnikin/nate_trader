@@ -20,15 +20,30 @@ export default async function AppLayout({
   let selectedId: string | null = null;
 
   if (SUPABASE_CONFIGURED) {
-    const supa = await getSupabaseServer();
-    const {
-      data: { user },
-    } = await supa.auth.getUser();
-    if (!user) redirect("/login");
+    let user = null;
+    let supabaseReachable = true;
+    try {
+      const supa = await getSupabaseServer();
+      ({
+        data: { user },
+      } = await supa.auth.getUser());
 
-    const selection = await getSelectedAccount();
-    accounts = selection.accounts;
-    selectedId = selection.selected?.id ?? null;
+      if (user) {
+        const selection = await getSelectedAccount();
+        accounts = selection.accounts;
+        selectedId = selection.selected?.id ?? null;
+      }
+    } catch {
+      // Supabase is configured but unreachable (e.g. the free-tier project
+      // auto-paused). Degrade to legacy mode — render the dashboard with no
+      // account switcher — instead of 504ing the whole shell.
+      supabaseReachable = false;
+    }
+
+    // Only enforce the login gate when Supabase actually answered. The
+    // redirect() lives outside the try/catch: Next implements it by throwing
+    // NEXT_REDIRECT, which must not be swallowed by the catch above.
+    if (supabaseReachable && !user) redirect("/login");
   }
 
   return (

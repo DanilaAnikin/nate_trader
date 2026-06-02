@@ -7,13 +7,19 @@ export const SELECTED_ACCOUNT_COOKIE = "nt_account";
 
 /** Every non-deleted account owned by the signed-in user (RLS-scoped). */
 export async function getUserAccounts(): Promise<SafeAccount[]> {
-  const supa = await getSupabaseServer();
-  const { data } = await supa
-    .from("accounts")
-    .select("*")
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true });
-  return (data ?? []).map(toSafe);
+  try {
+    const supa = await getSupabaseServer();
+    const { data } = await supa
+      .from("accounts")
+      .select("*")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true });
+    return (data ?? []).map(toSafe);
+  } catch {
+    // Supabase unreachable (e.g. paused project). Treat as "no accounts" so
+    // the dashboard renders its GitHub-sourced data instead of 504ing.
+    return [];
+  }
 }
 
 export type AccountSelection = {
@@ -39,20 +45,25 @@ export async function getSelectedAccount(): Promise<AccountSelection> {
     : null;
 
   if (!selected) {
-    const supa = await getSupabaseServer();
-    const {
-      data: { user },
-    } = await supa.auth.getUser();
-    if (user) {
-      const { data: profile } = await supa
-        .from("profiles")
-        .select("default_account_id")
-        .eq("id", user.id)
-        .single();
-      if (profile?.default_account_id) {
-        selected =
-          accounts.find((a) => a.id === profile.default_account_id) ?? null;
+    try {
+      const supa = await getSupabaseServer();
+      const {
+        data: { user },
+      } = await supa.auth.getUser();
+      if (user) {
+        const { data: profile } = await supa
+          .from("profiles")
+          .select("default_account_id")
+          .eq("id", user.id)
+          .single();
+        if (profile?.default_account_id) {
+          selected =
+            accounts.find((a) => a.id === profile.default_account_id) ?? null;
+        }
       }
+    } catch {
+      // Supabase blip while resolving the default account — fall through to
+      // the first active account below rather than failing the request.
     }
   }
 
