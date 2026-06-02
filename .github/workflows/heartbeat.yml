@@ -52,12 +52,17 @@ jobs:
             echo "Existing heartbeat issue #$existing for $TODAY — skipping"
             exit 0
           fi
+          body=$(printf '%s\n' \
+            "Heartbeat check at 5:30 PM ET (after End-of-Day Summary) found no \`journal/${TODAY}.md\`." \
+            "" \
+            "Likely causes:" \
+            "- End-of-Day Summary workflow failed silently" \
+            "- Alpaca or ClickUp secret expired" \
+            "- Pre-Market Research / Market-Open routines also broken upstream" \
+            "" \
+            "Action: re-run the End-of-Day Summary workflow manually (\`gh workflow run end-of-day-summary.yml\`) and inspect logs.")
           gh issue create \
             --repo "$GITHUB_REPOSITORY" \
             --title "Routine heartbeat missing $TODAY — End-of-Day Summary didn't run" \
-            --body "Heartbeat check at 5:30 PM ET (after End-of-Day Summary) found no \
-\`journal/${TODAY}.md\`.\n\nLikely causes:\n- End-of-Day Summary workflow failed silently\n- Alpaca \
-or ClickUp secret expired\n- Pre-Market Research / Market-Open routines also broken upstream\n\
-\nAction: re-run the End-of-Day Summary workflow manually \
-(\`gh workflow run end-of-day-summary.yml\`) and inspect logs." \
+            --body "$body" \
             --label "infra,P1,claude-code"
