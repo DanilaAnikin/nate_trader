@@ -1,39 +1,39 @@
 {
-  "updated_at": "2026-05-15 11:51:42",
+  "updated_at": "2026-06-02 07:02:57",
   "lookback_days": 20,
-  "spy_return": 4.191195110272394,
+  "spy_return": 5.26724867798305,
   "sector_returns": {
-    "Technology": 14.504163021997595,
-    "Financial": -2.507627765064835,
-    "Healthcare": -2.268602540834841,
-    "Industrial": -1.0637071202075465,
-    "Consumer": -3.3421904840986505,
-    "Energy": 7.401345699218043,
-    "Materials": -2.82328001541724,
-    "Utilities": -4.301191765980494,
-    "RealEstate": -2.742189256012584,
-    "Communication": -2.45674449857215
+    "Technology": 20.966446270777972,
+    "Financial": -0.9819021948402007,
+    "Healthcare": 1.8324607329842868,
+    "Industrial": -0.33529887848304796,
+    "Consumer": -0.3456706854396696,
+    "Energy": -2.6177120516743146,
+    "Materials": -0.8763388510223957,
+    "Utilities": -7.4237215298667785,
+    "RealEstate": -2.324531708417965,
+    "Communication": -0.9550730223992554
   },
   "sector_alpha": {
-    "Technology": 10.3129679117252,
-    "Financial": -6.698822875337229,
-    "Healthcare": -6.459797651107236,
-    "Industrial": -5.25490223047994,
-    "Consumer": -7.533385594371045,
-    "Energy": 3.2101505889456483,
-    "Materials": -7.014475125689634,
-    "Utilities": -8.492386876252889,
-    "RealEstate": -6.933384366284978,
-    "Communication": -6.647939608844544
+    "Technology": 15.699197592794922,
+    "Financial": -6.24915087282325,
+    "Healthcare": -3.434787944998763,
+    "Industrial": -5.602547556466098,
+    "Consumer": -5.612919363422719,
+    "Energy": -7.884960729657364,
+    "Materials": -6.143587529005446,
+    "Utilities": -12.690970207849828,
+    "RealEstate": -7.591780386401014,
+    "Communication": -6.222321700382305
   },
   "top_sectors": [
     "Technology",
-    "Energy",
+    "Healthcare",
     "Industrial"
   ],
   "bottom_sectors": [
-    "Materials",
-    "Consumer",
+    "RealEstate",
+    "Energy",
     "Utilities"
   ]
 }
