@@ -155,9 +155,15 @@ export default function DashboardClient({
   const snapshotEquity = performance?.equity ?? 0;
   const snapshotCash = performance?.cash ?? 0;
   // Prefer the real Alpaca-sourced equity curve; fall back to the legacy
-  // GitHub snapshot until Supabase data is available.
+  // GitHub snapshot until Supabase data is available. Guard on length: an
+  // account with no equity snapshots yet returns an empty array, and `??`
+  // would let that empty array shadow the GitHub history — blanking both the
+  // equity curve and the SPY comparison chart. Only use it when non-empty.
   const dailyHistory = useMemo(
-    () => snapshotHistory ?? performance?.daily_history ?? [],
+    () =>
+      snapshotHistory && snapshotHistory.length > 0
+        ? snapshotHistory
+        : performance?.daily_history ?? [],
     [snapshotHistory, performance],
   );
 

@@ -34,6 +34,13 @@ jobs:
         working-directory: .
 
       - name: Sanity check (config + wiring + modules)
+        env:
+          # trade/portfolio/research construct their Alpaca client at import
+          # time, so even a wiring-only sanity check needs credentials present
+          # or the module imports raise "You must supply a method of
+          # authentication" and fail the whole routine.
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
         run: python3 sanity_check.py
 
       - name: Refresh sector rotation strength

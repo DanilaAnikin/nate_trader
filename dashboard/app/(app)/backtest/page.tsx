@@ -164,7 +164,7 @@ export default async function BacktestPage() {
         <div className="glass-card p-5">
           <h3 className="text-sm font-medium text-secondary mb-1">Parameter Sweep — Top 10 by annual alpha</h3>
           <p className="text-xs text-muted mb-3">
-            {sweep!.results.length} parameter combinations tested. Threshold delta is added to the regime's base score_threshold.
+            {sweep!.results.length} parameter combinations tested. Threshold delta is added to the regime&apos;s base score_threshold.
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
