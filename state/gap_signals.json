@@ -1,56 +1,6 @@
 {
-  "updated_at": "2026-06-01 15:14:16",
+  "updated_at": "2026-06-02 13:54:25",
   "threshold_pct": 3.0,
   "n_scanned": 545,
-  "signals": [
-    {
-      "symbol": "CDNS",
-      "kind": "GAP_UP",
-      "gap_pct": 4.808384670773655,
-      "bonus_points": 5,
-      "rationale": "Gap-up +4.8% with news"
-    },
-    {
-      "symbol": "HUM",
-      "kind": "GAP_UP",
-      "gap_pct": 4.725130890052355,
-      "bonus_points": 5,
-      "rationale": "Gap-up +4.7% with news"
-    },
-    {
-      "symbol": "IBM",
-      "kind": "GAP_UP",
-      "gap_pct": 7.9605329395576625,
-      "bonus_points": 5,
-      "rationale": "Gap-up +8.0% with news"
-    },
-    {
-      "symbol": "MGM",
-      "kind": "GAP_UP",
-      "gap_pct": 11.393564639871755,
-      "bonus_points": 5,
-      "rationale": "Gap-up +11.4% with news"
-    },
-    {
-      "symbol": "MNDY",
-      "kind": "GAP_UP",
-      "gap_pct": 8.048313800526177,
-      "bonus_points": 5,
-      "rationale": "Gap-up +8.0% with news"
-    },
-    {
-      "symbol": "MTH",
-      "kind": "GAP_UP",
-      "gap_pct": 6.34677295722827,
-      "bonus_points": 5,
-      "rationale": "Gap-up +6.3% with news"
-    },
-    {
-      "symbol": "SAIC",
-      "kind": "GAP_UP",
-      "gap_pct": 12.697955657932628,
-      "bonus_points": 5,
-      "rationale": "Gap-up +12.7% with news"
-    }
-  ]
+  "signals": []
 }
