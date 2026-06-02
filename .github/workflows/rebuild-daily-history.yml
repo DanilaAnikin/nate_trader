@@ -1,0 +1,59 @@
+name: Rebuild Daily History
+
+# One-shot / on-demand: rewrite state/performance.json daily_history from
+# Alpaca's authoritative Portfolio History, replacing the seeded placeholder
+# equity that made the dashboard charts render a flat line + spike.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Pull latest
+        run: git pull --rebase origin main
+        working-directory: .
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+        working-directory: .
+
+      - name: Rebuild daily_history from Alpaca Portfolio History
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python3 rebuild_daily_history.py
+
+      - name: Commit and push state
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add state/performance.json
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "fix: rebuild daily_history equity from Alpaca portfolio history"
+          for attempt in 1 2 3 4 5; do
+            echo "── push attempt $attempt/5 ──"
+            if git pull --rebase --autostash origin main && git push origin main; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((attempt * 5))
+          done
+          echo "Failed to push after 5 attempts"
+          exit 1
