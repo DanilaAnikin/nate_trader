@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-02 03:18:37",
+  "updated_at": "2026-06-03 04:07:47",
   "history": {
     "A": [
       {
@@ -5775,12 +5775,6 @@
     ],
     "GTLB": [
       {
-        "date": "2025-04-30",
-        "eps_actual": 0.17,
-        "eps_estimate": 0.15172,
-        "surprise_pct": 12.05
-      },
-      {
         "date": "2025-07-31",
         "eps_actual": 0.24,
         "eps_estimate": 0.16384,
@@ -5797,6 +5791,12 @@
         "eps_actual": 0.3,
         "eps_estimate": 0.2308,
         "surprise_pct": 29.98
+      },
+      {
+        "date": "2026-04-30",
+        "eps_actual": 0.23,
+        "eps_estimate": 0.20478,
+        "surprise_pct": 12.32
       }
     ],
     "GVA": [
