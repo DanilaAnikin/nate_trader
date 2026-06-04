@@ -1,24 +1,24 @@
 {
-  "updated_at": "2026-06-03 18:34:45",
+  "updated_at": "2026-06-04 12:42:05",
   "positions": [
     {
       "symbol": "TQQQ",
       "qty": 9720.0,
       "avg_entry_price": 75.668426,
-      "current_price": 85.07,
-      "market_value": 826880.4,
-      "unrealized_pl": 91383.29928,
-      "unrealized_plpc": 12.425,
+      "current_price": 85.23,
+      "market_value": 828435.6,
+      "unrealized_pl": 92938.49928,
+      "unrealized_plpc": 12.636,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "UPRO",
       "qty": 1751.0,
       "avg_entry_price": 139.977196,
-      "current_price": 147.72,
-      "market_value": 258657.72,
-      "unrealized_pl": 13557.649804,
-      "unrealized_plpc": 5.531,
+      "current_price": 149.1,
+      "market_value": 261074.1,
+      "unrealized_pl": 15974.029804,
+      "unrealized_plpc": 6.517,
       "side": "PositionSide.LONG"
     }
   ]
