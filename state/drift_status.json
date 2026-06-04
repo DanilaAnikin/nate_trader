@@ -1,0 +1,21 @@
+{
+  "status": "ok",
+  "checked_at": "2026-06-04 17:55:16",
+  "window_from": "2026-04-22",
+  "window_to": "2026-06-04",
+  "realized_alpha_pct": 2.3061,
+  "expected_mean_pct": 10.6293,
+  "expected_std_pct": 17.4786,
+  "threshold_pct": -24.3279,
+  "consecutive_breaches": 0,
+  "history": [
+    {
+      "date": "2026-06-04",
+      "realized_alpha_pct": 2.3061,
+      "expected_mean_pct": 10.6293,
+      "expected_std_pct": 17.4786,
+      "threshold_pct": -24.3279,
+      "breached": false
+    }
+  ]
+}
