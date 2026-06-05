@@ -1,18 +1,18 @@
 {
-  "risk_tier": "CAUTIOUS",
+  "risk_tier": "HALT",
   "risk_tier_updated": "2026-05-20 00:05:00",
   "risk_tier_reason": "v10f cutover \u2014 daily_history rolled forward; new strategy starts NORMAL",
-  "equity": 968531.39,
+  "equity": 943868.56,
   "cash": 102.74,
-  "cash_pct": 0.010607813134481888,
-  "daily_pnl": -121386.57999999996,
-  "daily_pnl_pct": -11.137221638799106,
-  "weekly_pnl": -131037.94000000006,
-  "weekly_pnl_pct": -11.91720580274825,
-  "monthly_pnl": -35573.92000000004,
-  "monthly_pnl_pct": -3.5428475126777332,
+  "cash_pct": 0.010884990172784225,
+  "daily_pnl": -146049.40999999992,
+  "daily_pnl_pct": -13.400036885344676,
+  "weekly_pnl": -155700.77000000002,
+  "weekly_pnl_pct": -14.160159414413641,
+  "monthly_pnl": -60236.75,
+  "monthly_pnl_pct": -5.999047052146353,
   "num_positions": 2,
-  "updated_at": "2026-06-05 15:04:01",
+  "updated_at": "2026-06-05 17:46:18",
   "daily_history": [
     {
       "date": "2026-04-22",
@@ -264,9 +264,9 @@
     },
     {
       "date": "2026-06-05",
-      "pnl": -121386.57999999996,
-      "pnl_pct": -11.137221638799106,
-      "equity": 968531.39,
+      "pnl": -146049.40999999992,
+      "pnl_pct": -13.400036885344676,
+      "equity": 943868.56,
       "cash": 102.74,
       "num_positions": 2
     }
