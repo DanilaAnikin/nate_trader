@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "@/app/auth/actions";
@@ -77,9 +78,38 @@ export default function Sidebar({
   selectedAccountId: string | null;
 }) {
   const pathname = usePathname();
+  const [open, setOpen] = useState(false);
 
   return (
-    <aside className="w-56 bg-white border-r border-border flex flex-col min-h-screen">
+    <>
+      {/* Mobile hamburger — only shown when the sidebar is collapsed */}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Open menu"
+        className="lg:hidden fixed top-3 left-3 z-50 h-10 w-10 flex items-center justify-center rounded-lg bg-card border border-border shadow-sm text-secondary"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <line x1="3" y1="18" x2="21" y2="18" />
+        </svg>
+      </button>
+
+      {/* Backdrop on mobile when the drawer is open */}
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          aria-hidden="true"
+          className="lg:hidden fixed inset-0 z-40 bg-black/30"
+        />
+      )}
+
+      <aside
+        className={`w-56 bg-card border-r border-border flex flex-col min-h-screen fixed inset-y-0 left-0 z-40 transform transition-transform duration-200 lg:static lg:translate-x-0 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
       <div className="p-4 border-b border-border space-y-3">
         <div className="flex items-center gap-2.5">
           <div className="h-8 w-8 rounded-xl bg-blue/10 flex items-center justify-center">
@@ -108,6 +138,7 @@ export default function Sidebar({
             <Link
               key={item.href}
               href={item.href}
+              onClick={() => setOpen(false)}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 ${
                 active
                   ? "bg-blue/8 text-blue font-medium"
@@ -141,6 +172,7 @@ export default function Sidebar({
           </button>
         </form>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
