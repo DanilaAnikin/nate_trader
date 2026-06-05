@@ -134,7 +134,7 @@ export default function AccountsClient({
       </div>
 
       {accounts.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-white p-10 text-center">
+        <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
           <p className="text-sm font-medium text-foreground mb-1">
             No accounts yet
           </p>
@@ -157,7 +157,7 @@ export default function AccountsClient({
             return (
               <div
                 key={a.id}
-                className="bg-white border border-border rounded-2xl p-4 flex items-start gap-4"
+                className="bg-card border border-border rounded-2xl p-4 flex items-start gap-4"
                 style={{ borderLeft: `3px solid ${a.color}` }}
               >
                 <div className="flex-1 min-w-0">

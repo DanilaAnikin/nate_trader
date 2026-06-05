@@ -88,7 +88,7 @@ export default function AccountSwitcher({
             onClick={() => setOpen(false)}
             className="fixed inset-0 z-10 cursor-default"
           />
-          <div className="absolute left-0 right-0 mt-1 z-20 bg-white border border-border rounded-lg shadow-lg overflow-hidden">
+          <div className="absolute left-0 right-0 mt-1 z-20 bg-card border border-border rounded-lg shadow-lg overflow-hidden">
             <div className="max-h-64 overflow-auto py-1">
               {active.map((a) => (
                 <button

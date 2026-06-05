@@ -377,7 +377,7 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
                 onClick={() => setRange(opt.id)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-150 ${
                   active
-                    ? "bg-white text-foreground shadow-sm"
+                    ? "bg-card text-foreground shadow-sm"
                     : "text-muted hover:text-foreground"
                 }`}
                 aria-pressed={active}
@@ -401,7 +401,7 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
               <stop offset="100%" stopColor="#007aff" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="#f0f0f2" strokeDasharray="none" vertical={false} />
+          <CartesianGrid stroke="rgba(134,134,139,0.18)" strokeDasharray="none" vertical={false} />
           <XAxis
             dataKey="date"
             tick={{ fill: "#86868b", fontSize: 10 }}
@@ -442,8 +442,8 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
           )}
           <Tooltip
             contentStyle={{
-              background: "#ffffff",
-              border: "1px solid #e5e5e7",
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
               borderRadius: 10,
               fontSize: 12,
               boxShadow: "0 4px 12px rgba(0,0,0,0.08)",

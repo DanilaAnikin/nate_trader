@@ -160,7 +160,7 @@ export default function SettingsPage() {
         <p className="text-sm text-muted">Loading…</p>
       ) : (
         <div className="space-y-6">
-          <section className="bg-white border border-border rounded-2xl p-5">
+          <section className="bg-card border border-border rounded-2xl p-5">
             <h2 className="text-sm font-semibold text-foreground mb-4">
               Profile
             </h2>
@@ -204,7 +204,7 @@ export default function SettingsPage() {
             </form>
           </section>
 
-          <section className="bg-white border border-border rounded-2xl p-5">
+          <section className="bg-card border border-border rounded-2xl p-5">
             <h2 className="text-sm font-semibold text-foreground mb-1">
               Default account
             </h2>
@@ -215,7 +215,7 @@ export default function SettingsPage() {
               <select
                 value={defaultAccountId}
                 onChange={(e) => setDefaultAccountId(e.target.value)}
-                className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-blue bg-white"
+                className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-blue bg-card"
               >
                 <option value="">No default — use most recent</option>
                 {accounts.map((a) => (
@@ -241,7 +241,7 @@ export default function SettingsPage() {
             </form>
           </section>
 
-          <section className="bg-white border border-border rounded-2xl p-5">
+          <section className="bg-card border border-border rounded-2xl p-5">
             <h2 className="text-sm font-semibold text-foreground mb-4">
               Change password
             </h2>

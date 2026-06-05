@@ -114,7 +114,7 @@ export default function EquityChart({ data }: EquityChartProps) {
               <stop offset="100%" stopColor="#007aff" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="#f0f0f2" strokeDasharray="none" />
+          <CartesianGrid stroke="rgba(134,134,139,0.18)" strokeDasharray="none" />
           <XAxis
             dataKey="label"
             tick={{ fill: "#86868b", fontSize: 11 }}
@@ -131,16 +131,16 @@ export default function EquityChart({ data }: EquityChartProps) {
           />
           <ReferenceLine
             y={startingEquity}
-            stroke="#d2d2d7"
+            stroke="rgba(134,134,139,0.45)"
             strokeDasharray="4 4"
             label={{ value: "Start", fill: "#86868b", fontSize: 10, position: "insideTopRight" }}
           />
           <Tooltip
             contentStyle={{
-              background: "#ffffff",
-              border: "1px solid #e5e5e7",
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
               borderRadius: 10,
-              color: "#1d1d1f",
+              color: "var(--text-primary)",
               fontSize: 12,
               boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
             }}

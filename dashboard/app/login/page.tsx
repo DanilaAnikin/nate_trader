@@ -91,7 +91,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div className="bg-white border border-border rounded-2xl p-6 shadow-sm">
+        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-foreground mb-1">
             {mode === "signin" ? "Sign in" : "Create your account"}
           </h2>
