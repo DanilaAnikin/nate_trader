@@ -60,6 +60,9 @@ export default function DashboardClient({
   const [snapshotHistory, setSnapshotHistory] = useState<DailyHistory[] | null>(
     null,
   );
+  // True when the selected account has no Alpaca credentials stored, so the
+  // real equity curve can't be fetched and we're showing the GitHub snapshot.
+  const [credsMissing, setCredsMissing] = useState(false);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -70,9 +73,22 @@ export default function DashboardClient({
           `/api/accounts/${selectedAccountId}/equity`,
           { cache: "no-store" },
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          // 502 + "credentials" means the account exists but has no Alpaca
+          // keys stored — surface a prompt instead of silently falling back.
+          if (!cancelled) {
+            const msg = await res.json().catch(() => null);
+            setCredsMissing(
+              res.status === 502 &&
+                typeof msg?.error === "string" &&
+                msg.error.toLowerCase().includes("credential"),
+            );
+          }
+          return;
+        }
         const body = await res.json();
         if (cancelled) return;
+        setCredsMissing(false);
         type Snap = {
           date: string;
           equity: number;
@@ -285,6 +301,21 @@ export default function DashboardClient({
           <RiskBadge tier={riskTier} />
         </div>
       </div>
+
+      {credsMissing && (
+        <a
+          href="/accounts"
+          className="flex items-center gap-3 rounded-xl border border-amber/30 bg-amber/8 px-4 py-3 text-sm text-amber hover:bg-amber/12 transition-colors"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+            <path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          </svg>
+          <span>
+            <span className="font-medium">This account has no Alpaca keys connected.</span>{" "}
+            Showing the saved snapshot — add your API keys to see the live equity curve. →
+          </span>
+        </a>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
