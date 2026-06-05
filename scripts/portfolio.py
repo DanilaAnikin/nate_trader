@@ -13,12 +13,27 @@ from utils import (
 
 log = setup_logging("portfolio")
 
-client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+_client: "TradingClient | None" = None
+
+
+def _get_client() -> TradingClient:
+    """Lazily build the Alpaca client so importing this module never requires
+    credentials — keeps sanity checks and unit tests importable without keys."""
+    global _client
+    if _client is None:
+        _client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+    return _client
+
+
+def __getattr__(name: str):
+    if name == "client":
+        return _get_client()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def get_account() -> dict:
     """Get account summary."""
-    acct = client.get_account()
+    acct = _get_client().get_account()
     return {
         "equity": float(acct.equity),
         "cash": float(acct.cash),
@@ -34,7 +49,7 @@ def get_account() -> dict:
 
 def get_positions() -> list[dict]:
     """Get all open positions."""
-    positions = client.get_all_positions()
+    positions = _get_client().get_all_positions()
     result = []
     for p in positions:
         result.append({
@@ -53,7 +68,7 @@ def get_positions() -> list[dict]:
 def get_open_orders() -> list[dict]:
     """Get all open orders."""
     request = GetOrdersRequest(status=QueryOrderStatus.OPEN)
-    orders = client.get_orders(filter=request)
+    orders = _get_client().get_orders(filter=request)
     result = []
     for o in orders:
         result.append({
@@ -73,7 +88,7 @@ def get_open_orders() -> list[dict]:
 def get_position_pnl(symbol: str) -> dict | None:
     """Get P&L for a specific position."""
     try:
-        p = client.get_open_position(symbol)
+        p = _get_client().get_open_position(symbol)
         return {
             "symbol": p.symbol,
             "qty": float(p.qty),
