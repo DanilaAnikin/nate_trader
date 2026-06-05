@@ -42,3 +42,7 @@ Trading lessons captured from experience. Updated weekly during the Friday revie
 ## Week Ending 2026-06-02
 - Grade: A | Weekly: +9.45% | Alpha: +7.74%
 - Positions: 2 | Risk Tier: NORMAL
+
+## Week Ending 2026-06-05
+- Grade: F | Weekly: -14.21% | Alpha: -11.91%
+- Positions: 2 | Risk Tier: HALT
