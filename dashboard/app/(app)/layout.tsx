@@ -50,7 +50,7 @@ export default async function AppLayout({
     <div className="min-h-screen flex">
       <Sidebar accounts={accounts} selectedAccountId={selectedId} />
       <main className="flex-1 overflow-auto">
-        <div className="max-w-[1600px] mx-auto p-8">
+        <div className="max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 pt-16 lg:pt-8">
           <div className="flex justify-end mb-4">
             <RefreshButton />
           </div>

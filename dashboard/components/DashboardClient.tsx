@@ -266,8 +266,15 @@ export default function DashboardClient({
   };
   const activeLimits = limitsByRegime[marketRegime] ?? limitsByRegime.UNKNOWN;
 
-  const rules = [
-    { label: `Cash Reserve ≥ ${activeLimits.minCash}%`, ok: display.cashPct >= activeLimits.minCash },
+  const rules: { label: string; ok: boolean; hint?: string }[] = [
+    {
+      label: `Cash Reserve ≥ ${activeLimits.minCash}%`,
+      ok: display.cashPct >= activeLimits.minCash,
+      hint:
+        marketRegime === "BULL"
+          ? "In a BULL regime the leveraged overlay (TQQQ/SSO) is fully deployed by design, so cash often sits below the reserve target."
+          : undefined,
+    },
     { label: `Max ${activeLimits.maxPos} Positions`, ok: display.numPositions <= activeLimits.maxPos },
     { label: "Risk Tier: NORMAL", ok: riskTier === "NORMAL" },
     { label: "Daily Loss < 3%", ok: display.dailyPnlPct > -3 },
@@ -279,10 +286,12 @@ export default function DashboardClient({
         <div>
           <h2 className="text-2xl font-semibold text-foreground">Dashboard</h2>
           <p className="text-xs text-muted mt-0.5">
-            {display.source === "live" && (
+            {display.source === "live" ? (
               <span className="inline-block bg-green/10 text-green text-[10px] font-semibold px-1.5 py-0.5 rounded mr-1.5 align-middle">LIVE</span>
+            ) : (
+              <span className="inline-block bg-surface text-muted text-[10px] font-semibold px-1.5 py-0.5 rounded mr-1.5 align-middle">SNAPSHOT</span>
             )}
-            Last updated: {display.updatedAt}
+            {display.source === "live" ? "Live as of" : "Snapshot from"}: {display.updatedAt}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -377,7 +386,12 @@ export default function DashboardClient({
                     <path d="M6 6l6 6M12 6l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                   </svg>
                 )}
-                <span className={rule.ok ? "text-foreground" : "text-red"}>{rule.label}</span>
+                <span
+                  className={`${rule.ok ? "text-foreground" : "text-red"} ${rule.hint ? "underline decoration-dotted decoration-muted underline-offset-4 cursor-help" : ""}`}
+                  title={rule.hint}
+                >
+                  {rule.label}
+                </span>
               </div>
             ))}
           </div>
