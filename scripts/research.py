@@ -772,7 +772,48 @@ def build_research_report() -> dict:
     save_json(RESEARCH_STATE, report)
     log.info(f"Research report saved to {RESEARCH_STATE}")
 
+    _write_research_summary(report)
+
     return report
+
+
+def _write_research_summary(report: dict) -> None:
+    """Write a compact state/research_summary.json (SPY block + signal counts).
+
+    The dashboard home reads this small file instead of the full >1 MB
+    research.json, which the GitHub Contents API would otherwise stream on
+    every render.
+    """
+    symbols = report.get("symbols", {})
+    scored = [
+        s
+        for s in symbols.values()
+        if isinstance(s, dict) and not s.get("error") and s.get("confidence")
+    ]
+
+    def _count(action: str) -> int:
+        return sum(1 for s in scored if s["confidence"].get("action") == action)
+
+    total = len(scored)
+    avg = (
+        round(sum(s["confidence"].get("total", 0) for s in scored) / total)
+        if total
+        else 0
+    )
+    summary = {
+        "updated_at": report.get("updated_at"),
+        "spy": report.get("spy", {}),
+        "signals": {
+            "buy": _count("BUY"),
+            "hold": _count("HOLD"),
+            "sell": _count("SELL"),
+            "total": total,
+            "avg_score": avg,
+        },
+    }
+    summary_path = RESEARCH_STATE.parent / "research_summary.json"
+    save_json(summary_path, summary)
+    log.info(f"Research summary saved to {summary_path}")
 
 
 if __name__ == "__main__":

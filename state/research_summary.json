@@ -1,0 +1,24 @@
+{
+  "updated_at": "2026-06-04 15:14:44",
+  "spy": {
+    "symbol": "SPY",
+    "price": 757.705,
+    "sma_20": 745.98575,
+    "sma_50": 711.8580999999999,
+    "sma_200": 683.416975,
+    "below_sma_200": false,
+    "rsi_14": 70.27653668753939,
+    "five_day_return": 0.40083214077490936,
+    "twenty_day_return": 3.2619213104923883,
+    "monthly_return": 4.697323513562068,
+    "market_regime": "BULL",
+    "updated_at": "2026-06-04 15:14:44"
+  },
+  "signals": {
+    "buy": 228,
+    "hold": 70,
+    "sell": 247,
+    "total": 545,
+    "avg_score": 41
+  }
+}

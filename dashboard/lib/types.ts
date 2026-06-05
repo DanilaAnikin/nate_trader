@@ -105,6 +105,22 @@ export interface ResearchData {
   perplexity_enhanced_at?: string;
 }
 
+/** Compact summary (state/research_summary.json) the dashboard home reads
+ *  instead of the full >1 MB research.json. */
+export interface SignalCounts {
+  buy: number;
+  hold: number;
+  sell: number;
+  total: number;
+  avg_score: number;
+}
+
+export interface ResearchSummary {
+  updated_at: string;
+  spy: SpyBenchmark;
+  signals: SignalCounts;
+}
+
 export interface MostActive {
   symbol: string;
   volume: number;

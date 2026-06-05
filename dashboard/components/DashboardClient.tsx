@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { DailyHistory, PerformanceData, ResearchData } from "@/lib/types";
+import type {
+  DailyHistory,
+  PerformanceData,
+  SignalCounts,
+  SpyBenchmark,
+} from "@/lib/types";
 import MetricCard from "@/components/MetricCard";
 import EquityChart from "@/components/EquityChart";
 import SpyComparison from "@/components/SpyComparison";
@@ -10,7 +15,8 @@ import HistoricalComparisonChart from "@/components/HistoricalComparisonChart";
 
 interface Props {
   performance: PerformanceData | null;
-  research: ResearchData | null;
+  spy: SpyBenchmark | null;
+  signals: SignalCounts;
   selectedAccountId?: string | null;
 }
 
@@ -40,7 +46,8 @@ interface DisplayMetrics {
  */
 export default function DashboardClient({
   performance,
-  research,
+  spy,
+  signals,
   selectedAccountId,
 }: Props) {
   const [live, setLive] = useState<{
@@ -226,8 +233,8 @@ export default function DashboardClient({
       };
 
   const riskTier = performance?.risk_tier ?? "NORMAL";
-  const spyMonthly = research?.spy?.monthly_return ?? 0;
-  const marketRegime = research?.spy?.market_regime ?? "UNKNOWN";
+  const spyMonthly = spy?.monthly_return ?? 0;
+  const marketRegime = spy?.market_regime ?? "UNKNOWN";
 
   // Inject the live equity into today's daily_history entry so the
   // historical chart's portfolio line ends at the live number, not at
@@ -251,11 +258,7 @@ export default function DashboardClient({
     return [...dailyHistory, liveEntry];
   }, [dailyHistory, live]);
 
-  const symbols = research?.symbols ?? {};
-  const symbolEntries = Object.values(symbols).filter((s) => !s.error && s.confidence);
-  const buyCount = symbolEntries.filter((s) => s.confidence.action === "BUY").length;
-  const holdCount = symbolEntries.filter((s) => s.confidence.action === "HOLD").length;
-  const sellCount = symbolEntries.filter((s) => s.confidence.action === "SELL").length;
+  const { buy: buyCount, hold: holdCount, sell: sellCount } = signals;
 
   // Regime-adaptive limits mirror scripts/strategy_config.py
   const limitsByRegime: Record<string, { maxPos: number; minCash: number }> = {
