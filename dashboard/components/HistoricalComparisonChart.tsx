@@ -13,23 +13,15 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { DailyHistory } from "@/lib/types";
+import {
+  type Range,
+  type SpyBar,
+  rebaseComparison,
+} from "@/lib/chart-rebase";
 
 interface Props {
   portfolioHistory: DailyHistory[];
 }
-
-interface SpyBar {
-  date: string;
-  close: number;
-}
-
-interface ChartRow {
-  date: string;
-  spy: number;
-  portfolio: number | null;
-}
-
-type Range = "1W" | "1M" | "1Y" | "YTD" | "ALL_PORTFOLIO" | "FROM_2020";
 
 const RANGE_OPTIONS: Array<{ id: Range; label: string }> = [
   { id: "1W", label: "1W" },
@@ -39,27 +31,6 @@ const RANGE_OPTIONS: Array<{ id: Range; label: string }> = [
   { id: "ALL_PORTFOLIO", label: "From Start" },
   { id: "FROM_2020", label: "From 2020" },
 ];
-
-/**
- * Resolve the filter's starting ISO date relative to a reference "today"
- * (we use the last SPY bar's date so filters align with actual data
- * regardless of the viewer's timezone).
- */
-function computeFilterStart(
-  range: Range,
-  referenceDate: string,
-  portfolioStart: string,
-): string {
-  if (range === "ALL_PORTFOLIO") return portfolioStart;
-  if (range === "FROM_2020") return "2020-01-01";
-  if (range === "YTD") return `${referenceDate.slice(0, 4)}-01-01`;
-
-  const d = new Date(referenceDate + "T00:00:00Z");
-  if (range === "1W") d.setUTCDate(d.getUTCDate() - 7);
-  else if (range === "1M") d.setUTCDate(d.getUTCDate() - 30);
-  else if (range === "1Y") d.setUTCFullYear(d.getUTCFullYear() - 1);
-  return d.toISOString().split("T")[0];
-}
 
 /**
  * Historical performance chart with range filters.
@@ -147,114 +118,10 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
     };
   }, []);
 
-  const computed = useMemo(() => {
-    const empty = {
-      chartRows: [] as ChartRow[],
-      anchorEquity: 0,
-      anchorDate: "",
-      portfolioStartDate: "",
-      filterStart: "",
-      spyReturn: 0,
-      portfolioReturn: 0,
-      showStartLine: false,
-    };
-    if (!spyData || spyData.length === 0 || !portfolioHistory || portfolioHistory.length === 0) {
-      return empty;
-    }
-    const portfolioStart = portfolioHistory[0].date;
-    const lastSpyDate = spyData[spyData.length - 1].date;
-    const filterStart = computeFilterStart(range, lastSpyDate, portfolioStart);
-
-    // Effective anchor = later of (filterStart, portfolioStart)
-    const effectiveAnchorDate =
-      filterStart > portfolioStart ? filterStart : portfolioStart;
-
-    // Find first SPY bar ≥ anchor (data may skip weekends/holidays)
-    const spyAtAnchor = spyData.find((b) => b.date >= effectiveAnchorDate);
-    if (!spyAtAnchor) return empty;
-
-    // Anchor value: prefer exact portfolio entry, else first entry on/after
-    const portfolioMap = new Map(portfolioHistory.map((p) => [p.date, p.equity]));
-    let anchorValue = portfolioMap.get(effectiveAnchorDate);
-    if (anchorValue === undefined) {
-      const entry = portfolioHistory.find((p) => p.date >= effectiveAnchorDate);
-      anchorValue = entry?.equity ?? portfolioHistory[0].equity;
-    }
-    if (anchorValue <= 0) return empty;
-
-    const scale = anchorValue / spyAtAnchor.close;
-
-    // Build chart rows: filter SPY to ≥ filterStart, attach portfolio per date
-    const rows: ChartRow[] = spyData
-      .filter((b) => b.date >= filterStart)
-      .map((b) => ({
-        date: b.date,
-        spy: b.close * scale,
-        portfolio: portfolioMap.get(b.date) ?? null,
-      }));
-
-    // Make sure anchor row has portfolio = anchorValue (so the two lines
-    // visually coincide there even if portfolio's nearest entry was on a
-    // different date — e.g. weekend boundaries).
-    const anchorIdx = rows.findIndex((r) => r.date === spyAtAnchor.date);
-    if (anchorIdx >= 0 && spyAtAnchor.date === effectiveAnchorDate) {
-      if (rows[anchorIdx].portfolio === null) {
-        rows[anchorIdx].portfolio = anchorValue;
-      }
-    }
-
-    // Carry the last known portfolio value to the most recent SPY bar so
-    // the blue line ends at the right place even if today's portfolio
-    // entry hasn't been written yet.
-    const lastPortfolio = portfolioHistory[portfolioHistory.length - 1];
-    if (lastPortfolio && rows.length > 0) {
-      const lastPortfolioRowIdx = rows.findIndex(
-        (r) => r.date === lastPortfolio.date,
-      );
-      if (lastPortfolioRowIdx >= 0 && lastPortfolioRowIdx < rows.length - 1) {
-        rows[rows.length - 1].portfolio = lastPortfolio.equity;
-      }
-    }
-
-    // If the portfolio has a more recent point than the last SPY bar (e.g.
-    // today, before SPY history caught up), extend the rows so the blue line
-    // reaches its true latest value instead of stopping a day short.
-    if (
-      lastPortfolio &&
-      rows.length > 0 &&
-      lastPortfolio.date > rows[rows.length - 1].date
-    ) {
-      rows.push({
-        date: lastPortfolio.date,
-        spy: rows[rows.length - 1].spy,
-        portfolio: lastPortfolio.equity,
-      });
-    }
-
-    const lastSpyValue = rows[rows.length - 1]?.spy ?? anchorValue;
-    const lastPortValue = lastPortfolio?.equity ?? anchorValue;
-    const spyReturn = ((lastSpyValue - anchorValue) / anchorValue) * 100;
-    const portfolioReturn = ((lastPortValue - anchorValue) / anchorValue) * 100;
-
-    // Show "Portfolio Start" reference line only when portfolio_start is
-    // strictly inside the visible range (otherwise it's redundant at the
-    // chart edge or invisible entirely).
-    const showStartLine =
-      portfolioStart > filterStart &&
-      rows.length > 0 &&
-      portfolioStart <= rows[rows.length - 1].date;
-
-    return {
-      chartRows: rows,
-      anchorEquity: anchorValue,
-      anchorDate: effectiveAnchorDate,
-      portfolioStartDate: portfolioStart,
-      filterStart,
-      spyReturn,
-      portfolioReturn,
-      showStartLine,
-    };
-  }, [spyData, portfolioHistory, range]);
+  const computed = useMemo(
+    () => rebaseComparison(spyData, portfolioHistory, range),
+    [spyData, portfolioHistory, range],
+  );
 
   if (loading) {
     return (
