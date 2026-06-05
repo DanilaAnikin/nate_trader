@@ -17,12 +17,29 @@ from utils import (
 
 log = setup_logging("trade")
 
-client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+_client: "TradingClient | None" = None
+
+
+def _get_client() -> TradingClient:
+    """Lazily build the Alpaca client so importing this module never requires
+    credentials — keeps sanity checks and unit tests importable without keys."""
+    global _client
+    if _client is None:
+        _client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+    return _client
+
+
+def __getattr__(name: str):
+    # Back-compat: `from trade import client` / `trade.client` still works, but
+    # now resolves lazily instead of building the client at import time.
+    if name == "client":
+        return _get_client()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def get_market_status() -> dict:
     """Check if the market is open."""
-    clock = client.get_clock()
+    clock = _get_client().get_clock()
     return {
         "is_open": clock.is_open,
         "next_open": str(clock.next_open),
@@ -35,10 +52,10 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
     """Validate an order against all risk rules. Returns {valid: bool, reasons: []}."""
     from strategy_config import get_strategy_params
     reasons = []
-    acct = client.get_account()
+    acct = _get_client().get_account()
     equity = float(acct.equity)
     cash = float(acct.cash)
-    positions = client.get_all_positions()
+    positions = _get_client().get_all_positions()
     risk_tier = get_risk_tier()
     params = get_strategy_params()
 
@@ -119,7 +136,7 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
 
     # 7. Symbol must be a valid, tradeable asset on Alpaca
     try:
-        asset = client.get_asset(symbol)
+        asset = _get_client().get_asset(symbol)
         if not asset.tradable:
             reasons.append(f"{symbol} exists but is not currently tradeable on Alpaca")
         if asset.status == "inactive":
@@ -160,7 +177,7 @@ def calculate_position_size(symbol: str, entry_price: float,
     Allocation cap: never more than `max_position_pct` of equity.
     """
     from strategy_config import get_strategy_params
-    acct = client.get_account()
+    acct = _get_client().get_account()
     equity = float(acct.equity)
     params = get_strategy_params()
 
@@ -184,7 +201,7 @@ def calculate_position_size(symbol: str, entry_price: float,
 
     # Subtract existing position
     try:
-        pos = client.get_open_position(symbol)
+        pos = _get_client().get_open_position(symbol)
         existing = int(float(pos.qty))
         shares = max(0, shares - existing)
     except Exception:
@@ -204,7 +221,7 @@ def place_limit_order(symbol: str, qty: int, side: str, limit_price: float) -> d
         time_in_force=TimeInForce.DAY,
         limit_price=round(limit_price, 2),
     )
-    order = client.submit_order(request)
+    order = _get_client().submit_order(request)
     result = {
         "id": str(order.id),
         "symbol": order.symbol,
@@ -227,7 +244,7 @@ def place_trailing_stop(symbol: str, qty: int, trail_percent: float = 8.0) -> di
         time_in_force=TimeInForce.GTC,
         trail_percent=str(trail_percent),
     )
-    order = client.submit_order(request)
+    order = _get_client().submit_order(request)
     result = {
         "id": str(order.id),
         "symbol": order.symbol,
@@ -241,7 +258,7 @@ def place_trailing_stop(symbol: str, qty: int, trail_percent: float = 8.0) -> di
 
 def cancel_all_orders() -> int:
     """Cancel all open orders. Returns count cancelled."""
-    client.cancel_orders()
+    _get_client().cancel_orders()
     log.info("All open orders cancelled.")
     return 0
 
@@ -253,7 +270,7 @@ def close_position(symbol: str, price_override: float | None = None) -> dict:
     fill while staying limit-only. Use price_override to skip the quote.
     """
     try:
-        pos = client.get_open_position(symbol)
+        pos = _get_client().get_open_position(symbol)
         qty = int(float(pos.qty))
         if qty <= 0:
             return {"symbol": symbol, "status": "no_position"}
@@ -289,12 +306,12 @@ def sync_trailing_stops() -> list[dict]:
     params = get_strategy_params()
     trail_pct = params["trailing_stop_pct"]
 
-    positions = client.get_all_positions()
+    positions = _get_client().get_all_positions()
     if not positions:
         return []
 
     request = GetOrdersRequest(status=QueryOrderStatus.OPEN)
-    open_orders = client.get_orders(filter=request)
+    open_orders = _get_client().get_orders(filter=request)
     symbols_with_stops = set()
     for o in open_orders:
         if o.side == OrderSide.SELL and o.type == OrderType.TRAILING_STOP:
@@ -336,7 +353,7 @@ def execute_stop_losses() -> list[dict]:
     params = get_strategy_params()
     stop_pct = params["trailing_stop_pct"]
 
-    positions = client.get_all_positions()
+    positions = _get_client().get_all_positions()
     actions = []
     _INFRASTRUCTURE = {"SPY", "SSO", "TQQQ", "UPRO", "SH"}
 
