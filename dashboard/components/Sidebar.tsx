@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "@/app/auth/actions";
 import type { SafeAccount } from "@/lib/accounts/service";
 import AccountSwitcher from "@/components/accounts/AccountSwitcher";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const NAV_ITEMS = [
   {
@@ -156,6 +157,7 @@ export default function Sidebar({
           <span className="h-1.5 w-1.5 rounded-full bg-green animate-pulse-dot" />
           System Active
         </div>
+        <ThemeToggle />
         <form action={signOut}>
           <button
             type="submit"

@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Class-based dark mode: `dark:` utilities respond to a `.dark` class on
+   <html> (set by the no-FOUC script + ThemeToggle), not the OS setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --bg-primary: #f5f5f7;
   --bg-secondary: #ffffff;
@@ -17,6 +21,20 @@
   --accent-amber: #ff9500;
   --accent-purple: #af52de;
   --accent-cyan: #5ac8fa;
+}
+
+.dark {
+  --bg-primary: #0b0b0e;
+  --bg-secondary: #161619;
+  --bg-card: #161619;
+  --bg-hover: #1f1f23;
+  --bg-surface: #1f1f23;
+  --border: #2b2b30;
+  --border-glow: rgba(0, 122, 255, 0.18);
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1a6;
+  --text-muted: #86868b;
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -45,9 +63,10 @@ body {
 
 /* Apple-style card */
 .glass-card {
-  background: #ffffff;
+  background: var(--bg-card);
   border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 /* Entry animations */
@@ -107,10 +126,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #d2d2d7;
+  background: var(--border);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #aeaeb2;
+  background: var(--text-muted);
 }

@@ -32,8 +32,8 @@ export default function Modal({
         onClick={onClose}
         className="absolute inset-0 bg-black/40 cursor-default"
       />
-      <div className="relative bg-white border border-border rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-auto">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border sticky top-0 bg-white">
+      <div className="relative bg-card border border-border rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border sticky top-0 bg-card">
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
           <button
             type="button"
