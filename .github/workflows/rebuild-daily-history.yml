@@ -1,10 +1,12 @@
 name: Rebuild Daily History
 
-# One-shot / on-demand: rewrite state/performance.json daily_history from
-# Alpaca's authoritative Portfolio History, replacing the seeded placeholder
-# equity that made the dashboard charts render a flat line + spike.
+# Rewrite state/performance.json daily_history from Alpaca's authoritative
+# Portfolio History. Runs on demand and weekly to self-heal any drift between
+# the per-day routine writes and Alpaca's true equity curve.
 
 on:
+  schedule:
+    - cron: '30 7 * * 0'  # Sunday 07:30 UTC — quiet weekend window
   workflow_dispatch:
 
 permissions:
