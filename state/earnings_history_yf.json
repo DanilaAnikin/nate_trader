@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-05 02:59:28",
+  "updated_at": "2026-06-06 02:23:18",
   "history": {
     "A": [
       {
@@ -3045,12 +3045,6 @@
     ],
     "COST": [
       {
-        "date": "2025-05-31",
-        "eps_actual": 4.28,
-        "eps_estimate": 4.2278,
-        "surprise_pct": 1.23
-      },
-      {
         "date": "2025-08-31",
         "eps_actual": 5.87,
         "eps_estimate": 5.80441,
@@ -3067,6 +3061,12 @@
         "eps_actual": 4.58,
         "eps_estimate": 4.54467,
         "surprise_pct": 0.78
+      },
+      {
+        "date": "2026-05-31",
+        "eps_actual": 4.93,
+        "eps_estimate": 4.92303,
+        "surprise_pct": 0.14
       }
     ],
     "COTY": [
@@ -5379,8 +5379,8 @@
       {
         "date": "2026-04-30",
         "eps_actual": 0.9,
-        "eps_estimate": 0.47982,
-        "surprise_pct": 87.57
+        "eps_estimate": 0.514,
+        "surprise_pct": 75.1
       }
     ],
     "GD": [
@@ -11333,8 +11333,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 0.22,
-        "eps_estimate": 0.20812,
-        "surprise_pct": 5.71
+        "eps_estimate": 0.20781,
+        "surprise_pct": 5.87
       }
     ],
     "RPD": [
@@ -12113,8 +12113,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 3.76,
-        "eps_estimate": 3.71,
-        "surprise_pct": 1.35
+        "eps_estimate": 3.76,
+        "surprise_pct": 0.0
       }
     ],
     "STAG": [
@@ -13855,8 +13855,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": 0.73,
-        "eps_estimate": 0.62286,
-        "surprise_pct": 17.2
+        "eps_estimate": 0.62697,
+        "surprise_pct": 16.43
       }
     ],
     "WMT": [
