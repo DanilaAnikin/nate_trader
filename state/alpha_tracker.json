@@ -349,6 +349,22 @@
       "ml_test_accuracy": 0.6579051279351374,
       "ml_trained_at": "2026-06-07 04:23:00",
       "delta_vs_7d_avg": -0.456
+    },
+    {
+      "date": "2026-06-07",
+      "timestamp": "2026-06-07 07:21:44",
+      "run_id": "single_20260607_082424",
+      "alpha_annual_pct": 50.3538,
+      "total_return_pct": 1424.7519,
+      "annual_return_pct": 65.5457,
+      "sharpe_ratio": 2.2587,
+      "max_drawdown_pct": -25.7757,
+      "n_trades": 207,
+      "win_rate_pct": 85.02,
+      "ml_test_auc": 0.5894309360384613,
+      "ml_test_accuracy": 0.6579051279351374,
+      "ml_trained_at": "2026-06-07 05:52:28",
+      "delta_vs_7d_avg": -0.38
     }
   ],
   "best_run": {
@@ -367,6 +383,6 @@
     "ml_trained_at": "2026-06-04 04:38:11",
     "delta_vs_7d_avg": 1.37
   },
-  "last_updated": "2026-06-07 04:24:25",
-  "n_iterations": 22
+  "last_updated": "2026-06-07 07:21:44",
+  "n_iterations": 23
 }
