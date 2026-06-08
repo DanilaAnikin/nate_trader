@@ -1,13 +1,13 @@
 {
-  "status": "breached",
-  "checked_at": "2026-06-05 17:46:20",
-  "window_from": "2026-04-23",
-  "window_to": "2026-06-05",
-  "realized_alpha_pct": -12.4679,
-  "expected_mean_pct": 8.0843,
-  "expected_std_pct": 9.7625,
-  "threshold_pct": -11.4408,
-  "consecutive_breaches": 1,
+  "status": "ok",
+  "checked_at": "2026-06-08 18:02:47",
+  "window_from": "2026-04-24",
+  "window_to": "2026-06-08",
+  "realized_alpha_pct": -4.8607,
+  "expected_mean_pct": 10.6293,
+  "expected_std_pct": 17.4786,
+  "threshold_pct": -24.3279,
+  "consecutive_breaches": 0,
   "history": [
     {
       "date": "2026-06-04",
@@ -24,6 +24,14 @@
       "expected_std_pct": 9.7625,
       "threshold_pct": -11.4408,
       "breached": true
+    },
+    {
+      "date": "2026-06-08",
+      "realized_alpha_pct": -4.8607,
+      "expected_mean_pct": 10.6293,
+      "expected_std_pct": 17.4786,
+      "threshold_pct": -24.3279,
+      "breached": false
     }
   ]
 }
