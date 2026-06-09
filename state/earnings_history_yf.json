@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-08 03:24:44",
+  "updated_at": "2026-06-09 02:42:03",
   "history": {
     "A": [
       {
@@ -8869,12 +8869,6 @@
     ],
     "MTN": [
       {
-        "date": "2025-04-30",
-        "eps_actual": 10.54,
-        "eps_estimate": 10.0626,
-        "surprise_pct": 4.74
-      },
-      {
         "date": "2025-07-31",
         "eps_actual": -5.08,
         "eps_estimate": -4.71637,
@@ -8891,6 +8885,12 @@
         "eps_actual": 5.87,
         "eps_estimate": 6.15433,
         "surprise_pct": -4.62
+      },
+      {
+        "date": "2026-04-30",
+        "eps_actual": 8.81,
+        "eps_estimate": 8.95516,
+        "surprise_pct": -1.62
       }
     ],
     "MTRN": [
