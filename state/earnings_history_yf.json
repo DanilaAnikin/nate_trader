@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-09 02:42:03",
+  "updated_at": "2026-06-10 03:00:23",
   "history": {
     "A": [
       {
@@ -1615,12 +1615,6 @@
     ],
     "BARK": [
       {
-        "date": "2025-03-31",
-        "eps_actual": 0.2,
-        "eps_estimate": 0.0912,
-        "surprise_pct": 119.3
-      },
-      {
         "date": "2025-06-30",
         "eps_actual": -0.4,
         "eps_estimate": -0.3,
@@ -1637,6 +1631,12 @@
         "eps_actual": -0.6,
         "eps_estimate": -0.8,
         "surprise_pct": 25.0
+      },
+      {
+        "date": "2026-03-31",
+        "eps_actual": 0.07,
+        "eps_estimate": -0.4,
+        "surprise_pct": 117.5
       }
     ],
     "BBY": [
@@ -2395,12 +2395,6 @@
     ],
     "CASY": [
       {
-        "date": "2025-04-30",
-        "eps_actual": 2.63,
-        "eps_estimate": 1.91571,
-        "surprise_pct": 37.29
-      },
-      {
         "date": "2025-07-31",
         "eps_actual": 5.77,
         "eps_estimate": 5.05,
@@ -2417,6 +2411,12 @@
         "eps_actual": 3.49,
         "eps_estimate": 2.98611,
         "surprise_pct": 16.87
+      },
+      {
+        "date": "2026-04-30",
+        "eps_actual": 4.37,
+        "eps_estimate": 3.30796,
+        "surprise_pct": 32.11
       }
     ],
     "CAT": [
@@ -3097,12 +3097,6 @@
     ],
     "CPB": [
       {
-        "date": "2025-04-30",
-        "eps_actual": 0.73,
-        "eps_estimate": 0.65538,
-        "surprise_pct": 11.39
-      },
-      {
         "date": "2025-07-31",
         "eps_actual": 0.62,
         "eps_estimate": 0.56859,
@@ -3119,6 +3113,12 @@
         "eps_actual": 0.51,
         "eps_estimate": 0.57069,
         "surprise_pct": -10.63
+      },
+      {
+        "date": "2026-04-30",
+        "eps_actual": 0.5,
+        "eps_estimate": 0.47848,
+        "surprise_pct": 4.5
       }
     ],
     "CRM": [
@@ -11547,12 +11547,6 @@
     ],
     "SAIL": [
       {
-        "date": "2025-04-30",
-        "eps_actual": 0.01,
-        "eps_estimate": -0.01123,
-        "surprise_pct": 189.05
-      },
-      {
         "date": "2025-07-31",
         "eps_actual": 0.07,
         "eps_estimate": 0.04397,
@@ -11569,6 +11563,12 @@
         "eps_actual": 0.08,
         "eps_estimate": 0.07996,
         "surprise_pct": 0.05
+      },
+      {
+        "date": "2026-04-30",
+        "eps_actual": 0.05,
+        "eps_estimate": 0.04427,
+        "surprise_pct": 12.94
       }
     ],
     "SANM": [
@@ -11807,12 +11807,6 @@
     ],
     "SJM": [
       {
-        "date": "2025-04-30",
-        "eps_actual": 2.31,
-        "eps_estimate": 2.2471,
-        "surprise_pct": 2.8
-      },
-      {
         "date": "2025-07-31",
         "eps_actual": 1.9,
         "eps_estimate": 1.92628,
@@ -11829,6 +11823,12 @@
         "eps_actual": 2.38,
         "eps_estimate": 2.26287,
         "surprise_pct": 5.18
+      },
+      {
+        "date": "2026-04-30",
+        "eps_actual": 2.77,
+        "eps_estimate": 2.63791,
+        "surprise_pct": 5.01
       }
     ],
     "SLB": [
