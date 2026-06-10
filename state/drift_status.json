@@ -1,9 +1,9 @@
 {
   "status": "ok",
-  "checked_at": "2026-06-09 18:00:29",
-  "window_from": "2026-04-27",
-  "window_to": "2026-06-09",
-  "realized_alpha_pct": -6.1485,
+  "checked_at": "2026-06-10 18:21:50",
+  "window_from": "2026-04-28",
+  "window_to": "2026-06-10",
+  "realized_alpha_pct": -11.949,
   "expected_mean_pct": 10.6293,
   "expected_std_pct": 17.4786,
   "threshold_pct": -24.3279,
@@ -36,6 +36,14 @@
     {
       "date": "2026-06-09",
       "realized_alpha_pct": -6.1485,
+      "expected_mean_pct": 10.6293,
+      "expected_std_pct": 17.4786,
+      "threshold_pct": -24.3279,
+      "breached": false
+    },
+    {
+      "date": "2026-06-10",
+      "realized_alpha_pct": -11.949,
       "expected_mean_pct": 10.6293,
       "expected_std_pct": 17.4786,
       "threshold_pct": -24.3279,
