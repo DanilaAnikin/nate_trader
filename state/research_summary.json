@@ -1,24 +1,24 @@
 {
-  "updated_at": "2026-06-09 15:08:37",
+  "updated_at": "2026-06-10 15:29:40",
   "spy": {
     "symbol": "SPY",
-    "price": 736.94,
-    "sma_20": 746.21675,
-    "sma_50": 717.3981,
-    "sma_200": 684.9149249999999,
+    "price": 725.8,
+    "sma_20": 745.60375,
+    "sma_50": 719.2763,
+    "sma_200": 685.318025,
     "below_sma_200": false,
-    "rsi_14": 48.920632512780294,
-    "five_day_return": -2.966542457239918,
-    "twenty_day_return": -0.30573593073592864,
-    "monthly_return": -0.08135151991754963,
+    "rsi_14": 40.924373754679095,
+    "five_day_return": -3.7630273939908254,
+    "twenty_day_return": -1.6784296725775305,
+    "monthly_return": -1.8127705627705715,
     "market_regime": "NEUTRAL",
-    "updated_at": "2026-06-09 15:08:37"
+    "updated_at": "2026-06-10 15:29:40"
   },
   "signals": {
-    "buy": 136,
-    "hold": 104,
-    "sell": 305,
+    "buy": 113,
+    "hold": 129,
+    "sell": 303,
     "total": 545,
-    "avg_score": 42
+    "avg_score": 41
   }
 }
