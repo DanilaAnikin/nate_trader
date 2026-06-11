@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-10 03:00:23",
+  "updated_at": "2026-06-11 03:24:55",
   "history": {
     "A": [
       {
@@ -10091,12 +10091,6 @@
     ],
     "ORCL": [
       {
-        "date": "2025-05-31",
-        "eps_actual": 1.7,
-        "eps_estimate": 1.64453,
-        "surprise_pct": 3.37
-      },
-      {
         "date": "2025-08-31",
         "eps_actual": 1.47,
         "eps_estimate": 1.47912,
@@ -10113,6 +10107,12 @@
         "eps_actual": 1.79,
         "eps_estimate": 1.69362,
         "surprise_pct": 5.69
+      },
+      {
+        "date": "2026-05-31",
+        "eps_actual": 2.11,
+        "eps_estimate": 1.96241,
+        "surprise_pct": 7.52
       }
     ],
     "ORLY": [
