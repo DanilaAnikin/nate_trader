@@ -1,14 +1,6 @@
 {
-  "updated_at": "2026-06-10 12:49:04",
+  "updated_at": "2026-06-11 13:10:51",
   "threshold_pct": 3.0,
   "n_scanned": 545,
-  "signals": [
-    {
-      "symbol": "CASY",
-      "kind": "GAP_UP",
-      "gap_pct": 4.718164209973417,
-      "bonus_points": 5,
-      "rationale": "Gap-up +4.7% with news"
-    }
-  ]
+  "signals": []
 }
