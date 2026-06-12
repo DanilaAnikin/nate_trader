@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-11 03:24:55",
+  "updated_at": "2026-06-12 03:15:02",
   "history": {
     "A": [
       {
@@ -237,12 +237,6 @@
     ],
     "ADBE": [
       {
-        "date": "2025-05-31",
-        "eps_actual": 5.06,
-        "eps_estimate": 4.97475,
-        "surprise_pct": 1.71
-      },
-      {
         "date": "2025-08-31",
         "eps_actual": 5.31,
         "eps_estimate": 5.18163,
@@ -259,6 +253,12 @@
         "eps_actual": 6.06,
         "eps_estimate": 5.87314,
         "surprise_pct": 3.18
+      },
+      {
+        "date": "2026-05-31",
+        "eps_actual": 5.96,
+        "eps_estimate": 5.81474,
+        "surprise_pct": 2.5
       }
     ],
     "ADI": [
@@ -2733,12 +2733,6 @@
     ],
     "CHWY": [
       {
-        "date": "2025-04-30",
-        "eps_actual": 0.35,
-        "eps_estimate": 0.33876,
-        "surprise_pct": 3.32
-      },
-      {
         "date": "2025-07-31",
         "eps_actual": 0.33,
         "eps_estimate": 0.33164,
@@ -2755,6 +2749,12 @@
         "eps_actual": 0.27,
         "eps_estimate": 0.27862,
         "surprise_pct": -3.09
+      },
+      {
+        "date": "2026-04-30",
+        "eps_actual": 0.43,
+        "eps_estimate": 0.42665,
+        "surprise_pct": 0.79
       }
     ],
     "CI": [
@@ -3091,8 +3091,8 @@
       {
         "date": "2026-03-31",
         "eps_actual": -0.03,
-        "eps_estimate": -0.00271,
-        "surprise_pct": -1007.01
+        "eps_estimate": -0.00362,
+        "surprise_pct": -728.73
       }
     ],
     "CPB": [
@@ -7258,27 +7258,27 @@
     "KLAC": [
       {
         "date": "2025-06-30",
-        "eps_actual": 9.38,
-        "eps_estimate": 8.55307,
+        "eps_actual": 0.938,
+        "eps_estimate": 0.85531,
         "surprise_pct": 9.67
       },
       {
         "date": "2025-09-30",
-        "eps_actual": 8.81,
-        "eps_estimate": 8.61715,
+        "eps_actual": 0.881,
+        "eps_estimate": 0.86172,
         "surprise_pct": 2.24
       },
       {
         "date": "2025-12-31",
-        "eps_actual": 8.85,
-        "eps_estimate": 8.79781,
+        "eps_actual": 0.885,
+        "eps_estimate": 0.87978,
         "surprise_pct": 0.59
       },
       {
         "date": "2026-03-31",
-        "eps_actual": 9.4,
-        "eps_estimate": 9.17026,
-        "surprise_pct": 2.51
+        "eps_actual": 0.94,
+        "eps_estimate": 0.91703,
+        "surprise_pct": 2.5
       }
     ],
     "KMI": [
@@ -7543,12 +7543,6 @@
     ],
     "LEN": [
       {
-        "date": "2025-05-31",
-        "eps_actual": 1.9,
-        "eps_estimate": 1.93805,
-        "surprise_pct": -1.96
-      },
-      {
         "date": "2025-08-31",
         "eps_actual": 2.0,
         "eps_estimate": 2.09472,
@@ -7565,6 +7559,12 @@
         "eps_actual": 0.88,
         "eps_estimate": 0.94858,
         "surprise_pct": -7.23
+      },
+      {
+        "date": "2026-05-31",
+        "eps_actual": 1.31,
+        "eps_estimate": 1.23411,
+        "surprise_pct": 6.15
       }
     ],
     "LIN": [
@@ -11131,12 +11131,6 @@
     ],
     "RH": [
       {
-        "date": "2025-04-30",
-        "eps_actual": 0.13,
-        "eps_estimate": -0.06815,
-        "surprise_pct": 290.76
-      },
-      {
         "date": "2025-07-31",
         "eps_actual": 2.93,
         "eps_estimate": 3.21646,
@@ -11153,6 +11147,12 @@
         "eps_actual": 1.53,
         "eps_estimate": 2.20396,
         "surprise_pct": -30.58
+      },
+      {
+        "date": "2026-04-30",
+        "eps_actual": -1.97,
+        "eps_estimate": -2.07101,
+        "surprise_pct": 4.88
       }
     ],
     "RJF": [
