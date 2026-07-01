@@ -1,6 +1,14 @@
 {
-  "updated_at": "2026-06-11 13:10:51",
+  "updated_at": "2026-07-01 12:11:08",
   "threshold_pct": 3.0,
-  "n_scanned": 545,
-  "signals": []
+  "n_scanned": 544,
+  "signals": [
+    {
+      "symbol": "META",
+      "kind": "GAP_UP",
+      "gap_pct": 7.78813709820636,
+      "bonus_points": 5,
+      "rationale": "Gap-up +7.8% with news"
+    }
+  ]
 }
