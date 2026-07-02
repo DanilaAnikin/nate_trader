@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-01 03:06:20",
+  "updated_at": "2026-07-02 02:31:51",
   "history": {
     "A": [
       {
@@ -1225,12 +1225,6 @@
     ],
     "AVAV": [
       {
-        "date": "2025-04-30",
-        "eps_actual": 1.61,
-        "eps_estimate": 1.39143,
-        "surprise_pct": 15.71
-      },
-      {
         "date": "2025-07-31",
         "eps_actual": 0.32,
         "eps_estimate": 0.343,
@@ -1247,6 +1241,12 @@
         "eps_actual": 0.64,
         "eps_estimate": 0.69108,
         "surprise_pct": -7.39
+      },
+      {
+        "date": "2026-04-30",
+        "eps_actual": 1.84,
+        "eps_estimate": 1.47192,
+        "surprise_pct": 25.01
       }
     ],
     "AVB": [
@@ -3208,26 +3208,26 @@
     "CRWD": [
       {
         "date": "2025-07-31",
-        "eps_actual": 0.93,
-        "eps_estimate": 0.82998,
+        "eps_actual": 0.2325,
+        "eps_estimate": 0.2075,
         "surprise_pct": 12.05
       },
       {
         "date": "2025-10-31",
-        "eps_actual": 0.96,
-        "eps_estimate": 0.94134,
+        "eps_actual": 0.24,
+        "eps_estimate": 0.23533,
         "surprise_pct": 1.98
       },
       {
         "date": "2026-01-31",
-        "eps_actual": 1.12,
-        "eps_estimate": 1.10278,
+        "eps_actual": 0.28,
+        "eps_estimate": 0.2757,
         "surprise_pct": 1.56
       },
       {
         "date": "2026-04-30",
-        "eps_actual": 1.1,
-        "eps_estimate": 1.06745,
+        "eps_actual": 0.275,
+        "eps_estimate": 0.26686,
         "surprise_pct": 3.05
       }
     ],
@@ -5521,12 +5521,6 @@
     ],
     "GIS": [
       {
-        "date": "2025-05-31",
-        "eps_actual": 0.74,
-        "eps_estimate": 0.71057,
-        "surprise_pct": 4.14
-      },
-      {
         "date": "2025-08-31",
         "eps_actual": 0.86,
         "eps_estimate": 0.81559,
@@ -5543,6 +5537,12 @@
         "eps_actual": 0.64,
         "eps_estimate": 0.72845,
         "surprise_pct": -12.14
+      },
+      {
+        "date": "2026-05-31",
+        "eps_actual": 0.95,
+        "eps_estimate": 0.79691,
+        "surprise_pct": 19.21
       }
     ],
     "GKOS": [
@@ -6009,8 +6009,8 @@
       {
         "date": "2026-04-30",
         "eps_actual": 1.66,
-        "eps_estimate": 1.33137,
-        "surprise_pct": 24.68
+        "eps_estimate": 1.33603,
+        "surprise_pct": 24.25
       }
     ],
     "HIW": [
