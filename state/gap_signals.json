@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-02 11:57:36",
+  "updated_at": "2026-07-03 11:36:24",
   "threshold_pct": 3.0,
   "n_scanned": 544,
   "signals": [
@@ -9,6 +9,20 @@
       "gap_pct": 6.395348837209308,
       "bonus_points": 5,
       "rationale": "Gap-up +6.4% with news"
+    },
+    {
+      "symbol": "CRWD",
+      "kind": "GAP_DOWN",
+      "gap_pct": -75.23669615526491,
+      "bonus_points": 3,
+      "rationale": "Gap-down -75.2% with oversold signs"
+    },
+    {
+      "symbol": "HOOD",
+      "kind": "GAP_UP",
+      "gap_pct": 3.68973132131026,
+      "bonus_points": 5,
+      "rationale": "Gap-up +3.7% with news"
     }
   ]
 }
