@@ -1,47 +1,47 @@
 {
-  "trained_at": "2026-07-07 03:47:53",
-  "n_samples_total": 770095,
-  "n_samples_train": 616076,
-  "n_samples_test": 154019,
+  "trained_at": "2026-07-08 03:03:19",
+  "n_samples_total": 770638,
+  "n_samples_train": 616510,
+  "n_samples_test": 154128,
   "label_threshold_pct": 2.0,
   "label_horizon_days": 5,
-  "positive_class_rate": 0.3341107265986664,
-  "train_accuracy": 0.6716411611554418,
-  "test_accuracy": 0.6648270667904609,
-  "train_auc": 0.6262543563520113,
-  "test_auc": 0.5723140419253232,
+  "positive_class_rate": 0.33419063165844404,
+  "train_accuracy": 0.6717393067427941,
+  "test_accuracy": 0.6644088030727707,
+  "train_auc": 0.626720598921219,
+  "test_auc": 0.5732260216136265,
   "top_features": [
     {
       "name": "atr_pct",
-      "importance": 0.2776882762218464
+      "importance": 0.2740577560839467
     },
     {
       "name": "vol_20d_std",
-      "importance": 0.15160765908993962
+      "importance": 0.1511804498717777
     },
     {
       "name": "high_low_range_pct",
-      "importance": 0.10296955922882123
+      "importance": 0.10602383875079949
     },
     {
       "name": "ret_60d",
-      "importance": 0.07657277645409595
+      "importance": 0.07544722497383392
     },
     {
       "name": "regime_bull",
-      "importance": 0.0615509271628307
+      "importance": 0.058303663244755166
     },
     {
       "name": "ret_5d",
-      "importance": 0.058615122084006266
+      "importance": 0.057925213614502924
     },
     {
       "name": "ret_20d",
-      "importance": 0.05087916595162278
+      "importance": 0.052198807718133663
     },
     {
       "name": "rsi_14",
-      "importance": 0.04653411380843689
+      "importance": 0.047563019127090524
     }
   ],
   "feature_names": [
