@@ -1,11 +1,4 @@
 {
-  "updated_at": "2026-07-08 11:56:46",
-  "active_put": {
-    "symbol": "SPY260821P00740000",
-    "contracts": 18,
-    "expiry": "2026-08-21",
-    "strike": 740.0,
-    "premium_pct": 3.0,
-    "order_id": "6bd16c3f-bf81-456b-8347-5656d3c4988f"
-  }
+  "updated_at": "2026-07-09 12:20:20",
+  "active_put": null
 }

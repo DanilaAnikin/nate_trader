@@ -1,34 +1,24 @@
 {
-  "updated_at": "2026-07-08 17:33:18",
+  "updated_at": "2026-07-09 12:20:22",
   "positions": [
-    {
-      "symbol": "SPY260821P00740000",
-      "qty": 18.0,
-      "avg_entry_price": 13.98,
-      "current_price": 11.18,
-      "market_value": 20124.0,
-      "unrealized_pl": -5040.0,
-      "unrealized_plpc": -20.029,
-      "side": "PositionSide.LONG"
-    },
     {
       "symbol": "TQQQ",
       "qty": 8885.0,
-      "avg_entry_price": 75.702133,
-      "current_price": 72.35,
-      "market_value": 642829.75,
-      "unrealized_pl": -29783.701705,
-      "unrealized_plpc": -4.428,
+      "avg_entry_price": 75.705084,
+      "current_price": 76.03,
+      "market_value": 675526.55,
+      "unrealized_pl": 2886.87866,
+      "unrealized_plpc": 0.42900000000000005,
       "side": "PositionSide.LONG"
     },
     {
       "symbol": "UPRO",
       "qty": 1454.0,
-      "avg_entry_price": 140.882543,
-      "current_price": 140.15,
-      "market_value": 203778.1,
-      "unrealized_pl": -1065.117522,
-      "unrealized_plpc": -0.52,
+      "avg_entry_price": 141.048793,
+      "current_price": 143.78,
+      "market_value": 209056.12,
+      "unrealized_pl": 3971.174978,
+      "unrealized_plpc": 1.936,
       "side": "PositionSide.LONG"
     }
   ]
