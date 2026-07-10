@@ -1,3 +1,12 @@
 {
-  "strategies": {}
+  "strategies": {
+    "TQQQ": {
+      "strategy": "base",
+      "entry_date": "2026-07-10"
+    },
+    "UPRO": {
+      "strategy": "base",
+      "entry_date": "2026-07-10"
+    }
+  }
 }
