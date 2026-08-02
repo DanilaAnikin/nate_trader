@@ -2,7 +2,7 @@
 
 Usage:
     python3 scripts/backtest/run.py single [--start YYYY-MM-DD] [--end YYYY-MM-DD]
-    python3 scripts/backtest/run.py sweep
+    python3 scripts/backtest/validate_v11.py  # fixed, non-optimizing validation
     python3 scripts/backtest/run.py monte-carlo [--n 200]
     python3 scripts/backtest/run.py download   # refresh historical bars first
 
@@ -20,7 +20,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from utils import PROJECT_ROOT, setup_logging, save_json, get_now_str  # noqa: E402
+from utils import PROJECT_ROOT, setup_logging, get_now_str  # noqa: E402
 from backtest.data_provider import BarProvider  # noqa: E402
 from backtest.engine import BacktestConfig, run_backtest  # noqa: E402
 from backtest.metrics import compute_metrics  # noqa: E402
@@ -34,6 +34,19 @@ RESULT_SWEEP = RESULT_DIR / "sweep_result.json"
 RESULT_MONTE = RESULT_DIR / "monte_carlo_result.json"
 RESULT_WALK = RESULT_DIR / "walk_forward_result.json"
 RESULT_COMPARE = RESULT_DIR / "comparison_result.json"
+
+
+def _reject_legacy_optimizer(command: str) -> None:
+    """Stop legacy knobs from producing fake v11 optimization results."""
+
+    print(
+        f"ERROR: '{command}' is archived for pre-v11 strategies. Its parameter "
+        "grid does not affect the adaptive v11 target builder, so running it "
+        "would report duplicate cells as optimization. Use "
+        "`python3 scripts/backtest/validate_v11.py` for the fixed v11 policy.",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
 
 
 def cmd_single(args) -> None:
@@ -60,7 +73,7 @@ def cmd_single(args) -> None:
     log.info(f"Saved → {RESULT_LATEST} (archived as runs/{run_id}.json)")
 
     print(f"\n{'=' * 60}")
-    print(f"  BACKTEST RESULT")
+    print("  BACKTEST RESULT")
     print(f"{'=' * 60}")
     print(f"  Period:           {cfg.start_date} → {cfg.end_date} ({metrics['n_trading_days']} days)")
     print(f"  Starting cash:    ${cfg.starting_cash:,.0f}")
@@ -69,7 +82,10 @@ def cmd_single(args) -> None:
     print(f"  Annualized:       {metrics['annual_return_pct']:+.2f}%")
     print(f"  vs SPY total:     {metrics['spy_total_return_pct']:+.2f}%")
     print(f"  vs SPY annual:    {metrics['spy_annual_return_pct']:+.2f}%")
-    print(f"  Alpha (annual):   {metrics['alpha_annual_pct']:+.2f}%")
+    print(f"  Excess CAGR:      {metrics['excess_cagr_pct']:+.2f}%")
+    print(f"  Jensen alpha:     {metrics['jensen_alpha_annual_pct']:+.2f}%")
+    print(f"  Beta to SPY:      {metrics['beta_to_spy']:.2f}")
+    print(f"  Information ratio:{metrics['information_ratio']:>+9.2f}")
     print(f"  Sharpe:           {metrics['sharpe_ratio']:.2f}")
     print(f"  Max drawdown:     {metrics['max_drawdown_pct']:.2f}%  "
           f"({metrics['max_drawdown_peak_date']} → {metrics['max_drawdown_trough_date']})")
@@ -78,56 +94,19 @@ def cmd_single(args) -> None:
     pf = metrics['profit_factor']
     print(f"  Profit factor:    {pf:.2f}" if pf is not None else "  Profit factor:    ∞ (no losses)")
     print(f"  Hedge contrib:    ${metrics['hedge_total_pnl']:+,.0f}  ({metrics['hedge_trades']} hedge trades)")
-    print(f"\nTop 5 symbols by P&L:")
+    print("\nTop 5 symbols by P&L:")
     for s in metrics["per_symbol"][:5]:
         print(f"  {s['symbol']:<6} ${s['pnl_total']:>+10,.0f}  ({s['wins']}/{s['trades']} wins, avg ${s['avg_pnl_per_trade']:+,.0f})")
-    print(f"\nBottom 3 symbols:")
+    print("\nBottom 3 symbols:")
     for s in metrics["per_symbol"][-3:]:
         print(f"  {s['symbol']:<6} ${s['pnl_total']:>+10,.0f}  ({s['wins']}/{s['trades']} wins, avg ${s['avg_pnl_per_trade']:+,.0f})")
-    print(f"\nRegime breakdown:")
+    print("\nRegime breakdown:")
     for r, b in metrics["regime_breakdown"].items():
         print(f"  {r:<8} {b['days']:>4}d ({b['pct_of_time']:.0f}%)  total_pnl={b['total_pnl_pct']:+.2f}%")
 
 
 def cmd_sweep(args) -> None:
-    from backtest.sweep import run_sweep
-    end = args.end or datetime.now().strftime("%Y-%m-%d")
-    sweep = run_sweep(
-        args.start, end, args.starting_cash,
-        metric=args.metric,
-        holdout_start=args.holdout_start,
-        wf_window_months=args.wf_window_months,
-        wf_step_months=args.wf_step_months,
-    )
-    out = {
-        "kind": "sweep",
-        "generated_at": get_now_str(),
-        "start_date": sweep["start_date"],
-        "end_date": sweep["end_date"],
-        "metric": sweep["metric"],
-        "holdout_start": sweep["holdout_start"],
-        "results": sweep["results"],
-        "best": sweep["best"],
-    }
-    run_id = record_run("sweep", out, latest_path=RESULT_SWEEP)
-    log.info(f"Saved → {RESULT_SWEEP} (archived as runs/{run_id}.json)")
-    # Top 5 by chosen metric
-    grid = sweep["results"]
-    sorted_grid = sorted(grid, key=lambda r: r.get("metric_value", -999.0), reverse=True)
-    print(f"\n{'=' * 70}")
-    print(f"  TOP 5 PARAM SETS BY {sweep['metric'].upper()}")
-    print(f"{'=' * 70}")
-    for r in sorted_grid[:5]:
-        p = r["params"]
-        mv = r.get("metric_value")
-        sub = r.get("metrics", {})
-        sharpe = sub.get("sharpe_ratio") or sub.get("mean_oos_sharpe")
-        dd = sub.get("max_drawdown_pct") or sub.get("mean_oos_max_drawdown_pct")
-        print(f"  threshold={p.get('score_threshold_delta', 0):+d} | "
-              f"risk={p.get('risk_per_trade_pct', '-')}% | "
-              f"{sweep['metric']}={mv:+.2f}% | "
-              f"sharpe={sharpe:.2f} | "
-              f"max_dd={dd:.1f}%")
+    _reject_legacy_optimizer("sweep")
 
 
 def cmd_monte_carlo(args) -> None:
@@ -156,83 +135,11 @@ def cmd_monte_carlo(args) -> None:
 
 
 def cmd_walk_forward(args) -> None:
-    from backtest.walk_forward import run_walk_forward
-    end = args.end or datetime.now().strftime("%Y-%m-%d")
-    result = run_walk_forward(
-        args.start, end, args.starting_cash,
-        train_months=args.train_months,
-        test_months=args.test_months,
-        max_windows=args.windows,
-    )
-    out = {
-        "kind": "walk_forward",
-        "generated_at": get_now_str(),
-        **result,
-    }
-    run_id = record_run("walk_forward", out, latest_path=RESULT_WALK)
-    log.info(f"Saved → {RESULT_WALK} (archived as runs/{run_id}.json)")
-
-    if "error" in result:
-        print(f"\nERROR: {result['error']}")
-        return
-
-    print(f"\n{'=' * 60}")
-    print(f"  WALK-FORWARD AGGREGATE")
-    print(f"{'=' * 60}")
-    agg = result["aggregate"]
-    print(f"  Windows completed:    {agg['n_windows']}")
-    print(f"  Mean OOS alpha (yr):  {agg['mean_oos_alpha_annual_pct']:+.2f}%")
-    print(f"  Mean OOS Sharpe:      {agg['mean_oos_sharpe']:.2f}")
-    print(f"  Mean OOS max DD:      {agg['mean_oos_max_drawdown_pct']:.2f}%")
-    print(f"\n  Per-window OOS results:")
-    for s in result["segments"]:
-        bp = s["best_params"]
-        tm = s["test_metrics"]
-        print(f"    Win {s['window_index']}: train {s['train_start']}→{s['train_end']}  "
-              f"test {s['test_start']}→{s['test_end']}")
-        print(f"      best params: Δ={bp['threshold_delta']:+d} risk={bp['risk_per_trade_pct']}%")
-        print(f"      OOS α={tm.get('alpha_annual_pct', 0):+.2f}%/yr  "
-              f"sharpe={tm.get('sharpe_ratio', 0):.2f}  "
-              f"DD={tm.get('max_drawdown_pct', 0):.1f}%")
+    _reject_legacy_optimizer("walk-forward")
 
 
 def cmd_compare(args) -> None:
-    from backtest.compare import run_compare
-    end = args.end or datetime.now().strftime("%Y-%m-%d")
-    result = run_compare(args.start, end, args.starting_cash)
-
-    # Don't record runs that didn't actually produce a comparison — those used
-    # to crash the dashboard because the `delta` / `baseline` / `challenger`
-    # blocks were missing. Surface a clear error instead and bail out before
-    # touching the archive or manifest.
-    if "error" in result:
-        log.error(f"Compare failed: {result['error']}")
-        print(f"\nERROR: {result['error']}")
-        print("\nFix: run mode=sweep first (compare reads the best params from "
-              "the latest sweep result).")
-        sys.exit(2)
-
-    out = {
-        "kind": "compare",
-        "generated_at": get_now_str(),
-        **result,
-    }
-    run_id = record_run("compare", out, latest_path=RESULT_COMPARE)
-    log.info(f"Saved → {RESULT_COMPARE} (archived as runs/{run_id}.json)")
-
-    bm = result["baseline"]["metrics"]
-    cm = result["challenger"]["metrics"]
-    d = result["delta"]
-    print(f"\n{'=' * 60}")
-    print(f"  BASELINE vs CHALLENGER")
-    print(f"{'=' * 60}")
-    print(f"  {'':18}  {'baseline':>12}  {'challenger':>12}  {'Δ':>10}")
-    print(f"  {'Annual return':18}  {bm['annual_return_pct']:>+11.2f}%  {cm['annual_return_pct']:>+11.2f}%  {cm['annual_return_pct'] - bm['annual_return_pct']:>+9.2f}pp")
-    print(f"  {'Annual alpha':18}  {bm['alpha_annual_pct']:>+11.2f}%  {cm['alpha_annual_pct']:>+11.2f}%  {d['alpha_annual_pp']:>+9.2f}pp")
-    print(f"  {'Sharpe':18}  {bm['sharpe_ratio']:>12.2f}   {cm['sharpe_ratio']:>12.2f}   {d['sharpe']:>+9.2f}")
-    print(f"  {'Max drawdown':18}  {bm['max_drawdown_pct']:>+11.2f}%  {cm['max_drawdown_pct']:>+11.2f}%  {d['max_dd_pp']:>+9.2f}pp")
-    print(f"  {'Trades':18}  {bm['n_trades']:>12}   {cm['n_trades']:>12}")
-    print(f"  Challenger params: {result['challenger']['params']}")
+    _reject_legacy_optimizer("compare")
 
 
 def cmd_download(args) -> None:
@@ -252,7 +159,7 @@ def main() -> None:
     p_single.add_argument("--end", default=None)
     p_single.add_argument("--starting-cash", type=float, default=1_000_000)
 
-    p_sweep = sub.add_parser("sweep", help="Grid search over key parameters")
+    p_sweep = sub.add_parser("sweep", help="ARCHIVED pre-v11 optimizer (refuses to run)")
     p_sweep.add_argument("--start", default="2021-01-01")
     p_sweep.add_argument("--end", default=None)
     p_sweep.add_argument("--starting-cash", type=float, default=1_000_000)
@@ -276,7 +183,7 @@ def main() -> None:
     p_monte.add_argument("--starting-cash", type=float, default=1_000_000)
     p_monte.add_argument("--n", type=int, default=200)
 
-    p_walk = sub.add_parser("walk-forward", help="Walk-forward parameter optimization")
+    p_walk = sub.add_parser("walk-forward", help="ARCHIVED pre-v11 optimizer (refuses to run)")
     p_walk.add_argument("--start", default="2021-01-01")
     p_walk.add_argument("--end", default=None)
     p_walk.add_argument("--starting-cash", type=float, default=1_000_000)
@@ -284,7 +191,7 @@ def main() -> None:
     p_walk.add_argument("--test-months", type=int, default=6)
     p_walk.add_argument("--windows", type=int, default=3)
 
-    p_cmp = sub.add_parser("compare", help="Compare baseline vs sweep-best params")
+    p_cmp = sub.add_parser("compare", help="ARCHIVED pre-v11 optimizer (refuses to run)")
     p_cmp.add_argument("--start", default="2021-01-01")
     p_cmp.add_argument("--end", default=None)
     p_cmp.add_argument("--starting-cash", type=float, default=1_000_000)

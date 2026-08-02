@@ -604,8 +604,8 @@
     "ANSS": {
       "sector": "Technology",
       "max_allocation_pct": 5,
-      "tradeable": true,
-      "notes": "v6.1 universe \u2014 Engineering simulation \u2014 high moat"
+      "tradeable": false,
+      "notes": "Archived: acquired by Synopsys; ANSS ceased trading 2025-07-17"
     },
     "CDNS": {
       "sector": "Technology",
@@ -670,8 +670,8 @@
     "JNPR": {
       "sector": "Technology",
       "max_allocation_pct": 5,
-      "tradeable": true,
-      "notes": "v6.1 universe \u2014 Networking \u2014 AI datacenter"
+      "tradeable": false,
+      "notes": "Archived: acquired by HPE; JNPR ceased trading 2025-07-02"
     },
     "FFIV": {
       "sector": "Technology",
@@ -793,11 +793,11 @@
       "tradeable": true,
       "notes": "v6.1 universe \u2014 Payments \u2014 turnaround"
     },
-    "SQ": {
+    "XYZ": {
       "sector": "Financial",
       "max_allocation_pct": 5,
       "tradeable": true,
-      "notes": "v6.1 universe \u2014 Block \u2014 Square + Cash App"
+      "notes": "Block Class A; ticker changed from SQ to XYZ 2025-01-21"
     },
     "AFRM": {
       "sector": "Financial",
@@ -1636,8 +1636,8 @@
     "BLD": {
       "sector": "Consumer",
       "max_allocation_pct": 5,
-      "tradeable": true,
-      "notes": "v9 Phase 1 \u2014 small/mid-cap consumer momentum candidate"
+      "tradeable": false,
+      "notes": "Archived: acquired by QXO; BLD ceased trading 2026-07-01"
     },
     "BLKB": {
       "sector": "Technology",
@@ -2512,8 +2512,8 @@
     "MASI": {
       "sector": "Healthcare",
       "max_allocation_pct": 5,
-      "tradeable": true,
-      "notes": "v9 Phase 1 \u2014 small/mid-cap healthcare momentum candidate"
+      "tradeable": false,
+      "notes": "Archived: acquired by Danaher; MASI ceased trading 2026-06-10"
     },
     "MASS": {
       "sector": "Healthcare",

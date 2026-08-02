@@ -16,8 +16,17 @@ from utils import load_json, RESEARCH_STATE, get_risk_tier
 
 def get_market_regime() -> str:
     """Read current SPY market regime from research state. Defaults to NEUTRAL."""
-    research = load_json(RESEARCH_STATE)
-    return research.get("spy", {}).get("market_regime", "NEUTRAL")
+    try:
+        research = load_json(RESEARCH_STATE)
+    except Exception:
+        return "NEUTRAL"
+    if not isinstance(research, dict):
+        return "NEUTRAL"
+    spy = research.get("spy", {})
+    if not isinstance(spy, dict):
+        return "NEUTRAL"
+    regime = str(spy.get("market_regime", "NEUTRAL")).upper()
+    return regime if regime in {"BULL", "NEUTRAL", "BEAR"} else "NEUTRAL"
 
 
 # Base parameter table keyed by (regime, risk_tier).
@@ -301,6 +310,66 @@ _PARAMS = {
 }
 
 
+# v11 production policy.  The old table is retained for reproducibility of
+# archived v3-v10 experiments, but live/default callers receive this audited
+# policy on top.  It removes the concentrated 3x-ETF sleeves and makes the
+# broker-independent adaptive 12-1 target portfolio the sole source of new
+# directional exposure.
+_V11_POLICY = {
+    "strategy_version": "v11-adaptive-momentum",
+    "adaptive_momentum": True,
+    "momentum_mode": True,
+    "momentum_top_n": 10,
+    "momentum_min_hold_days": 0,
+    "momentum_quality_filter": True,
+    "momentum_min_abs_return": 0.0,
+    "momentum_max_annual_vol_pct": 80.0,
+    "momentum_min_price_usd": 10.0,
+    "momentum_min_dollar_volume_usd": 25_000_000.0,
+    "momentum_min_positions": 8,
+    "momentum_max_sector_pct": 20.0,
+    "momentum_target_market_vol_pct": 15.0,
+    "momentum_weighting_scheme": "equal",
+    "momentum_use_market_volatility_scaling": False,
+    # Frozen second-round development selection: reduce gross exposure when
+    # fewer liquid names are above their SMA200. This was the only candidate
+    # to improve CAGR, Jensen alpha, Sharpe, and maximum drawdown together at
+    # 15 bps while passing the standalone-year robustness contract.
+    "momentum_use_breadth_scaling": True,
+    # Preserve the hard daily exit below SPY's SMA200, but do not remain in
+    # cash until the next month after the completed close recovers. Exactly
+    # one fresh 12-1 target is formed after one confirmed risk-on close, then
+    # the normal month-start cadence resumes. Pre-2025 15bps tests improved
+    # every calendar year; longer confirmation increased cost-adjusted drag.
+    "momentum_risk_on_reentry_days": 1,
+    "max_position_pct": 9.0,
+    "max_positions": 10,
+    "min_cash_pct": 10.0,
+    # No implicit beta, leverage, short, event, or sector overlays.  Cash is a
+    # deliberate target when the broad trend/risk gates are closed.
+    "base_pct": 0.0,
+    "spy_base_pct": 0.0,
+    "tqqq_pct": 0.0,
+    "upro_pct": 0.0,
+    "cash_sleeve_pct": 0.0,
+    "sector_rotation_pct": 0.0,
+    "sector_rotation_top_n": 0,
+    "pead_sleeve_pct": 0.0,
+    "enable_mean_reversion": False,
+    "enable_pead": False,
+    "enable_options_hedge": False,
+    "flatten_on_transition": False,
+    # Adaptive positions exit/rebalance from target weights.  Disable the
+    # legacy take-profit, time-stop and trailing-stop stack for this mode.
+    "trailing_stop_pct": 99.0,
+    "tightened_stop_pct": 99.0,
+    "scale_out_at_gain": 999.0,
+    "final_target_gain": 999.0,
+    "time_stop_days": 9999,
+    "block_new_buys": False,
+}
+
+
 # v7: regime confirmation — require N consecutive days of the same SPY/SMA
 # classifier output before treating a transition as "confirmed". Avoids
 # the BULL↔NEUTRAL daily-flip churn that wrecked v6 iter 1.
@@ -336,7 +405,9 @@ def get_strategy_params(regime: str | None = None, risk_tier: str | None = None)
     if risk_tier not in {"NORMAL", "CAUTIOUS"}:
         risk_tier = "NORMAL"
 
-    return dict(_PARAMS[(regime, risk_tier)])  # copy so callers can mutate safely
+    params = dict(_PARAMS[(regime, risk_tier)])
+    params.update(_V11_POLICY)
+    return params  # copy so callers can mutate safely
 
 
 def _spy_below_sma200() -> bool:
@@ -350,13 +421,23 @@ def _spy_below_sma200() -> bool:
     Fail-safe: if research state lacks the SMA200 field, default to True so
     we DON'T strip an existing hedge based on missing data.
     """
-    research = load_json(RESEARCH_STATE)
+    try:
+        research = load_json(RESEARCH_STATE)
+    except Exception:
+        return True
+    if not isinstance(research, dict):
+        return True
     spy = research.get("spy", {})
+    if not isinstance(spy, dict):
+        return True
     price = spy.get("price")
     sma200 = spy.get("sma_200")
     if price is None or sma200 is None:
         return True  # fail-safe
-    return float(price) < float(sma200)
+    try:
+        return float(price) < float(sma200)
+    except (TypeError, ValueError):
+        return True
 
 
 def get_bear_hedge_target_pct(regime: str | None = None,
@@ -373,6 +454,8 @@ def get_bear_hedge_target_pct(regime: str | None = None,
     v3 layers the SMA200 gate on top of that so even BEAR-regime fires don't
     activate the hedge during multi-year SPY uptrends.
     """
+    if not _ENABLE_BEAR_HEDGE:
+        return 0.0
     if regime is None:
         regime = get_market_regime()
     if risk_tier is None:
@@ -405,7 +488,8 @@ def get_bear_hedge_target_pct(regime: str | None = None,
 # 10% gives the best trade-off — keeps real bear protection without
 # accumulating drag in the long stretches where SPY rebounds within
 # our BEAR classification.
-_BEAR_HEDGE_PCT = 10.0
+_BEAR_HEDGE_PCT = 0.0
+_ENABLE_BEAR_HEDGE = False
 
 
 def get_effective_threshold(cash_pct: float, regime: str | None = None,

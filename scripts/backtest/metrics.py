@@ -6,9 +6,10 @@ metrics ready for serialization + dashboard display.
 Reference math:
   • Annualized return    : (1 + total_return) ^ (252 / N) − 1
   • Volatility (annual)  : stdev(daily_returns) × √252
-  • Sharpe              : (annual_return − rf) / annual_vol      (rf = 0)
+  • Sharpe              : mean(portfolio − BIL) / stdev(portfolio − BIL) × √252
   • Max drawdown        : min((equity_t / running_max_t) − 1)
-  • Alpha (annualized)  : portfolio_annual − spy_annual
+  • Excess CAGR         : portfolio_annual − spy_annual
+  • Jensen alpha        : annualized CAPM intercept using BIL as rf proxy
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from backtest.data_provider import BarProvider
+from backtest.data_provider import BarProvider  # noqa: E402
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -56,22 +57,44 @@ def _max_drawdown(equity_series: list[float]) -> tuple[float, int, int]:
     return max_dd, dd_peak_idx, dd_trough_idx
 
 
-def _spy_baseline(provider: BarProvider, dates: list[str], starting_cash: float) -> list[float]:
-    """Rebase SPY to starting_cash on the first date — gives a $-comparable benchmark line."""
+def _asset_baseline(
+    provider: BarProvider,
+    symbol: str,
+    dates: list[str],
+    starting_cash: float,
+) -> tuple[list[float], int]:
+    """Return an open-to-open, forward-filled baseline and observed-bar count.
+
+    If the proxy starts late, its first observed open is rebased to the value
+    carried up to that date.  Before then its return is explicitly zero.  This
+    preserves one value per portfolio date instead of silently misaligning
+    return rows when a symbol misses a session.
+    """
+
     if not dates:
-        return []
-    spy_first = provider.bar_at("SPY", dates[0])
-    if spy_first is None:
-        return [starting_cash] * len(dates)
-    scale = starting_cash / spy_first["close"]
-    out = []
+        return [], 0
+    scale: float | None = None
+    observed = 0
+    out: list[float] = []
     last = starting_cash
     for d in dates:
-        bar = provider.bar_at("SPY", d)
+        bar = provider.bar_at(symbol, d)
         if bar is not None:
-            last = bar["close"] * scale
+            open_price = float(bar["open"])
+            if open_price > 0:
+                observed += 1
+                if scale is None:
+                    scale = last / open_price
+                last = open_price * scale
         out.append(last)
-    return out
+    return out, observed
+
+
+def _return_series(levels: list[float], dates: list[str]) -> pd.Series:
+    """Create returns with an explicit pre-first-session capital observation."""
+
+    index = ["__STARTING_CAPITAL__", *dates]
+    return pd.Series(levels, index=index, dtype=float).pct_change().dropna()
 
 
 def compute_metrics(result: dict, provider: BarProvider | None = None) -> dict:
@@ -88,27 +111,87 @@ def compute_metrics(result: dict, provider: BarProvider | None = None) -> dict:
 
     dates = [h["date"] for h in history]
     equity_series = [h["equity"] for h in history]
+    portfolio_levels = [starting_cash, *equity_series]
 
     # ────── core returns ──────
     total_return_pct = (final_equity - starting_cash) / starting_cash * 100
-    n_days = len(history)
-    annual_return = _annualize(total_return_pct, n_days)
+    # There are len(history)-1 elapsed open-to-open intervals.  The explicit
+    # starting-capital observation below exists to capture first-fill costs,
+    # but it does not add a day to the CAGR horizon.
+    n_return_intervals = max(1, len(history) - 1)
+    annual_return = _annualize(total_return_pct, n_return_intervals)
 
-    # Daily returns for vol + Sharpe
-    daily_pct = pd.Series(equity_series).pct_change().dropna()
-    daily_vol = float(daily_pct.std()) if len(daily_pct) else 0.0
+    # Daily returns include first-session fill friction relative to starting
+    # cash. Sharpe is calculated after the risk-free proxy is aligned below.
+    daily_pct = _return_series(portfolio_levels, dates)
+    daily_vol = float(daily_pct.std(ddof=1)) if len(daily_pct) > 1 else 0.0
     annual_vol = daily_vol * (TRADING_DAYS_PER_YEAR ** 0.5) * 100
-    sharpe = (annual_return / annual_vol) if annual_vol > 0 else 0.0
 
     # ────── drawdown ──────
-    max_dd, dd_peak, dd_trough = _max_drawdown(equity_series)
+    max_dd, dd_peak, dd_trough = _max_drawdown(portfolio_levels)
 
     # ────── SPY baseline + alpha ──────
-    spy_line = _spy_baseline(provider, dates, starting_cash)
+    spy_line, spy_observed = _asset_baseline(provider, "SPY", dates, starting_cash)
     spy_total = (spy_line[-1] - starting_cash) / starting_cash * 100 if spy_line else 0
-    spy_annual = _annualize(spy_total, n_days)
+    spy_annual = _annualize(spy_total, n_return_intervals)
     alpha_annual = annual_return - spy_annual
     alpha_total = total_return_pct - spy_total
+
+    # BIL is a liquid 1–3 month T-bill ETF and its adjusted bars include cash
+    # distributions. If it is wholly unavailable, the fallback is explicitly
+    # reported and the risk-free return is zero rather than silently guessed.
+    risk_free_line, risk_free_observed = _asset_baseline(
+        provider, "BIL", dates, starting_cash
+    )
+    risk_free_total = (
+        (risk_free_line[-1] - starting_cash) / starting_cash * 100
+        if risk_free_line
+        else 0.0
+    )
+    risk_free_annual = _annualize(risk_free_total, n_return_intervals)
+
+    # Daily benchmark-relative statistics use identical, date-indexed
+    # open-to-open clocks. Jensen alpha is the arithmetic annualized CAPM
+    # intercept: (Rp-Rf) = alpha + beta*(Rm-Rf).
+    spy_daily = _return_series([starting_cash, *spy_line], dates)
+    risk_free_daily = _return_series([starting_cash, *risk_free_line], dates)
+    aligned = pd.concat(
+        [daily_pct, spy_daily, risk_free_daily],
+        axis=1,
+    ).dropna()
+    aligned.columns = ["portfolio", "spy", "risk_free"]
+    beta = 0.0
+    jensen_alpha = 0.0
+    tracking_error = 0.0
+    information_ratio = 0.0
+    sharpe = 0.0
+    if len(aligned) > 1:
+        portfolio_excess = aligned["portfolio"] - aligned["risk_free"]
+        market_excess = aligned["spy"] - aligned["risk_free"]
+        benchmark_variance = float(market_excess.var(ddof=1))
+        if benchmark_variance > 0:
+            beta = float(portfolio_excess.cov(market_excess)) / benchmark_variance
+        intercept_daily = float((portfolio_excess - beta * market_excess).mean())
+        jensen_alpha = intercept_daily * TRADING_DAYS_PER_YEAR * 100.0
+        active = aligned["portfolio"] - aligned["spy"]
+        active_std = float(active.std(ddof=1))
+        tracking_error = active_std * (TRADING_DAYS_PER_YEAR ** 0.5) * 100.0
+        if active_std > 0:
+            information_ratio = (
+                float(active.mean()) / active_std
+                * (TRADING_DAYS_PER_YEAR ** 0.5)
+            )
+        excess_std = float(portfolio_excess.std(ddof=1))
+        if excess_std > 0:
+            sharpe = (
+                float(portfolio_excess.mean()) / excess_std
+                * (TRADING_DAYS_PER_YEAR ** 0.5)
+            )
+
+    def drawdown_date(augmented_index: int) -> str | None:
+        if not dates:
+            return None
+        return dates[max(0, augmented_index - 1)]
 
     # ────── trade stats ──────
     directional_trades = [t for t in trades if not t.get("is_hedge", False)]
@@ -136,7 +219,9 @@ def compute_metrics(result: dict, provider: BarProvider | None = None) -> dict:
             "days": len(pnls),
             "pct_of_time": len(pnls) / len(history) * 100,
             "avg_daily_pnl_pct": sum(pnls) / len(pnls),
-            "total_pnl_pct": sum(pnls),
+            "total_pnl_pct": (
+                float((pd.Series(pnls).div(100.0).add(1.0).prod() - 1.0) * 100.0)
+            ),
         }
 
     # ────── per-symbol P&L ──────
@@ -161,12 +246,24 @@ def compute_metrics(result: dict, provider: BarProvider | None = None) -> dict:
         "spy_annual_return_pct": round(spy_annual, 4),
         "alpha_total_pct": round(alpha_total, 4),
         "alpha_annual_pct": round(alpha_annual, 4),
+        "excess_cagr_pct": round(alpha_annual, 4),
+        "jensen_alpha_annual_pct": round(jensen_alpha, 4),
+        "beta_to_spy": round(beta, 4),
+        "risk_free_proxy": "BIL",
+        "risk_free_total_return_pct": round(risk_free_total, 4),
+        "risk_free_annual_return_pct": round(risk_free_annual, 4),
+        "risk_free_fallback_zero": risk_free_observed == 0,
+        "risk_free_observed_sessions": risk_free_observed,
+        "spy_observed_sessions": spy_observed,
+        "tracking_error_annual_pct": round(tracking_error, 4),
+        "information_ratio": round(information_ratio, 4),
         "annual_vol_pct": round(annual_vol, 4),
         "sharpe_ratio": round(sharpe, 4),
         "max_drawdown_pct": round(max_dd, 4),
-        "max_drawdown_peak_date": dates[dd_peak] if dates else None,
-        "max_drawdown_trough_date": dates[dd_trough] if dates else None,
-        "n_trading_days": n_days,
+        "max_drawdown_peak_date": drawdown_date(dd_peak),
+        "max_drawdown_trough_date": drawdown_date(dd_trough),
+        "n_trading_days": len(history),
+        "n_return_intervals": n_return_intervals,
         "n_trades": n_trades,
         "win_rate_pct": round(win_rate, 2),
         "avg_win_pct": round(avg_win, 4),

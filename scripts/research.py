@@ -1,6 +1,7 @@
 """Research — market data, technical analysis, confidence scoring."""
 
 import sys
+import math
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -13,37 +14,133 @@ from alpaca.data.requests import (
 )
 from alpaca.data.timeframe import TimeFrame
 from alpaca.data.enums import DataFeed
-from alpaca.trading.client import TradingClient
-from alpaca.common.exceptions import APIError
 
 from utils import (
     ALPACA_API_KEY, ALPACA_SECRET_KEY, RESEARCH_STATE,
     setup_logging, get_now_str, load_json, save_json,
-    get_tradeable_symbols, get_all_symbols, get_symbol_info,
+    get_tradeable_symbols, get_symbol_info,
 )
 
 log = setup_logging("research")
 
-data_client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
-trading_client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+data_client: StockHistoricalDataClient | None = None
+
+
+class BarCoverageError(RuntimeError):
+    """The broker response cannot represent the requested ranking universe."""
+
+
+def _get_data_client() -> StockHistoricalDataClient:
+    """Construct the market-data client only when network data is requested.
+
+    Pure analytics and the local backtester must remain importable without
+    broker credentials.
+    """
+
+    global data_client
+    if data_client is None:
+        data_client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
+    return data_client
 
 
 def get_bars(symbol: str, days: int = 80, timeframe: TimeFrame = TimeFrame.Day) -> pd.DataFrame:
-    """Fetch historical bars for a symbol."""
+    """Fetch up to ``days`` trading bars for a symbol.
+
+    ``days`` is a bar count, not a calendar-day count.  The previous calendar
+    buffer returned only ~214 sessions for a 270-bar request and silently
+    disabled the momentum strategy that required 252 observations.
+    """
     end = datetime.now()
-    start = end - timedelta(days=days + 30)  # buffer for weekends/holidays
+    calendar_days = max(days + 30, math.ceil(days * 1.6) + 15)
+    start = end - timedelta(days=calendar_days)
     request = StockBarsRequest(
         symbol_or_symbols=symbol,
         timeframe=timeframe,
         start=start,
         end=end,
         feed=DataFeed.IEX,
+        adjustment="all",
     )
-    bars = data_client.get_stock_bars(request)
+    bars = _get_data_client().get_stock_bars(request)
     df = bars.df
     if isinstance(df.index, pd.MultiIndex):
         df = df.droplevel("symbol")
     return df.tail(days)
+
+
+def get_bars_batch(
+    symbols: list[str],
+    days: int = 260,
+    timeframe: TimeFrame = TimeFrame.Day,
+    *,
+    chunk_size: int = 200,
+    require_complete: bool = True,
+) -> dict[str, pd.DataFrame]:
+    """Fetch daily history for a broad universe in bounded multi-symbol calls.
+
+    By default the result is all-or-nothing: every requested symbol must have
+    a non-empty frame.  Silently accepting an empty chunk or an omitted symbol
+    changes the cross-sectional ranking universe and can turn a data outage
+    into a portfolio rebalance.  Callers doing exploratory, best-effort work
+    may explicitly opt out with ``require_complete=False``.
+
+    A stale but non-empty stock frame is retained here.  The adaptive signal
+    layer rejects it point-in-time, which is appropriate for a halt, delisting,
+    or no-trade session.  Synchronization of SPY and sector auxiliaries is
+    checked after today's incomplete bar has been removed by the live frame
+    provider.
+    """
+
+    clean = sorted({symbol.upper().strip() for symbol in symbols if symbol})
+    if not clean:
+        return {}
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    end = datetime.now()
+    calendar_days = max(days + 30, math.ceil(days * 1.6) + 15)
+    start = end - timedelta(days=calendar_days)
+    frames: dict[str, pd.DataFrame] = {}
+    for offset in range(0, len(clean), chunk_size):
+        chunk = clean[offset : offset + chunk_size]
+        request = StockBarsRequest(
+            symbol_or_symbols=chunk,
+            timeframe=timeframe,
+            start=start,
+            end=end,
+            feed=DataFeed.IEX,
+            adjustment="all",
+        )
+        response = _get_data_client().get_stock_bars(request)
+        frame = response.df
+        if frame is None or frame.empty:
+            continue
+        if isinstance(frame.index, pd.MultiIndex):
+            symbol_level = "symbol" if "symbol" in frame.index.names else 0
+            available = {
+                str(value).upper(): value
+                for value in frame.index.get_level_values(symbol_level).unique()
+            }
+            for symbol in chunk:
+                if symbol not in available:
+                    continue
+                symbol_frame = frame.xs(
+                    available[symbol], level=symbol_level
+                ).sort_index()
+                frames[symbol] = symbol_frame.tail(days)
+        elif len(chunk) == 1:
+            frames[chunk[0]] = frame.sort_index().tail(days)
+    if require_complete:
+        missing = sorted(
+            symbol
+            for symbol in clean
+            if symbol not in frames or frames[symbol] is None or frames[symbol].empty
+        )
+        if missing:
+            raise BarCoverageError(
+                "Incomplete batch bar response; missing requested symbols: "
+                + ", ".join(missing)
+            )
+    return frames
 
 
 def get_4h_technicals(symbol: str) -> dict:
@@ -68,7 +165,7 @@ def get_4h_technicals(symbol: str) -> dict:
             timeframe=tf,
             start=start, end=end, feed=DataFeed.IEX,
         )
-        bars = data_client.get_stock_bars(request)
+        bars = _get_data_client().get_stock_bars(request)
         df = bars.df
         if isinstance(df.index, pd.MultiIndex):
             df = df.droplevel("symbol")
@@ -93,7 +190,7 @@ def get_4h_technicals(symbol: str) -> dict:
 def get_latest_quote(symbol: str) -> dict:
     """Get latest quote for a symbol."""
     request = StockLatestQuoteRequest(symbol_or_symbols=symbol, feed=DataFeed.IEX)
-    quotes = data_client.get_stock_latest_quote(request)
+    quotes = _get_data_client().get_stock_latest_quote(request)
     q = quotes[symbol]
     return {
         "symbol": symbol,
@@ -502,7 +599,7 @@ def compute_confidence_score(
         from ablation_flags import ABLATE_ML
         if ABLATE_ML:
             raise RuntimeError("ablated")
-        from ml_signals import extract_features as _ml_features, predict_proba, ml_score_from_proba
+        from ml_signals import predict_proba, ml_score_from_proba
         # We don't have the bars df here — caller can pre-compute features
         # and pass via technicals.get("_ml_features"). Otherwise we skip.
         ml_features = technicals.get("_ml_features")
@@ -860,7 +957,7 @@ if __name__ == "__main__":
 
     elif cmd == "spy":
         spy = get_spy_benchmark()
-        print(f"\nSPY Benchmark:")
+        print("\nSPY Benchmark:")
         print(f"  Price:    ${spy['price']:.2f}")
         print(f"  20-SMA:  ${spy['sma_20']:.2f}" if spy['sma_20'] else "  20-SMA:  N/A")
         print(f"  50-SMA:  ${spy['sma_50']:.2f}" if spy['sma_50'] else "  50-SMA:  N/A")

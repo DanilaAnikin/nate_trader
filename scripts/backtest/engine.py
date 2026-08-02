@@ -28,17 +28,17 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
-import ta
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from utils import setup_logging, get_tradeable_symbols, get_symbol_info  # noqa: E402
+from utils import setup_logging, get_symbol_info  # noqa: E402
 from strategy_config import (  # noqa: E402
     get_strategy_params, get_bear_hedge_target_pct,
 )
@@ -46,12 +46,29 @@ from research import compute_confidence_score, compute_technicals  # noqa: E402
 from momentum_picker import (  # noqa: E402
     rank_universe, select_top_n, spy_12m_return, is_month_start,
 )
+from adaptive_momentum import (  # noqa: E402
+    build_target_portfolio,
+    compute_market_state,
+    config_from_params,
+    infer_sector_from_returns,
+    market_reentry_confirmed,
+)
+from risk_policy import assess_portfolio_risk  # noqa: E402
 
-from backtest.data_provider import BarProvider
-from backtest.news_proxy import news_proxy_score, perplexity_proxy_score
-from backtest.portfolio_sim import SimulatedPortfolio
+from backtest.data_provider import BarProvider  # noqa: E402
+from backtest.news_proxy import news_proxy_score, perplexity_proxy_score  # noqa: E402
+from backtest.portfolio_sim import SimulatedPortfolio  # noqa: E402
+from universe import load_universe_symbols  # noqa: E402
+from strategy_identity import hash_symbol_universe  # noqa: E402
 
 log = setup_logging("backtest_engine")
+
+
+@lru_cache(maxsize=None)
+def _sector_for_symbol(symbol: str) -> str:
+    """Avoid re-reading the static metadata file for every monthly scan."""
+
+    return get_symbol_info(symbol).get("sector", "Unknown")
 
 SLIPPAGE_BPS = 7  # v9: blended for mixed mid+small-cap universe.
 # Realistic per-asset:
@@ -168,29 +185,40 @@ def _historical_sector_state(provider: BarProvider, today: str,
 
 
 def _risk_tier(portfolio: SimulatedPortfolio) -> str:
-    """Mirror portfolio.update_performance_state() risk-tier logic."""
+    """Shared 22-session drawdown guard plus one-session loss breakers."""
     history = portfolio.daily_history
-    if len(history) < 2:
+    current = portfolio.equity()
+    previous = history[-1].equity if history else portfolio.starting_cash
+    prior = [portfolio.starting_cash, *(snap.equity for snap in history)]
+    return assess_portfolio_risk(
+        current,
+        previous_equity=previous,
+        prior_equities=prior,
+    ).tier
+
+
+def _completed_session_risk_tier(portfolio: SimulatedPortfolio) -> str:
+    """Classify risk using only the latest completed portfolio snapshot.
+
+    The backtest fills decisions at session ``D``'s open.  Marking positions
+    to that same open before computing the breaker would let a ``D`` gap both
+    trigger HALT and be sold at the already-observed ``D`` open.  The live
+    equivalent cannot react before the price exists, so all decisions for
+    ``D`` use the snapshot recorded on ``D-1``.  A gap observed at ``D`` can
+    therefore affect fills no earlier than ``D+1``.
+    """
+
+    history = portfolio.daily_history
+    if not history:
         return "NORMAL"
-
-    # Weekly: last 5 entries
-    week = history[-5:] if len(history) >= 5 else history
-    week_start = week[0].equity
-    week_pct = (portfolio.equity() - week_start) / week_start * 100 if week_start > 0 else 0.0
-
-    # Monthly: last 22 entries
-    month = history[-22:] if len(history) >= 22 else history
-    month_start = month[0].equity
-    month_pct = (portfolio.equity() - month_start) / month_start * 100 if month_start > 0 else 0.0
-
-    # Mirror portfolio.update_performance_state thresholds:
-    # tightened to catch drawdown faster (was −2% weekly).
-    daily_pct = history[-1].pnl_pct if history else 0.0
-    if month_pct <= -5.0:
-        return "HALT"
-    if week_pct <= -1.5 or daily_pct <= -2.0:
-        return "CAUTIOUS"
-    return "NORMAL"
+    current = history[-1].equity
+    previous = history[-2].equity if len(history) >= 2 else portfolio.starting_cash
+    prior = [portfolio.starting_cash, *(snap.equity for snap in history[:-1])]
+    return assess_portfolio_risk(
+        current,
+        previous_equity=previous,
+        prior_equities=prior,
+    ).tier
 
 
 # ──────────────────────── parameter overrides ──────────────────────────────
@@ -579,7 +607,8 @@ _manage_spy_base = _manage_base_position
 
 
 def _manage_tqqq(portfolio: SimulatedPortfolio, provider: BarProvider,
-                 date: str, params: dict, day_lows: dict[str, float],
+                 date: str, signal_date: str, params: dict,
+                 day_lows: dict[str, float],
                  slippage_bps: float) -> None:
     """v5 — leveraged BULL beta via TQQQ (3× QQQ).
 
@@ -603,7 +632,7 @@ def _manage_tqqq(portfolio: SimulatedPortfolio, provider: BarProvider,
             return  # stop fired — don't immediately re-enter the same day
 
     # Regime gate — leverage only when both SMA lines are cleared
-    if target_pct > 0 and not _spy_above_sma50_and_sma200(provider, date):
+    if target_pct > 0 and not _spy_above_sma50_and_sma200(provider, signal_date):
         target_pct = 0.0
 
     bar = provider.bar_at(TQQQ_SYMBOL, date)
@@ -657,7 +686,8 @@ UPRO_SYMBOL = "UPRO"  # v10f: 3× SPY leveraged ETF, parallel to TQQQ.
 
 
 def _manage_upro(portfolio: SimulatedPortfolio, provider: BarProvider,
-                 date: str, params: dict, day_lows: dict[str, float],
+                 date: str, signal_date: str, params: dict,
+                 day_lows: dict[str, float],
                  slippage_bps: float) -> None:
     """v10f — UPRO (3× SPY) parallel leveraged sleeve, mirrors _manage_tqqq.
 
@@ -682,7 +712,7 @@ def _manage_upro(portfolio: SimulatedPortfolio, provider: BarProvider,
             return
 
     # SMA gate — share TQQQ's gate (both leveraged sleeves use same trigger)
-    if target_pct > 0 and not _spy_above_sma50_and_sma200(provider, date):
+    if target_pct > 0 and not _spy_above_sma50_and_sma200(provider, signal_date):
         target_pct = 0.0
 
     bar = provider.bar_at(UPRO_SYMBOL, date)
@@ -1083,13 +1113,13 @@ def _flatten_on_transition(portfolio: SimulatedPortfolio, day_opens: dict[str, f
 
 
 def _manage_hedge(portfolio: SimulatedPortfolio, provider: BarProvider,
-                  date: str, regime: str, risk_tier: str,
+                  date: str, signal_date: str, regime: str, risk_tier: str,
                   slippage_bps: float) -> None:
     """Buy/trim/exit SH to match target % for regime + risk tier.
 
     v3: hedge target zeroed when SPY ≥ SMA200 (structural uptrend).
     """
-    if not _spy_below_sma200(provider, date):
+    if not _spy_below_sma200(provider, signal_date):
         target_pct = 0.0
     else:
         target_pct = get_bear_hedge_target_pct(regime, risk_tier)
@@ -1137,6 +1167,261 @@ def _manage_hedge(portfolio: SimulatedPortfolio, provider: BarProvider,
 
 
 # ──────────────────────── v6 momentum execution ────────────────────────
+
+
+def _close_directional_positions(
+    portfolio: SimulatedPortfolio,
+    opens: dict[str, float],
+    today: str,
+    slippage_bps: float,
+    *,
+    reason: str,
+) -> list[str]:
+    """Liquidate priced stock risk and return symbols still unresolved."""
+
+    unresolved: list[str] = []
+    for symbol in list(portfolio.positions):
+        position = portfolio.positions[symbol]
+        if position.is_base or position.is_hedge:
+            continue
+        if symbol not in opens:
+            unresolved.append(symbol)
+            continue
+        portfolio.close(
+            symbol,
+            _sell_fill(opens[symbol], slippage_bps),
+            today,
+            reason=reason,
+        )
+    return unresolved
+
+
+def _execute_adaptive_momentum(
+    *,
+    portfolio: SimulatedPortfolio,
+    provider: BarProvider,
+    candidates: list[str],
+    signal_date: str,
+    today: str,
+    params: dict,
+    opens: dict[str, float],
+    slippage_bps: float,
+    risk_tier: str,
+    prev_date: str | None,
+    pending_plan: dict | None = None,
+    force_risk_on_reentry: bool = False,
+) -> dict | None:
+    """Rebalance causal 12-1 targets formed at D and filled at D+1 open.
+
+    Risk-off exits are evaluated every session. Risk-on target changes occur
+    monthly, avoiding unnecessary turnover in a deliberately slow signal.
+    When a rebalance requires any sell, its frozen buy leg is deferred until
+    at least the next session, matching the live sell-confirmation boundary.
+    """
+
+    cfg = config_from_params(params)
+    market = compute_market_state(provider, signal_date, config=cfg)
+    risk_off_now = (
+        risk_tier == "HALT" or market is None or not market.above_sma200
+    )
+    pending_risk_off = bool(
+        pending_plan is not None and pending_plan.get("risk_off") is True
+    )
+    if risk_off_now or pending_risk_off:
+        unresolved = _close_directional_positions(
+            portfolio,
+            opens,
+            today,
+            slippage_bps,
+            reason="adaptive_risk_off",
+        )
+        if unresolved:
+            # Match live execution's frozen zero-target convergence plan.  A
+            # missing symbol open must not erase the exit intent merely because
+            # the SPY/HALT gate recovers before that symbol trades again.
+            return {
+                "signal_date": (
+                    pending_plan.get("signal_date")
+                    if pending_risk_off
+                    else signal_date
+                ),
+                "weights": {},
+                "construction_risk_tier": "HALT",
+                "buy_after_date": None,
+                "rebalance_month": (
+                    pending_plan.get("rebalance_month", today[:7])
+                    if pending_risk_off
+                    else today[:7]
+                ),
+                "risk_off": True,
+            }
+        return None
+
+    risk_rank = {"NORMAL": 0, "CAUTIOUS": 1, "HALT": 2}
+    rebalance_month = today[:7]
+    stale_pending = bool(
+        pending_plan is not None
+        and pending_plan.get("rebalance_month", rebalance_month)
+        != rebalance_month
+    )
+    if stale_pending:
+        # A missing target bar must not keep an old frozen basket alive into a
+        # later rebalance month. Match live execution by discarding the stale
+        # no-order plan and constructing the new month's target.
+        pending_plan = None
+
+    if pending_plan is not None:
+        target_signal_date = str(pending_plan["signal_date"])
+        construction_risk_tier = str(
+            pending_plan.get("construction_risk_tier", "HALT")
+        )
+        target_weights = {
+            symbol: float(weight)
+            for symbol, weight in pending_plan.get("weights", {}).items()
+        }
+
+        # Never execute yesterday's 90%-gross target after the completed
+        # portfolio snapshot has escalated to CAUTIOUS. Rebuild from the same
+        # frozen signal date with the stricter risk scaler; recovery to NORMAL
+        # does not enlarge an already-conservative pending plan.
+        if risk_rank.get(risk_tier, 2) > risk_rank.get(
+            construction_risk_tier, 2
+        ):
+            stricter_plan = build_target_portfolio(
+                provider,
+                candidates,
+                target_signal_date,
+                sector_lookup=lambda symbol: (
+                    _sector_for_symbol(symbol)
+                    if _sector_for_symbol(symbol) != "Unknown"
+                    else infer_sector_from_returns(
+                        provider, symbol, target_signal_date
+                    )
+                ),
+                incumbent_symbols=target_weights,
+                risk_tier=risk_tier,
+                config=cfg,
+            )
+            target_weights = dict(stricter_plan.weights)
+            pending_plan = {
+                **pending_plan,
+                "weights": target_weights,
+                "construction_risk_tier": risk_tier,
+            }
+    else:
+        if (
+            not stale_pending
+            and not force_risk_on_reentry
+            and not is_month_start(prev_date, today)
+        ):
+            return None
+
+        plan = build_target_portfolio(
+            provider,
+            candidates,
+            signal_date,
+            sector_lookup=lambda symbol: (
+                _sector_for_symbol(symbol)
+                if _sector_for_symbol(symbol) != "Unknown"
+                else infer_sector_from_returns(provider, symbol, signal_date)
+            ),
+            incumbent_symbols=(
+                symbol
+                for symbol, position in portfolio.positions.items()
+                if not position.is_base and not position.is_hedge
+            ),
+            risk_tier=risk_tier,
+            config=cfg,
+        )
+        target_signal_date = signal_date
+        construction_risk_tier = risk_tier
+        target_weights = dict(plan.weights)
+        pending_plan = {
+            "signal_date": target_signal_date,
+            "weights": target_weights,
+            "construction_risk_tier": construction_risk_tier,
+            "buy_after_date": None,
+            "rebalance_month": rebalance_month,
+        }
+
+    equity = portfolio.equity()
+    if equity <= 0:
+        return None
+    drift_value = equity * 0.005
+
+    # Raise cash first: remove dropped names and trim positions above target.
+    sell_required = False
+    for symbol in list(portfolio.positions):
+        position = portfolio.positions[symbol]
+        if position.is_base or position.is_hedge:
+            continue
+        target_value = equity * target_weights.get(symbol, 0.0)
+        excess = position.market_value - target_value
+        if symbol not in target_weights:
+            sell_required = True
+            if symbol not in opens:
+                continue
+            portfolio.close(
+                symbol,
+                _sell_fill(opens[symbol], slippage_bps),
+                today,
+                reason="adaptive_rebalance_exit",
+            )
+            continue
+        if excess <= drift_value:
+            continue
+        if symbol not in opens:
+            sell_required = True
+            continue
+        fill = _sell_fill(opens[symbol], slippage_bps)
+        qty = min(position.qty, int(excess / fill))
+        if qty <= 0:
+            continue
+        sell_required = True
+        if qty >= position.qty:
+            portfolio.close(symbol, fill, today, reason="adaptive_rebalance_trim")
+        else:
+            portfolio.partial_close(
+                symbol, qty, fill, today, reason="adaptive_rebalance_trim"
+            )
+
+    # Crossing a session boundary after any required sell prevents proceeds
+    # and replacement buys from sharing an official-open price. Missing sell
+    # prices also keep the frozen plan pending until convergence is possible.
+    if sell_required:
+        return {**pending_plan, "buy_after_date": today}
+
+    if pending_plan.get("buy_after_date") == today:
+        return pending_plan
+
+    # Then top up underweights. Residual cash is the deliberate cash target.
+    equity = portfolio.equity()
+    for symbol, target_weight in sorted(
+        target_weights.items(), key=lambda item: (-item[1], item[0])
+    ):
+        if symbol not in opens:
+            continue
+        position = portfolio.get_position(symbol)
+        current_value = position.market_value if position else 0.0
+        shortfall = equity * target_weight - current_value
+        if shortfall <= drift_value:
+            continue
+        fill = _buy_fill(opens[symbol], slippage_bps)
+        qty = min(int(shortfall / fill), int(portfolio.cash / fill))
+        if qty > 0:
+            portfolio.open(symbol, qty, fill, today)
+
+    # Preserve the frozen plan if a missing bar or integer/cash constraint
+    # leaves a material underweight. The next session retries after the same
+    # sell-first safety checks.
+    equity = portfolio.equity()
+    drift_value = equity * 0.005
+    for symbol, target_weight in target_weights.items():
+        position = portfolio.get_position(symbol)
+        current_value = position.market_value if position else 0.0
+        if equity * target_weight - current_value > drift_value:
+            return pending_plan
+    return None
 
 
 def _execute_momentum_picks(*, portfolio: SimulatedPortfolio,
@@ -1284,14 +1569,32 @@ def _execute_momentum_picks(*, portfolio: SimulatedPortfolio,
 # ────────────────────────────── main loop ──────────────────────────────────
 
 
-def run_backtest(config: BacktestConfig) -> dict:
+def run_backtest(
+    config: BacktestConfig,
+    *,
+    provider: BarProvider | None = None,
+) -> dict:
     """Run a full backtest. Returns a dict with daily history, trades, metrics."""
-    provider = BarProvider()
+    provider = provider or BarProvider()
     portfolio = SimulatedPortfolio(starting_cash=config.starting_cash)
 
-    universe = config.universe or get_tradeable_symbols()
-    # SPY is benchmark/regime; SH is hedge — neither is a directional candidate
-    candidates = [s for s in universe if s not in ("SPY", "SH")]
+    if config.universe is not None:
+        universe = config.universe
+    else:
+        available = set(provider.available_symbols())
+        # A simulation starts from cash and must not inherit symbols from the
+        # operator's live positions snapshot.  Held-only names exist solely so
+        # live execution can liquidate them; admitting them to a historical
+        # ranking would make results depend on unrelated broker state.
+        universe = [
+            s
+            for s in load_universe_symbols(held_symbols=[])
+            if s in available
+        ]
+    # Infrastructure may be retained solely to price/exit old positions; none
+    # belongs in the cross-sectional stock ranking.
+    infrastructure = {"SPY", "SH", "SSO", "TQQQ", "UPRO", "BIL"}
+    candidates = [s for s in universe if s not in infrastructure]
 
     # Use SPY calendar to drive the loop
     all_days = provider.all_trading_days("SPY", start=config.start_date, end=config.end_date)
@@ -1320,10 +1623,29 @@ def run_backtest(config: BacktestConfig) -> dict:
     regime_history: list[str] = []
     confirmed_regime: str | None = None
     prev_confirmed_regime: str | None = None
+    adaptive_pending_plan: dict | None = None
+    adaptive_risk_off_latched = False
     for idx, date in enumerate(all_days):
+        signal_date = provider.previous_trading_day("SPY", date)
+        if signal_date is None:
+            # There is no completed session from which a legal signal can be
+            # formed. Keep cash and begin once a prior close exists.
+            portfolio.record_snapshot(date, "NEUTRAL", "NORMAL")
+            continue
+
+        # Every order filled at today's open must use risk information that
+        # was complete before that open.  Reuse one immutable tier throughout
+        # the session; today's opening gap is captured in today's snapshot and
+        # can influence tomorrow's decision only.
+        decision_risk_tier = _completed_session_risk_tier(portfolio)
+
         # Build a snapshot of OHLC for all relevant symbols today
         opens, highs, lows, closes = {}, {}, {}, {}
-        for sym in candidates + ["SPY", "SH", "TQQQ", "SSO", *SECTOR_ETF_UNIVERSE]:
+        pricing_symbols = dict.fromkeys(
+            candidates
+            + ["SPY", "SH", "TQQQ", "UPRO", "SSO", "BIL", *SECTOR_ETF_UNIVERSE]
+        )
+        for sym in pricing_symbols:
             bar = provider.bar_at(sym, date)
             if bar:
                 opens[sym] = bar["open"]
@@ -1335,7 +1657,7 @@ def run_backtest(config: BacktestConfig) -> dict:
         portfolio.mark_to_market(opens)
 
         # v8: asymmetric regime confirmation.
-        raw_regime = _spy_regime(provider, date)
+        raw_regime = _spy_regime(provider, signal_date)
         regime_history.append(raw_regime)
         if len(regime_history) > _REGIME_BUFFER:
             regime_history.pop(0)
@@ -1356,7 +1678,7 @@ def run_backtest(config: BacktestConfig) -> dict:
                     confirmed_regime = raw_regime
 
         regime_today = confirmed_regime
-        risk_today_for_trans = _risk_tier(portfolio)
+        risk_today_for_trans = decision_risk_tier
         params_today = _resolve_params(regime_today, risk_today_for_trans,
                                        config.param_overrides)
         if (prev_confirmed_regime == "BULL"
@@ -1369,19 +1691,31 @@ def run_backtest(config: BacktestConfig) -> dict:
 
         # 2-4. Stops, scale-outs, time stops (use highs/lows of TODAY)
         # v7: use confirmed_regime so stop widths don't whipsaw on single-day flips.
-        risk_for_stops = _risk_tier(portfolio)
+        risk_for_stops = decision_risk_tier
         stop_params = _resolve_params(confirmed_regime, risk_for_stops, config.param_overrides)
 
-        _check_trailing_stops(portfolio, lows, opens, date, stop_params, config.slippage_bps)
-        _check_scale_outs(portfolio, highs, date, stop_params, config.slippage_bps)
-        _check_time_stops(portfolio, opens, date, stop_params, config.slippage_bps, provider)
+        if not stop_params.get("adaptive_momentum", False):
+            _check_trailing_stops(
+                portfolio, lows, opens, date, stop_params, config.slippage_bps
+            )
+            _check_scale_outs(
+                portfolio, highs, date, stop_params, config.slippage_bps
+            )
+            _check_time_stops(
+                portfolio,
+                opens,
+                date,
+                stop_params,
+                config.slippage_bps,
+                provider,
+            )
 
         # 5. Decide candidates / scores depending on strategy mode.
-        prev_day = all_days[idx - 1] if idx > 0 else date
+        prev_day = signal_date
         # v7: use confirmed_regime for momentum / base / hedge sizing too.
         regime = confirmed_regime
         _, spy_20d = _spy_returns(provider, prev_day)
-        risk_tier = _risk_tier(portfolio)
+        risk_tier = decision_risk_tier
         params = _resolve_params(regime, risk_tier, config.param_overrides)
 
         # v6: momentum_mode bypasses the heavy compute_confidence_score path
@@ -1426,7 +1760,15 @@ def run_backtest(config: BacktestConfig) -> dict:
             _check_catalyst_flips(portfolio, scored, opens, date, config.slippage_bps)
 
         # 7. Hedge sizing — runs BEFORE buys so it claims cash first
-        _manage_hedge(portfolio, provider, date, regime, risk_tier, config.slippage_bps)
+        _manage_hedge(
+            portfolio,
+            provider,
+            date,
+            signal_date,
+            regime,
+            risk_tier,
+            config.slippage_bps,
+        )
 
         # 7b. v4: SPY base position — capture market beta during BULL regimes
         _manage_base_position(portfolio, provider, date, params, config.slippage_bps)
@@ -1438,11 +1780,27 @@ def run_backtest(config: BacktestConfig) -> dict:
         _manage_cash_sleeve(portfolio, provider, date, params, config.slippage_bps)
 
         # 7c. v5: TQQQ leveraged BULL beta — gated by SMA50+SMA200 + hard stop
-        _manage_tqqq(portfolio, provider, date, params, lows, config.slippage_bps)
+        _manage_tqqq(
+            portfolio,
+            provider,
+            date,
+            signal_date,
+            params,
+            lows,
+            config.slippage_bps,
+        )
 
         # 7c''. v10f: UPRO (3× SPY) parallel sleeve — same SMA gate as TQQQ.
         # Adds broad-market leverage so the strategy isn't purely tech-biased.
-        _manage_upro(portfolio, provider, date, params, lows, config.slippage_bps)
+        _manage_upro(
+            portfolio,
+            provider,
+            date,
+            signal_date,
+            params,
+            lows,
+            config.slippage_bps,
+        )
 
         # 7c'''. v10g: PEAD sleeve — gap-up + volume continuation, 10d max hold.
         # Price-action proxy for post-earnings drift since historical EPS
@@ -1462,7 +1820,66 @@ def run_backtest(config: BacktestConfig) -> dict:
 
         # 8-10. Stock-pick management — branch on strategy mode.
         block_buys = params.get("block_new_buys", False)
-        if momentum_mode:
+        if params.get("adaptive_momentum", False):
+            adaptive_cfg = config_from_params(params)
+            adaptive_market = compute_market_state(
+                provider,
+                signal_date,
+                config=adaptive_cfg,
+            )
+            adaptive_risk_off_now = bool(
+                risk_tier == "HALT"
+                or adaptive_market is None
+                or not adaptive_market.above_sma200
+            )
+            if adaptive_risk_off_now:
+                adaptive_risk_off_latched = True
+            elif any(
+                not position.is_base and not position.is_hedge
+                for position in portfolio.positions.values()
+            ) and not (
+                adaptive_pending_plan is not None
+                and adaptive_pending_plan.get("risk_off") is True
+            ):
+                # A normal month-start may have restored exposure before the
+                # recovery confirmation completed. Do not fire a second
+                # off-cycle rerank for the same risk-off episode.
+                adaptive_risk_off_latched = False
+            force_risk_on_reentry = bool(
+                adaptive_risk_off_latched
+                and not adaptive_risk_off_now
+                and adaptive_cfg.risk_on_reentry_confirmation_days > 0
+                and market_reentry_confirmed(
+                    provider,
+                    signal_date,
+                    confirmation_days=(
+                        adaptive_cfg.risk_on_reentry_confirmation_days
+                    ),
+                    config=adaptive_cfg,
+                )
+                and adaptive_pending_plan is None
+            )
+            adaptive_pending_plan = _execute_adaptive_momentum(
+                portfolio=portfolio,
+                provider=provider,
+                candidates=candidates,
+                signal_date=signal_date,
+                today=date,
+                params=params,
+                opens=opens,
+                slippage_bps=config.slippage_bps,
+                risk_tier=risk_tier,
+                prev_date=(all_days[idx - 1] if idx > 0 else None),
+                pending_plan=adaptive_pending_plan,
+                force_risk_on_reentry=force_risk_on_reentry,
+            )
+            if force_risk_on_reentry:
+                # One fresh target is attempted per risk-off episode. Missing
+                # target bars remain inside the frozen pending plan; an empty
+                # eligible set waits for the next normal monthly rebalance.
+                adaptive_risk_off_latched = False
+        elif momentum_mode:
+            adaptive_pending_plan = None
             _execute_momentum_picks(
                 portfolio=portfolio,
                 provider=provider,
@@ -1477,6 +1894,7 @@ def run_backtest(config: BacktestConfig) -> dict:
                 prev_date=(all_days[idx - 1] if idx > 0 else None),
             )
         else:
+            adaptive_pending_plan = None
             # Legacy v3-v5 path: score-sorted gate-filtered buys.
             gate_min = params.get("gate_score_min", 0.65)
             if risk_tier != "HALT" and not block_buys:
@@ -1519,7 +1937,7 @@ def run_backtest(config: BacktestConfig) -> dict:
                                 sector_value += p.market_value
                         if sector_value / portfolio.equity() > 0.25:
                             continue
-                portfolio.open(sym, qty, fill_price, date)
+                    portfolio.open(sym, qty, fill_price, date)
 
         # 11. Daily snapshot
         portfolio.record_snapshot(date, regime, risk_tier)
@@ -1545,6 +1963,10 @@ def run_backtest(config: BacktestConfig) -> dict:
             "starting_cash": config.starting_cash,
             "slippage_bps": config.slippage_bps,
             "universe_size": len(candidates),
+            "ranking_universe_sha256": hash_symbol_universe(candidates),
+            "strategy_version": "v11-adaptive-momentum",
+            "signal_timing": "prior-close-to-next-open",
+            "param_overrides": config.param_overrides,
         },
         **portfolio.to_dict(),
     }

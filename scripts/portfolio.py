@@ -1,6 +1,8 @@
 """Portfolio management — account, positions, P&L, state persistence."""
 
+import math
 import sys
+from datetime import datetime, timezone
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import GetOrdersRequest
 from alpaca.trading.enums import QueryOrderStatus
@@ -8,8 +10,9 @@ from alpaca.trading.enums import QueryOrderStatus
 from utils import (
     ALPACA_API_KEY, ALPACA_SECRET_KEY,
     POSITIONS_STATE, PERFORMANCE_STATE,
-    setup_logging, get_now_str, load_json, save_json, get_risk_tier,
+    EDT, setup_logging, get_now_str, load_json, save_json, get_risk_tier,
 )
+from risk_policy import assess_portfolio_risk
 
 log = setup_logging("portfolio")
 
@@ -47,12 +50,73 @@ def get_account() -> dict:
     }
 
 
+def get_recent_equity_history(max_observations: int = 22) -> list[float]:
+    """Fetch recent daily broker equity observations for the rolling risk gate.
+
+    This intentionally reads Alpaca rather than ``state/performance.json`` so
+    missed scheduler runs cannot make the live drawdown window stale.  Any API
+    or schema failure propagates and causes the execution entry gate to fail
+    closed while leaving risk-reducing exits available.
+    """
+
+    if type(max_observations) is not int or max_observations < 1:
+        raise ValueError("max_observations must be a positive integer")
+    payload = _get_client().get(
+        "/v2/account/portfolio/history",
+        {"period": "3M", "timeframe": "1D", "extended_hours": False},
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("Alpaca portfolio history response is not an object")
+    raw_equities = payload.get("equity")
+    raw_timestamps = payload.get("timestamp")
+    if not isinstance(raw_equities, list):
+        raise ValueError("Alpaca portfolio history has no equity array")
+    if not isinstance(raw_timestamps, list) or len(raw_timestamps) != len(
+        raw_equities
+    ):
+        raise ValueError("Alpaca portfolio history timestamps are missing or misaligned")
+    today = datetime.now(EDT).date()
+    equities: list[float] = []
+    for raw_timestamp, raw in zip(raw_timestamps, raw_equities, strict=True):
+        try:
+            if isinstance(raw_timestamp, (int, float)):
+                observation_date = datetime.fromtimestamp(
+                    float(raw_timestamp), timezone.utc
+                ).date()
+            else:
+                observation_date = datetime.fromisoformat(
+                    str(raw_timestamp).replace("Z", "+00:00")
+                ).date()
+        except (OSError, OverflowError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "Alpaca portfolio history contains invalid timestamp"
+            ) from exc
+        # The current account equity is appended separately by the shared risk
+        # policy.  Excluding today's history bucket prevents counting the same
+        # in-progress session twice.
+        if observation_date >= today:
+            continue
+        if raw is None:
+            continue
+        try:
+            equity = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Alpaca portfolio history contains invalid equity") from exc
+        if not math.isfinite(equity):
+            raise ValueError("Alpaca portfolio history contains non-finite equity")
+        if equity > 0:
+            equities.append(equity)
+    if not equities:
+        raise ValueError("Alpaca portfolio history has no positive equity observations")
+    return equities[-max_observations:]
+
+
 def get_positions() -> list[dict]:
     """Get all open positions."""
     positions = _get_client().get_all_positions()
     result = []
     for p in positions:
-        result.append({
+        row = {
             "symbol": p.symbol,
             "qty": float(p.qty),
             "avg_entry_price": float(p.avg_entry_price),
@@ -61,7 +125,24 @@ def get_positions() -> list[dict]:
             "unrealized_pl": float(p.unrealized_pl),
             "unrealized_plpc": float(p.unrealized_plpc) * 100,
             "side": str(p.side),
-        })
+        }
+        numeric = (
+            row["qty"],
+            row["avg_entry_price"],
+            row["current_price"],
+            row["market_value"],
+            row["unrealized_pl"],
+            row["unrealized_plpc"],
+        )
+        if not all(math.isfinite(float(value)) for value in numeric):
+            raise ValueError(f"broker position {p.symbol} contains non-finite values")
+        if (
+            row["qty"] == 0
+            or row["avg_entry_price"] <= 0
+            or row["current_price"] <= 0
+        ):
+            raise ValueError(f"broker position {p.symbol} contains invalid prices/qty")
+        result.append(row)
     return result
 
 
@@ -112,6 +193,7 @@ def get_portfolio_performance() -> dict:
         "cash_pct": acct["cash_pct"],
         "daily_pnl": acct["daily_pnl"],
         "daily_pnl_pct": acct["daily_pnl_pct"],
+        "last_equity": acct["last_equity"],
         "total_unrealized_pl": total_unrealized,
         "num_positions": len(positions),
         "risk_tier": get_risk_tier(),
@@ -181,19 +263,22 @@ def update_performance_state() -> None:
         perf["monthly_pnl"] = current["equity"] - month_start_equity
         perf["monthly_pnl_pct"] = (perf["monthly_pnl"] / month_start_equity * 100) if month_start_equity > 0 else 0.0
 
-    # Auto-adjust risk tier
-    weekly_pnl_pct = perf.get("weekly_pnl_pct", 0.0)
-    monthly_pnl_pct = perf.get("monthly_pnl_pct", 0.0)
-    # Faster downshift to CAUTIOUS — 2022 backtest showed waiting until
-    # weekly P&L ≤ −2% let aggressive BULL positions accrue real damage
-    # before tier flipped. −1.5% catches the deterioration earlier.
-    daily_pnl_pct = perf.get("daily_pnl_pct", 0.0)
-    if monthly_pnl_pct <= -5.0:
-        perf["risk_tier"] = "HALT"
-    elif weekly_pnl_pct <= -1.5 or daily_pnl_pct <= -2.0:
-        perf["risk_tier"] = "CAUTIOUS"
-    else:
-        perf["risk_tier"] = "NORMAL"
+    # A rolling monthly peak avoids the old permanent half-exposure lock after
+    # an ancient high-water mark, while current-day -5%/-8% breakers remain.
+    prior_equities = [
+        entry.get("equity")
+        for entry in history
+        if entry.get("date") != today
+    ]
+    assessment = assess_portfolio_risk(
+        current["equity"],
+        previous_equity=current["last_equity"],
+        prior_equities=prior_equities,
+    )
+    perf["risk_tier"] = assessment.tier
+    perf["risk_lookback_sessions"] = assessment.lookback_sessions
+    perf["rolling_peak_equity"] = assessment.rolling_peak_equity
+    perf["rolling_drawdown_pct"] = assessment.rolling_drawdown_pct
 
     save_json(PERFORMANCE_STATE, perf)
     log.info(f"Updated performance state (risk_tier={perf.get('risk_tier', 'NORMAL')})")
@@ -202,7 +287,7 @@ def update_performance_state() -> None:
 def print_account():
     acct = get_account()
     print(f"\n{'='*50}")
-    print(f"  ACCOUNT SUMMARY")
+    print("  ACCOUNT SUMMARY")
     print(f"{'='*50}")
     print(f"  Equity:       ${acct['equity']:>12,.2f}")
     print(f"  Cash:         ${acct['cash']:>12,.2f} ({acct['cash_pct']:.1f}%)")
@@ -243,7 +328,7 @@ def print_orders():
 def print_performance():
     perf = get_portfolio_performance()
     print(f"\n{'='*50}")
-    print(f"  PERFORMANCE")
+    print("  PERFORMANCE")
     print(f"{'='*50}")
     print(f"  Equity:       ${perf['equity']:>12,.2f}")
     print(f"  Cash:         ${perf['cash']:>12,.2f} ({perf['cash_pct']:.1f}%)")
@@ -270,4 +355,4 @@ if __name__ == "__main__":
         update_performance_state()
         print("State saved.")
     else:
-        print(f"Usage: python3 portfolio.py [account|positions|performance|orders|save]")
+        print("Usage: python3 portfolio.py [account|positions|performance|orders|save]")

@@ -1,4 +1,11 @@
-# Risk Management — Regime-Adaptive
+# Risk Management — Regime-Adaptive (archived)
+
+> [!WARNING]
+> **Archived pre-V11 material.** The thresholds and stop mechanics below do
+> not describe the current default. Use
+> [`v11_adaptive_momentum.md`](v11_adaptive_momentum.md) for V11's SPY-SMA200
+> gate, 22-session rolling risk tiers, cash target, and paper-execution
+> safeguards. This file is an audit reference, not a reproducibility promise.
 
 All risk knobs are resolved from `scripts/strategy_config.py` based on
 (market_regime, risk_tier). This file describes the policies; the numbers

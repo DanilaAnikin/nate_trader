@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import tempfile
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -60,12 +60,28 @@ def get_now_str() -> str:
 
 
 def load_json(path: Path) -> dict:
-    """Load a JSON file, returning empty dict if missing or invalid."""
+    """Load a JSON object, returning an empty dict for every unsafe input."""
+    value, _error = load_json_object_status(path)
+    return value
+
+
+def load_json_object_status(path: Path) -> tuple[dict, str | None]:
+    """Load an object while preserving unsafe-state provenance for gates.
+
+    A missing state file is a supported first-run condition.  Existing but
+    unreadable, malformed, non-object, or incorrectly encoded state must be
+    distinguishable from that condition when it controls order lifecycle.
+    """
     try:
         with open(path, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+            value = json.load(f)
+    except FileNotFoundError:
+        return {}, None
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return {}, f"{type(exc).__name__}: {exc}"
+    if not isinstance(value, dict):
+        return {}, "top-level JSON value is not an object"
+    return value, None
 
 
 def save_json(path: Path, data: dict) -> None:
@@ -125,12 +141,12 @@ SECTOR_FALLBACK_MAP = {
     "ORCL": "Technology", "GOOGL": "Technology", "GOOG": "Technology",
     "META": "Technology", "PLTR": "Technology", "ANET": "Technology",
     "SNOW": "Technology", "CRM": "Technology", "QQQ": "Technology",
-    "POET": "Technology", "RXT": "Technology", "IBM": "Technology",
+    "POET": "Technology", "RXT": "Technology",
     "DOCN": "Technology", "RBLX": "Technology", "U": "Technology",
 
     # Consumer (discretionary + staples + retail + media)
     "AMZN": "Consumer", "TSLA": "Consumer", "NFLX": "Consumer",
-    "DIS": "Consumer", "WMT": "Consumer", "TGT": "Consumer",
+    "WMT": "Consumer", "TGT": "Consumer",
     "COST": "Consumer", "HD": "Consumer", "LOW": "Consumer",
     "NKE": "Consumer", "SBUX": "Consumer", "MCD": "Consumer",
     "CMG": "Consumer", "YUM": "Consumer", "PG": "Consumer",

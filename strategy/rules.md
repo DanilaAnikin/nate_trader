@@ -1,4 +1,11 @@
-# Trading Rules — Aggressive Momentum Engine (v2)
+# Trading Rules — Aggressive Momentum Engine (v2, archived)
+
+> [!WARNING]
+> **Archived pre-V11 material.** These rules are retained only as an audit
+> reference; they are not the current production policy, and the old behavior
+> and data dependencies are not guaranteed to remain reproducible.
+> Use [`v11_adaptive_momentum.md`](v11_adaptive_momentum.md) for the active
+> signal, allocation, and execution rules.
 
 All entry gates, position sizing, and exit triggers are **regime-aware** and
 resolved through `scripts/strategy_config.py`. The same algorithm pivots from

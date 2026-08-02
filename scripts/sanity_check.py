@@ -1,26 +1,8 @@
-"""Pre-deployment sanity checks for v10d.
-
-Run before any live trading session to catch config or environment
-breakage early. Returns nonzero on any failure.
-
-Checks:
-  1. strategy_config loads without error and returns expected v10d shape.
-  2. TQQQ overlay logic imports cleanly (no syntax / wiring errors).
-  3. All scoring modules import (PEAD, MR, sentiment, ML, MTF, sector-rot).
-  4. The TQQQ symbol is in the infrastructure skip-list across the four
-     places that need it.
-  5. The latest backtest result file exists and is parseable.
-
-Usage:
-    python3 scripts/sanity_check.py
-
-Designed to run as part of the pre-market routine.
-"""
+"""Offline pre-deployment checks for the v11 paper-trading strategy."""
 
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -28,166 +10,207 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
+VALIDATION_RESULT_PATH = (
+    _SCRIPTS_DIR.parent / "state" / "backtest" / "v11_validation.json"
+)
 
-def _fail(msg: str) -> None:
-    print(f"  FAIL: {msg}")
 
-
-def _ok(msg: str) -> None:
-    print(f"  ok:   {msg}")
+def _ok(message: str) -> None:
+    print(f"  ok:   {message}")
 
 
 def check_strategy_config() -> list[str]:
-    failures = []
-    try:
-        from strategy_config import get_strategy_params, get_bear_hedge_target_pct
-    except Exception as e:
-        failures.append(f"strategy_config import: {e}")
-        return failures
+    from strategy_config import get_bear_hedge_target_pct, get_strategy_params
 
-    for regime in ["BULL", "NEUTRAL", "BEAR"]:
-        for tier in ["NORMAL", "CAUTIOUS"]:
-            try:
-                p = get_strategy_params(regime, tier)
-            except Exception as e:
-                failures.append(f"get_strategy_params({regime}, {tier}): {e}")
-                continue
-            # Required v10d fields
-            for k in ["tqqq_pct", "tqqq_stop_pct", "base_pct",
-                      "base_instrument", "trailing_stop_pct"]:
-                if k not in p:
-                    failures.append(f"{regime}/{tier} missing key '{k}'")
-
-    # Specific v10f expectations
-    bull_n = get_strategy_params("BULL", "NORMAL")
-    if bull_n["tqqq_pct"] != 75.0:
-        failures.append(f"BULL/NORMAL tqqq_pct expected 75, got {bull_n['tqqq_pct']}")
-    if bull_n.get("upro_pct", 0) != 25.0:
-        failures.append(f"BULL/NORMAL upro_pct expected 25, got {bull_n.get('upro_pct')}")
-    if bull_n["trailing_stop_pct"] != 40.0:
-        failures.append(f"BULL/NORMAL trailing_stop_pct expected 40, "
-                        f"got {bull_n['trailing_stop_pct']}")
-    neut_n = get_strategy_params("NEUTRAL", "NORMAL")
-    if neut_n["tqqq_pct"] != 75.0:
-        failures.append(f"NEUTRAL/NORMAL tqqq_pct expected 75, "
-                        f"got {neut_n['tqqq_pct']}")
-    if neut_n.get("upro_pct", 0) != 25.0:
-        failures.append(f"NEUTRAL/NORMAL upro_pct expected 25, "
-                        f"got {neut_n.get('upro_pct')}")
+    failures: list[str] = []
+    for regime in ("BULL", "NEUTRAL", "BEAR"):
+        for tier in ("NORMAL", "CAUTIOUS", "HALT"):
+            params = get_strategy_params(regime, tier)
+            expected = {
+                "strategy_version": "v11-adaptive-momentum",
+                "adaptive_momentum": True,
+                "momentum_top_n": 10,
+                "max_position_pct": 9.0,
+                "momentum_max_sector_pct": 20.0,
+                "momentum_risk_on_reentry_days": 1,
+                "min_cash_pct": 10.0,
+                "tqqq_pct": 0.0,
+                "upro_pct": 0.0,
+                "base_pct": 0.0,
+                "enable_options_hedge": False,
+                "enable_mean_reversion": False,
+                "enable_pead": False,
+            }
+            for key, value in expected.items():
+                if params.get(key) != value:
+                    failures.append(
+                        f"{regime}/{tier} {key}: expected {value!r}, "
+                        f"got {params.get(key)!r}"
+                    )
+            if get_bear_hedge_target_pct(regime, tier) != 0.0:
+                failures.append(f"{regime}/{tier}: SH hedge target is not disabled")
     if not failures:
-        _ok(f"strategy_config: BULL {bull_n['tqqq_pct']}TQQQ+{bull_n['upro_pct']}UPRO, "
-            f"NEUTRAL {neut_n['tqqq_pct']}TQQQ+{neut_n['upro_pct']}UPRO, "
-            f"trail={bull_n['trailing_stop_pct']}%")
+        _ok(
+            "v11 targets: 10 names, 9% max, 20% sector, 10% cash, "
+            "one-shot recovery reentry, no leverage"
+        )
     return failures
 
 
 def check_live_wiring() -> list[str]:
-    failures = []
-    os.environ.setdefault("ALPACA_API_KEY", "sanity_check_no_network")
-    os.environ.setdefault("ALPACA_SECRET_KEY", "sanity_check_no_network")
+    failures: list[str] = []
     try:
         from execute_trades import (
-            manage_tqqq_position, manage_base_position, manage_bear_hedge,
-            _is_infrastructure, BASE_CANDIDATES, TQQQ_BASE_SYMBOL,
+            _is_infrastructure,
+            manage_momentum_picks,
+            paper_trading_mode_enabled,
         )
-    except Exception as e:
-        failures.append(f"execute_trades import: {e}")
-        return failures
+        from trade import MAX_ENTRY_CLOCK_AGE_SECONDS
+    except Exception as exc:
+        return [f"paper execution imports: {exc}"]
 
-    if not _is_infrastructure("TQQQ"):
-        failures.append("_is_infrastructure('TQQQ') returned False")
-    if not _is_infrastructure("SSO"):
-        failures.append("_is_infrastructure('SSO') returned False (regression)")
-    if not _is_infrastructure("SH"):
-        failures.append("_is_infrastructure('SH') returned False (regression)")
+    for symbol in ("SPY", "SSO", "TQQQ", "UPRO", "SH"):
+        if not _is_infrastructure(symbol):
+            failures.append(f"{symbol} missing from infrastructure exit set")
     if _is_infrastructure("AAPL"):
-        failures.append("_is_infrastructure('AAPL') returned True (bug)")
-    if TQQQ_BASE_SYMBOL != "TQQQ":
-        failures.append(f"TQQQ_BASE_SYMBOL='{TQQQ_BASE_SYMBOL}' not 'TQQQ'")
-    if TQQQ_BASE_SYMBOL in BASE_CANDIDATES:
-        failures.append("TQQQ is in BASE_CANDIDATES — it should be parallel "
-                        "to the SPY↔SSO swap loop, not part of it")
+        failures.append("AAPL incorrectly classified as infrastructure")
+    if not callable(manage_momentum_picks):
+        failures.append("adaptive momentum execution is not callable")
+    if paper_trading_mode_enabled():
+        _ok("TRADING_MODE=paper is explicitly enabled")
+    else:
+        _ok("orders locked; set TRADING_MODE=paper only for an intentional paper run")
+    if MAX_ENTRY_CLOCK_AGE_SECONDS != 120:
+        failures.append("broker clock freshness gate is not 120 seconds")
     if not failures:
-        _ok("execute_trades: manage_tqqq_position wired, infra skip-list "
-            "includes TQQQ, BASE_CANDIDATES correct")
+        _ok("adaptive planner, infrastructure exits, and clock gate are wired")
     return failures
 
 
 def check_modules() -> list[str]:
-    failures = []
     modules = [
-        "utils", "strategy_config", "trade", "execute_trades", "portfolio",
-        "research", "screener", "monitor_drift", "ablation_flags",
-        "gap_scanner", "mean_reversion", "pead_strategy", "momentum_picker",
-        "sector_rotation", "multi_timeframe", "ml_signals", "sentiment",
-        "earnings_calendar", "strategy_metadata",
+        "adaptive_momentum",
+        "universe",
+        "strategy_config",
+        "trade",
+        "execute_trades",
+        "portfolio",
+        "research",
+        "backtest.engine",
+        "backtest.metrics",
     ]
-    for m in modules:
+    failures: list[str] = []
+    for module in modules:
         try:
-            __import__(m)
-        except Exception as e:
-            failures.append(f"{m} import: {e}")
+            __import__(module)
+        except Exception as exc:
+            failures.append(f"{module} import: {exc}")
     if not failures:
-        _ok(f"all {len(modules)} production modules import cleanly")
+        _ok(f"all {len(modules)} v11 modules import without credentials/network")
     return failures
 
 
-def check_backtest_result() -> list[str]:
-    failures = []
-    p = Path(__file__).resolve().parent.parent / "state" / "backtest"
-    latest = p / "latest_result.json"
-    wf = p / "walk_forward_result.json"
-    if not latest.exists():
-        failures.append(f"latest_result.json missing at {latest}")
-    else:
-        try:
-            d = json.loads(latest.read_text())
-            metrics = d.get("metrics", {})
-            alpha = metrics.get("alpha_annual_pct")
-            if alpha is None:
-                failures.append("latest_result.json has no alpha_annual_pct")
-            else:
-                _ok(f"latest_result: α={alpha:+.2f}%/yr")
-        except Exception as e:
-            failures.append(f"latest_result.json parse: {e}")
-    if not wf.exists():
-        failures.append(f"walk_forward_result.json missing at {wf}")
-    else:
-        try:
-            d = json.loads(wf.read_text())
-            agg = d.get("aggregate", {})
-            wf_alpha = agg.get("mean_oos_alpha_annual_pct")
-            if wf_alpha is None:
-                failures.append("walk_forward_result.json has no aggregate alpha")
-            else:
-                _ok(f"walk_forward: mean OOS α={wf_alpha:+.2f}%/yr "
-                    f"across {agg.get('n_windows')} windows")
-        except Exception as e:
-            failures.append(f"walk_forward_result.json parse: {e}")
-    return failures
+def check_validation_artifact(path: Path = VALIDATION_RESULT_PATH) -> list[str]:
+    """Require a schema-valid report whose fixed alpha gate actually passed."""
+
+    if not path.exists():
+        return ["validation artifact missing: run scripts/backtest/validate_v11.py"]
+    try:
+        payload = json.loads(path.read_text())
+    except Exception as exc:
+        return [f"validation artifact parse: {exc}"]
+    if not isinstance(payload, dict):
+        return ["validation artifact must be a JSON object"]
+    if payload.get("schema_version") != 1 or payload.get("kind") != "v11_fixed_strategy_validation":
+        return ["validation artifact has an unsupported schema or kind"]
+    from backtest.validate_v11 import validation_report_contract_errors
+
+    report_contract_errors = validation_report_contract_errors(payload)
+    if report_contract_errors:
+        return [
+            "validation artifact contract: " + "; ".join(report_contract_errors)
+        ]
+    strategy = payload.get("strategy")
+    if not isinstance(strategy, dict) or strategy.get("version") != "v11-adaptive-momentum":
+        return ["validation artifact does not describe v11-adaptive-momentum"]
+    from strategy_identity import build_strategy_identity
+
+    recorded_identity = strategy.get("identity")
+    current_identity = build_strategy_identity()
+    if (
+        not isinstance(recorded_identity, dict)
+        or recorded_identity.get("value") != current_identity["value"]
+    ):
+        return ["validation artifact is stale for the current strategy fingerprint"]
+    evidence = payload.get("evidence")
+    if not isinstance(evidence, dict):
+        return ["validation artifact omits its evidence fingerprint"]
+    recorded_bar_hash = evidence.get("bar_snapshot_sha256")
+    through_date = evidence.get("bar_snapshot_through_date")
+    if not isinstance(recorded_bar_hash, str) or len(recorded_bar_hash) != 64:
+        return ["validation artifact omits its historical bar fingerprint"]
+    if not isinstance(through_date, str) or not through_date:
+        return ["validation artifact omits its historical bar boundary"]
+    from strategy_identity import hash_symbol_universe
+    from universe import load_universe_symbols
+
+    current_universe_hash = hash_symbol_universe(
+        load_universe_symbols(held_symbols=[])
+    )
+    if evidence.get("ranking_universe_sha256") != current_universe_hash:
+        return ["validation artifact is stale for the current ranking universe"]
+    from adaptive_momentum import SECTOR_BENCHMARKS
+    from backtest.data_provider import BarProvider
+    from strategy_identity import build_bar_snapshot_identity
+
+    current_bar_evidence = build_bar_snapshot_identity(
+        BarProvider(),
+        load_universe_symbols(held_symbols=[]),
+        ("BIL", "SPY", *SECTOR_BENCHMARKS.values()),
+        through_date=through_date,
+    )
+    if current_bar_evidence["bar_snapshot_sha256"] != recorded_bar_hash:
+        return ["validation artifact is stale for the current historical bars"]
+    warnings = payload.get("warnings")
+    if not warnings:
+        return ["validation artifact omits bias/holdout limitations"]
+    assessment = payload.get("assessment")
+    if not isinstance(assessment, dict):
+        return ["validation artifact omits the fail-closed promotion assessment"]
+    status = assessment.get("status")
+    if status != "PASS":
+        allowed_mode = assessment.get("allowed_mode", "dry-run/shadow-research-only")
+        return [
+            f"v11 alpha promotion gate is {status or 'missing'}; "
+            f"allowed mode: {allowed_mode}"
+        ]
+    if assessment.get("allowed_mode") != "paper-validation-eligible":
+        return ["validation PASS has an inconsistent allowed_mode"]
+    _ok("fixed v11 alpha gate passed with explicit bias/holdout limitations")
+    return []
 
 
 def main() -> int:
-    print("Running v10d sanity check...\n")
-    all_failures: list[str] = []
-    for name, fn in [
+    print("Running v11 paper-deployment sanity check...\n")
+    failures: list[str] = []
+    for label, check in (
         ("strategy_config", check_strategy_config),
         ("live_wiring", check_live_wiring),
         ("modules", check_modules),
-        ("backtest_result", check_backtest_result),
-    ]:
-        print(f"[{name}]")
-        all_failures.extend(fn())
+        ("validation", check_validation_artifact),
+    ):
+        print(f"[{label}]")
+        failures.extend(check())
 
     print()
-    if all_failures:
-        print(f"FAILED — {len(all_failures)} issue(s):")
-        for f in all_failures:
-            print(f"  • {f}")
+    if failures:
+        print(f"FAILED — {len(failures)} issue(s):")
+        for failure in failures:
+            print(f"  • {failure}")
         return 1
-    print("PASSED — system is ready for live trading.")
+    print("PASSED — eligible for intentional paper validation; alpha is not guaranteed.")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

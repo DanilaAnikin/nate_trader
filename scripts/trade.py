@@ -1,6 +1,10 @@
 """Trade execution — order validation, placement, stop-losses."""
 
+import hashlib
+import math
+import os
 import sys
+from datetime import datetime, timezone
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import (
     LimitOrderRequest,
@@ -10,14 +14,16 @@ from alpaca.trading.requests import (
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce, QueryOrderStatus
 
 from utils import (
-    ALPACA_API_KEY, ALPACA_SECRET_KEY, PERFORMANCE_STATE,
-    setup_logging, get_now_str, load_json, save_json,
-    get_risk_tier, get_tradeable_symbols, get_symbol_info,
+    ALPACA_API_KEY, ALPACA_SECRET_KEY,
+    setup_logging, get_now_str,
+    get_risk_tier, get_symbol_info,
 )
 
 log = setup_logging("trade")
 
 _client: "TradingClient | None" = None
+MAX_ENTRY_CLOCK_AGE_SECONDS = 120
+_INFRASTRUCTURE_SYMBOLS = {"SPY", "SSO", "TQQQ", "UPRO", "BIL", "SH"}
 
 
 def _get_client() -> TradingClient:
@@ -48,7 +54,102 @@ def get_market_status() -> dict:
     }
 
 
-def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
+def get_market_entry_gate(
+    *,
+    now: datetime | None = None,
+    max_age_seconds: int = MAX_ENTRY_CLOCK_AGE_SECONDS,
+) -> dict:
+    """Fail-closed gate for orders that would add market exposure.
+
+    Alpaca's clock is authoritative for whether the market is open.  Its
+    timestamp must also be close to our current UTC time so a cached/stale
+    response cannot accidentally authorize entries.  Callers should continue
+    processing risk-reducing sells when ``allowed`` is false.
+    """
+    checked_at = now or datetime.now(timezone.utc)
+    if checked_at.tzinfo is None:
+        checked_at = checked_at.replace(tzinfo=timezone.utc)
+    else:
+        checked_at = checked_at.astimezone(timezone.utc)
+
+    try:
+        clock = _get_client().get_clock()
+        clock_timestamp = clock.timestamp
+        if isinstance(clock_timestamp, str):
+            clock_timestamp = datetime.fromisoformat(
+                clock_timestamp.replace("Z", "+00:00")
+            )
+        if clock_timestamp.tzinfo is None:
+            clock_timestamp = clock_timestamp.replace(tzinfo=timezone.utc)
+        else:
+            clock_timestamp = clock_timestamp.astimezone(timezone.utc)
+
+        age_seconds = abs((checked_at - clock_timestamp).total_seconds())
+        is_open = bool(clock.is_open)
+        is_fresh = age_seconds <= max_age_seconds
+        if not is_open:
+            reason = "Alpaca market clock reports closed"
+        elif not is_fresh:
+            reason = (
+                f"Alpaca market clock is stale ({age_seconds:.1f}s; "
+                f"max {max_age_seconds}s)"
+            )
+        else:
+            reason = "market open and Alpaca clock fresh"
+        return {
+            "allowed": is_open and is_fresh,
+            "is_open": is_open,
+            "is_fresh": is_fresh,
+            "age_seconds": age_seconds,
+            "clock_timestamp": clock_timestamp.isoformat(),
+            "checked_at": checked_at.isoformat(),
+            "reason": reason,
+        }
+    except Exception as exc:
+        return {
+            "allowed": False,
+            "is_open": False,
+            "is_fresh": False,
+            "age_seconds": None,
+            "clock_timestamp": None,
+            "checked_at": checked_at.isoformat(),
+            "reason": f"Alpaca market clock unavailable: {exc}",
+        }
+
+
+def build_client_order_id(
+    purpose: str,
+    symbol: str,
+    side: str,
+    execution_key: str,
+) -> str:
+    """Build a stable Alpaca client-order ID (48 characters maximum).
+
+    The same purpose/symbol/side/execution key always produces the same ID,
+    allowing scheduled routines to be safely retried without submitting a
+    duplicate order.  ``execution_key`` is deliberately supplied by callers
+    (for example ``2026-07-30`` or ``2026-07``) rather than read from the
+    clock, which keeps this helper deterministic and straightforward to test.
+    """
+    canonical = "|".join((purpose, symbol.upper(), side.lower(), execution_key))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+    readable = "-".join(("nt", purpose, symbol.upper(), side.lower()))
+    safe_readable = "".join(
+        char.lower() if char.isalnum() or char == "-" else "-"
+        for char in readable
+    ).strip("-")
+    prefix = safe_readable[:35].rstrip("-")
+    return f"{prefix}-{digest}"[:48]
+
+
+def validate_order(
+    symbol: str,
+    qty: float,
+    side: str,
+    price: float,
+    *,
+    sector_override: str | None = None,
+) -> dict:
     """Validate an order against all risk rules. Returns {valid: bool, reasons: []}."""
     from strategy_config import get_strategy_params
     reasons = []
@@ -65,7 +166,7 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
 
     # 1. Risk tier check — HALT blocks new directional longs, NOT hedges
     if risk_tier == "HALT" and side.lower() == "buy" and not is_hedge_order:
-        reasons.append(f"HALT mode — no new directional buys allowed (hedges OK)")
+        reasons.append("HALT mode — no new directional buys allowed (hedges OK)")
 
     # 2. Cash reserve check (regime-adaptive minimum)
     order_cost = qty * price
@@ -97,6 +198,7 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
         non_hedge_symbols = {
             s for s in existing_symbols
             if _get_info(s).get("sector") != "Hedge"
+            and s not in _INFRASTRUCTURE_SYMBOLS
         }
         max_positions = params["max_positions"]
         if symbol not in existing_symbols and len(non_hedge_symbols) >= max_positions:
@@ -105,7 +207,7 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
     # 5. Sector concentration check (25% max) — Hedge sector is exempt
     if side.lower() == "buy" and not is_hedge_order:
         symbol_info = get_symbol_info(symbol)
-        target_sector = symbol_info.get("sector", "Unknown")
+        target_sector = sector_override or symbol_info.get("sector", "Unknown")
         if target_sector == "Unknown":
             # Unknown means the symbol isn't in watchlist AND isn't in the sector
             # fallback map. Block the trade — better miss a single name than
@@ -117,6 +219,8 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
         else:
             sector_value = order_cost
             for p in positions:
+                if p.symbol in _INFRASTRUCTURE_SYMBOLS:
+                    continue
                 if p.symbol == symbol:
                     # Already accounted for via order_cost for new shares;
                     # add existing value for total post-trade position
@@ -126,13 +230,34 @@ def validate_order(symbol: str, qty: float, side: str, price: float) -> dict:
                 if p_info.get("sector") == target_sector:
                     sector_value += float(p.market_value)
             sector_pct = (sector_value / equity * 100) if equity > 0 else 0
-            if sector_pct > 25:
-                reasons.append(f"Sector '{target_sector}' would be {sector_pct:.1f}% (max 25%)")
+            max_sector_pct = float(params.get("momentum_max_sector_pct", 20.0))
+            if sector_pct > max_sector_pct:
+                reasons.append(
+                    f"Sector '{target_sector}' would be {sector_pct:.1f}% "
+                    f"(max {max_sector_pct:.0f}%)"
+                )
 
-    # 6. Daily loss check
-    daily_pnl_pct = ((float(acct.equity) - float(acct.last_equity)) / float(acct.last_equity) * 100) if float(acct.last_equity) > 0 else 0
-    if daily_pnl_pct <= -3.0 and side.lower() == "buy":
-        reasons.append(f"Daily loss halt triggered ({daily_pnl_pct:.2f}% today)")
+    # 6. Fresh-account HALT backstop.  The old independent -3% threshold was
+    # absent from the validated/backtested policy and made live fills diverge
+    # from the evidence.  Match the shared -8% one-session HALT instead; the
+    # execution orchestrator separately captures the full rolling assessment.
+    from risk_policy import HALT_DAILY_RETURN_PCT
+
+    last_equity = float(acct.last_equity)
+    daily_pnl_pct = (
+        (float(acct.equity) - last_equity) / last_equity * 100.0
+        if last_equity > 0
+        else 0.0
+    )
+    if (
+        daily_pnl_pct <= HALT_DAILY_RETURN_PCT
+        and side.lower() == "buy"
+        and not is_hedge_order
+    ):
+        reasons.append(
+            f"Daily HALT triggered ({daily_pnl_pct:.2f}% today; "
+            f"threshold {HALT_DAILY_RETURN_PCT:.0f}%)"
+        )
 
     # 7. Symbol must be a valid, tradeable asset on Alpaca
     try:
@@ -210,10 +335,20 @@ def calculate_position_size(symbol: str, entry_price: float,
     return max(0, shares)
 
 
-def place_limit_order(symbol: str, qty: int, side: str, limit_price: float) -> dict:
-    """Place a limit order."""
+def place_limit_order(
+    symbol: str,
+    qty: float,
+    side: str,
+    limit_price: float,
+    client_order_id: str | None = None,
+) -> dict:
+    """Place a limit order, optionally with a caller-supplied idempotency ID.
+
+    The fifth argument is optional for backwards compatibility.  When omitted,
+    Alpaca generates the client order ID exactly as before.
+    """
     order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
-    request = LimitOrderRequest(
+    request_kwargs = dict(
         symbol=symbol,
         qty=qty,
         side=order_side,
@@ -221,6 +356,9 @@ def place_limit_order(symbol: str, qty: int, side: str, limit_price: float) -> d
         time_in_force=TimeInForce.DAY,
         limit_price=round(limit_price, 2),
     )
+    if client_order_id is not None:
+        request_kwargs["client_order_id"] = client_order_id
+    request = LimitOrderRequest(**request_kwargs)
     order = _get_client().submit_order(request)
     result = {
         "id": str(order.id),
@@ -263,36 +401,165 @@ def cancel_all_orders() -> int:
     return 0
 
 
-def close_position(symbol: str, price_override: float | None = None) -> dict:
-    """Close an entire position via limit order (not market order).
+def _order_lifecycle_view(order) -> dict:
+    """Normalize the broker order fields used by the execution reconciler."""
 
-    Fetches current bid and places a limit sell at bid * 0.999 to ensure
-    fill while staying limit-only. Use price_override to skip the quote.
+    def enum_value(value) -> str:
+        return str(getattr(value, "value", value)).lower()
+
+    qty = float(getattr(order, "qty", 0) or 0)
+    filled_qty = float(getattr(order, "filled_qty", 0) or 0)
+    if (
+        not math.isfinite(qty)
+        or not math.isfinite(filled_qty)
+        or qty < 0
+        or filled_qty < 0
+        or filled_qty > qty + 1e-9
+    ):
+        raise ValueError("broker order contains invalid quantity lifecycle")
+    return {
+        "id": str(order.id),
+        "client_order_id": str(getattr(order, "client_order_id", "") or ""),
+        "symbol": str(order.symbol),
+        "side": enum_value(order.side),
+        "type": enum_value(getattr(order, "type", "")),
+        "time_in_force": enum_value(getattr(order, "time_in_force", "")),
+        "qty": qty,
+        "filled_qty": filled_qty,
+        "remaining_qty": max(0.0, qty - filled_qty),
+        "limit_price": (
+            float(order.limit_price)
+            if getattr(order, "limit_price", None) is not None
+            else None
+        ),
+        "status": enum_value(order.status),
+    }
+
+
+def list_open_orders() -> list[dict]:
+    """Return the complete lifecycle view needed by target rebalancing.
+
+    Exceptions deliberately propagate.  The caller must fail closed when the
+    broker cannot provide a trustworthy open-order snapshot; treating an API
+    failure as an empty book can submit duplicate orders.
+    """
+
+    request = GetOrdersRequest(status=QueryOrderStatus.OPEN)
+    orders = _get_client().get_orders(filter=request)
+    return [_order_lifecycle_view(order) for order in orders]
+
+
+def get_order_by_client_order_id(client_order_id: str) -> dict | None:
+    """Resolve a prior idempotent submission, returning ``None`` on 404 only."""
+
+    try:
+        order = _get_client().get_order_by_client_id(client_order_id)
+    except Exception as exc:
+        status_code = getattr(exc, "status_code", None)
+        message = str(exc).lower()
+        if status_code == 404 or "order not found" in message:
+            return None
+        raise
+    return _order_lifecycle_view(order)
+
+
+def cancel_open_order(order_id: str) -> None:
+    """Request cancellation of one known open order.
+
+    Confirmation is intentionally the caller's responsibility: the adaptive
+    executor fetches a second open-order snapshot and never submits a
+    conflicting target order in the cancellation run.
+    """
+
+    _get_client().cancel_order_by_id(order_id)
+    log.info(f"Order cancellation requested: {order_id}")
+
+
+def close_position(
+    symbol: str,
+    price_override: float | None = None,
+    *,
+    client_order_id: str | None = None,
+) -> dict:
+    """Close an entire long or short position via a limit order.
+
+    Longs sell near the bid; shorts buy to cover near the ask.  Existing
+    same-side close orders are reconciled before another order is submitted.
+    Use ``price_override`` to skip the quote.
     """
     try:
         pos = _get_client().get_open_position(symbol)
-        qty = int(float(pos.qty))
-        if qty <= 0:
-            return {"symbol": symbol, "status": "no_position"}
+        raw_qty = round(float(pos.qty), 9)
+        if not math.isfinite(raw_qty):
+            raise ValueError("position quantity is non-finite")
+        if raw_qty == 0:
+            return {"symbol": symbol, "status": "no_position", "side": None}
+        close_side = "buy" if raw_qty < 0 else "sell"
+        absolute_qty = abs(raw_qty)
+        qty: int | float = (
+            int(round(absolute_qty))
+            if abs(absolute_qty - round(absolute_qty)) < 1e-9
+            else absolute_qty
+        )
 
-        if price_override:
-            limit_price = round(price_override, 2)
+        pending_closes = [
+            order
+            for order in list_open_orders()
+            if order["symbol"] == symbol
+            and order["side"] == close_side
+            and order["remaining_qty"] > 0
+        ]
+        if pending_closes:
+            pending_qty = sum(
+                order["remaining_qty"] for order in pending_closes
+            )
+            if pending_qty > float(qty) + 1e-9:
+                raise ValueError(
+                    f"pending {close_side} quantity exceeds open position"
+                )
+            return {
+                "symbol": symbol,
+                "status": "pending",
+                "side": close_side,
+                "qty": qty,
+                "pending_order_ids": [order["id"] for order in pending_closes],
+                "pending_qty": pending_qty,
+            }
+
+        if price_override is not None:
+            reference = float(price_override)
         else:
             from research import get_latest_quote
             quote = get_latest_quote(symbol)
-            bid = quote["bid"] if quote["bid"] > 0 else quote["mid"]
-            limit_price = round(bid * 0.999, 2)
+            if close_side == "buy":
+                reference = quote["ask"] if quote["ask"] > 0 else quote["mid"]
+                reference = float(reference) * 1.001
+            else:
+                reference = quote["bid"] if quote["bid"] > 0 else quote["mid"]
+                reference = float(reference) * 0.999
+        if not math.isfinite(reference) or reference <= 0:
+            raise ValueError("close limit reference price is invalid")
+        limit_price = round(reference, 2)
 
-        order = place_limit_order(symbol, qty, "sell", limit_price)
-        log.info(f"Closed position: {symbol} — {qty} shares @ ${limit_price:.2f}")
-        return {"symbol": symbol, "status": "closed", "order_id": order["id"],
-                "qty": qty, "price": limit_price}
+        order = place_limit_order(
+            symbol,
+            qty,
+            close_side,
+            limit_price,
+            client_order_id=client_order_id,
+        )
+        log.info(
+            f"Close submitted: {close_side.upper()} {qty} {symbol} "
+            f"@ ${limit_price:.2f}"
+        )
+        return {"symbol": symbol, "status": "submitted", "order_id": order["id"],
+                "side": close_side, "qty": qty, "price": limit_price}
     except Exception as e:
         log.error(f"Failed to close {symbol}: {e}")
         return {"symbol": symbol, "status": "error", "error": str(e)}
 
 
-def sync_trailing_stops() -> list[dict]:
+def sync_trailing_stops(dry_run: bool = False) -> list[dict]:
     """Place trailing stops for any filled positions that don't have one.
 
     Uses regime-adaptive trail_pct from strategy_config (8% default in
@@ -331,6 +598,15 @@ def sync_trailing_stops() -> list[dict]:
         if qty <= 0:
             continue
 
+        if dry_run:
+            results.append({
+                "symbol": symbol,
+                "qty": qty,
+                "trail_pct": trail_pct,
+                "action": "DRY_RUN_SYNC_STOP",
+            })
+            continue
+
         try:
             stop = place_trailing_stop(symbol, qty, trail_percent=trail_pct)
             log.info(f"Synced trailing stop for {symbol}: {qty} shares @ {trail_pct}% trail")
@@ -342,7 +618,7 @@ def sync_trailing_stops() -> list[dict]:
     return results
 
 
-def execute_stop_losses() -> list[dict]:
+def execute_stop_losses(dry_run: bool = False) -> list[dict]:
     """Manual hard stop-loss for positions whose unrealized loss exceeds the trail percent.
 
     Infrastructure positions (SPY/SSO/TQQQ base + SH hedge) are skipped —
@@ -363,6 +639,13 @@ def execute_stop_losses() -> list[dict]:
         pnl_pct = float(p.unrealized_plpc) * 100
         if pnl_pct <= -stop_pct:
             log.warning(f"Stop-loss triggered for {p.symbol}: {pnl_pct:.2f}% (limit -{stop_pct}%)")
+            if dry_run:
+                actions.append({
+                    "symbol": p.symbol,
+                    "action": "DRY_RUN_STOP_LOSS",
+                    "reason": f"Stop-loss at {pnl_pct:.2f}%",
+                })
+                continue
             result = close_position(p.symbol)
             result["reason"] = f"Stop-loss at {pnl_pct:.2f}%"
             actions.append(result)
@@ -370,12 +653,23 @@ def execute_stop_losses() -> list[dict]:
     return actions
 
 
-if __name__ == "__main__":
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "market"
+def main(argv: list[str] | None = None) -> int:
+    """Trade utility CLI; every mutating command is paper-opt-in only."""
+
+    args = list(sys.argv[1:] if argv is None else argv)
+    cmd = args[0] if args else "market"
+    if cmd in {"stops", "cancel", "sync-stops"} and (
+        os.getenv("TRADING_MODE", "").strip().lower() != "paper"
+    ):
+        print(
+            "Trading disabled: set TRADING_MODE=paper for mutating trade commands.",
+            file=sys.stderr,
+        )
+        return 2
 
     if cmd == "market":
         status = get_market_status()
-        print(f"\nMarket Status:")
+        print("\nMarket Status:")
         print(f"  Open: {'YES' if status['is_open'] else 'NO'}")
         print(f"  Next Open:  {status['next_open']}")
         print(f"  Next Close: {status['next_close']}")
@@ -383,7 +677,7 @@ if __name__ == "__main__":
     elif cmd == "stops":
         actions = execute_stop_losses()
         if actions:
-            print(f"\nStop-losses executed:")
+            print("\nStop-losses executed:")
             for a in actions:
                 print(f"  {a['symbol']}: {a.get('reason', 'closed')}")
         else:
@@ -396,7 +690,7 @@ if __name__ == "__main__":
     elif cmd == "sync-stops":
         results = sync_trailing_stops()
         if results:
-            print(f"\nTrailing stops synced:")
+            print("\nTrailing stops synced:")
             for r in results:
                 if "error" in r:
                     print(f"  {r['symbol']}: ERROR — {r['error']}")
@@ -405,20 +699,26 @@ if __name__ == "__main__":
         else:
             print("\nAll positions already have trailing stops.")
 
-    elif cmd == "validate" and len(sys.argv) >= 6:
-        symbol = sys.argv[2].upper()
-        qty = float(sys.argv[3])
-        side = sys.argv[4].lower()
-        price = float(sys.argv[5])
+    elif cmd == "validate" and len(args) >= 5:
+        symbol = args[1].upper()
+        qty = float(args[2])
+        side = args[3].lower()
+        price = float(args[4])
         result = validate_order(symbol, qty, side, price)
         print(f"\nOrder Validation: {symbol} {side.upper()} {qty} @ ${price:.2f}")
         print(f"  Valid: {'YES' if result['valid'] else 'NO'}")
         print(f"  Order Value: ${result['order_value']:,.2f}")
         print(f"  Risk Tier: {result['risk_tier']}")
         if result['reasons']:
-            print(f"  Rejection Reasons:")
+            print("  Rejection Reasons:")
             for r in result['reasons']:
                 print(f"    - {r}")
 
     else:
         print("Usage: python3 trade.py [market|stops|sync-stops|cancel|validate SYMBOL QTY SIDE PRICE]")
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

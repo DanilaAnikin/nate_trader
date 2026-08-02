@@ -39,6 +39,10 @@ class BarProvider:
     def __init__(self, bars_dir: Path = BARS_DIR):
         self.bars_dir = bars_dir
         self._cache: dict[str, pd.DataFrame] = {}
+        self._day_cache: dict[
+            str,
+            dict[str, tuple[float, float, float, float, int]],
+        ] = {}
 
     def available_symbols(self) -> list[str]:
         if not self.bars_dir.exists():
@@ -89,17 +93,34 @@ class BarProvider:
 
     def bar_at(self, symbol: str, date: str) -> dict | None:
         """Return the bar at exactly `date`, or None if not a trading day."""
-        df = self.load(symbol)
-        if df is None or date not in df.index:
+        if symbol not in self._day_cache:
+            df = self.load(symbol)
+            if df is None or df.empty:
+                self._day_cache[symbol] = {}
+            else:
+                self._day_cache[symbol] = {
+                    str(index): (
+                        float(open_price),
+                        float(high),
+                        float(low),
+                        float(close),
+                        int(volume),
+                    )
+                    for index, open_price, high, low, close, volume in df[
+                        ["open", "high", "low", "close", "volume"]
+                    ].itertuples(index=True, name=None)
+                }
+        values = self._day_cache[symbol].get(date)
+        if values is None:
             return None
-        row = df.loc[date]
+        open_price, high, low, close, volume = values
         return {
             "date": date,
-            "open": float(row["open"]),
-            "high": float(row["high"]),
-            "low": float(row["low"]),
-            "close": float(row["close"]),
-            "volume": int(row["volume"]),
+            "open": open_price,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
         }
 
     def next_trading_day(self, symbol: str, date: str) -> str | None:
@@ -115,6 +136,21 @@ class BarProvider:
         if after.empty:
             return None
         return str(after.index[0])
+
+    def previous_trading_day(self, symbol: str, date: str) -> str | None:
+        """The latest available session strictly before ``date``.
+
+        Trading decisions formed for date D must never see D's close.  Keeping
+        this calendar lookup in the provider makes that invariant explicit and
+        avoids the old first-loop fallback that used the current session.
+        """
+        df = self.load(symbol)
+        if df is None or df.empty:
+            return None
+        before = df.loc[df.index < date]
+        if before.empty:
+            return None
+        return str(before.index[-1])
 
     def all_trading_days(self, reference_symbol: str = "SPY",
                          start: str | None = None, end: str | None = None) -> list[str]:

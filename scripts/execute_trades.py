@@ -10,13 +10,18 @@ places limit orders with trailing stops. It also handles:
   • Real entry-date tracking via Alpaca order history
 """
 
+import hashlib
+import json
+import math
+import os
 import sys
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 
 from utils import (
     RESEARCH_STATE, SCREENER_STATE, PERFORMANCE_STATE, STATE_DIR,
-    setup_logging, get_now_str, load_json, save_json,
-    get_risk_tier,
+    setup_logging, get_now_str, load_json, load_json_object_status, save_json,
+    get_risk_tier as _persisted_get_risk_tier,
 )
 from strategy_config import (
     get_strategy_params, get_market_regime, get_effective_threshold,
@@ -35,6 +40,15 @@ BASE_REBALANCE_THRESHOLD_PCT = 2.0
 # manage_tqqq_position. Keep them apart so the SPY↔SSO swap loop
 # doesn't accidentally close TQQQ.
 BASE_CANDIDATES = (SPY_BASE_SYMBOL, SSO_BASE_SYMBOL)
+V11_INFRASTRUCTURE_SYMBOLS = frozenset(
+    {*BASE_CANDIDATES, TQQQ_BASE_SYMBOL, UPRO_BASE_SYMBOL, HEDGE_SYMBOL}
+)
+V11_VALIDATION_STATE = STATE_DIR / "backtest" / "v11_validation.json"
+ADAPTIVE_PENDING_PLAN_KEY = "adaptive_rebalance_pending"
+ADAPTIVE_RISK_OFF_LATCH_KEY = "adaptive_risk_off_latched"
+_EXECUTION_RISK_TIER: ContextVar[str | None] = ContextVar(
+    "execution_risk_tier", default=None
+)
 
 
 def _is_infrastructure(symbol: str) -> bool:
@@ -42,9 +56,293 @@ def _is_infrastructure(symbol: str) -> bool:
     base, TQQQ + UPRO overlays, SH hedge), exempt from trading mechanics
     like trail stops, scale-out, time stops, catalyst flips, and sector
     caps. v7/v10d/v10f."""
-    return symbol in (*BASE_CANDIDATES, TQQQ_BASE_SYMBOL, UPRO_BASE_SYMBOL, HEDGE_SYMBOL)
+    return symbol in V11_INFRASTRUCTURE_SYMBOLS
 
 log = setup_logging("execute_trades")
+
+
+def get_risk_tier() -> str:
+    """Return the immutable risk tier captured for this execution run."""
+
+    snapshot_tier = _EXECUTION_RISK_TIER.get()
+    return snapshot_tier or _persisted_get_risk_tier()
+
+
+def _capture_execution_risk_snapshot() -> dict:
+    """Compute today's tier with the shared rolling live/backtest policy."""
+
+    try:
+        raw_persisted = load_json(PERFORMANCE_STATE)
+    except Exception:
+        raw_persisted = {}
+    fallback_tier = (
+        raw_persisted.get("risk_tier", "NORMAL")
+        if isinstance(raw_persisted, dict)
+        else "NORMAL"
+    )
+    if fallback_tier not in {"NORMAL", "CAUTIOUS", "HALT"}:
+        fallback_tier = "NORMAL"
+
+    # The local performance file is not authoritative for same-run risk.  It
+    # is used only if the broker account itself cannot be read; an absent or
+    # malformed file must never prevent a fresh daily-loss HALT assessment.
+    try:
+        from portfolio import get_account, get_recent_equity_history
+        from risk_policy import assess_portfolio_risk
+
+        account = get_account()
+        equity = float(account.get("equity", 0.0) or 0.0)
+        last_equity = float(account.get("last_equity", 0.0) or 0.0)
+        daily_assessment = assess_portfolio_risk(
+            equity,
+            previous_equity=last_equity,
+            prior_equities=(),
+        )
+    except Exception as exc:
+        return {
+            "available": False,
+            "tier": fallback_tier,
+            "reason": f"current account risk snapshot unavailable: {exc}",
+        }
+
+    base_snapshot = {
+        "tier": daily_assessment.tier,
+        "equity": daily_assessment.current_equity,
+        "last_equity": last_equity,
+        "daily_pnl_pct": daily_assessment.daily_return_pct,
+        "lookback_sessions": daily_assessment.lookback_sessions,
+    }
+    try:
+        prior_equities = get_recent_equity_history(max_observations=22)
+        assessment = assess_portfolio_risk(
+            equity,
+            previous_equity=last_equity,
+            prior_equities=prior_equities,
+        )
+    except Exception as exc:
+        return {
+            **base_snapshot,
+            "available": False,
+            "rolling_peak_equity": None,
+            "rolling_drawdown_pct": None,
+            "reason": (
+                "rolling broker history unavailable; fresh daily risk tier "
+                f"preserved: {exc}"
+            ),
+        }
+    return {
+        **base_snapshot,
+        "available": True,
+        "tier": assessment.tier,
+        "rolling_peak_equity": assessment.rolling_peak_equity,
+        "rolling_drawdown_pct": assessment.rolling_drawdown_pct,
+        "reason": "fresh broker account and rolling-history snapshot",
+    }
+
+
+def paper_trading_mode_enabled() -> bool:
+    """True only when the operator explicitly opted into Alpaca paper mode."""
+    return os.getenv("TRADING_MODE", "").strip().lower() == "paper"
+
+
+def require_paper_trading_mode() -> None:
+    """Refuse every money-mutating run unless paper mode is explicit.
+
+    There is intentionally no accepted value for live-money trading.  The
+    broker client in :mod:`trade` is also permanently constructed with
+    ``paper=True`` as a second independent guard.
+    """
+    if not paper_trading_mode_enabled():
+        raise RuntimeError(
+            "Trading disabled: set TRADING_MODE=paper to run paper orders. "
+            "Live-money mode is not supported."
+        )
+
+
+def _execution_client_order_id(
+    purpose: str,
+    symbol: str,
+    side: str,
+    execution_key: str | None = None,
+    intent: str | None = None,
+) -> str:
+    """Deterministic idempotency key for one scheduled order intent."""
+    from trade import build_client_order_id
+
+    key = execution_key or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if intent:
+        key = f"{key}|{intent}"
+    return build_client_order_id(purpose, symbol, side, key)
+
+
+_RETRYABLE_TERMINAL_ORDER_STATUSES = frozenset(
+    {
+        "canceled",
+        "cancelled",
+        "expired",
+        "rejected",
+        "replaced",
+        "done_for_day",
+    }
+)
+
+
+def _order_retry_disposition(status: object) -> str:
+    """Classify an Alpaca lifecycle status for idempotent retry decisions."""
+
+    normalized = str(status or "").strip().lower()
+    if normalized == "filled":
+        return "FILLED"
+    if normalized in _RETRYABLE_TERMINAL_ORDER_STATUSES:
+        return "RETRY"
+    # Unknown, calculated, suspended, stopped, pending-cancel/replace, and
+    # every active status block a second order. ``calculated`` can represent
+    # a filled order awaiting settlement, so retrying from that status alone
+    # could reverse a completed cover. Fail closed on every ambiguous state.
+    return "ACTIVE_OR_UNKNOWN"
+
+
+def _entry_gate_blocked() -> list[dict]:
+    return [{
+        "action": "ENTRY_GATE_BLOCKED",
+        "reason": (
+            "new exposure blocked by market-clock, risk, or validation gate; "
+            "risk-reducing exits remain enabled"
+        ),
+    }]
+
+
+def _v11_validation_gate() -> dict:
+    """Read the fixed-strategy promotion artifact and fail closed.
+
+    A PASS authorizes paper validation only.  Missing, malformed, or failed
+    reports keep the strategy in dry-run/shadow mode; they never prevent
+    risk-reducing cancellation, trim, or exit orders.
+    """
+
+    try:
+        report = load_json(V11_VALIDATION_STATE)
+    except Exception as exc:
+        return {
+            "passed": False,
+            "status": "UNAVAILABLE",
+            "allowed_mode": "dry-run/shadow-research-only",
+            "reason": f"v11 validation artifact unavailable: {exc}",
+            "contract_errors": [f"validation artifact read failed: {exc}"],
+        }
+    if not isinstance(report, dict):
+        return {
+            "passed": False,
+            "status": "INVALID",
+            "allowed_mode": "dry-run/shadow-research-only",
+            "reason": "v11 validation artifact is not a JSON object",
+            "contract_errors": ["top-level artifact must be an object"],
+        }
+    assessment = report.get("assessment")
+    if not isinstance(assessment, dict):
+        return {
+            "passed": False,
+            "status": "MISSING",
+            "allowed_mode": "dry-run/shadow-research-only",
+            "reason": "v11 validation assessment missing",
+        }
+    status = str(assessment.get("status", "MISSING")).upper()
+    allowed_mode = str(
+        assessment.get(
+            "allowed_mode",
+            "paper-validation-eligible"
+            if status == "PASS"
+            else "dry-run/shadow-research-only",
+        )
+    )
+    contract_errors = []
+    if report.get("schema_version") != 1:
+        contract_errors.append("schema_version must be 1")
+    if report.get("kind") != "v11_fixed_strategy_validation":
+        contract_errors.append("unexpected validation kind")
+    strategy = report.get("strategy")
+    if not isinstance(strategy, dict) or strategy.get("version") != (
+        "v11-adaptive-momentum"
+    ):
+        contract_errors.append("unexpected strategy version")
+    recorded_identity = (
+        strategy.get("identity") if isinstance(strategy, dict) else None
+    )
+    try:
+        from adaptive_momentum import SECTOR_BENCHMARKS
+        from backtest.data_provider import BarProvider
+        from backtest.validate_v11 import validation_report_contract_errors
+        from strategy_identity import (
+            build_bar_snapshot_identity,
+            build_strategy_identity,
+            hash_symbol_universe,
+        )
+        from universe import load_universe_symbols
+
+        contract_errors.extend(validation_report_contract_errors(report))
+
+        current_identity = build_strategy_identity()
+        if not isinstance(recorded_identity, dict):
+            contract_errors.append("strategy identity missing")
+        elif recorded_identity.get("value") != current_identity.get("value"):
+            contract_errors.append("strategy identity does not match current code")
+        evidence = report.get("evidence")
+        recorded_universe_hash = (
+            evidence.get("ranking_universe_sha256")
+            if isinstance(evidence, dict)
+            else None
+        )
+        current_universe_hash = hash_symbol_universe(
+            load_universe_symbols(held_symbols=[])
+        )
+        if not isinstance(recorded_universe_hash, str):
+            contract_errors.append("ranking universe evidence missing")
+        elif recorded_universe_hash != current_universe_hash:
+            contract_errors.append("ranking universe does not match validation")
+        recorded_bar_hash = (
+            evidence.get("bar_snapshot_sha256")
+            if isinstance(evidence, dict)
+            else None
+        )
+        through_date = (
+            evidence.get("bar_snapshot_through_date")
+            if isinstance(evidence, dict)
+            else None
+        )
+        if not isinstance(recorded_bar_hash, str) or len(recorded_bar_hash) != 64:
+            contract_errors.append("historical bar evidence missing")
+        elif not isinstance(through_date, str) or not through_date:
+            contract_errors.append("historical bar evidence boundary missing")
+        else:
+            current_bar_evidence = build_bar_snapshot_identity(
+                BarProvider(),
+                load_universe_symbols(held_symbols=[]),
+                ("BIL", "SPY", *SECTOR_BENCHMARKS.values()),
+                through_date=through_date,
+            )
+            if current_bar_evidence["bar_snapshot_sha256"] != recorded_bar_hash:
+                contract_errors.append(
+                    "historical bars do not match validation evidence"
+                )
+    except Exception as exc:
+        contract_errors.append(f"current strategy evidence unavailable: {exc}")
+    if allowed_mode != "paper-validation-eligible":
+        contract_errors.append("allowed_mode is not paper-validation-eligible")
+    passed = status == "PASS" and not contract_errors
+    return {
+        "passed": passed,
+        "status": status,
+        "allowed_mode": allowed_mode,
+        "reason": (
+            "v11 fixed-strategy validation passed for paper testing"
+            if passed
+            else (
+                f"v11 validation status={status}; shadow-only"
+                + (f" ({'; '.join(contract_errors)})" if contract_errors else "")
+            )
+        ),
+        "contract_errors": contract_errors,
+    }
 
 
 # ─────────────────────────── candidate sourcing ───────────────────────────
@@ -290,7 +588,10 @@ def _trading_days_between(start: datetime, end: datetime) -> int:
 # ─────────────────────────── buy / sell execution ─────────────────────────
 
 
-def execute_buys(dry_run: bool = False) -> list[dict]:
+def execute_buys(
+    dry_run: bool = False,
+    allow_new_exposure: bool = True,
+) -> list[dict]:
     """Execute BUY orders for qualifying candidates.
 
     In v6 momentum_mode this short-circuits — the monthly momentum
@@ -306,6 +607,10 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
     risk_tier = get_risk_tier()
     regime = get_market_regime()
     results = []
+
+    if not allow_new_exposure:
+        log.warning("Score-driven buys skipped by market entry gate")
+        return _entry_gate_blocked()
 
     if risk_tier == "HALT":
         log.warning("HALT mode — no new buys allowed")
@@ -400,7 +705,15 @@ def execute_buys(dry_run: bool = False) -> list[dict]:
             continue
 
         try:
-            order = place_limit_order(symbol, qty, "buy", price)
+            order = place_limit_order(
+                symbol,
+                qty,
+                "buy",
+                price,
+                client_order_id=_execution_client_order_id(
+                    "score-buy", symbol, "buy"
+                ),
+            )
             log.info(f"  {symbol}: BUY {qty} @ ${price:.2f} — order {order['id']}")
             send_trade_alert(symbol, "buy", qty, price, f"Score {score} | {candidate['source']} | {regime}")
             results.append({
@@ -485,9 +798,7 @@ def execute_scale_outs(dry_run: bool = False) -> list[dict]:
     so we don't double-sell the same position.
     """
     from portfolio import get_positions
-    from trade import client as trading_client, place_limit_order
-    from alpaca.trading.requests import LimitOrderRequest
-    from alpaca.trading.enums import OrderSide, TimeInForce
+    from trade import place_limit_order
     from notify import send_trade_alert
 
     params = get_strategy_params()
@@ -521,15 +832,19 @@ def execute_scale_outs(dry_run: bool = False) -> list[dict]:
                 continue
             try:
                 limit_price = round(current_price * 0.999, 2)
-                req = LimitOrderRequest(
-                    symbol=symbol, qty=qty, side=OrderSide.SELL,
-                    time_in_force=TimeInForce.DAY, limit_price=limit_price,
+                order = place_limit_order(
+                    symbol,
+                    qty,
+                    "sell",
+                    limit_price,
+                    client_order_id=_execution_client_order_id(
+                        "final-target", symbol, "sell"
+                    ),
                 )
-                order = trading_client.submit_order(req)
                 send_trade_alert(symbol, "sell", qty, current_price, f"Final target +{pnl_pct:.1f}%")
                 results.append({
                     "symbol": symbol, "action": "FINAL_TARGET",
-                    "qty": qty, "price": current_price, "order_id": str(order.id),
+                    "qty": qty, "price": current_price, "order_id": order["id"],
                 })
                 # Clear from scaled dict (position closed)
                 scaled.pop(symbol, None)
@@ -552,16 +867,20 @@ def execute_scale_outs(dry_run: bool = False) -> list[dict]:
                 continue
             try:
                 limit_price = round(current_price * 0.999, 2)
-                req = LimitOrderRequest(
-                    symbol=symbol, qty=sell_qty, side=OrderSide.SELL,
-                    time_in_force=TimeInForce.DAY, limit_price=limit_price,
+                order = place_limit_order(
+                    symbol,
+                    sell_qty,
+                    "sell",
+                    limit_price,
+                    client_order_id=_execution_client_order_id(
+                        "scale-out", symbol, "sell"
+                    ),
                 )
-                order = trading_client.submit_order(req)
                 send_trade_alert(symbol, "sell", sell_qty, current_price, f"Scale-out 50% at +{pnl_pct:.1f}%")
                 scaled[symbol] = already_scaled + sell_qty
                 results.append({
                     "symbol": symbol, "action": "SCALE_OUT",
-                    "qty": sell_qty, "price": current_price, "order_id": str(order.id),
+                    "qty": sell_qty, "price": current_price, "order_id": order["id"],
                 })
             except Exception as e:
                 log.error(f"  {symbol}: scale-out failed — {e}")
@@ -707,10 +1026,2253 @@ def tighten_stops_in_profit(dry_run: bool = False) -> list[dict]:
     return results
 
 
-# ─────────────────── v6: monthly dual-momentum rebalance ────────────────
+# ──────────── v11: adaptive monthly momentum rebalance ───────────
 
 
-def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
+def _live_sector_lookup(provider, signal_date: str):
+    """Return a cached static-or-price-inferred sector classifier."""
+
+    from adaptive_momentum import infer_sector_from_returns
+    from utils import get_symbol_info
+
+    cache: dict[str, str] = {}
+
+    def lookup(symbol: str) -> str:
+        if symbol not in cache:
+            sector = get_symbol_info(symbol).get("sector", "Unknown")
+            if sector == "Unknown":
+                sector = infer_sector_from_returns(provider, symbol, signal_date)
+            cache[symbol] = sector
+        return cache[symbol]
+
+    lookup.cache = cache  # type: ignore[attr-defined]
+    return lookup
+
+
+def _adaptive_live_frames(
+    symbols: list[str],
+    *,
+    minimum_auxiliary_bars: int = 253,
+    maximum_auxiliary_age_days: int = 7,
+    current_date: str | None = None,
+):
+    """Fetch one complete live snapshot for adaptive portfolio planning.
+
+    Ranking stocks may legitimately be stale (for example, a trading halt),
+    in which case ``analyze_symbol`` makes them ineligible.  SPY and every
+    requested sector benchmark are signal auxiliaries, however, and must all
+    represent the same latest completed session.  Missing response coverage
+    or a mixed auxiliary date aborts planning instead of changing the target
+    portfolio from a partial cross section.
+    """
+
+    from adaptive_momentum import FrameBarProvider, SECTOR_BENCHMARKS
+    from research import BarCoverageError, get_bars_batch
+    from utils import EDT
+
+    today = current_date or datetime.now(EDT).strftime("%Y-%m-%d")
+    requested = sorted({symbol.upper().strip() for symbol in symbols if symbol})
+    provider = FrameBarProvider(
+        get_bars_batch(requested, days=270, require_complete=True),
+        before_date=today,
+    )
+    missing_completed = [
+        symbol for symbol in requested if provider.latest_date(symbol) is None
+    ]
+    if missing_completed:
+        raise BarCoverageError(
+            "No completed daily bars for requested symbols: "
+            + ", ".join(missing_completed)
+        )
+
+    requested_auxiliaries = sorted(
+        set(requested) & ({"SPY"} | set(SECTOR_BENCHMARKS.values()))
+    )
+    if requested_auxiliaries:
+        spy_date = provider.latest_date("SPY")
+        if spy_date is None:
+            raise BarCoverageError(
+                "SPY is required to synchronize sector auxiliary bars"
+            )
+        try:
+            auxiliary_age_days = (
+                datetime.strptime(today, "%Y-%m-%d")
+                - datetime.strptime(spy_date, "%Y-%m-%d")
+            ).days
+        except (TypeError, ValueError) as exc:
+            raise BarCoverageError(
+                f"Invalid completed-session date: SPY={spy_date!r}"
+            ) from exc
+        if auxiliary_age_days < 1 or auxiliary_age_days > maximum_auxiliary_age_days:
+            raise BarCoverageError(
+                "SPY completed-session bars are stale versus execution date: "
+                f"SPY={spy_date}, execution_date={today}, "
+                f"age_days={auxiliary_age_days}, "
+                f"maximum={maximum_auxiliary_age_days}"
+            )
+        stale_auxiliaries = {
+            symbol: provider.latest_date(symbol)
+            for symbol in requested_auxiliaries
+            if provider.latest_date(symbol) != spy_date
+        }
+        if stale_auxiliaries:
+            details = ", ".join(
+                f"{symbol}={latest or 'missing'}"
+                for symbol, latest in stale_auxiliaries.items()
+            )
+            raise BarCoverageError(
+                f"Sector auxiliary bars are stale versus SPY={spy_date}: {details}"
+            )
+        short_auxiliaries = {
+            symbol: len(provider.bars_up_to(symbol, spy_date))
+            for symbol in requested_auxiliaries
+            if len(provider.bars_up_to(symbol, spy_date))
+            < minimum_auxiliary_bars
+        }
+        if short_auxiliaries:
+            details = ", ".join(
+                f"{symbol}={count}" for symbol, count in short_auxiliaries.items()
+            )
+            raise BarCoverageError(
+                "Insufficient completed history for signal auxiliaries "
+                f"(required {minimum_auxiliary_bars} bars): {details}"
+            )
+    return provider
+
+
+def _stale_held_ranking_symbols(
+    provider,
+    held_symbols: list[str],
+    ranking_universe: list[str],
+    signal_date: str,
+) -> dict[str, str | None]:
+    """Identify held ranking names whose last bar is behind the signal date.
+
+    A stale non-held stock can safely become ineligible for a cross-sectional
+    ranking.  Treating a held stock the same way would turn a transient
+    per-symbol data outage into an unintended liquidation, so risk-on planning
+    must pause until every held ranking constituent is current.  Held symbols
+    that have left the tradable universe remain exit-only and are deliberately
+    not covered by this check.
+    """
+
+    held_ranking = set(held_symbols) & set(ranking_universe)
+    return {
+        symbol: provider.latest_date(symbol)
+        for symbol in sorted(held_ranking)
+        if provider.latest_date(symbol) != signal_date
+    }
+
+
+def _held_ranking_history_errors(
+    provider,
+    held_symbols: list[str],
+    ranking_universe: list[str],
+    signal_date: str,
+    *,
+    required_bars: int,
+) -> dict[str, str]:
+    """Return current-date or history-length failures for held rankable names."""
+
+    failures: dict[str, str] = {}
+    for symbol in sorted(set(held_symbols) & set(ranking_universe)):
+        latest = provider.latest_date(symbol)
+        if latest != signal_date:
+            failures[symbol] = f"latest={latest or 'missing'}"
+            continue
+        observed = len(
+            provider.bars_up_to(
+                symbol,
+                signal_date,
+                lookback_days=required_bars,
+            )
+        )
+        if observed < required_bars:
+            failures[symbol] = f"bars={observed}<{required_bars}"
+    return failures
+
+
+def _cancel_selected_orders_and_wait(
+    selected: list[dict],
+    *,
+    dry_run: bool,
+    reason: str,
+    final_action: str = "REBALANCE_PENDING_CANCELLATIONS",
+) -> list[dict]:
+    """Cancel known orders, confirm their lifecycle, then stop this run."""
+
+    from trade import cancel_open_order, list_open_orders
+
+    if not selected:
+        return []
+    if dry_run:
+        return [
+            {
+                "symbol": order.get("symbol"),
+                "action": "DRY_RUN_CANCEL_OPEN_ORDER",
+                "order_id": order.get("id"),
+                "reason": reason,
+            }
+            for order in selected
+        ]
+
+    results: list[dict] = []
+    selected_ids = {str(order.get("id", "")) for order in selected}
+    failed = False
+    for order in selected:
+        order_id = str(order.get("id", ""))
+        if not order_id:
+            failed = True
+            results.append(
+                {
+                    "symbol": order.get("symbol"),
+                    "action": "ERROR",
+                    "reason": f"{reason}: open order has no broker order ID",
+                }
+            )
+            continue
+        if order.get("status") == "pending_cancel":
+            results.append(
+                {
+                    "symbol": order.get("symbol"),
+                    "action": "PENDING_CANCELLATION",
+                    "order_id": order_id,
+                    "reason": reason,
+                }
+            )
+            continue
+        try:
+            cancel_open_order(order_id)
+            results.append(
+                {
+                    "symbol": order.get("symbol"),
+                    "action": "CANCEL_REQUESTED",
+                    "order_id": order_id,
+                    "reason": reason,
+                }
+            )
+        except Exception as exc:
+            failed = True
+            results.append(
+                {
+                    "symbol": order.get("symbol"),
+                    "action": "ERROR",
+                    "order_id": order_id,
+                    "reason": f"{reason}: cancel failed: {exc}",
+                }
+            )
+    if failed:
+        return results
+    try:
+        confirmed = list_open_orders()
+    except Exception as exc:
+        results.append(
+            {
+                "action": "ABORT_CANCELLATION_CONFIRMATION",
+                "reason": str(exc),
+            }
+        )
+        return results
+    remaining = sorted(
+        str(order.get("id"))
+        for order in confirmed
+        if str(order.get("id")) in selected_ids
+    )
+    results.append(
+        {
+            "action": final_action,
+            "remaining_order_ids": remaining,
+            "reason": (
+                "order cancellations still pending broker confirmation"
+                if remaining
+                else "order cancellations confirmed; refresh state before orders"
+            ),
+        }
+    )
+    return results
+
+
+def _cancel_buy_orders_and_wait(
+    open_orders: list[dict],
+    *,
+    dry_run: bool,
+    reason: str,
+    symbols: set[str] | frozenset[str] | None = None,
+) -> list[dict]:
+    """Cancel selected exposure-increasing orders and cross an invocation.
+
+    This helper is intentionally usable before positions or SPY data are
+    available.  A closed risk/validation gate must be able to neutralize stale
+    BUY intent even when another read dependency has failed.
+    """
+
+    selected: list[dict] = []
+    for order in open_orders:
+        if order.get("side") != "buy":
+            continue
+        symbol = str(order.get("symbol", ""))
+        if symbols is not None and symbol not in symbols:
+            continue
+        try:
+            remaining = float(order.get("remaining_qty", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            remaining = math.nan
+        # An unknown/non-finite BUY quantity is not safe to leave working.
+        if not math.isfinite(remaining) or remaining > 0:
+            selected.append(order)
+    return _cancel_selected_orders_and_wait(
+        selected,
+        dry_run=dry_run,
+        reason=reason,
+    )
+
+
+def _cancel_all_orders_fail_closed(*, dry_run: bool, reason: str) -> list[dict]:
+    """Emergency boundary when the broker order book cannot be normalized."""
+
+    if dry_run:
+        return [{"action": "DRY_RUN_CANCEL_ALL_ORDERS", "reason": reason}]
+    try:
+        from trade import cancel_all_orders
+
+        cancel_all_orders()
+    except Exception as exc:
+        return [
+            {
+                "action": "ABORT_OPEN_ORDER_RECONCILIATION",
+                "reason": f"{reason}; cancel-all failed: {exc}",
+            }
+        ]
+    return [
+        {
+            "action": "CANCEL_ALL_ORDERS_REQUESTED",
+            "reason": (
+                f"{reason}; refresh the broker order book on a new invocation"
+            ),
+        }
+    ]
+
+
+def _cancel_v11_infrastructure_buys(*, dry_run: bool) -> list[dict]:
+    """Cancel legacy zero-target BUYs before any migration sell can run."""
+
+    from trade import list_open_orders
+
+    try:
+        open_orders = list_open_orders()
+    except Exception as exc:
+        return [
+            {
+                "action": "ABORT_OPEN_ORDER_RECONCILIATION",
+                "reason": f"infrastructure BUY reconciliation: {exc}",
+            }
+        ]
+    return _cancel_buy_orders_and_wait(
+        open_orders,
+        dry_run=dry_run,
+        reason="V11 zero-target infrastructure migration",
+        symbols=V11_INFRASTRUCTURE_SYMBOLS,
+    )
+
+
+def _reconcile_v11_open_buys_preflight(
+    *,
+    dry_run: bool,
+    allow_new_exposure: bool,
+) -> list[dict]:
+    """Cancel unauthorized BUYs before any fallible legacy migration step.
+
+    A still-working BUY is retained only when it belongs to the exact current
+    frozen plan and every already-known exposure gate remains open.  Bound
+    orders additionally recheck the daily SPY gate here, before infrastructure
+    managers can fail while an obsolete BUY remains executable.
+    """
+
+    from adaptive_momentum import compute_market_state, config_from_params
+    from trade import list_open_orders
+
+    try:
+        open_orders = list_open_orders()
+    except Exception as exc:
+        return _cancel_all_orders_fail_closed(
+            dry_run=dry_run,
+            reason=f"early V11 BUY reconciliation unavailable: {exc}",
+        )
+
+    active_buys: list[dict] = []
+    for order in open_orders:
+        if not isinstance(order, dict) or order.get("side") != "buy":
+            continue
+        try:
+            remaining = float(order.get("remaining_qty", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            remaining = math.nan
+        if not math.isfinite(remaining) or remaining > 1e-9:
+            active_buys.append(order)
+    if not active_buys:
+        return []
+
+    try:
+        perf, state_error = load_json_object_status(PERFORMANCE_STATE)
+    except Exception as exc:
+        perf, state_error = {}, f"unexpected state loader failure: {exc}"
+    stored_plan = perf.get(ADAPTIVE_PENDING_PLAN_KEY)
+    valid_plan = (
+        stored_plan
+        if _valid_adaptive_pending_plan(stored_plan)
+        else None
+    )
+    risk_tier = get_risk_tier()
+    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+    plan_gate_open = bool(
+        allow_new_exposure
+        and state_error is None
+        and isinstance(valid_plan, dict)
+        and not valid_plan.get("risk_off", False)
+        and valid_plan.get("rebalance_month") == current_month
+        and risk_tier != "HALT"
+        and not (
+            risk_tier == "CAUTIOUS"
+            and valid_plan.get("construction_risk_tier") == "NORMAL"
+        )
+    )
+
+    bound_buys = [
+        order
+        for order in active_buys
+        if plan_gate_open
+        and not _is_infrastructure(str(order.get("symbol", "")))
+        and _adaptive_open_buy_belongs_to_plan(order, valid_plan)
+    ]
+    gate_reason = "open BUY is not authorized by the current frozen V11 plan"
+    if bound_buys:
+        try:
+            params = get_strategy_params(get_market_regime(), risk_tier)
+            cfg = config_from_params(params)
+            provider = _adaptive_live_frames(["SPY"])
+            signal_date = provider.latest_date("SPY")
+            market = (
+                compute_market_state(provider, signal_date, config=cfg)
+                if signal_date
+                else None
+            )
+        except Exception as exc:
+            market = None
+            gate_reason = f"SPY gate unavailable during early BUY audit: {exc}"
+        if market is None:
+            plan_gate_open = False
+            if not gate_reason.startswith("SPY gate unavailable"):
+                gate_reason = "SPY gate unavailable during early BUY audit"
+        elif not market.above_sma200:
+            plan_gate_open = False
+            gate_reason = "SPY is below SMA200 during early BUY audit"
+
+    selected = [
+        order
+        for order in active_buys
+        if not plan_gate_open
+        or _is_infrastructure(str(order.get("symbol", "")))
+        or not _adaptive_open_buy_belongs_to_plan(order, valid_plan)
+    ]
+    return _cancel_selected_orders_and_wait(
+        selected,
+        dry_run=dry_run,
+        reason=(
+            f"early V11 BUY preflight: {state_error}"
+            if state_error is not None
+            else f"early V11 BUY preflight: {gate_reason}"
+        ),
+        final_action="V11_BUY_RECONCILIATION_PENDING_CANCELLATIONS",
+    )
+
+
+def _reserve_short_cover_client_order_id(
+    symbol: str,
+    quantity: float,
+    *,
+    max_attempts: int = 20,
+) -> tuple[str | None, str]:
+    """Resolve a retry-safe short-cover ID from broker terminal lifecycle."""
+
+    from trade import get_order_by_client_order_id
+
+    for attempt in range(1, max_attempts + 1):
+        client_order_id = _execution_client_order_id(
+            "v11-cover",
+            symbol,
+            "buy",
+            intent=f"short-qty={quantity:.9f}|attempt={attempt}",
+        )
+        prior = get_order_by_client_order_id(client_order_id)
+        if prior is None:
+            return client_order_id, "READY"
+        disposition = _order_retry_disposition(prior.get("status"))
+        if disposition == "RETRY":
+            continue
+        if disposition == "FILLED":
+            return None, "FILLED_AWAITING_POSITION_REFRESH"
+        return None, "PENDING_ORDER"
+    return None, "ATTEMPTS_EXHAUSTED"
+
+
+def _reconcile_v11_short_positions(
+    *,
+    dry_run: bool,
+    positions_snapshot: list[dict] | None = None,
+    open_orders_snapshot: list[dict] | None = None,
+) -> list[dict]:
+    """Cover every short before any other V11 action can run.
+
+    Safe pending BUY-to-cover orders are allowed to settle.  Every other open
+    BUY and every order that could deepen a short is cancelled and confirmed
+    across an invocation boundary.  Any unavailable or malformed broker state
+    blocks the V11 engine rather than guessing that the account is flat.
+    """
+
+    from portfolio import get_positions
+    from trade import close_position, list_open_orders
+
+    def abort_untrusted_positions(reason: str) -> list[dict]:
+        """Neutralize known BUY intent before returning on bad positions."""
+
+        try:
+            candidate_orders = (
+                open_orders_snapshot
+                if isinstance(open_orders_snapshot, list)
+                else list_open_orders()
+            )
+        except Exception as exc:
+            return _cancel_all_orders_fail_closed(
+                dry_run=dry_run,
+                reason=f"{reason}; open orders unavailable: {exc}",
+            )
+        valid_order_rows = [
+            order for order in candidate_orders if isinstance(order, dict)
+        ]
+        cancellations = _cancel_selected_orders_and_wait(
+            valid_order_rows,
+            dry_run=dry_run,
+            reason=f"untrusted broker position snapshot: {reason}",
+            final_action="POSITION_SNAPSHOT_RECONCILIATION_PENDING_CANCELLATIONS",
+        )
+        return cancellations or [
+            {
+                "action": "ABORT_SHORT_RECONCILIATION",
+                "reason": reason,
+            }
+        ]
+
+    if positions_snapshot is None:
+        try:
+            positions = get_positions()
+        except Exception as exc:
+            return abort_untrusted_positions(f"positions unavailable: {exc}")
+    else:
+        positions = positions_snapshot
+    if not isinstance(positions, list):
+        return abort_untrusted_positions("positions response is not a list")
+
+    shorts: dict[str, float] = {}
+    position_quantities: dict[str, float] = {}
+    for position in positions:
+        if not isinstance(position, dict):
+            return abort_untrusted_positions(
+                "positions response contains a non-object row"
+            )
+        symbol = str(position.get("symbol", "")).upper()
+        try:
+            quantity = float(position.get("qty", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            quantity = math.nan
+        if not symbol or not math.isfinite(quantity):
+            return abort_untrusted_positions(
+                "position has missing symbol or non-finite quantity"
+            )
+        position_quantities[symbol] = quantity
+        if quantity < -1e-9:
+            shorts[symbol] = abs(quantity)
+
+    if open_orders_snapshot is None:
+        try:
+            open_orders = list_open_orders()
+        except Exception as exc:
+            return _cancel_all_orders_fail_closed(
+                dry_run=dry_run,
+                reason=f"V11 order book unavailable: {exc}",
+            )
+    else:
+        open_orders = open_orders_snapshot
+    if not isinstance(open_orders, list):
+        return [
+            {
+                "action": "ABORT_SHORT_RECONCILIATION",
+                "short_symbols": sorted(shorts),
+                "reason": "open-orders response is not a list",
+            }
+        ]
+
+    # V11 is long-only: working SELL quantity may never exceed the trusted
+    # positive position it can close.  Cancel all SELLs for an overcommitted
+    # symbol because broker fill ordering is nondeterministic.
+    sell_orders_by_symbol: dict[str, list[tuple[dict, float]]] = {}
+    buy_orders_by_symbol: dict[str, list[tuple[dict, float]]] = {}
+    invalid_order_rows: list[dict] = []
+    malformed_order_row = False
+    for order in open_orders:
+        if not isinstance(order, dict):
+            malformed_order_row = True
+            continue
+        symbol = str(order.get("symbol", "")).upper()
+        side = str(order.get("side", "")).lower()
+        try:
+            remaining = float(order.get("remaining_qty", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            remaining = math.nan
+        if (
+            not symbol
+            or side not in {"buy", "sell"}
+            or not math.isfinite(remaining)
+            or remaining < 0
+        ):
+            invalid_order_rows.append(order)
+            continue
+        if side == "sell" and remaining > 1e-9:
+            sell_orders_by_symbol.setdefault(symbol, []).append(
+                (order, remaining)
+            )
+        elif side == "buy" and remaining > 1e-9:
+            buy_orders_by_symbol.setdefault(symbol, []).append(
+                (order, remaining)
+            )
+    if malformed_order_row:
+        # Known rows cannot be trusted as a complete book when another row is
+        # malformed; cancel everything identifiable and stop at a boundary.
+        identifiable = [order for order in open_orders if isinstance(order, dict)]
+        cancellations = _cancel_selected_orders_and_wait(
+            identifiable,
+            dry_run=dry_run,
+            reason="open-orders response contains a non-object row",
+            final_action="ORDER_BOOK_RECONCILIATION_PENDING_CANCELLATIONS",
+        )
+        return cancellations or [
+            {
+                "action": "ABORT_SHORT_RECONCILIATION",
+                "reason": "open-orders response contains a non-object row",
+            }
+        ]
+
+    sell_conflicts = list(invalid_order_rows)
+    for symbol, rows in sell_orders_by_symbol.items():
+        total_remaining = sum(remaining for _order, remaining in rows)
+        long_capacity = max(0.0, position_quantities.get(symbol, 0.0))
+        if total_remaining > long_capacity + 1e-9:
+            sell_conflicts.extend(order for order, _remaining in rows)
+    if sell_conflicts:
+        safe_cover_symbols = {
+            symbol
+            for symbol, rows in buy_orders_by_symbol.items()
+            if symbol in shorts
+            and sum(remaining for _order, remaining in rows)
+            <= shorts[symbol] + 1e-9
+        }
+        for symbol, rows in buy_orders_by_symbol.items():
+            if symbol not in safe_cover_symbols:
+                sell_conflicts.extend(order for order, _remaining in rows)
+        return _cancel_selected_orders_and_wait(
+            list({str(order.get("id")): order for order in sell_conflicts}.values()),
+            dry_run=dry_run,
+            reason=(
+                "V11 long-only preflight: unknown, flat-symbol, or aggregate "
+                "oversized SELL could create/increase a short"
+            ),
+            final_action="SELL_CAPACITY_RECONCILIATION_PENDING_CANCELLATIONS",
+        )
+
+    if not shorts:
+        return []
+
+    positive_remaining: list[tuple[dict, str, str, float | None]] = []
+    buy_totals = {symbol: 0.0 for symbol in shorts}
+    for order in open_orders:
+        if not isinstance(order, dict):
+            continue
+        symbol = str(order.get("symbol", "")).upper()
+        side = str(order.get("side", "")).lower()
+        try:
+            remaining = float(order.get("remaining_qty", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            remaining = None
+        if remaining is None or not math.isfinite(remaining) or remaining < 0:
+            if side == "buy" or symbol in shorts:
+                positive_remaining.append((order, symbol, side, None))
+            continue
+        if remaining <= 1e-9:
+            continue
+        positive_remaining.append((order, symbol, side, remaining))
+        if side == "buy" and symbol in shorts:
+            buy_totals[symbol] += remaining
+    safe_cover_symbols = {
+        symbol
+        for symbol, total in buy_totals.items()
+        if total > 1e-9 and total <= shorts[symbol] + 1e-9
+    }
+    conflicting_orders: list[dict] = []
+    for order, symbol, side, remaining in positive_remaining:
+        safe_cover = bool(
+            remaining is not None
+            and side == "buy"
+            and symbol in safe_cover_symbols
+        )
+        if not safe_cover and (side == "buy" or symbol in shorts):
+            conflicting_orders.append(order)
+    if conflicting_orders:
+        return _cancel_selected_orders_and_wait(
+            conflicting_orders,
+            dry_run=dry_run,
+            reason=(
+                "V11 short reconciliation: cancel non-cover BUY or "
+                "short-increasing order"
+            ),
+            final_action="SHORT_RECONCILIATION_PENDING_CANCELLATIONS",
+        )
+
+    pending_covers = [
+        (order, symbol, remaining)
+        for order, symbol, side, remaining in positive_remaining
+        if remaining is not None
+        and side == "buy"
+        and symbol in safe_cover_symbols
+    ]
+    if pending_covers:
+        return [
+            {
+                "symbol": symbol,
+                "action": "SHORT_COVER_PENDING",
+                "side": "buy",
+                "order_id": order.get("id"),
+                "remaining_qty": remaining,
+                "short_qty": shorts[symbol],
+                "reason": "wait for cover fill and refresh positions",
+            }
+            for order, symbol, remaining in pending_covers
+        ]
+
+    if dry_run:
+        return [
+            {
+                "symbol": symbol,
+                "action": "DRY_RUN_SHORT_COVER",
+                "side": "buy",
+                "qty": _clean_order_qty(quantity),
+                "reason": "all shorts must be flat before V11 trading",
+            }
+            for symbol, quantity in sorted(shorts.items())
+        ]
+
+    results: list[dict] = []
+    for symbol, quantity in sorted(shorts.items()):
+        try:
+            client_order_id, lifecycle = _reserve_short_cover_client_order_id(
+                symbol,
+                quantity,
+            )
+        except Exception as exc:
+            results.append(
+                {
+                    "symbol": symbol,
+                    "side": "buy",
+                    "action": "ABORT_SHORT_RECONCILIATION",
+                    "reason": f"cover lifecycle unavailable: {exc}",
+                }
+            )
+            continue
+        if lifecycle != "READY" or client_order_id is None:
+            results.append(
+                {
+                    "symbol": symbol,
+                    "side": "buy",
+                    "action": (
+                        "SHORT_COVER_PENDING"
+                        if lifecycle == "PENDING_ORDER"
+                        else "ABORT_SHORT_RECONCILIATION"
+                    ),
+                    "reason": (
+                        "prior cover is active; refresh positions before V11 trading"
+                        if lifecycle == "PENDING_ORDER"
+                        else (
+                            "prior cover filled; refresh positions before V11 trading"
+                            if lifecycle == "FILLED_AWAITING_POSITION_REFRESH"
+                            else "short-cover retry attempts exhausted"
+                        )
+                    ),
+                }
+            )
+            continue
+        result = close_position(symbol, client_order_id=client_order_id)
+        status = str(result.get("status", "error"))
+        action = {
+            "submitted": "SHORT_COVER_SUBMITTED",
+            "pending": "SHORT_COVER_PENDING",
+        }.get(status, "ABORT_SHORT_RECONCILIATION")
+        results.append(
+            {
+                **result,
+                "symbol": symbol,
+                "side": "buy",
+                "action": action,
+                "reason": (
+                    "cover order submitted; refresh positions before V11 trading"
+                    if status == "submitted"
+                    else (
+                        "cover order already pending; refresh positions before V11 trading"
+                        if status == "pending"
+                        else result.get("error", f"unexpected close status={status}")
+                    )
+                ),
+            }
+        )
+    return results
+
+
+def _adaptive_plan_id(
+    rebalance_month: str,
+    signal_date: str | None,
+    target_weights: dict[str, float],
+    *,
+    sector_by_symbol: dict[str, str],
+    risk_off: bool,
+    construction_risk_tier: str,
+    eligible_count: int,
+    strategy_identity_value: str,
+    ranking_universe_sha256: str,
+) -> str:
+    """Stable identity for one immutable target portfolio."""
+
+    payload = json.dumps(
+        {
+            "schema_version": 3,
+            "month": rebalance_month,
+            "signal_date": signal_date,
+            "target_weights": {
+                symbol: round(float(weight), 10)
+                for symbol, weight in sorted(target_weights.items())
+            },
+            "sector_by_symbol": {
+                str(symbol): str(sector)
+                for symbol, sector in sorted(sector_by_symbol.items())
+            },
+            "risk_off": risk_off,
+            "construction_risk_tier": construction_risk_tier,
+            "eligible_count": eligible_count,
+            "strategy_identity_value": strategy_identity_value,
+            "ranking_universe_sha256": ranking_universe_sha256,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _new_adaptive_pending_plan(
+    *,
+    rebalance_month: str,
+    signal_date: str | None,
+    target_weights: dict[str, float],
+    sector_by_symbol: dict[str, str],
+    risk_off: bool,
+    eligible_count: int,
+    construction_risk_tier: str,
+) -> dict:
+    from strategy_identity import build_strategy_identity, hash_symbol_universe
+    from universe import load_universe_symbols
+
+    normalized_targets = {
+        str(symbol): float(weight)
+        for symbol, weight in sorted(target_weights.items())
+    }
+    normalized_sectors = {
+        str(symbol): str(sector)
+        for symbol, sector in sorted(sector_by_symbol.items())
+    }
+    normalized_risk_tier = str(construction_risk_tier)
+    normalized_eligible_count = int(eligible_count)
+    strategy_identity_value = str(build_strategy_identity()["value"])
+    ranking_universe_sha256 = hash_symbol_universe(
+        load_universe_symbols(held_symbols=[])
+    )
+    return {
+        "schema_version": 3,
+        "plan_id": _adaptive_plan_id(
+            rebalance_month,
+            signal_date,
+            normalized_targets,
+            sector_by_symbol=normalized_sectors,
+            risk_off=risk_off,
+            construction_risk_tier=normalized_risk_tier,
+            eligible_count=normalized_eligible_count,
+            strategy_identity_value=strategy_identity_value,
+            ranking_universe_sha256=ranking_universe_sha256,
+        ),
+        "rebalance_month": rebalance_month,
+        "signal_date": signal_date,
+        "target_weights": normalized_targets,
+        "sector_by_symbol": normalized_sectors,
+        "risk_off": bool(risk_off),
+        "strategy_identity_value": strategy_identity_value,
+        "ranking_universe_sha256": ranking_universe_sha256,
+        "construction_risk_tier": normalized_risk_tier,
+        "eligible_count": normalized_eligible_count,
+        "created_at": get_now_str(),
+        "order_attempts": {},
+    }
+
+
+def _adaptive_pending_plan_structure_valid(value) -> bool:
+    """Validate persisted plan integrity without assuming current code identity."""
+
+    if not isinstance(value, dict) or value.get("schema_version") != 3:
+        return False
+    if not isinstance(value.get("plan_id"), str) or not value["plan_id"]:
+        return False
+    if not isinstance(value.get("rebalance_month"), str):
+        return False
+    targets = value.get("target_weights")
+    sectors = value.get("sector_by_symbol")
+    attempts = value.get("order_attempts")
+    risk_off = value.get("risk_off")
+    strategy_identity_value = value.get("strategy_identity_value")
+    ranking_universe_sha256 = value.get("ranking_universe_sha256")
+    construction_risk_tier = value.get("construction_risk_tier")
+    eligible_count = value.get("eligible_count")
+    if not isinstance(targets, dict) or not isinstance(sectors, dict):
+        return False
+    if not isinstance(attempts, dict) or not isinstance(risk_off, bool):
+        return False
+    if not isinstance(strategy_identity_value, str) or not strategy_identity_value:
+        return False
+    if not isinstance(ranking_universe_sha256, str) or not ranking_universe_sha256:
+        return False
+    if construction_risk_tier not in {"NORMAL", "CAUTIOUS", "HALT"}:
+        return False
+    if type(eligible_count) is not int or eligible_count < 0:
+        return False
+    try:
+        normalized_targets = {
+            str(symbol): float(weight) for symbol, weight in targets.items()
+        }
+    except (TypeError, ValueError):
+        return False
+    if any(
+        not math.isfinite(weight) or weight < 0.0 or weight > 1.0
+        for weight in normalized_targets.values()
+    ):
+        return False
+    if sum(normalized_targets.values()) > 1.000001:
+        return False
+    if any(not isinstance(symbol, str) or not symbol for symbol in targets):
+        return False
+    if any(
+        not isinstance(symbol, str)
+        or not isinstance(sector, str)
+        or not sector
+        for symbol, sector in sectors.items()
+    ):
+        return False
+    if set(sectors) != set(normalized_targets):
+        return False
+    if eligible_count < len(normalized_targets):
+        return False
+    expected_plan_id = _adaptive_plan_id(
+        value["rebalance_month"],
+        value.get("signal_date"),
+        normalized_targets,
+        sector_by_symbol=sectors,
+        risk_off=risk_off,
+        construction_risk_tier=construction_risk_tier,
+        eligible_count=eligible_count,
+        strategy_identity_value=strategy_identity_value,
+        ranking_universe_sha256=ranking_universe_sha256,
+    )
+    if value["plan_id"] != expected_plan_id:
+        return False
+    for intent_key, record in attempts.items():
+        if not isinstance(intent_key, str) or not isinstance(record, dict):
+            return False
+        attempt = record.get("attempt")
+        client_order_id = record.get("client_order_id")
+        symbol = record.get("symbol")
+        side = record.get("side")
+        try:
+            quantity = float(record.get("quantity"))
+            target_weight = float(record.get("target_weight"))
+        except (TypeError, ValueError):
+            return False
+        if type(attempt) is not int or attempt < 1:
+            return False
+        if not isinstance(client_order_id, str) or not client_order_id:
+            return False
+        if len(client_order_id) > 48:
+            return False
+        if (
+            not isinstance(symbol, str)
+            or not symbol
+            or symbol != symbol.upper()
+            or side not in {"buy", "sell"}
+        ):
+            return False
+        if not math.isfinite(quantity) or quantity <= 0:
+            return False
+        if (
+            not math.isfinite(target_weight)
+            or target_weight < 0
+            or target_weight > 1
+        ):
+            return False
+        expected_intent_key = _adaptive_intent_key(
+            value,
+            symbol,
+            side,
+            quantity,
+            target_weight,
+        )
+        if intent_key != expected_intent_key:
+            return False
+        expected_client_order_id = _execution_client_order_id(
+            "adaptive",
+            symbol,
+            side,
+            execution_key=str(value["plan_id"]),
+            intent=f"{intent_key}|attempt={attempt}",
+        )
+        if client_order_id != expected_client_order_id:
+            return False
+        if side == "buy" and (
+            symbol not in normalized_targets
+            or not math.isclose(
+                target_weight,
+                normalized_targets[symbol],
+                rel_tol=0.0,
+                abs_tol=1e-12,
+            )
+        ):
+            return False
+    return True
+
+
+def _adaptive_pending_plan_context_matches(value: dict) -> bool:
+    """Bind an in-flight target to its exact code and ranking universe."""
+
+    try:
+        from strategy_identity import build_strategy_identity, hash_symbol_universe
+        from universe import load_universe_symbols
+
+        return (
+            value.get("strategy_identity_value")
+            == build_strategy_identity().get("value")
+            and value.get("ranking_universe_sha256")
+            == hash_symbol_universe(load_universe_symbols(held_symbols=[]))
+        )
+    except Exception:
+        return False
+
+
+def _valid_adaptive_pending_plan(value) -> bool:
+    """Reject corrupt or code-stale plans before they can authorize a buy."""
+
+    return _adaptive_pending_plan_structure_valid(
+        value
+    ) and _adaptive_pending_plan_context_matches(value)
+
+
+def _clean_order_qty(quantity: float) -> int | float:
+    """Preserve fractional liquidation quantities while keeping whole lots tidy."""
+
+    rounded = round(float(quantity), 9)
+    if abs(rounded - round(rounded)) < 1e-9:
+        return int(round(rounded))
+    return rounded
+
+
+def _adaptive_portfolio_converged(
+    positions: list[dict],
+    target_weights: dict[str, float],
+    equity: float,
+    drift_value: float,
+) -> bool:
+    """True only when observed filled positions, not submissions, meet targets."""
+
+    held = {
+        position["symbol"]: position
+        for position in positions
+        if not _is_infrastructure(position["symbol"])
+    }
+    for symbol, position in held.items():
+        quantity = float(position.get("qty", 0.0) or 0.0)
+        current_value = float(position.get("market_value", 0.0) or 0.0)
+        if symbol not in target_weights:
+            # Do not strand fractional shares merely because their value is
+            # below the general drift threshold.
+            if quantity > 1e-9:
+                return False
+            continue
+        target_value = equity * float(target_weights[symbol])
+        if abs(current_value - target_value) > drift_value:
+            return False
+    for symbol, target_weight in target_weights.items():
+        if symbol in held:
+            continue
+        if equity * float(target_weight) > drift_value:
+            return False
+    return True
+
+
+def _adaptive_intent_key(
+    pending_plan: dict,
+    symbol: str,
+    side: str,
+    quantity: float,
+    target_weight: float,
+) -> str:
+    """Identify one concrete order intent within an immutable plan."""
+
+    canonical = "|".join(
+        (
+            str(pending_plan["plan_id"]),
+            symbol.upper(),
+            side.lower(),
+            f"qty={float(quantity):.9f}",
+            f"target={float(target_weight):.10f}",
+        )
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def _reserve_adaptive_client_order_id(
+    perf: dict,
+    pending_plan: dict,
+    *,
+    symbol: str,
+    side: str,
+    quantity: float,
+    target_weight: float,
+) -> tuple[str | None, str]:
+    """Reserve/reconcile a retry-safe ID for one concrete order intent.
+
+    Reservation is persisted *before* submission.  If submission fails with
+    an ambiguous network error, the next run resolves the same client ID at
+    Alpaca.  A terminal cancelled/expired order advances the attempt number;
+    a still-active or just-filled order blocks a duplicate submit.
+    """
+
+    from trade import get_order_by_client_order_id
+
+    intent_key = _adaptive_intent_key(
+        pending_plan,
+        symbol,
+        side,
+        quantity,
+        target_weight,
+    )
+    attempts = pending_plan.setdefault("order_attempts", {})
+    record = attempts.get(intent_key)
+    attempt_number = 1
+    if isinstance(record, dict):
+        attempt_number = max(1, int(record.get("attempt", 1)))
+        prior_client_id = str(record.get("client_order_id", ""))
+        if prior_client_id:
+            prior_order = get_order_by_client_order_id(prior_client_id)
+            if prior_order is not None:
+                disposition = _order_retry_disposition(
+                    prior_order.get("status")
+                )
+                if disposition == "FILLED":
+                    return None, "FILLED_AWAITING_POSITION_REFRESH"
+                if disposition == "ACTIVE_OR_UNKNOWN":
+                    return None, "PENDING_ORDER"
+                attempt_number += 1
+            # A broker 404 means an earlier reserved/ambiguous request never
+            # became an order.  Reusing exactly the same ID is idempotent.
+
+    client_order_id = _execution_client_order_id(
+        "adaptive",
+        symbol,
+        side,
+        execution_key=str(pending_plan["plan_id"]),
+        intent=f"{intent_key}|attempt={attempt_number}",
+    )
+    attempts[intent_key] = {
+        "attempt": attempt_number,
+        "client_order_id": client_order_id,
+        "status": "reserved",
+        "symbol": symbol.upper(),
+        "side": side.lower(),
+        "quantity": float(quantity),
+        "target_weight": float(target_weight),
+        "reserved_at": get_now_str(),
+    }
+    perf[ADAPTIVE_PENDING_PLAN_KEY] = pending_plan
+    save_json(PERFORMANCE_STATE, perf)
+    return client_order_id, "READY"
+
+
+def _mark_adaptive_order_submitted(
+    perf: dict,
+    pending_plan: dict,
+    client_order_id: str,
+    order_id: str,
+) -> None:
+    """Persist the broker order ID after a successful reserved submission."""
+
+    for record in pending_plan.get("order_attempts", {}).values():
+        if record.get("client_order_id") == client_order_id:
+            record["status"] = "submitted"
+            record["order_id"] = str(order_id)
+            record["submitted_at"] = get_now_str()
+            break
+    perf[ADAPTIVE_PENDING_PLAN_KEY] = pending_plan
+    save_json(PERFORMANCE_STATE, perf)
+
+
+def _adaptive_open_buy_belongs_to_plan(order: dict, pending_plan: dict | None) -> bool:
+    """Return whether an open BUY is one recorded intent of the frozen plan."""
+
+    if not isinstance(pending_plan, dict):
+        return False
+    attempts = pending_plan.get("order_attempts")
+    targets = pending_plan.get("target_weights")
+    if not isinstance(attempts, dict) or not isinstance(targets, dict):
+        return False
+    order_id = str(order.get("id", ""))
+    client_order_id = str(order.get("client_order_id", ""))
+    symbol = str(order.get("symbol", "")).upper()
+    if order.get("side") != "buy" or symbol not in targets:
+        return False
+    for record in attempts.values():
+        if not isinstance(record, dict):
+            continue
+        id_matches = bool(
+            (order_id and order_id == str(record.get("order_id", "")))
+            or (
+                client_order_id
+                and client_order_id == str(record.get("client_order_id", ""))
+            )
+        )
+        if not id_matches:
+            continue
+        if record.get("side") != "buy" or record.get("symbol") != symbol:
+            return False
+        try:
+            intended_quantity = float(record.get("quantity"))
+            order_quantity = float(order.get("qty", intended_quantity))
+            intended_weight = float(record.get("target_weight"))
+            target_weight = float(targets[symbol])
+        except (TypeError, ValueError):
+            return False
+        return bool(
+            math.isfinite(order_quantity)
+            and math.isclose(
+                order_quantity,
+                intended_quantity,
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            )
+            and math.isclose(
+                intended_weight,
+                target_weight,
+                rel_tol=0.0,
+                abs_tol=1e-12,
+            )
+        )
+    return False
+
+
+def _manage_adaptive_momentum_picks(
+    *,
+    dry_run: bool,
+    allow_new_exposure: bool,
+) -> list[dict]:
+    """Converge the paper account to one frozen, broker-reconciled target."""
+
+    from adaptive_momentum import (
+        SECTOR_BENCHMARKS,
+        build_target_portfolio,
+        compute_market_state,
+        config_from_params,
+        market_reentry_confirmed,
+    )
+    from notify import send_trade_alert
+    from portfolio import get_account, get_positions
+    from research import get_latest_quote
+    from trade import (
+        cancel_open_order,
+        get_market_entry_gate,
+        list_open_orders,
+        place_limit_order,
+        validate_order,
+    )
+    from universe import load_universe_symbols
+
+    regime = get_market_regime()
+    risk_tier = get_risk_tier()
+    params = get_strategy_params(regime, risk_tier)
+    cfg = config_from_params(params)
+    today_ym = datetime.now(timezone.utc).strftime("%Y-%m")
+
+    # Open-order state is the first broker dependency.  It lets a closed
+    # validation/risk gate cancel exposure-increasing intent even when a later
+    # positions or market-data read is unavailable.
+    try:
+        open_orders = list_open_orders()
+    except Exception as exc:
+        log.error(f"Open-order reconciliation unavailable: {exc}")
+        return [
+            {
+                "action": "ABORT_OPEN_ORDER_RECONCILIATION",
+                "reason": str(exc),
+            }
+        ]
+    try:
+        positions = get_positions()
+    except Exception as exc:
+        cancellations = _cancel_buy_orders_and_wait(
+            open_orders,
+            dry_run=dry_run,
+            reason="position reconciliation unavailable",
+        )
+        return cancellations or [
+            {"action": "ABORT", "reason": f"positions unavailable: {exc}"}
+        ]
+    short_reconciliation = _reconcile_v11_short_positions(
+        dry_run=dry_run,
+        positions_snapshot=positions,
+        open_orders_snapshot=open_orders,
+    )
+    if short_reconciliation:
+        return short_reconciliation
+
+    try:
+        raw_perf, state_read_error = load_json_object_status(PERFORMANCE_STATE)
+    except Exception as exc:
+        raw_perf = {}
+        state_read_error = f"unexpected state loader failure: {exc}"
+    performance_state_error = (
+        f"performance state unavailable: {state_read_error}"
+        if state_read_error is not None
+        else None
+    )
+    if performance_state_error is not None:
+        # Missing local state must never disable a HALT/SMA liquidation, but
+        # it cannot authorize a new risk-on target either.
+        allow_new_exposure = False
+    perf = raw_perf
+    risk_off_latch_value = perf.get(ADAPTIVE_RISK_OFF_LATCH_KEY, False)
+    invalid_risk_off_latch = type(risk_off_latch_value) is not bool
+    if invalid_risk_off_latch:
+        # Corrupted local state cannot authorize exposure, but it must not
+        # prevent a HALT/SMA zero-target plan from liquidating positions.  Use
+        # a conservative local value until the market state is known; a
+        # completed risk-off plan repairs the persisted latch to ``True``.
+        risk_off_latch_value = False
+        allow_new_exposure = False
+
+    held_symbols = [position["symbol"] for position in positions]
+
+    # Every run checks the broad risk gate, even after the monthly rebalance.
+    # This is a small request and makes a 200-SMA break an immediate exit.
+    if risk_tier == "HALT":
+        market = None
+        signal_date = None
+    else:
+        try:
+            risk_provider = _adaptive_live_frames(["SPY"])
+            signal_date = risk_provider.latest_date("SPY")
+            market = (
+                compute_market_state(risk_provider, signal_date, config=cfg)
+                if signal_date
+                else None
+            )
+        except Exception as exc:
+            cancellations = _cancel_buy_orders_and_wait(
+                open_orders,
+                dry_run=dry_run,
+                reason="SPY history unavailable",
+            )
+            return cancellations or [
+                {"action": "ABORT", "reason": f"SPY history unavailable: {exc}"}
+            ]
+        if market is None:
+            cancellations = _cancel_buy_orders_and_wait(
+                open_orders,
+                dry_run=dry_run,
+                reason="SPY history unavailable",
+            )
+            return cancellations or [
+                {"action": "ABORT", "reason": "SPY history unavailable"}
+            ]
+
+    risk_off = risk_tier == "HALT" or (market is not None and not market.above_sma200)
+
+    stored_plan = perf.get(ADAPTIVE_PENDING_PLAN_KEY)
+    persisted_zero_target_intent = bool(
+        isinstance(stored_plan, dict)
+        and stored_plan.get("risk_off") is True
+        and stored_plan.get("target_weights") == {}
+    )
+    stored_plan_structure_valid = (
+        stored_plan is None or _adaptive_pending_plan_structure_valid(stored_plan)
+    )
+    invalid_pending_plan = not stored_plan_structure_valid
+    if not stored_plan_structure_valid:
+        if risk_off or persisted_zero_target_intent:
+            # A zero-target emergency does not depend on the corrupted/legacy
+            # plan metadata. Convert it to the current schema rather than
+            # blocking liquidation if the market recovered during an upgrade.
+            stored_plan = None
+            stored_plan_structure_valid = True
+            invalid_pending_plan = False
+
+    # Persist the emergency intent before crossing the open-order cancellation
+    # boundary.  A BUY cancellation deliberately ends this invocation so fills
+    # can be reconciled from a fresh broker snapshot; without an already-frozen
+    # zero target, a one-session risk-off event could recover before the next
+    # invocation and resurrect the old risk-on plan.
+    if risk_off or persisted_zero_target_intent:
+        perf[ADAPTIVE_RISK_OFF_LATCH_KEY] = True
+        if not stored_plan or stored_plan.get("risk_off") is not True:
+            stored_plan = _new_adaptive_pending_plan(
+                rebalance_month=today_ym,
+                signal_date=signal_date,
+                target_weights={},
+                sector_by_symbol={},
+                risk_off=True,
+                eligible_count=0,
+                construction_risk_tier=risk_tier,
+            )
+            perf[ADAPTIVE_PENDING_PLAN_KEY] = stored_plan
+        if not dry_run and performance_state_error is None:
+            save_json(PERFORMANCE_STATE, perf)
+
+    stricter_risk_tier = bool(
+        isinstance(stored_plan, dict)
+        and stored_plan_structure_valid
+        and risk_tier == "CAUTIOUS"
+        and stored_plan.get("construction_risk_tier") == "NORMAL"
+    )
+    stale_plan = bool(
+        isinstance(stored_plan, dict)
+        and stored_plan_structure_valid
+        and stored_plan.get("risk_off") is not True
+        and not risk_off
+        and (
+            stored_plan.get("rebalance_month") != today_ym
+            or not _adaptive_pending_plan_context_matches(stored_plan)
+        )
+    )
+    # Every open BUY must belong to the exact current frozen plan. Risk-off,
+    # shadow, stale-plan, stricter-tier and retired-infrastructure buys are
+    # cancelled even when their IDs happen to be known. Adaptive holdings must
+    # also shed legacy GTC trailing stops before a target sell can be submitted;
+    # otherwise both sells may fill and create a short.
+    cancellations: list[tuple[dict, str]] = []
+    seen_cancel_ids: set[str] = set()
+    held_adaptive = {
+        symbol for symbol in held_symbols if not _is_infrastructure(symbol)
+    }
+    for order in open_orders:
+        order_id = str(order.get("id", ""))
+        if not order_id or order_id in seen_cancel_ids:
+            continue
+        is_directional_buy = order.get("side") == "buy"
+        is_infrastructure_buy = bool(
+            is_directional_buy
+            and _is_infrastructure(str(order.get("symbol", "")))
+        )
+        is_untrusted_buy = bool(
+            is_directional_buy
+            and not _adaptive_open_buy_belongs_to_plan(
+                order,
+                stored_plan if stored_plan_structure_valid else None,
+            )
+        )
+        is_legacy_trailing_sell = (
+            order.get("symbol") in held_adaptive
+            and order.get("side") == "sell"
+            and order.get("type") in {"trailing_stop", "trailing-stop"}
+            and order.get("time_in_force") == "gtc"
+        )
+        if (
+            is_directional_buy
+            and (
+                risk_off
+                or stale_plan
+                or stricter_risk_tier
+                or not allow_new_exposure
+                or is_infrastructure_buy
+                or is_untrusted_buy
+            )
+        ) or (
+            is_legacy_trailing_sell
+        ):
+            reason = (
+                (
+                    "zero-target V11 infrastructure buy"
+                    if is_infrastructure_buy
+                    else (
+                        "open buy is not bound to the current frozen V11 plan"
+                        if is_untrusted_buy
+                        else "pending directional buy blocked"
+                    )
+                )
+                if is_directional_buy
+                else "legacy adaptive trailing stop"
+            )
+            cancellations.append((order, reason))
+            seen_cancel_ids.add(order_id)
+
+    if cancellations:
+        results = []
+        if dry_run:
+            return [
+                {
+                    "symbol": order.get("symbol"),
+                    "action": "DRY_RUN_CANCEL_OPEN_ORDER",
+                    "order_id": order.get("id"),
+                    "reason": reason,
+                }
+                for order, reason in cancellations
+            ]
+        cancellation_error = False
+        for order, reason in cancellations:
+            if order.get("status") == "pending_cancel":
+                results.append(
+                    {
+                        "symbol": order.get("symbol"),
+                        "action": "PENDING_CANCELLATION",
+                        "order_id": order.get("id"),
+                        "reason": reason,
+                    }
+                )
+                continue
+            try:
+                cancel_open_order(str(order["id"]))
+                results.append(
+                    {
+                        "symbol": order.get("symbol"),
+                        "action": "CANCEL_REQUESTED",
+                        "order_id": order.get("id"),
+                        "reason": reason,
+                    }
+                )
+            except Exception as exc:
+                cancellation_error = True
+                results.append(
+                    {
+                        "symbol": order.get("symbol"),
+                        "action": "ERROR",
+                        "order_id": order.get("id"),
+                        "reason": f"cancel failed: {exc}",
+                    }
+                )
+        if cancellation_error:
+            return results
+        try:
+            confirmed_orders = list_open_orders()
+        except Exception as exc:
+            results.append(
+                {
+                    "action": "ABORT_CANCELLATION_CONFIRMATION",
+                    "reason": str(exc),
+                }
+            )
+            return results
+        still_open = {
+            str(order.get("id"))
+            for order in confirmed_orders
+            if str(order.get("id")) in seen_cancel_ids
+        }
+        results.append(
+            {
+                "action": "REBALANCE_PENDING_CANCELLATIONS",
+                "remaining_order_ids": sorted(still_open),
+                "reason": (
+                    "cancellations still pending broker confirmation"
+                    if still_open
+                    else "cancellations confirmed; refresh positions before target orders"
+                ),
+            }
+        )
+        # Always cross an invocation boundary after cancellation so a partial
+        # fill racing the cancel is reflected in a fresh position snapshot.
+        return results
+
+    if invalid_pending_plan and not risk_off:
+        return [
+            {
+                "action": "ABORT_INVALID_PENDING_PLAN",
+                "reason": (
+                    "adaptive_rebalance_pending is malformed; "
+                    "manual review required"
+                ),
+            }
+        ]
+
+    if stale_plan:
+        attempts = stored_plan.get("order_attempts", {})
+        plan_order_ids = {
+            str(record.get("order_id"))
+            for record in attempts.values()
+            if isinstance(record, dict) and record.get("order_id")
+        }
+        plan_client_ids = {
+            str(record.get("client_order_id"))
+            for record in attempts.values()
+            if isinstance(record, dict) and record.get("client_order_id")
+        }
+        active_plan_orders = [
+            order
+            for order in open_orders
+            if str(order.get("id")) in plan_order_ids
+            or str(order.get("client_order_id")) in plan_client_ids
+        ]
+        if active_plan_orders:
+            return [
+                {
+                    "action": "STALE_PLAN_PENDING_ORDERS",
+                    "plan_id": stored_plan["plan_id"],
+                    "rebalance_month": stored_plan["rebalance_month"],
+                    "order_ids": sorted(
+                        str(order.get("id")) for order in active_plan_orders
+                    ),
+                    "reason": (
+                        "stale or risk-incompatible plan cannot submit new orders "
+                        "until its "
+                        "active orders reach a terminal state"
+                    ),
+                }
+            ]
+        perf.pop(ADAPTIVE_PENDING_PLAN_KEY, None)
+        stored_plan = None
+        if not dry_run:
+            save_json(PERFORMANCE_STATE, perf)
+
+    if stricter_risk_tier and isinstance(stored_plan, dict):
+        # Preserve the frozen signal and constituents.  CAUTIOUS is a sizing
+        # change, not permission to rerank on a newer close while an old plan
+        # is in flight.  Equal-weight V11 halves the existing NORMAL targets.
+        scaled_weights = {
+            symbol: float(weight) * 0.5
+            for symbol, weight in stored_plan["target_weights"].items()
+        }
+        stored_plan = _new_adaptive_pending_plan(
+            rebalance_month=stored_plan["rebalance_month"],
+            signal_date=stored_plan.get("signal_date"),
+            target_weights=scaled_weights,
+            sector_by_symbol=dict(stored_plan["sector_by_symbol"]),
+            risk_off=False,
+            eligible_count=int(stored_plan.get("eligible_count", 0)),
+            construction_risk_tier="CAUTIOUS",
+        )
+        if not dry_run:
+            perf[ADAPTIVE_PENDING_PLAN_KEY] = stored_plan
+            save_json(PERFORMANCE_STATE, perf)
+
+    if invalid_risk_off_latch and not risk_off and stored_plan is None:
+        return [
+            {
+                "action": "ABORT_INVALID_RISK_OFF_LATCH",
+                "reason": "adaptive risk-off latch must be boolean",
+            }
+        ]
+
+    directional_longs = [
+        position
+        for position in positions
+        if not _is_infrastructure(position["symbol"])
+        and float(position.get("qty", 0.0)) > 0
+    ]
+    risk_off_latched = bool(risk_off_latch_value)
+    if risk_off:
+        risk_off_latched = True
+        perf[ADAPTIVE_RISK_OFF_LATCH_KEY] = True
+    elif (
+        risk_off_latched
+        and not directional_longs
+        and stored_plan is None
+        and cfg.risk_on_reentry_confirmation_days > 0
+    ):
+        risk_off_latched = market_reentry_confirmed(
+            risk_provider,
+            signal_date,
+            confirmation_days=cfg.risk_on_reentry_confirmation_days,
+            config=cfg,
+        )
+    elif risk_off_latched and directional_longs and stored_plan is None:
+        # A regular month-start already restored exposure. Consume the latch
+        # so this episode cannot trigger a second off-cycle portfolio rerank.
+        risk_off_latched = False
+        perf[ADAPTIVE_RISK_OFF_LATCH_KEY] = False
+        if not dry_run and performance_state_error is None:
+            save_json(PERFORMANCE_STATE, perf)
+
+    risk_on_reentry_ready = bool(
+        not risk_off
+        and cfg.risk_on_reentry_confirmation_days > 0
+        and risk_off_latched
+        and not directional_longs
+        and stored_plan is None
+    )
+
+    if not risk_off and stored_plan is None and not allow_new_exposure and not dry_run:
+        # A closed validation/clock gate must not freeze an unbuyable risk-on
+        # signal indefinitely.  Defer the monthly plan until exposure is
+        # actually authorized; HALT/SMA risk-off is handled above and remains
+        # immediately actionable.
+        return [
+            {
+                "action": "ADAPTIVE_PLAN_DEFERRED",
+                "reason": (
+                    "new exposure gate closed; no persistent risk-on plan was created"
+                ),
+            },
+            *_entry_gate_blocked(),
+        ]
+
+    target_weights: dict[str, float]
+    sector_by_symbol: dict[str, str]
+    plan = None
+    pending_plan: dict
+    if risk_off:
+        # Emergency risk-off replaces any stale risk-on plan.  It is itself
+        # frozen so retries continue toward cash rather than a moving target.
+        if not stored_plan or not stored_plan.get("risk_off"):
+            pending_plan = _new_adaptive_pending_plan(
+                rebalance_month=today_ym,
+                signal_date=signal_date,
+                target_weights={},
+                sector_by_symbol={},
+                risk_off=True,
+                eligible_count=0,
+                construction_risk_tier=risk_tier,
+            )
+            if not dry_run:
+                perf[ADAPTIVE_PENDING_PLAN_KEY] = pending_plan
+                save_json(PERFORMANCE_STATE, perf)
+        else:
+            pending_plan = stored_plan
+        target_weights = {}
+        sector_by_symbol = {}
+    elif stored_plan:
+        # Never recompute an in-flight target from a newer signal date.
+        pending_plan = stored_plan
+        signal_date = pending_plan.get("signal_date")
+        target_weights = {
+            symbol: float(weight)
+            for symbol, weight in pending_plan["target_weights"].items()
+        }
+        sector_by_symbol = dict(pending_plan["sector_by_symbol"])
+    else:
+        if (
+            perf.get("last_momentum_rebal_ym") == today_ym
+            and not risk_on_reentry_ready
+        ):
+            log.info(f"Adaptive momentum rebalance already completed for {today_ym}")
+            return []
+        else:
+            # Ranking universe is exactly the validated snapshot/fallback.
+            # Held-only names remain visible in ``positions`` for exits, but
+            # must never leak back into ranking or become re-buy candidates.
+            candidates = load_universe_symbols(held_symbols=[])
+            requested = sorted(
+                set(candidates) | {"SPY"} | set(SECTOR_BENCHMARKS.values())
+            )
+            try:
+                provider = _adaptive_live_frames(requested)
+                signal_date = provider.latest_date("SPY")
+                if signal_date is None:
+                    return [{"action": "ABORT", "reason": "No completed SPY session"}]
+
+                required_history = max(
+                    cfg.lookback_days + 1,
+                    cfg.trend_days,
+                    cfg.volatility_days + 1,
+                    cfg.liquidity_days,
+                )
+                held_history_errors = _held_ranking_history_errors(
+                    provider,
+                    held_symbols,
+                    candidates,
+                    signal_date,
+                    required_bars=required_history,
+                )
+                if held_history_errors:
+                    details = ", ".join(
+                        f"{symbol}={error}"
+                        for symbol, error in held_history_errors.items()
+                    )
+                    return [
+                        {
+                            "action": "ABORT",
+                            "reason": (
+                                "held ranking history is incomplete versus "
+                                f"SPY={signal_date}: {details}"
+                            ),
+                        }
+                    ]
+
+                sector_lookup = _live_sector_lookup(provider, signal_date)
+                plan = build_target_portfolio(
+                    provider,
+                    candidates,
+                    signal_date,
+                    sector_lookup=sector_lookup,
+                    incumbent_symbols=(
+                        position["symbol"]
+                        for position in positions
+                        if position["symbol"] in candidates
+                        and not _is_infrastructure(position["symbol"])
+                        and float(position.get("qty", 0.0)) > 0
+                    ),
+                    risk_tier=risk_tier,
+                    config=cfg,
+                )
+                if plan.market_state is None:
+                    return [
+                        {
+                            "action": "ABORT",
+                            "reason": "broad snapshot cannot compute SPY market state",
+                        }
+                    ]
+                if (
+                    plan.market_state.as_of != signal_date
+                    or not plan.market_state.above_sma200
+                ):
+                    return [
+                        {
+                            "action": "ABORT",
+                            "reason": (
+                                "broad SPY snapshot disagrees with the pre-plan "
+                                "risk gate"
+                            ),
+                        }
+                    ]
+                evaluated_count = int(
+                    plan.diagnostics.get("evaluated_count", 0)
+                )
+                minimum_evaluated = min(
+                    len(candidates),
+                    max(cfg.min_positions, math.ceil(len(candidates) * 0.5)),
+                )
+                if evaluated_count < minimum_evaluated:
+                    return [
+                        {
+                            "action": "ABORT",
+                            "reason": (
+                                "broad snapshot has insufficient analyzable history: "
+                                f"{evaluated_count}<{minimum_evaluated} ranking names"
+                            ),
+                        }
+                    ]
+                target_weights = plan.weights
+                sector_by_symbol = {
+                    symbol: sector_lookup(symbol) for symbol in target_weights
+                }
+                pending_plan = _new_adaptive_pending_plan(
+                    rebalance_month=today_ym,
+                    signal_date=signal_date,
+                    target_weights=target_weights,
+                    sector_by_symbol=sector_by_symbol,
+                    risk_off=False,
+                    eligible_count=plan.eligible_count,
+                    construction_risk_tier=risk_tier,
+                )
+                if not dry_run:
+                    perf[ADAPTIVE_PENDING_PLAN_KEY] = pending_plan
+                    save_json(PERFORMANCE_STATE, perf)
+            except Exception as exc:
+                log.exception("Adaptive portfolio planning failed")
+                return [{"action": "ABORT", "reason": f"portfolio planning: {exc}"}]
+
+    try:
+        account = get_account()
+        equity = float(account.get("equity", 0.0))
+        available_cash = float(account.get("cash", 0.0))
+    except Exception as exc:
+        cancellations = _cancel_buy_orders_and_wait(
+            open_orders,
+            dry_run=dry_run,
+            reason=f"account unavailable: {exc}",
+        )
+        return cancellations or [
+            {"action": "ABORT", "reason": f"account unavailable: {exc}"}
+        ]
+    if not math.isfinite(equity) or equity <= 0:
+        cancellations = _cancel_buy_orders_and_wait(
+            open_orders,
+            dry_run=dry_run,
+            reason="invalid account equity",
+        )
+        return cancellations or [
+            {"action": "ABORT", "reason": "invalid account equity"}
+        ]
+    if not math.isfinite(available_cash):
+        cancellations = _cancel_buy_orders_and_wait(
+            open_orders,
+            dry_run=dry_run,
+            reason="invalid account cash",
+        )
+        return cancellations or [
+            {"action": "ABORT", "reason": "invalid account cash"}
+        ]
+
+    results: list[dict] = []
+    drift_value = equity * 0.005
+    held = {position["symbol"]: position for position in positions}
+    pending_sells: dict[str, float] = {}
+    pending_buys: dict[str, float] = {}
+    for order in open_orders:
+        symbol = str(order.get("symbol", ""))
+        remaining = max(0.0, float(order.get("remaining_qty", 0.0) or 0.0))
+        if order.get("side") == "sell":
+            pending_sells[symbol] = pending_sells.get(symbol, 0.0) + remaining
+        elif order.get("side") == "buy":
+            pending_buys[symbol] = pending_buys.get(symbol, 0.0) + remaining
+    submitted_sells = False
+    submitted_buys = False
+    blocking_failure = False
+
+    # Sell and trim first. These risk-reducing actions remain available even
+    # when the market clock blocks new exposure.
+    for symbol, position in held.items():
+        if _is_infrastructure(symbol):
+            continue
+        if pending_buys.get(symbol, 0.0) > 0:
+            # Never self-cross a partially filled BUY with a new trim/exit.
+            # Wait for its terminal state and refresh the filled position first.
+            results.append(
+                {
+                    "symbol": symbol,
+                    "action": "PENDING_BUY_BLOCKS_SELL",
+                    "remaining_qty": pending_buys[symbol],
+                }
+            )
+            blocking_failure = True
+            continue
+        current_value = float(position.get("market_value", 0.0))
+        target_value = equity * target_weights.get(symbol, 0.0)
+        excess = current_value - target_value
+        if excess <= drift_value and symbol in target_weights:
+            continue
+        quantity_held = float(position.get("qty", 0))
+        if quantity_held <= 0:
+            continue
+        if symbol not in target_weights:
+            quantity = quantity_held
+            action = "ADAPTIVE_EXIT"
+        else:
+            reference_price = float(position.get("current_price", 0.0))
+            if reference_price <= 0:
+                continue
+            quantity = min(quantity_held, float(int(excess / reference_price)))
+            action = "ADAPTIVE_TRIM"
+        remaining_pending_sell = pending_sells.get(symbol, 0.0)
+        quantity = max(0.0, quantity - remaining_pending_sell)
+        if remaining_pending_sell > 0:
+            results.append(
+                {
+                    "symbol": symbol,
+                    "action": "PENDING_SELL",
+                    "remaining_qty": remaining_pending_sell,
+                }
+            )
+        if quantity <= 1e-9:
+            continue
+        quantity = _clean_order_qty(quantity)
+        reference_price = float(position.get("current_price", 0.0))
+        if dry_run:
+            results.append(
+                {
+                    "symbol": symbol,
+                    "action": f"DRY_RUN_{action}",
+                    "qty": quantity,
+                    "target_weight": target_weights.get(symbol, 0.0),
+                }
+            )
+            continue
+        try:
+            quote = get_latest_quote(symbol)
+            bid = quote["bid"] if quote["bid"] > 0 else quote["mid"]
+            if not math.isfinite(float(bid)) or float(bid) <= 0:
+                raise ValueError("invalid sell quote")
+            limit_price = round(bid * 0.999, 2)
+            client_order_id, lifecycle = _reserve_adaptive_client_order_id(
+                perf,
+                pending_plan,
+                symbol=symbol,
+                side="sell",
+                quantity=float(quantity),
+                target_weight=target_weights.get(symbol, 0.0),
+            )
+            if client_order_id is None:
+                results.append({"symbol": symbol, "action": lifecycle})
+                blocking_failure = True
+                continue
+            order = place_limit_order(
+                symbol,
+                quantity,
+                "sell",
+                limit_price,
+                client_order_id=client_order_id,
+            )
+            _mark_adaptive_order_submitted(
+                perf, pending_plan, client_order_id, order["id"]
+            )
+            send_trade_alert(
+                symbol,
+                "sell",
+                quantity,
+                limit_price,
+                "Adaptive momentum sell order submitted (not yet filled)",
+            )
+            results.append(
+                {"symbol": symbol, "action": action, "order_id": order["id"]}
+            )
+            submitted_sells = True
+        except Exception as exc:
+            results.append({"symbol": symbol, "action": "ERROR", "reason": str(exc)})
+            blocking_failure = True
+
+    settlement_pending = bool(pending_sells or submitted_sells)
+    if (settlement_pending or blocking_failure) and target_weights and not dry_run:
+        results.append(
+            {
+                "action": "REBALANCE_PENDING_SELLS",
+                "reason": (
+                    "buy phase waits for successful sell reconciliation and refreshed cash"
+                ),
+            }
+        )
+    elif pending_buys and target_weights and not dry_run:
+        results.append(
+            {
+                "action": "REBALANCE_PENDING_BUYS",
+                "reason": (
+                    "buy phase waits for pending buy fills before recalculating "
+                    "cash, positions, and sector exposure"
+                ),
+            }
+        )
+    elif target_weights and not allow_new_exposure:
+        results.extend(_entry_gate_blocked())
+    elif target_weights:
+        cash_reserve = equity * (float(params.get("min_cash_pct", 10.0)) / 100.0)
+        reserved_buy_cash = sum(
+            float(order.get("remaining_qty", 0.0) or 0.0)
+            * float(order.get("limit_price", 0.0) or 0.0)
+            for order in open_orders
+            if order.get("side") == "buy"
+        )
+        spendable = max(0.0, available_cash - cash_reserve - reserved_buy_cash)
+        for symbol, target_weight in sorted(
+            target_weights.items(), key=lambda item: (-item[1], item[0])
+        ):
+            position = held.get(symbol)
+            current_value = float(position.get("market_value", 0.0)) if position else 0.0
+            try:
+                quote = get_latest_quote(symbol)
+                price = quote["ask"] if quote["ask"] > 0 else quote["mid"]
+                if not math.isfinite(float(price)) or float(price) <= 0:
+                    raise ValueError("invalid buy quote")
+            except Exception as exc:
+                results.append({"symbol": symbol, "action": "ERROR", "reason": str(exc)})
+                blocking_failure = True
+                continue
+            pending_buy_value = pending_buys.get(symbol, 0.0) * price
+            shortfall = equity * target_weight - current_value - pending_buy_value
+            if pending_buys.get(symbol, 0.0) > 0:
+                results.append(
+                    {
+                        "symbol": symbol,
+                        "action": "PENDING_BUY",
+                        "remaining_qty": pending_buys[symbol],
+                    }
+                )
+            if shortfall <= drift_value or spendable <= 0:
+                continue
+            quantity = min(int(shortfall / price), int(spendable / price))
+            if quantity <= 0:
+                continue
+            sector = sector_by_symbol.get(symbol, "Unknown")
+            validation = validate_order(
+                symbol,
+                quantity,
+                "buy",
+                price,
+                sector_override=sector,
+            )
+            if not validation["valid"]:
+                results.append(
+                    {
+                        "symbol": symbol,
+                        "action": "REJECTED",
+                        "reasons": validation["reasons"],
+                    }
+                )
+                blocking_failure = True
+                continue
+            if dry_run:
+                results.append(
+                    {
+                        "symbol": symbol,
+                        "action": "DRY_RUN_ADAPTIVE_BUY",
+                        "qty": quantity,
+                        "price": price,
+                        "target_weight": target_weight,
+                    }
+                )
+            else:
+                try:
+                    # The CLI-level promotion check can become stale during a
+                    # broad-universe plan, and this function is also callable
+                    # directly.  Revalidate the complete report contract at
+                    # the final exposure-increasing order boundary so no caller
+                    # can turn ``allow_new_exposure=True`` into an artifact
+                    # bypass.
+                    fresh_validation_gate = _v11_validation_gate()
+                    if not fresh_validation_gate["passed"]:
+                        results.append(
+                            {
+                                "symbol": symbol,
+                                "action": "VALIDATION_GATE_BLOCKED",
+                                "reason": fresh_validation_gate["reason"],
+                            }
+                        )
+                        blocking_failure = True
+                        break
+                    # Universe/history planning can exceed the original
+                    # 120-second clock lease.  Reauthorize every exposure-
+                    # increasing submission immediately before reserving it.
+                    fresh_entry_gate = get_market_entry_gate()
+                    if not fresh_entry_gate["allowed"]:
+                        results.append(
+                            {
+                                "symbol": symbol,
+                                "action": "ENTRY_GATE_BLOCKED",
+                                "reason": fresh_entry_gate["reason"],
+                            }
+                        )
+                        blocking_failure = True
+                        break
+                    client_order_id, lifecycle = _reserve_adaptive_client_order_id(
+                        perf,
+                        pending_plan,
+                        symbol=symbol,
+                        side="buy",
+                        quantity=float(quantity),
+                        target_weight=target_weight,
+                    )
+                    if client_order_id is None:
+                        results.append({"symbol": symbol, "action": lifecycle})
+                        blocking_failure = True
+                        continue
+                    order = place_limit_order(
+                        symbol,
+                        quantity,
+                        "buy",
+                        price,
+                        client_order_id=client_order_id,
+                    )
+                    _mark_adaptive_order_submitted(
+                        perf, pending_plan, client_order_id, order["id"]
+                    )
+                    send_trade_alert(
+                        symbol,
+                        "buy",
+                        quantity,
+                        price,
+                        "Adaptive 12-1 momentum buy order submitted (not yet filled)",
+                    )
+                    results.append(
+                        {
+                            "symbol": symbol,
+                            "action": "ADAPTIVE_BUY",
+                            "order_id": order["id"],
+                        }
+                    )
+                    submitted_buys = True
+                except Exception as exc:
+                    results.append(
+                        {"symbol": symbol, "action": "ERROR", "reason": str(exc)}
+                    )
+                    blocking_failure = True
+            spendable -= quantity * price
+
+    target_gross_weight = sum(target_weights.values())
+    results.insert(
+        0,
+        {
+            "action": "ADAPTIVE_PLAN",
+            "plan_id": pending_plan["plan_id"],
+            "signal_date": pending_plan.get("signal_date"),
+            "eligible_count": pending_plan.get("eligible_count", 0),
+            "selected_count": len(target_weights),
+            "target_gross_weight": target_gross_weight,
+            "cash_weight": max(0.0, 1.0 - target_gross_weight),
+            "frozen": True,
+        },
+    )
+    orders_pending = bool(open_orders or submitted_sells or submitted_buys)
+    converged = _adaptive_portfolio_converged(
+        positions,
+        target_weights,
+        equity,
+        drift_value,
+    )
+    if (
+        not dry_run
+        and not orders_pending
+        and not blocking_failure
+        and converged
+    ):
+        perf["last_momentum_rebal_ym"] = pending_plan["rebalance_month"]
+        perf["last_momentum_signal_date"] = pending_plan.get("signal_date")
+        perf["last_momentum_targets"] = target_weights
+        perf[ADAPTIVE_RISK_OFF_LATCH_KEY] = bool(pending_plan["risk_off"])
+        perf.pop(ADAPTIVE_PENDING_PLAN_KEY, None)
+        save_json(PERFORMANCE_STATE, perf)
+        results.append(
+            {
+                "action": "ADAPTIVE_REBALANCE_COMPLETE",
+                "plan_id": pending_plan["plan_id"],
+            }
+        )
+    return results
+
+
+def manage_momentum_picks(
+    dry_run: bool = False,
+    allow_new_exposure: bool = False,
+) -> list[dict]:
+    """Dispatch to the audited v11 planner, retaining legacy reproducibility."""
+
+    params = get_strategy_params(get_market_regime(), get_risk_tier())
+    if params.get("adaptive_momentum", False):
+        return _manage_adaptive_momentum_picks(
+            dry_run=dry_run,
+            allow_new_exposure=allow_new_exposure,
+        )
+    return _manage_legacy_momentum_picks(
+        dry_run=dry_run,
+        allow_new_exposure=allow_new_exposure,
+    )
+
+
+# ──────────────── legacy v6 implementation ─────────────────
+
+
+def _manage_legacy_momentum_picks(
+    dry_run: bool = False,
+    allow_new_exposure: bool = True,
+) -> list[dict]:
     """v6 — monthly dual-momentum rebalance for live trading.
 
     Mirror of `backtest.engine._execute_momentum_picks` for the Alpaca path.
@@ -732,7 +3294,7 @@ def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
     from trade import place_limit_order, close_position, validate_order
     from portfolio import get_positions, get_account
     from notify import send_trade_alert
-    from utils import get_tradeable_symbols, get_symbol_info
+    from utils import get_tradeable_symbols
 
     regime = get_market_regime()
     risk_tier = get_risk_tier()
@@ -817,10 +3379,12 @@ def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
             if has_earnings_risk(next_sym):
                 continue
             clean_top.append(next_sym)
-        top_picks = set(clean_top)
+        filtered_top = clean_top
+        top_picks = set(filtered_top)
     except Exception as e:
         # Fail-open: if earnings calendar is unavailable, don't block trading
         log.warning(f"  earnings filter unavailable, no veto applied: {e}")
+        filtered_top = raw_top
         top_picks = set(raw_top)
 
     log.info(f"  SPY 12m={spy_12m:+.1f}%  |  top picks ({len(top_picks)}): "
@@ -858,7 +3422,11 @@ def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
             results.append({"symbol": symbol, "action": "ERROR", "reason": str(e)})
 
     # ──────────── BUY leg ────────────
-    if top_n > 0 and not params.get("block_new_buys", False):
+    buy_leg_enabled = top_n > 0 and not params.get("block_new_buys", False)
+    if buy_leg_enabled and not allow_new_exposure:
+        log.warning("Momentum BUY leg skipped by market entry gate; exits remain active")
+        results.extend(_entry_gate_blocked())
+    elif buy_leg_enabled:
         try:
             acct = get_account()
             equity = acct.get("equity", 0.0)
@@ -870,7 +3438,9 @@ def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
             max_pct = params["max_position_pct"] / 100.0
             target_value = min(equity / max(top_n, 1) * 0.95, equity * max_pct)
             held_syms = {p["symbol"] for p in positions}
-            for sym, _r in ranked[:top_n]:
+            # Use the post-earnings-veto slate, including replacement picks.
+            # Iterating ranked[:top_n] here used to buy vetoed earnings names.
+            for sym in filtered_top:
                 if sym in held_syms:
                     continue
                 try:
@@ -892,7 +3462,15 @@ def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
                                     "qty": qty, "price": price})
                     continue
                 try:
-                    order = place_limit_order(sym, qty, "buy", price)
+                    order = place_limit_order(
+                        sym,
+                        qty,
+                        "buy",
+                        price,
+                        client_order_id=_execution_client_order_id(
+                            "momentum", sym, "buy", today_ym
+                        ),
+                    )
                     send_trade_alert(sym, "buy", qty, price,
                                      f"Momentum top-{top_n} pick ({regime})")
                     results.append({"symbol": sym, "action": "MOMENTUM_BUY",
@@ -903,7 +3481,10 @@ def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
                     results.append({"symbol": sym, "action": "ERROR", "reason": str(e)})
 
     # ──────────── persist month marker ────────────
-    if not dry_run:
+    # If the market/clock gate blocked the BUY leg, do not mark the month done:
+    # the next open-market run must retry the filtered slate.  Exit orders are
+    # idempotent at the position level and remain intentionally allowed.
+    if not dry_run and (allow_new_exposure or not buy_leg_enabled):
         perf["last_momentum_rebal_ym"] = today_ym
         save_json(PERFORMANCE_STATE, perf)
 
@@ -913,7 +3494,10 @@ def manage_momentum_picks(dry_run: bool = False) -> list[dict]:
 # ─────────────────── v4: SPY base + regime-transition flatten ───────────
 
 
-def manage_base_position(dry_run: bool = False) -> list[dict]:
+def manage_base_position(
+    dry_run: bool = False,
+    allow_new_exposure: bool = True,
+) -> list[dict]:
     """v7 — maintain the structural base position at `base_pct` of equity.
 
     The base instrument is `params["base_instrument"]` — SPY or SSO.
@@ -965,9 +3549,24 @@ def manage_base_position(dry_run: bool = False) -> list[dict]:
                             "qty": pos["qty"], "to": target_sym})
             continue
         try:
-            close_position(sym)
-            results.append({"symbol": sym, "action": "BASE_SWAP_OUT",
-                            "qty": pos["qty"], "to": target_sym})
+            close_result = close_position(
+                sym,
+                client_order_id=_execution_client_order_id(
+                    "v11-migration", sym, "sell"
+                ),
+            )
+            if close_result.get("status") == "submitted":
+                results.append({"symbol": sym, "action": "BASE_SWAP_SUBMITTED",
+                                "qty": pos["qty"], "to": target_sym,
+                                "order_id": close_result.get("order_id")})
+            elif close_result.get("status") == "pending":
+                results.append({"symbol": sym, "action": "BASE_SWAP_PENDING",
+                                **close_result})
+            else:
+                results.append({"symbol": sym, "action": "ERROR",
+                                "reason": close_result.get(
+                                    "error", "base swap not submitted"
+                                )})
         except Exception as e:
             log.error(f"  {sym} swap-out failed — {e}")
             results.append({"symbol": sym, "action": "ERROR", "reason": str(e)})
@@ -992,9 +3591,26 @@ def manage_base_position(dry_run: bool = False) -> list[dict]:
                             "qty": cur_pos["qty"], "value": cur_value})
             return results
         try:
-            close_position(target_sym)
-            results.append({"symbol": target_sym, "action": "BASE_EXIT",
-                            "qty": cur_pos["qty"]})
+            close_result = close_position(
+                target_sym,
+                client_order_id=_execution_client_order_id(
+                    "v11-migration", target_sym, "sell"
+                ),
+            )
+            if close_result.get("status") == "submitted":
+                results.append({"symbol": target_sym,
+                                "action": "BASE_EXIT_SUBMITTED",
+                                "qty": cur_pos["qty"],
+                                "order_id": close_result.get("order_id")})
+            elif close_result.get("status") == "pending":
+                results.append({"symbol": target_sym,
+                                "action": "BASE_EXIT_PENDING",
+                                **close_result})
+            else:
+                results.append({"symbol": target_sym, "action": "ERROR",
+                                "reason": close_result.get(
+                                    "error", "base exit not submitted"
+                                )})
         except Exception as e:
             log.error(f"  {target_sym} base exit failed — {e}")
             results.append({"symbol": target_sym, "action": "ERROR", "reason": str(e)})
@@ -1014,6 +3630,10 @@ def manage_base_position(dry_run: bool = False) -> list[dict]:
         return results
 
     if delta_value > 0:
+        if not allow_new_exposure:
+            log.warning(f"  {target_sym} base BUY skipped by market entry gate")
+            results.extend(_entry_gate_blocked())
+            return results
         qty = int(delta_value / price)
         if qty < 1:
             return results
@@ -1023,7 +3643,15 @@ def manage_base_position(dry_run: bool = False) -> list[dict]:
                             "qty": qty, "price": price, "target_pct": target_pct})
             return results
         try:
-            order = place_limit_order(target_sym, qty, "buy", price)
+            order = place_limit_order(
+                target_sym,
+                qty,
+                "buy",
+                price,
+                client_order_id=_execution_client_order_id(
+                    "base", target_sym, "buy"
+                ),
+            )
             log.info(f"  {target_sym} BASE BUY {qty} @ ${price:.2f}")
             results.append({"symbol": target_sym, "action": "BASE_BUY",
                             "qty": qty, "price": price, "target_pct": target_pct,
@@ -1046,7 +3674,10 @@ def manage_base_position(dry_run: bool = False) -> list[dict]:
             return results
         try:
             order = place_limit_order(target_sym, trim_qty, "sell",
-                                      round(price * 0.999, 2))
+                                      round(price * 0.999, 2),
+                                      client_order_id=_execution_client_order_id(
+                                          "base-trim", target_sym, "sell"
+                                      ))
             log.info(f"  {target_sym} BASE TRIM {trim_qty} @ ${price:.2f}")
             results.append({"symbol": target_sym, "action": "BASE_TRIM",
                             "qty": trim_qty, "price": price, "target_pct": target_pct,
@@ -1087,7 +3718,10 @@ def _spy_above_sma50_and_sma200_live() -> bool:
         return False
 
 
-def manage_tqqq_position(dry_run: bool = False) -> list[dict]:
+def manage_tqqq_position(
+    dry_run: bool = False,
+    allow_new_exposure: bool = True,
+) -> list[dict]:
     """v10d — TQQQ leveraged overlay (3× QQQ) sized by regime.
 
     Reads `tqqq_pct` from strategy_config (BULL/NORMAL 80, NEUTRAL/NORMAL
@@ -1152,9 +3786,37 @@ def manage_tqqq_position(dry_run: bool = False) -> list[dict]:
                             "qty": cur_pos["qty"], "value": cur_value})
             return results
         try:
-            close_position(TQQQ_SYMBOL)
-            results.append({"symbol": TQQQ_SYMBOL, "action": "TQQQ_EXIT",
-                            "qty": cur_pos["qty"]})
+            close_result = close_position(
+                TQQQ_SYMBOL,
+                client_order_id=_execution_client_order_id(
+                    "v11-migration", TQQQ_SYMBOL, "sell"
+                ),
+            )
+            if close_result.get("status") == "submitted":
+                results.append(
+                    {
+                        "symbol": TQQQ_SYMBOL,
+                        "action": "TQQQ_EXIT_SUBMITTED",
+                        "qty": cur_pos["qty"],
+                        "order_id": close_result.get("order_id"),
+                    }
+                )
+            elif close_result.get("status") == "pending":
+                results.append(
+                    {
+                        "symbol": TQQQ_SYMBOL,
+                        "action": "TQQQ_EXIT_PENDING",
+                        **close_result,
+                    }
+                )
+            else:
+                results.append(
+                    {
+                        "symbol": TQQQ_SYMBOL,
+                        "action": "ERROR",
+                        "reason": close_result.get("error", "exit not submitted"),
+                    }
+                )
         except Exception as e:
             log.error(f"  TQQQ exit failed — {e}")
             results.append({"symbol": TQQQ_SYMBOL, "action": "ERROR",
@@ -1176,6 +3838,10 @@ def manage_tqqq_position(dry_run: bool = False) -> list[dict]:
         return results
 
     if delta_value > 0:
+        if not allow_new_exposure:
+            log.warning("  TQQQ BUY skipped by market entry gate")
+            results.extend(_entry_gate_blocked())
+            return results
         qty = int(delta_value / price)
         if qty < 1:
             return results
@@ -1185,7 +3851,15 @@ def manage_tqqq_position(dry_run: bool = False) -> list[dict]:
                             "qty": qty, "price": price, "target_pct": target_pct})
             return results
         try:
-            order = place_limit_order(TQQQ_SYMBOL, qty, "buy", price)
+            order = place_limit_order(
+                TQQQ_SYMBOL,
+                qty,
+                "buy",
+                price,
+                client_order_id=_execution_client_order_id(
+                    "tqqq", TQQQ_SYMBOL, "buy"
+                ),
+            )
             import strategy_metadata as sm
             sm.mark_position(TQQQ_SYMBOL, "base")  # exempts from caps + HALT
             log.info(f"  TQQQ BUY {qty} @ ${price:.2f}")
@@ -1210,7 +3884,10 @@ def manage_tqqq_position(dry_run: bool = False) -> list[dict]:
             return results
         try:
             order = place_limit_order(TQQQ_SYMBOL, trim_qty, "sell",
-                                      round(price * 0.999, 2))
+                                      round(price * 0.999, 2),
+                                      client_order_id=_execution_client_order_id(
+                                          "tqqq-trim", TQQQ_SYMBOL, "sell"
+                                      ))
             log.info(f"  TQQQ TRIM {trim_qty} @ ${price:.2f}")
             results.append({"symbol": TQQQ_SYMBOL, "action": "TQQQ_TRIM",
                             "qty": trim_qty, "price": price, "target_pct": target_pct,
@@ -1223,7 +3900,10 @@ def manage_tqqq_position(dry_run: bool = False) -> list[dict]:
     return results
 
 
-def manage_upro_position(dry_run: bool = False) -> list[dict]:
+def manage_upro_position(
+    dry_run: bool = False,
+    allow_new_exposure: bool = True,
+) -> list[dict]:
     """v10f — UPRO (3× SPY) parallel sleeve, mirrors manage_tqqq_position.
 
     Same SMA50+SMA200 gate as TQQQ. Reads `upro_pct` from strategy_config
@@ -1275,9 +3955,37 @@ def manage_upro_position(dry_run: bool = False) -> list[dict]:
                             "qty": cur_pos["qty"], "value": cur_value})
             return results
         try:
-            close_position(UPRO_BASE_SYMBOL)
-            results.append({"symbol": UPRO_BASE_SYMBOL, "action": "UPRO_EXIT",
-                            "qty": cur_pos["qty"]})
+            close_result = close_position(
+                UPRO_BASE_SYMBOL,
+                client_order_id=_execution_client_order_id(
+                    "v11-migration", UPRO_BASE_SYMBOL, "sell"
+                ),
+            )
+            if close_result.get("status") == "submitted":
+                results.append(
+                    {
+                        "symbol": UPRO_BASE_SYMBOL,
+                        "action": "UPRO_EXIT_SUBMITTED",
+                        "qty": cur_pos["qty"],
+                        "order_id": close_result.get("order_id"),
+                    }
+                )
+            elif close_result.get("status") == "pending":
+                results.append(
+                    {
+                        "symbol": UPRO_BASE_SYMBOL,
+                        "action": "UPRO_EXIT_PENDING",
+                        **close_result,
+                    }
+                )
+            else:
+                results.append(
+                    {
+                        "symbol": UPRO_BASE_SYMBOL,
+                        "action": "ERROR",
+                        "reason": close_result.get("error", "exit not submitted"),
+                    }
+                )
         except Exception as e:
             log.error(f"  UPRO exit failed — {e}")
             results.append({"symbol": UPRO_BASE_SYMBOL, "action": "ERROR",
@@ -1299,6 +4007,10 @@ def manage_upro_position(dry_run: bool = False) -> list[dict]:
         return results
 
     if delta_value > 0:
+        if not allow_new_exposure:
+            log.warning("  UPRO BUY skipped by market entry gate")
+            results.extend(_entry_gate_blocked())
+            return results
         qty = int(delta_value / price)
         if qty < 1:
             return results
@@ -1307,7 +4019,15 @@ def manage_upro_position(dry_run: bool = False) -> list[dict]:
                             "qty": qty, "price": price, "target_pct": target_pct})
             return results
         try:
-            order = place_limit_order(UPRO_BASE_SYMBOL, qty, "buy", price)
+            order = place_limit_order(
+                UPRO_BASE_SYMBOL,
+                qty,
+                "buy",
+                price,
+                client_order_id=_execution_client_order_id(
+                    "upro", UPRO_BASE_SYMBOL, "buy"
+                ),
+            )
             import strategy_metadata as sm
             sm.mark_position(UPRO_BASE_SYMBOL, "base")
             log.info(f"  UPRO BUY {qty} @ ${price:.2f}")
@@ -1331,7 +4051,10 @@ def manage_upro_position(dry_run: bool = False) -> list[dict]:
             return results
         try:
             order = place_limit_order(UPRO_BASE_SYMBOL, trim_qty, "sell",
-                                      round(price * 0.999, 2))
+                                      round(price * 0.999, 2),
+                                      client_order_id=_execution_client_order_id(
+                                          "upro-trim", UPRO_BASE_SYMBOL, "sell"
+                                      ))
             log.info(f"  UPRO TRIM {trim_qty} @ ${price:.2f}")
             results.append({"symbol": UPRO_BASE_SYMBOL, "action": "UPRO_TRIM",
                             "qty": trim_qty, "price": price, "target_pct": target_pct,
@@ -1425,7 +4148,8 @@ def manage_regime_transition(dry_run: bool = False) -> list[dict]:
         try:
             result = close_position(symbol)
             send_trade_alert(symbol, "sell", int(pos["qty"]), pos["current_price"],
-                             f"Flatten on {prev_regime}→{regime} transition (pnl {pnl_pct:+.1f}%)")
+                             f"Flatten on {prev_confirmed}→{confirmed} transition "
+                             f"(pnl {pnl_pct:+.1f}%)")
             results.append({"symbol": symbol, "action": "FLATTEN",
                             "pnl_pct": pnl_pct, **result})
         except Exception as e:
@@ -1438,7 +4162,10 @@ def manage_regime_transition(dry_run: bool = False) -> list[dict]:
 # ────────────────────────── bear hedge management ────────────────────────
 
 
-def manage_bear_hedge(dry_run: bool = False) -> list[dict]:
+def manage_bear_hedge(
+    dry_run: bool = False,
+    allow_new_exposure: bool = True,
+) -> list[dict]:
     """Maintain SH (inverse SPY) position at the regime-driven target %.
 
     Behavior:
@@ -1493,12 +4220,25 @@ def manage_bear_hedge(dry_run: bool = False) -> list[dict]:
             return [{"symbol": HEDGE_SYMBOL, "action": "DRY_RUN_HEDGE_EXIT",
                      "qty": sh_pos["qty"], "value": sh_value}]
         try:
-            result = close_position(HEDGE_SYMBOL)
+            result = close_position(
+                HEDGE_SYMBOL,
+                client_order_id=_execution_client_order_id(
+                    "v11-migration", HEDGE_SYMBOL, "sell"
+                ),
+            )
+            if result.get("status") == "pending":
+                return [{"symbol": HEDGE_SYMBOL,
+                         "action": "HEDGE_EXIT_PENDING", **result}]
+            if result.get("status") != "submitted":
+                return [{"symbol": HEDGE_SYMBOL, "action": "ERROR",
+                         "reason": result.get(
+                             "error", "hedge exit not submitted"
+                         )}]
             send_trade_alert(
                 HEDGE_SYMBOL, "sell", int(sh_pos["qty"]), sh_pos["current_price"],
                 f"Hedge exit ({regime}/{risk_tier})",
             )
-            return [{"symbol": HEDGE_SYMBOL, "action": "HEDGE_EXIT",
+            return [{"symbol": HEDGE_SYMBOL, "action": "HEDGE_EXIT_SUBMITTED",
                      "qty": sh_pos["qty"], **result}]
         except Exception as e:
             log.error(f"  Hedge exit failed — {e}")
@@ -1510,6 +4250,9 @@ def manage_bear_hedge(dry_run: bool = False) -> list[dict]:
 
     # Case 3: need to ADD hedge (delta positive = buy more SH)
     if delta_value > 0:
+        if not allow_new_exposure:
+            log.warning("  SH hedge BUY skipped by market entry gate")
+            return _entry_gate_blocked()
         try:
             quote = get_latest_quote(HEDGE_SYMBOL)
             price = quote["ask"] if quote["ask"] > 0 else quote["mid"]
@@ -1533,7 +4276,15 @@ def manage_bear_hedge(dry_run: bool = False) -> list[dict]:
                      "qty": qty, "price": price, "target_pct": target_pct}]
 
         try:
-            order = place_limit_order(HEDGE_SYMBOL, qty, "buy", price)
+            order = place_limit_order(
+                HEDGE_SYMBOL,
+                qty,
+                "buy",
+                price,
+                client_order_id=_execution_client_order_id(
+                    "bear-hedge", HEDGE_SYMBOL, "buy"
+                ),
+            )
             send_trade_alert(
                 HEDGE_SYMBOL, "buy", qty, price,
                 f"Bear hedge → {target_pct:.0f}% target ({regime}/{risk_tier})",
@@ -1566,7 +4317,15 @@ def manage_bear_hedge(dry_run: bool = False) -> list[dict]:
                      "qty": trim_qty, "price": price, "target_pct": target_pct}]
 
         try:
-            order = place_limit_order(HEDGE_SYMBOL, trim_qty, "sell", round(price * 0.999, 2))
+            order = place_limit_order(
+                HEDGE_SYMBOL,
+                trim_qty,
+                "sell",
+                round(price * 0.999, 2),
+                client_order_id=_execution_client_order_id(
+                    "bear-hedge-trim", HEDGE_SYMBOL, "sell"
+                ),
+            )
             send_trade_alert(
                 HEDGE_SYMBOL, "sell", trim_qty, price,
                 f"Trim hedge → {target_pct:.0f}% target ({regime}/{risk_tier})",
@@ -1585,7 +4344,10 @@ def manage_bear_hedge(dry_run: bool = False) -> list[dict]:
 # ──────────────────────── Mean reversion overlay ───────────────────────────
 
 
-def execute_mr_buys(dry_run: bool = False) -> list[dict]:
+def execute_mr_buys(
+    dry_run: bool = False,
+    allow_new_exposure: bool = True,
+) -> list[dict]:
     """Open MR positions in NEUTRAL/BEAR regimes within sleeve cap."""
     from ablation_flags import ABLATE_MEAN_REV
     if ABLATE_MEAN_REV:
@@ -1599,6 +4361,10 @@ def execute_mr_buys(dry_run: bool = False) -> list[dict]:
     from portfolio import get_positions, get_account
     from research import get_latest_quote
     from trade import place_limit_order
+
+    if not allow_new_exposure:
+        log.warning("Mean-reversion buys skipped by market entry gate")
+        return _entry_gate_blocked()
 
     regime = get_market_regime()
     risk_tier = get_risk_tier()
@@ -1667,7 +4433,15 @@ def execute_mr_buys(dry_run: bool = False) -> list[dict]:
             continue
 
         try:
-            order = place_limit_order(c.symbol, qty, "buy", price)
+            order = place_limit_order(
+                c.symbol,
+                qty,
+                "buy",
+                price,
+                client_order_id=_execution_client_order_id(
+                    "mean-reversion", c.symbol, "buy"
+                ),
+            )
             sm.mark_position(c.symbol, "mr")
             sleeve_committed += cost
             cash -= cost
@@ -1732,7 +4506,10 @@ def execute_mr_exits(dry_run: bool = False) -> list[dict]:
 # ──────────────────────────── PEAD overlay ─────────────────────────────────
 
 
-def execute_pead_buys(dry_run: bool = False) -> list[dict]:
+def execute_pead_buys(
+    dry_run: bool = False,
+    allow_new_exposure: bool = True,
+) -> list[dict]:
     """PEAD = Post-Earnings Announcement Drift. Buys 1-2 days after a beat.
 
     Reads `state/earnings_surprises.json` (refreshed by Perplexity in
@@ -1744,11 +4521,15 @@ def execute_pead_buys(dry_run: bool = False) -> list[dict]:
     if ABLATE_PEAD:
         return []
     from pead_strategy import is_pead_setup, score_pead
-    from earnings_calendar import days_until_earnings, load_calendar
+    from earnings_calendar import load_calendar
     import strategy_metadata as sm
     from portfolio import get_positions, get_account
     from research import get_latest_quote
     from trade import place_limit_order
+
+    if not allow_new_exposure:
+        log.warning("PEAD buys skipped by market entry gate")
+        return _entry_gate_blocked()
 
     if get_risk_tier() == "HALT":
         return []
@@ -1847,7 +4628,15 @@ def execute_pead_buys(dry_run: bool = False) -> list[dict]:
             continue
 
         try:
-            order = place_limit_order(sym, qty, "buy", price)
+            order = place_limit_order(
+                sym,
+                qty,
+                "buy",
+                price,
+                client_order_id=_execution_client_order_id(
+                    "pead", sym, "buy"
+                ),
+            )
             sm.mark_position(sym, "pead")
             sleeve_remaining -= qty * price
             cash -= qty * price
@@ -1902,121 +4691,450 @@ def execute_pead_exits(dry_run: bool = False) -> list[dict]:
 # ───────────────────────────── orchestration ──────────────────────────────
 
 
+def _infrastructure_migration_status() -> dict:
+    """Reconcile v11's zero-target legacy infrastructure migration.
+
+    Adaptive stock buys remain blocked until old leveraged/base/hedge
+    positions are absent *and* their broker orders have reached terminal
+    states.  A read failure is fail-closed but does not prevent exit routines
+    from running.
+    """
+
+    from portfolio import get_positions
+    from trade import list_open_orders
+
+    migration_symbols = {
+        SPY_BASE_SYMBOL,
+        SSO_BASE_SYMBOL,
+        TQQQ_BASE_SYMBOL,
+        UPRO_BASE_SYMBOL,
+        HEDGE_SYMBOL,
+    }
+    try:
+        held_symbols = []
+        for position in get_positions():
+            symbol = str(position.get("symbol", ""))
+            quantity = float(position.get("qty", 0.0) or 0.0)
+            if not math.isfinite(quantity):
+                raise ValueError(f"non-finite position quantity for {symbol}")
+            if symbol in migration_symbols and abs(quantity) > 1e-9:
+                held_symbols.append(symbol)
+        held_symbols.sort()
+        open_orders = []
+        for order in list_open_orders():
+            symbol = str(order.get("symbol", ""))
+            remaining = float(order.get("remaining_qty", 0.0) or 0.0)
+            if not math.isfinite(remaining) or remaining < 0:
+                raise ValueError(f"invalid remaining order quantity for {symbol}")
+            if symbol in migration_symbols and remaining > 1e-9:
+                open_orders.append(order)
+    except Exception as exc:
+        return {
+            "pending": True,
+            "held_symbols": [],
+            "open_order_ids": [],
+            "reason": f"infrastructure reconciliation unavailable: {exc}",
+        }
+    pending = bool(held_symbols or open_orders)
+    return {
+        "pending": pending,
+        "held_symbols": held_symbols,
+        "open_order_ids": sorted(str(order.get("id")) for order in open_orders),
+        "reason": (
+            "legacy infrastructure positions/orders must settle before adaptive buys"
+            if pending
+            else "legacy infrastructure migration converged"
+        ),
+    }
+
+
 def run_execution(dry_run: bool = False) -> dict:
-    """Main execution routine — full sequence of trade logic."""
+    """Capture one fresh risk tier, then use it consistently for this run."""
+
+    if not dry_run:
+        require_paper_trading_mode()
+    risk_snapshot = _capture_execution_risk_snapshot()
+    token = _EXECUTION_RISK_TIER.set(str(risk_snapshot["tier"]))
+    try:
+        return _run_execution_with_risk_snapshot(
+            dry_run=dry_run,
+            risk_snapshot=risk_snapshot,
+        )
+    finally:
+        _EXECUTION_RISK_TIER.reset(token)
+
+
+def _run_execution_with_risk_snapshot(
+    *,
+    dry_run: bool,
+    risk_snapshot: dict,
+) -> dict:
+    """Main execution routine — full sequence of trade logic.
+
+    A non-dry run is paper-only and checks a fresh, open Alpaca clock before
+    any path may add exposure.  A failed entry gate does *not* abort the
+    routine: stop-losses, trims, strategy exits, and flattening continue.
+    """
     log.info(f"{'='*60}")
     log.info(f"TRADE EXECUTION — {get_now_str()}")
     log.info(f"{'='*60}")
 
-    from trade import execute_stop_losses, sync_trailing_stops
+    active_regime = get_market_regime()
+    active_params = get_strategy_params(active_regime, get_risk_tier())
+    adaptive_mode = bool(active_params.get("adaptive_momentum", False))
+    short_preflight = (
+        _reconcile_v11_short_positions(dry_run=dry_run)
+        if adaptive_mode
+        else []
+    )
+    if short_preflight:
+        reason = (
+            "V11 short-position reconciliation blocks every other strategy "
+            "action until a fresh broker snapshot is flat"
+        )
+        log.warning(reason)
+        return {
+            "timestamp": get_now_str(),
+            "regime": active_regime,
+            "risk_tier": get_risk_tier(),
+            "entry_gate": {
+                "allowed": False,
+                "reason": reason,
+                "risk_snapshot": risk_snapshot,
+            },
+            "safety_preflight": short_preflight,
+            "stop_losses": [],
+            "tightened_stops": [],
+            "scale_outs": [],
+            "sells": [],
+            "hedge": [],
+            "options_hedge": [],
+            "momentum_picks": [],
+            "infrastructure_migration": {
+                "pending": True,
+                "held_symbols": [],
+                "open_order_ids": [],
+                "reason": reason,
+            },
+            "buys": [],
+            "mr_buys": [],
+            "mr_exits": [],
+            "pead_buys": [],
+            "pead_exits": [],
+            "time_stops": [],
+            "dry_run": dry_run,
+        }
+    validation_gate = _v11_validation_gate() if adaptive_mode else None
 
-    stops = execute_stop_losses()
+    from trade import (
+        execute_stop_losses,
+        get_market_entry_gate,
+        sync_trailing_stops,
+    )
+
+    if dry_run:
+        entry_gate = {
+            "allowed": True,
+            "reason": (
+                "dry-run/shadow-only preview; no orders may be submitted"
+                if adaptive_mode and not validation_gate["passed"]
+                else "dry-run preview; no orders may be submitted"
+            ),
+        }
+        if validation_gate is not None:
+            entry_gate["validation"] = validation_gate
+            entry_gate["shadow_only"] = not validation_gate["passed"]
+        entry_gate["risk_snapshot"] = risk_snapshot
+    else:
+        broker_entry_gate = get_market_entry_gate()
+        entry_gate = dict(broker_entry_gate)
+        entry_gate["risk_snapshot"] = risk_snapshot
+        if not risk_snapshot.get("available", False):
+            entry_gate["broker_allowed"] = bool(broker_entry_gate["allowed"])
+            entry_gate["allowed"] = False
+            entry_gate["reason"] = (
+                f"{risk_snapshot['reason']}; new exposure blocked; "
+                "risk-reducing exits remain enabled"
+            )
+        elif risk_snapshot.get("tier") == "HALT":
+            entry_gate["broker_allowed"] = bool(broker_entry_gate["allowed"])
+            entry_gate["allowed"] = False
+            entry_gate["reason"] = (
+                "fresh account snapshot triggered HALT; new exposure blocked; "
+                "zero-target exits remain enabled"
+            )
+        if validation_gate is not None:
+            entry_gate.setdefault(
+                "broker_allowed", bool(broker_entry_gate["allowed"])
+            )
+            entry_gate["validation"] = validation_gate
+            entry_gate["shadow_only"] = not validation_gate["passed"]
+            entry_gate["allowed"] = bool(
+                broker_entry_gate["allowed"]
+                and validation_gate["passed"]
+                and risk_snapshot.get("available", False)
+                and risk_snapshot.get("tier") != "HALT"
+            )
+            if not validation_gate["passed"]:
+                entry_gate["reason"] = (
+                    f"{validation_gate['reason']}; new adaptive exposure blocked; "
+                    "risk-reducing exits and pending-buy cancellation remain enabled"
+                )
+        if entry_gate["allowed"]:
+            log.info(f"New-exposure gate OPEN: {entry_gate['reason']}")
+        else:
+            log.warning(
+                f"New-exposure gate CLOSED: {entry_gate['reason']}. "
+                "Risk-reducing exits remain enabled."
+            )
+    allow_new_exposure = bool(entry_gate["allowed"])
+    buy_preflight = (
+        _reconcile_v11_open_buys_preflight(
+            dry_run=dry_run,
+            allow_new_exposure=allow_new_exposure,
+        )
+        if adaptive_mode
+        else []
+    )
+    if buy_preflight:
+        reason = (
+            "V11 open-BUY reconciliation blocks every other strategy action "
+            "until a fresh broker snapshot confirms the boundary"
+        )
+        log.warning(reason)
+        return {
+            "timestamp": get_now_str(),
+            "regime": active_regime,
+            "risk_tier": get_risk_tier(),
+            "entry_gate": {**entry_gate, "allowed": False, "reason": reason},
+            "safety_preflight": buy_preflight,
+            "stop_losses": [],
+            "tightened_stops": [],
+            "scale_outs": [],
+            "sells": [],
+            "hedge": [],
+            "options_hedge": [],
+            "momentum_picks": [],
+            "infrastructure_migration": {
+                "pending": True,
+                "held_symbols": [],
+                "open_order_ids": [],
+                "reason": reason,
+            },
+            "buys": [],
+            "mr_buys": [],
+            "mr_exits": [],
+            "pead_buys": [],
+            "pead_exits": [],
+            "time_stops": [],
+            "dry_run": dry_run,
+        }
+    infrastructure_preflight = (
+        _cancel_v11_infrastructure_buys(dry_run=dry_run)
+        if adaptive_mode
+        else []
+    )
+    if infrastructure_preflight:
+        allow_new_exposure = False
+        log.warning(
+            "Legacy infrastructure BUY cancellation requires an invocation boundary"
+        )
+
+    stops = [] if adaptive_mode else execute_stop_losses(dry_run=dry_run)
     if stops:
         log.info(f"Stop-losses triggered: {len(stops)}")
 
-    synced = sync_trailing_stops()
+    synced = [] if adaptive_mode else sync_trailing_stops(dry_run=dry_run)
     if synced:
         log.info(f"Trailing stops synced: {len(synced)}")
 
-    tightened = tighten_stops_in_profit(dry_run=dry_run)
+    tightened = [] if adaptive_mode else tighten_stops_in_profit(dry_run=dry_run)
     if tightened:
         log.info(f"Stops tightened: {len([t for t in tightened if t.get('action') == 'TIGHTEN'])}")
 
-    scale_outs = execute_scale_outs(dry_run=dry_run)
+    scale_outs = [] if adaptive_mode else execute_scale_outs(dry_run=dry_run)
     if scale_outs:
         log.info(f"Scale-out / target exits: {len(scale_outs)}")
 
-    sells = execute_sells(dry_run=dry_run)
+    sells = [] if adaptive_mode else execute_sells(dry_run=dry_run)
 
-    # Strategy-specific exits run BEFORE buys so they free cash for next picks
-    mr_exits = execute_mr_exits(dry_run=dry_run)
+    # V11 has one target engine.  Legacy sleeve exits must not independently
+    # reshape its holdings or race the frozen target-order lifecycle.
+    mr_exits = [] if adaptive_mode else execute_mr_exits(dry_run=dry_run)
     if mr_exits:
         log.info(f"MR exits: {len([e for e in mr_exits if e.get('action') == 'MR_EXIT'])}")
 
-    pead_exits = execute_pead_exits(dry_run=dry_run)
+    pead_exits = [] if adaptive_mode else execute_pead_exits(dry_run=dry_run)
     if pead_exits:
         log.info(f"PEAD exits: {len([e for e in pead_exits if e.get('action') == 'PEAD_EXIT'])}")
 
-    # v4: Flatten directional book on BULL → NEUTRAL/BEAR transition
-    flatten = manage_regime_transition(dry_run=dry_run)
+    # Legacy regime flattening is also superseded by V11's SPY-SMA target.
+    flatten = (
+        [] if adaptive_mode else manage_regime_transition(dry_run=dry_run)
+    )
     if flatten:
         log.info(f"Flatten-on-transition actions: {len(flatten)}")
 
     # Hedge sizing runs BEFORE directional buys so it can claim cash first
-    hedge = manage_bear_hedge(dry_run=dry_run)
+    hedge = (
+        []
+        if infrastructure_preflight
+        else manage_bear_hedge(
+            dry_run=dry_run,
+            allow_new_exposure=allow_new_exposure,
+        )
+    )
     if hedge:
         log.info(f"Bear hedge actions: {len(hedge)}")
 
     # v4: SPY base position (market beta) — sized by regime
-    spy_base = manage_spy_base(dry_run=dry_run)
+    spy_base = (
+        []
+        if infrastructure_preflight
+        else manage_spy_base(
+            dry_run=dry_run,
+            allow_new_exposure=allow_new_exposure,
+        )
+    )
     if spy_base:
         log.info(f"SPY base actions: {len(spy_base)}")
 
     # v10d: TQQQ leveraged BULL/NEUTRAL overlay (3× QQQ).
     # SMA50+SMA200 gate inside the function auto-flattens on breakdown.
-    tqqq_actions = manage_tqqq_position(dry_run=dry_run)
+    tqqq_actions = (
+        []
+        if infrastructure_preflight
+        else manage_tqqq_position(
+            dry_run=dry_run,
+            allow_new_exposure=allow_new_exposure,
+        )
+    )
     if tqqq_actions:
         log.info(f"TQQQ overlay actions: {len(tqqq_actions)}")
 
     # v10f: UPRO (3× SPY) parallel sleeve — same SMA gate as TQQQ.
-    upro_actions = manage_upro_position(dry_run=dry_run)
+    upro_actions = (
+        []
+        if infrastructure_preflight
+        else manage_upro_position(
+            dry_run=dry_run,
+            allow_new_exposure=allow_new_exposure,
+        )
+    )
     if upro_actions:
         log.info(f"UPRO overlay actions: {len(upro_actions)}")
 
+    infrastructure_migration = _infrastructure_migration_status()
+    if infrastructure_preflight:
+        infrastructure_migration = {
+            **infrastructure_migration,
+            "pending": True,
+            "preflight_actions": infrastructure_preflight,
+            "reason": (
+                "legacy infrastructure BUY cancellation must settle before "
+                "migration sells or adaptive buys"
+            ),
+        }
+    if infrastructure_migration["pending"]:
+        log.warning(infrastructure_migration["reason"])
+
     # v6: monthly dual-momentum rebalance — runs BEFORE execute_buys.
     # When momentum_mode is True (default), execute_buys is a no-op.
-    momentum_picks = manage_momentum_picks(dry_run=dry_run)
+    momentum_picks = (
+        [
+            {
+                "action": "ADAPTIVE_DEFERRED_INFRASTRUCTURE_CANCELLATION",
+                "reason": infrastructure_migration["reason"],
+            }
+        ]
+        if infrastructure_preflight
+        else manage_momentum_picks(
+            dry_run=dry_run,
+            allow_new_exposure=bool(
+                allow_new_exposure and not infrastructure_migration["pending"]
+            ),
+        )
+    )
     if momentum_picks:
         log.info(f"Momentum rebalance actions: {len(momentum_picks)}")
 
     # Options hedge (puts) — supplemental tail-risk layer on top of SH ETF.
     # Silently no-ops if account lacks options trading or no actionable decision.
     options_hedge_result = []
-    try:
-        from options_executor import execute_options_hedge
-        options_hedge_result = execute_options_hedge(dry_run=dry_run)
-        if options_hedge_result:
-            log.info(f"Options hedge: {len(options_hedge_result)} action(s)")
-    except Exception as e:
-        log.warning(f"Options hedge skipped: {e}")
+    if active_params.get("enable_options_hedge", False):
+        try:
+            from options_executor import execute_options_hedge
+            if allow_new_exposure:
+                options_hedge_result = execute_options_hedge(dry_run=dry_run)
+            else:
+                options_hedge_result = _entry_gate_blocked()
+            if options_hedge_result:
+                log.info(f"Options hedge: {len(options_hedge_result)} action(s)")
+        except Exception as e:
+            log.warning(f"Options hedge skipped: {e}")
 
-    buys = execute_buys(dry_run=dry_run)
+    buys = (
+        []
+        if adaptive_mode
+        else execute_buys(
+            dry_run=dry_run,
+            allow_new_exposure=allow_new_exposure,
+        )
+    )
 
     # MR + PEAD buys run AFTER momentum buys so momentum claims slots first.
     # Sleeve caps prevent them from over-allocating.
-    mr_buys = execute_mr_buys(dry_run=dry_run)
+    mr_buys = (
+        execute_mr_buys(
+            dry_run=dry_run,
+            allow_new_exposure=allow_new_exposure,
+        )
+        if active_params.get("enable_mean_reversion", False)
+        else []
+    )
     if mr_buys:
         log.info(f"MR buys: {len([m for m in mr_buys if m.get('action') == 'MR_BUY'])}")
 
-    pead_buys = execute_pead_buys(dry_run=dry_run)
+    pead_buys = (
+        execute_pead_buys(
+            dry_run=dry_run,
+            allow_new_exposure=allow_new_exposure,
+        )
+        if active_params.get("enable_pead", False)
+        else []
+    )
     if pead_buys:
         log.info(f"PEAD buys: {len([p for p in pead_buys if p.get('action') == 'PEAD_BUY'])}")
 
-    time_stops = execute_time_stops(dry_run=dry_run)
+    time_stops = [] if adaptive_mode else execute_time_stops(dry_run=dry_run)
 
-    from portfolio import save_positions_state, update_performance_state
-    save_positions_state()
-    update_performance_state()
+    if not dry_run:
+        from portfolio import save_positions_state, update_performance_state
+        save_positions_state()
+        update_performance_state()
 
-    # Sync metadata with reality (in case Alpaca closed positions externally)
-    try:
-        from portfolio import get_positions
-        import strategy_metadata as sm
-        current = {p["symbol"] for p in get_positions()}
-        sm.sync_with_positions(current)
-    except Exception as e:
-        log.warning(f"strategy_metadata sync skipped: {e}")
+        # Sync metadata with reality (in case Alpaca closed positions externally)
+        try:
+            from portfolio import get_positions
+            import strategy_metadata as sm
+            current = {p["symbol"] for p in get_positions()}
+            sm.sync_with_positions(current)
+        except Exception as e:
+            log.warning(f"strategy_metadata sync skipped: {e}")
 
     result = {
         "timestamp": get_now_str(),
         "regime": get_market_regime(),
         "risk_tier": get_risk_tier(),
+        "entry_gate": entry_gate,
         "stop_losses": stops,
         "tightened_stops": tightened,
         "scale_outs": scale_outs,
         "sells": sells,
         "hedge": hedge,
         "options_hedge": options_hedge_result,
+        "momentum_picks": momentum_picks,
+        "infrastructure_migration": infrastructure_migration,
         "buys": buys,
         "mr_buys": mr_buys,
         "mr_exits": mr_exits,
@@ -2026,7 +5144,7 @@ def run_execution(dry_run: bool = False) -> dict:
         "dry_run": dry_run,
     }
 
-    log.info(f"\nExecution summary:")
+    log.info("\nExecution summary:")
     log.info(f"  Stop-losses: {len(stops)}")
     log.info(f"  Tightened:   {len([t for t in tightened if t.get('action') == 'TIGHTEN'])}")
     log.info(f"  Scale-outs:  {len([s for s in scale_outs if s.get('action') in ('SCALE_OUT', 'FINAL_TARGET')])}")
@@ -2038,14 +5156,159 @@ def run_execution(dry_run: bool = False) -> dict:
     return result
 
 
-if __name__ == "__main__":
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "run"
+def resolve_cli_command(argv: list[str] | None = None) -> str:
+    """Resolve the CLI command; no argument is deliberately a dry run."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    return args[0] if args else "dry-run"
+
+
+def _run_midday_command(risk_snapshot: dict) -> int:
+    """Run the paper midday lifecycle under one captured risk snapshot."""
+
+    from portfolio import save_positions_state, update_performance_state
+    from trade import (
+        execute_stop_losses,
+        get_market_entry_gate,
+        sync_trailing_stops,
+    )
+
+    print(f"\nMidday scan — {get_now_str()}")
+    active_params = get_strategy_params(get_market_regime(), get_risk_tier())
+    adaptive_mode = bool(active_params.get("adaptive_momentum", False))
+    if adaptive_mode:
+        short_preflight = _reconcile_v11_short_positions(dry_run=False)
+        if short_preflight:
+            for result in short_preflight:
+                print(
+                    f"  {result.get('symbol', 'V11')}: "
+                    f"{result.get('action', '?')}"
+                )
+            print("Short reconciliation pending; all other V11 actions blocked.")
+            return 0
+        # v11 is a target-portfolio strategy.  Legacy stop synchronization,
+        # tightening, gain scaling, and time stops would fight that target and
+        # can recreate the GTC sell-order deadlock.
+        print("Adaptive v11: legacy stop/scale/time-stop mechanics disabled.")
+    else:
+        synced = sync_trailing_stops()
+        if synced:
+            print(f"Trailing stops synced: {len(synced)}")
+        else:
+            print("All positions have trailing stops.")
+
+        tightened = tighten_stops_in_profit()
+        if tightened:
+            print(
+                "Stops tightened: "
+                f"{len([t for t in tightened if t.get('action') == 'TIGHTEN'])}"
+            )
+
+        scale_outs = execute_scale_outs()
+        if scale_outs:
+            for result in scale_outs:
+                print(f"  {result['symbol']}: {result['action']}")
+
+    entry_gate = get_market_entry_gate()
+    risk_allows_entries = bool(
+        risk_snapshot.get("available", False)
+        and risk_snapshot.get("tier") != "HALT"
+    )
+    validation_gate = _v11_validation_gate() if adaptive_mode else None
+    buy_preflight = (
+        _reconcile_v11_open_buys_preflight(
+            dry_run=False,
+            allow_new_exposure=bool(
+                entry_gate["allowed"]
+                and risk_allows_entries
+                and validation_gate is not None
+                and validation_gate["passed"]
+            ),
+        )
+        if adaptive_mode
+        else []
+    )
+    if buy_preflight:
+        for result in buy_preflight:
+            print(
+                f"  {result.get('symbol', 'V11')}: "
+                f"{result.get('action', '?')}"
+            )
+        print("Open-BUY reconciliation pending; all other V11 actions blocked.")
+        return 0
+    infrastructure_preflight = (
+        _cancel_v11_infrastructure_buys(dry_run=False)
+        if adaptive_mode
+        else []
+    )
+    if infrastructure_preflight:
+        for result in infrastructure_preflight:
+            print(
+                f"  {result.get('symbol', 'V11')}: "
+                f"{result.get('action', '?')}"
+            )
+        save_positions_state()
+        update_performance_state()
+        print("Infrastructure BUY cancellation pending; state refreshed.")
+        return 0
+
+    hedge = manage_bear_hedge(
+        allow_new_exposure=bool(entry_gate["allowed"] and risk_allows_entries),
+    )
+    if hedge:
+        for result in hedge:
+            print(
+                f"  HEDGE {result.get('action')}: "
+                f"{result.get('qty', '?')} {HEDGE_SYMBOL}"
+            )
+
+    if adaptive_mode:
+        infrastructure_migration = _infrastructure_migration_status()
+        adaptive_actions = manage_momentum_picks(
+            allow_new_exposure=bool(
+                entry_gate["allowed"]
+                and risk_allows_entries
+                and validation_gate["passed"]
+                and not infrastructure_migration["pending"]
+            )
+        )
+        for result in adaptive_actions:
+            print(
+                f"  {result.get('symbol', 'V11')}: "
+                f"{result.get('action', '?')}"
+            )
+    else:
+        stops = execute_stop_losses()
+        if stops:
+            print(f"Stop-losses triggered: {len(stops)}")
+
+        time_stops = execute_time_stops()
+        if time_stops:
+            print(
+                "Time stops: "
+                f"{len([t for t in time_stops if t.get('action') == 'TIME_STOP'])}"
+            )
+
+    save_positions_state()
+    update_performance_state()
+    print("State saved.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point with paper-only opt-in for every mutating routine."""
+    cmd = resolve_cli_command(argv)
 
     if cmd == "run":
-        result = run_execution(dry_run=False)
+        try:
+            require_paper_trading_mode()
+            result = run_execution(dry_run=False)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
         print(f"\nExecution complete. Buys: {len(result['buys'])}, Sells: {len(result['sells'])}")
+        return 0
 
-    elif cmd == "dry-run":
+    if cmd == "dry-run":
         result = run_execution(dry_run=True)
         print(f"\nDry run — regime={result['regime']} | risk={result['risk_tier']}")
         hedge_target = get_bear_hedge_target_pct(result['regime'], result['risk_tier'])
@@ -2056,53 +5319,33 @@ if __name__ == "__main__":
               f"scale-out: {len([s for s in result['scale_outs'] if s.get('action') in ('DRY_RUN_SCALE_OUT', 'DRY_RUN_FINAL_TARGET')])} | "
               f"time-stop: {len([t for t in result['time_stops'] if t.get('action') == 'DRY_RUN_TIME_STOP'])}")
         for h in result["hedge"]:
-            sym = h.get('symbol', 'SH')
+            sym = h.get("symbol", "SH")
             print(f"  {sym}: {h.get('action', '?')} — qty={h.get('qty', '?')} target={h.get('target_pct', '?')}%")
-        for b in result["buys"]:
-            sym = b.get('symbol', '?')
-            action = b.get('action', '?')
-            reason = b.get('reason', f"qty={b.get('qty')} @ ${b.get('price', 0):.2f} score={b.get('score')}")
+        for buy in result["buys"]:
+            sym = buy.get("symbol", "?")
+            action = buy.get("action", "?")
+            reason = buy.get(
+                "reason",
+                f"qty={buy.get('qty')} @ ${buy.get('price', 0):.2f} score={buy.get('score')}",
+            )
             print(f"  {sym}: {action} — {reason}")
+        return 0
 
-    elif cmd == "midday":
-        from trade import execute_stop_losses, sync_trailing_stops
-        from portfolio import save_positions_state, update_performance_state
+    if cmd == "midday":
+        try:
+            require_paper_trading_mode()
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
 
-        print(f"\nMidday scan — {get_now_str()}")
+        risk_snapshot = _capture_execution_risk_snapshot()
+        token = _EXECUTION_RISK_TIER.set(str(risk_snapshot["tier"]))
+        try:
+            return _run_midday_command(risk_snapshot)
+        finally:
+            _EXECUTION_RISK_TIER.reset(token)
 
-        synced = sync_trailing_stops()
-        if synced:
-            print(f"Trailing stops synced: {len(synced)}")
-        else:
-            print("All positions have trailing stops.")
-
-        tightened = tighten_stops_in_profit()
-        if tightened:
-            print(f"Stops tightened: {len([t for t in tightened if t.get('action') == 'TIGHTEN'])}")
-
-        scale_outs = execute_scale_outs()
-        if scale_outs:
-            for r in scale_outs:
-                print(f"  {r['symbol']}: {r['action']}")
-
-        hedge = manage_bear_hedge()
-        if hedge:
-            for r in hedge:
-                print(f"  HEDGE {r.get('action')}: {r.get('qty', '?')} {HEDGE_SYMBOL}")
-
-        stops = execute_stop_losses()
-        if stops:
-            print(f"Stop-losses triggered: {len(stops)}")
-
-        time_stops = execute_time_stops()
-        if time_stops:
-            print(f"Time stops: {len([t for t in time_stops if t.get('action') == 'TIME_STOP'])}")
-
-        save_positions_state()
-        update_performance_state()
-        print("State saved.")
-
-    elif cmd == "candidates":
+    if cmd == "candidates":
         buys = get_buy_candidates()
         sells = get_sell_candidates()
         regime = get_market_regime()
@@ -2114,12 +5357,21 @@ if __name__ == "__main__":
         threshold = get_effective_threshold(cash_pct, regime)
         print(f"\nRegime: {regime} | Cash: {cash_pct:.1f}% | Effective threshold: {threshold}")
         print(f"\nBUY candidates ({len(buys)}):")
-        for c in buys:
-            t = c["confidence"].get("total", 0)
-            print(f"  {c['symbol']}: score={t} ({c['source']}) {'✓BUY' if t >= threshold else '↘near'}")
+        for candidate in buys:
+            total = candidate["confidence"].get("total", 0)
+            marker = "✓BUY" if total >= threshold else "↘near"
+            print(f"  {candidate['symbol']}: score={total} ({candidate['source']}) {marker}")
         print(f"\nSELL candidates ({len(sells)}):")
-        for c in sells:
-            print(f"  {c['symbol']}: {c['reason']}")
+        for candidate in sells:
+            print(f"  {candidate['symbol']}: {candidate['reason']}")
+        return 0
 
-    else:
-        print("Usage: python3 execute_trades.py [run|dry-run|midday|candidates]")
+    print(
+        "Usage: python3 execute_trades.py [run|dry-run|midday|candidates]",
+        file=sys.stderr,
+    )
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,150 @@
+name: V11 Paper Production
+
+on:
+  schedule:
+    # 10:05 EST / 11:05 EDT, safely inside regular US market hours.
+    - cron: "5 15 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Read-only preflight, or one guarded paper execution"
+        required: true
+        default: preflight
+        type: choice
+        options:
+          - preflight
+          - execute
+
+concurrency:
+  group: nate-trader-v11-paper-production
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+env:
+  PYTHON_VERSION: "3.12.11"
+  TRADING_MODE: paper
+  PYTHONDONTWRITEBYTECODE: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  paper-forward-validation:
+    name: Guarded paper forward-validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    environment: paper-production
+
+    steps:
+      - name: Checkout immutable release input
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up pinned Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked production dependencies
+        run: python -m pip install --require-hashes -r requirements.lock
+
+      - name: Restore latest private runtime-state artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_id=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=paper-runtime-state&per_page=100" \
+            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].id // empty')
+          if [ -z "$artifact_id" ]; then
+            echo "No prior runtime artifact; using the release seed state."
+            exit 0
+          fi
+          runtime_dir=$(mktemp -d)
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+            > "$runtime_dir/runtime.zip"
+          unzip -q "$runtime_dir/runtime.zip" -d "$runtime_dir/restored"
+          for path in state/performance.json state/positions.json; do
+            if [ -f "$runtime_dir/restored/$path" ]; then
+              install -D -m 600 "$runtime_dir/restored/$path" "$path"
+            fi
+          done
+          if [ -d "$runtime_dir/restored/state/production" ]; then
+            mkdir -p state/production
+            cp -a "$runtime_dir/restored/state/production/." state/production/
+          fi
+          echo "Restored runtime state from artifact ${artifact_id}."
+
+      - name: Verify offline release contract
+        run: python scripts/sanity_check.py
+
+      - name: Verify paper broker and deployment health
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python scripts/production_preflight.py | tee production-preflight.json
+
+      - name: Read-only strategy preview
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python scripts/execute_trades.py dry-run | tee production-dry-run.log
+
+      - name: Execute one guarded paper cycle
+        id: execute
+        if: github.event_name == 'schedule' || inputs.operation == 'execute'
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python scripts/production_run.py | tee production-execution.json
+
+      - name: Preserve private runtime state
+        if: always() && steps.execute.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: paper-runtime-state
+          path: |
+            state/performance.json
+            state/positions.json
+            state/production/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 9
+
+      - name: Preserve preflight diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: paper-diagnostics
+          path: |
+            production-preflight.json
+            production-dry-run.log
+            production-execution.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Open one operational incident on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="V11 paper production is failing"
+          existing=$(gh issue list --state open --search "$title in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Failure repeated: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          else
+            gh issue create \
+              --title "$title" \
+              --label "P1" \
+              --body "Fail-closed paper deployment stopped before a healthy completion. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          fi

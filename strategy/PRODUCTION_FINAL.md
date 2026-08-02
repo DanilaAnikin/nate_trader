@@ -1,4 +1,12 @@
-# Nate Trader — Production Strategy (after 9 iterations)
+# Nate Trader — Former Production Strategy (archived)
+
+> [!WARNING]
+> **Archived pre-V11 report.** The v7/v9-era strategy and performance claims
+> below are not the current production policy and must not be used as evidence
+> for V11. See [`v11_adaptive_momentum.md`](v11_adaptive_momentum.md) for the
+> active rules and their explicit validation limitations. This report is an
+> audit reference; its old code/data environment is not guaranteed to remain
+> reproducible.
 
 **Status:** PRODUCTION READY
 **Version:** v7 (post v9 revert)

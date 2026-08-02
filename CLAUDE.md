@@ -1,405 +1,256 @@
-# Nate Trader — Autonomous Trading Agent
+# Nate Trader — Agent Operating Manual
 
-## Identity & Goal
+## Mission and status
 
-You are **Nate Trader**, an autonomous swing-trading agent. Your single objective: **beat the S&P 500 (SPY) by 5–10% per year, measured walk-forward out-of-sample**, through momentum-based swing trading on Alpaca paper trading.
+Maintain and evaluate `v11-adaptive-momentum`, a causal US-equity momentum
+strategy for **Alpaca paper trading only**. The objective is to test whether it
+can produce positive benchmark-relative returns with controlled drawdown. Do
+not promise alpha, profit, or flawless operation.
 
-You operate entirely through Python scripts in this repo. You never place trades manually — every order goes through `scripts/trade.py`. You think like a disciplined hedge-fund PM: data first, conviction second, risk always.
+There is one supported scheduled trader:
+`.github/workflows/paper-production.yml`. It runs only the V11 Alpaca paper
+path after release and broker preflight, with a private artifact for persistent
+runtime state. `.github/workflows/v11-release.yml` is the non-trading release
+gate. A push triggers tests but never directly submits an order. Do not restore
+the archived optimizer/research/multi-account workflows.
 
-### How we measure
+The authoritative strategy document is
+`strategy/v11_adaptive_momentum.md`. Older v3-v10 documents and code paths are
+archive/audit references. They are not current policy, and their behavior and
+historical dependencies are not guaranteed to remain reproducible.
 
-- **Source of truth**: walk-forward OOS alpha (`state/backtest/walk_forward_result.json`, field `aggregate.mean_oos_alpha_annual_pct`). Single-window backtests are diagnostic, not authoritative — they overfit by ~5pp on this codebase.
-- **Validation cadence**: every change that touches scoring, sizing, regime logic, or the universe re-runs `python3 scripts/backtest/run.py walk-forward` and a sweep with `--metric=wf_alpha --holdout-start=2025-01-01`. The 2025-present holdout is reserved for final verification and is **never** seen by the optimizer.
-- **Ship criterion**: WF mean OOS alpha ≥ +5%/yr across ≥3 windows. If the change beats v7 only on the in-sample window but not OOS, it is not shipped.
-- **Why the recalibration**: the prior goal of +5%/month (~+80%/yr) had no backtest evidence supporting it. Long-run backtests show alpha hovering around 0 with the 2026 YTD window at +35% annualized. +5–10%/yr is at the high end of what disciplined retail momentum systems sustain. See `ALPHA_PLAN.md` for the diagnosis.
+## V11 production invariants
 
----
+Preserve these defaults unless a change is explicitly requested and validated:
 
-## Trading Philosophy
+- Production uses exactly Python 3.12.11 and `requirements.lock`. The lock,
+  paper workflow, preflight, and production runner are strategy-identity
+  sources; changing any of them requires canonical revalidation.
+- Production invokes only `scripts/production_run.py`, which delegates to the
+  guarded V11 executor. Never add options, Supabase live-account telemetry,
+  legacy sleeves, universe refresh, or direct `trade.py` mutations to that
+  workflow.
+- Runtime `performance.json`, `positions.json`, and production health state are
+  restored from and saved to the private `paper-runtime-state` artifact. They
+  must not be committed by the scheduled workflow.
 
-- **Style**: Momentum + catalyst swing trading
-- **Holding period**: 2–10 trading days
-- **Universe**: Open — any US stock tradeable on Alpaca. `watchlist.json` is the "always research" core list; the screener discovers new candidates daily
-- **Edge**: Combine technical signals, news sentiment, and Perplexity deep research into a single confidence score before every trade
+- Signal at completed close D; earliest simulated execution at D+1 open.
+  An all-cash target may buy then. If D+1 requires a sell/trim, freeze the
+  target and defer replacement buys until at least D+2 open in the simulator
+  and until a later live reconciliation boundary at the broker.
+- Rank 12-1 momentum over 252 sessions, excluding the latest 21 sessions; use
+  6-1 momentum only as a tie-breaker.
+- Require price >= $10, median 60-session dollar volume >= $25m, annualized
+  63-session volatility <= 80%, positive 12-1 momentum, close above SMA200,
+  and a usable sector classification.
+- Select up to 10 names and equal weight them under a 9% single-name cap and a
+  20% sector cap.
+- Cap normal gross exposure at 90%, retaining at least 10% cash. Scale down if
+  fewer than eight names qualify, and multiply the target by the frozen
+  broad-market breadth tier (100% / 80% / 55% / 25% at breadth thresholds
+  60% / 45% / 30%).
+- Rebalance monthly. Check SPY against its SMA200 on every execution and exit
+  directional exposure when the gate is off. Persist zero-target intent until
+  the account is flat; after recovery, permit one D-close/D+1 fresh target on
+  the first completed SPY close above SMA200, then resume monthly cadence.
+- Classify risk from the highest equity observation in the trailing 22 sessions
+  plus the current daily return. `CAUTIOUS` activates at a 10% rolling
+  drawdown or 5% daily loss and halves the next monthly target; it does not
+  force an immediate mid-month resize. `HALT` is reserved for an 8% daily loss
+  and exits directional exposure on every execution cycle.
+- Keep SPY/SSO base, TQQQ, UPRO, SH, options, mean reversion, PEAD, sector
+  rotation, and legacy score-driven entry sleeves disabled by default.
 
----
+The V11 policy is overlaid in `scripts/strategy_config.py`; do not infer the
+live defaults from the archived v3-v10 parameter table above it.
 
-## Decision Framework — Weighted Gate Score (Regime-Adaptive)
+## Data and universe rules
 
-BUY candidates are filtered through a **weighted gate score** (0.0–1.0).
-Each signal contributes proportionally instead of the old all-or-nothing gate:
+`scripts/universe.py` is the production universe boundary:
 
-| Signal | Weight | Pass condition |
-|--------|--------|----------------|
-| **Trend** | 30% | Price > 20-SMA AND 50-SMA (partial credit if > 20-SMA only) |
-| **Relative strength** | 25% | 20d return − SPY 20d return ≥ `rs_alpha_min` |
-| **Catalyst** | 15% | news_score > 5 OR perplexity_score > 10 |
-| **Volume** | 15% | volume_ratio ≥ `volume_min_ratio` |
-| **Confidence** | 15% | total score ≥ `score_threshold` |
+1. Request active US-equity assets from Alpaca.
+2. Require an eligible exchange and `tradable=True`.
+3. Admit ordinary common stocks and ADRs; exclude malformed symbols, warrants,
+   rights, units, ETFs, ETNs, funds, leveraged/inverse products, and volatility
+   products.
+4. Write a versioned cache to `state/universe.json` only after a successful
+   response with at least 100 unique eligible symbols.
+5. Trust a cache only when its Alpaca provenance, schema/count, strict UTC
+   timestamp, and seven-day freshness validate; otherwise use the filtered
+   `watchlist.json` fallback. A partial discovery must not overwrite a usable
+   cache.
+6. Keep held names outside the ranking universe only so exits remain possible;
+   never promote them back into momentum ranking merely because they are held.
+7. Reject any required 253-session signal epoch containing a calendar gap over
+   ten days. Live SPY/sector auxiliaries must share a completed date no more
+   than seven calendar days old.
 
-Gate score must exceed `gate_score_min` (0.55 BULL / 0.65 NEUTRAL / 0.80 BEAR).
-If cash > `max_cash_pct`, threshold drops by `cash_starve_bonus` (deploys capital).
+Imports and cache reads must remain local-only. Construct Alpaca clients lazily.
+Use batch historical requests for broad scans. Missing or stale bars must fail
+the candidate, not silently reuse a later observation.
+The live batch response must include a non-empty frame for every requested
+symbol. Synchronize SPY and requested sector auxiliaries to one completed date.
+A stale non-held ranking name may become ineligible, but a stale held ranking
+name must pause risk-on rebalancing so a data outage cannot force liquidation.
+Require at least 253 completed bars for SPY, requested auxiliaries, and every
+held ranking constituent; a current date on a truncated frame is not enough.
 
-See `strategy/rules.md` for the full table.
+Static sector metadata may be supplemented by trailing return correlation to
+sector ETFs. Do not bypass the sector cap by fabricating a classification.
 
----
+## Safety rules
 
-## Hard Rules (Regime-Adaptive — see `scripts/strategy_config.py`, v10d)
+- The broker client must remain fixed to `paper=True`. There is no supported
+  live-money mode.
+- No-argument `python3 scripts/execute_trades.py` must remain a dry run.
+- Dry run must have zero order and state mutations.
+- Every mutating execution path must require `TRADING_MODE=paper`.
+- Treat every short as a blocking reconciliation state. Cancel conflicting
+  orders, cover it with a bounded idempotent BUY, and run no other V11 manager
+  until a fresh broker snapshot is flat.
+- New exposure requires a fresh, open broker clock. Closed/stale clock state
+  may block buys but must not prevent risk-reducing exits.
+- Submit deterministic client order IDs and reconcile pending/partial orders.
+  Never treat order submission as proof of a fill.
+- Cancel retired-infrastructure BUYs and every directional BUY not
+  deterministically bound to the exact current frozen plan before depending on
+  positions, prices, or target state. Cancel even a bound BUY when account,
+  position, SPY, validation, or risk reconciliation fails. A remaining
+  same-symbol BUY must block a SELL. Apply the infrastructure migration gate to
+  both `run` and `midday`.
+- Sell or trim first, wait for fill/cash reconciliation, then submit replacement
+  buys. Validate each buy against cash, position, and sector limits.
+- Permit a paper BUY only when `state/backtest/v11_validation.json` is a current
+  fixed-strategy `PASS`, its strategy fingerprint matches the running code,
+  and its ranking-universe hash exactly matches the current ranking universe.
+  Recompute the recorded assessment and historical-bar prefix, require the
+  exact canonical $1m / 7bps / 15bps profile, minimum 504/252-session segments,
+  no parameter overrides, and limitation warnings. Bind each result config to
+  its dates, cost, universe hash, strategy version, and D/D+1 timing; verify
+  the whole-report digest and expire the report/bar boundary after 35 days.
+  Custom validation dates, capital, or cost sets are shadow-only. The digest
+  is tamper-evident, not a keyed signature. Any injected runner, metric
+  function, or config factory is a test seam and must also be non-promotable.
+- A closed validation gate must still permit cancellation of pending
+  directional buys and risk-reducing trims/exits.
+- Never commit `.env`, credentials, or API responses containing secrets.
 
-| Rule | BULL/NORMAL | NEUTRAL/NORMAL | BEAR/NORMAL |
-|------|-------------|----------------|-------------|
-| **SSO base allocation** | 20% | 0% | 0% |
-| **TQQQ overlay** | 80% (gated) | 100% (gated) | 0% |
-| **SPY base** | — | 0% | 0% |
-| Max position (stocks) | 15% | 8% | 4% |
-| Min cash reserve | 5% | 10% | 30% |
-| Risk per trade | 1.2% | 1.0% | 0.5% |
-| Trailing stop | 40% | 8% | 6% |
-| Scale-out gain | disabled | +12% | +8% |
-| Final target | disabled | +20% | +15% |
-| Time stop | 30d | 30d | 30d |
-| Daily loss halt | −3% (universal) | | |
-| Max positions | 14 | 12 | 8 |
-| Sector cap | 25% | 25% | 25% |
-| Order type | Limit only | Limit only | Limit only |
-| Momentum top-N | 5 | 0 | 0 |
-
-The TQQQ overlay is **gated by SPY > SMA50 AND SMA200**. If the gate is
-off, target drops to 0% regardless of the regime-specific tqqq_pct.
-This is what auto-flattens leveraged exposure during structural
-breakdowns (e.g. 2022 H2).
-
-CAUTIOUS tier reduces TQQQ allocation by ~half and tightens thresholds.
-HALT blocks new directional buys (hedges + base allocations still
-allowed because they're regime-driven infrastructure).
-
-### Bear hedge (SH inverse SPY)
-
-Engine maintains an automatic SH position when regime weakens. Target as
-% of equity: 0% BULL/NORMAL, 0% NEUTRAL, **10% BEAR** (CAUTIOUS +8pp,
-HALT +10pp, max 35%). Hedge is also gated by **SPY < SMA200** — no
-hedge in a structural uptrend regardless of regime. Rebalances when
-actual drift > 2% of equity. Tunable via `_BEAR_HEDGE_PCT` constant or
-`BEAR_HEDGE_PCT` env var.
-
-### Source of the alpha (v10d, 2026-05-19)
-
-Most of the +5–10%/yr alpha goal comes from two structural changes:
-1. **TQQQ overlay in BULL** (80% of equity, gated by SPY ≥ SMA50/SMA200).
-2. **TQQQ overlay in NEUTRAL** (100% of equity, same gate — converts the
-   regime from "cash heavy waiting" to "dip-buy via leverage").
-
-The momentum stock-picker (top-5 by 12m return) contributes ~+1.5pp on
-top of the overlays. The PEAD, mean-reversion, sentiment, ML, MTF, and
-sector-rotation modules are wired but DO NOT FIRE on the backtest BULL
-path (momentum_mode=True) — they may still earn alpha live. See
-`strategy/v10_upgrade_plan.md`.
-
----
-
-## Confidence Scoring System (0–100)
-
-### Technical Score (max 50) — regime-adaptive, momentum-aligned (v3)
-| Signal | Points |
-|--------|--------|
-| Price > 20-SMA and 50-SMA | 12 |
-| Price > 20-SMA only | 6 |
-| RSI in regime sweet spot | up to 10 |
-| MACD > signal | 7 |
-| MACD > 0 (above zero line) | 3 |
-| Volume confirmation (vs `volume_min_ratio`) | up to 5 |
-| 20-day high breakout (within 2% = 4, within 5% = 2) | up to 4 |
-| 50-day high breakout (new high = 6, within 3% = 3) | up to 6 |
-| 20-day momentum (≥+10% = 5 / ≥+5% = 3 / ≥0% = 1) | up to 5 |
-
-*v3 removed (mean-reversion noise): ATR squeeze bonus, Bollinger lower-band bonus.*
-
-### Catalyst Score (max 25) — combined news + perplexity
-News (0-35) rescaled to 0-12, Perplexity (0-30) rescaled to 0-13.
-Combined: min(25, rescaled_news + rescaled_perplexity).
-
-### Momentum Alpha Score (max 25) — NEW
-Relative strength vs SPY 20-day return:
-| Alpha | Points |
-|-------|--------|
-| ≥ +15% | 25 |
-| ≥ +10% | 20 |
-| ≥ +5% | 15 |
-| ≥ +2% | 10 |
-| ≥ 0% | 5 |
-| < 0% | 0 |
-
-### Thresholds (regime-adaptive)
-| Score | Action |
-|-------|--------|
-| ≥ `score_threshold` (45 BULL / 55 NEUTRAL / 70 BEAR) | **BUY** |
-| threshold−15 to threshold−1 | **HOLD** |
-| < threshold−15 | **SELL** |
-
----
-
-## Risk Tiers
-
-Risk tier escalates automatically based on drawdown:
-
-| Tier | Trigger | Behavior |
-|------|---------|----------|
-| **NORMAL** | Default | Full trading per rules above |
-| **CAUTIOUS** | Weekly P&L ≤ −2% | Half position sizes, confidence threshold → 75, no new sectors |
-| **HALT** | Monthly P&L ≤ −5% | No new trades. Only close/manage existing positions. |
-
-Risk tier is stored in `state/performance.json` → `risk_tier` field.
-
----
-
-## Journal Format
-
-Every trading day, write to `journal/YYYY-MM-DD.md`:
-
-```markdown
-# Trading Journal — YYYY-MM-DD
-
-## Market Conditions
-- SPY: $XXX.XX (±X.X%)
-- VIX: XX.X
-- Sector leaders / laggards: ...
-- Key macro: ...
-
-## Research Summary
-- Scanned X symbols
-- Top candidates: SYMBOL (score), SYMBOL (score)
-
-## Trades Executed
-| Time | Symbol | Side | Qty | Price | Reason |
-|------|--------|------|-----|-------|--------|
-| ... | ... | ... | ... | ... | ... |
-
-## Open Positions
-| Symbol | Qty | Avg Cost | Current | P&L % | Stop |
-|--------|-----|----------|---------|--------|------|
-| ... | ... | ... | ... | ... | ... |
-
-## Performance
-- Day P&L: $XXX (±X.X%)
-- Week P&L: $XXX (±X.X%)
-- Month P&L: $XXX (±X.X%)
-- SPY Month: ±X.X%
-- **Alpha**: ±X.X%
-
-## Reflection
-- What worked: ...
-- What didn't: ...
-- Tomorrow's plan: ...
-```
-
----
-
-## File Locations
-
-| Purpose | Path |
-|---------|------|
-| Watchlist | `watchlist.json` |
-| Research output | `state/research.json` |
-| Position state | `state/positions.json` |
-| Performance + risk tier | `state/performance.json` |
-| Screener results | `state/screener.json` |
-| Daily journal | `journal/YYYY-MM-DD.md` |
-| Strategy rules | `strategy/rules.md` |
-| Risk management | `strategy/risk_management.md` |
-| SPY benchmark | `strategy/sp500_benchmark.md` |
-| Lessons learned | `memory/lessons_learned.md` |
-| Watchlist history | `memory/watchlist_history.md` |
-
----
-
-## Script Execution
-
-All scripts live in `scripts/` and support CLI modes:
+The supported promotion and execution sequence is:
 
 ```bash
-# Portfolio
-python3 scripts/portfolio.py account       # Account summary
-python3 scripts/portfolio.py positions     # Current positions
-python3 scripts/portfolio.py performance   # P&L breakdown
-python3 scripts/portfolio.py orders        # Open orders
-python3 scripts/portfolio.py save          # Persist state to JSON
-
-# Research
-python3 scripts/research.py report         # Full research report for all watchlist symbols
-python3 scripts/research.py symbol SYMBOL  # Research any single symbol on demand
-python3 scripts/research.py quote SYMBOL   # Latest quote for one symbol
-python3 scripts/research.py spy            # SPY benchmark data
-python3 scripts/research.py news SYMBOL    # Recent news for symbol
-
-# Screener (stock discovery)
-python3 scripts/screener.py active         # Most active stocks by volume
-python3 scripts/screener.py movers         # Top gainers and losers
-python3 scripts/screener.py trending       # Perplexity-powered trending tickers
-python3 scripts/screener.py full           # Full screen: all sources + scoring
-
-# Trading
-python3 scripts/trade.py market            # Market open/closed status
-python3 scripts/trade.py stops             # Execute pending stop-losses
-python3 scripts/trade.py sync-stops        # Place trailing stops for positions missing them
-python3 scripts/trade.py cancel            # Cancel all open orders
-python3 scripts/trade.py validate SYMBOL QTY SIDE PRICE  # Validate a trade
-
-# Execution
-python3 scripts/execute_trades.py run          # Full execution (stops + sells + buys)
-python3 scripts/execute_trades.py dry-run      # Simulate without placing orders
-python3 scripts/execute_trades.py midday       # Midday: sync stops, check stop-losses, save state
-python3 scripts/execute_trades.py candidates   # Show current BUY/SELL candidates
-
-# Perplexity Research
-python3 scripts/perplexity_research.py outlook          # Market outlook
-python3 scripts/perplexity_research.py stock SYMBOL     # Deep dive on one stock
-python3 scripts/perplexity_research.py sector NAME      # Sector analysis
-python3 scripts/perplexity_research.py enhance          # Enhance research.json with Perplexity scores
-python3 scripts/perplexity_research.py enhance-screener # Enhance top screener candidates with Perplexity
-
-# Notifications
-python3 scripts/notify.py test             # Send test ClickUp task
+python3 scripts/backtest/download_history.py --start 2020-01-01
+python3 scripts/backtest/validate_v11.py
+python3 scripts/sanity_check.py
+python3 scripts/execute_trades.py dry-run
+TRADING_MODE=paper python3 scripts/execute_trades.py run
 ```
 
----
+Historical download is a full adjusted rebuild by default. Without Alpaca
+keys it uses adjusted yfinance data. `--incremental` is faster but explicitly
+unsafe for validation because corporate-action adjustments can revise the
+cached prefix.
 
-## GitHub Collaboration (THIS REPO ONLY — `DanilaAnikin/nate_trader`)
+`midday` is also mutating and requires `TRADING_MODE=paper`. Do not recommend
+direct mutating `trade.py` commands as the normal V11 control path.
 
-**This section applies only to this repo. Do not apply these rules in other
-repositories.** The repo uses GitHub's free-tier collaboration features
-(Issues, Projects, Dependabot, Actions) as a memory layer that survives
-across Claude Code sessions. Every non-trivial change MUST leave a trace in
-that layer so future-you can reconstruct the why.
+## Validation contract
 
-### What counts as a "bigger" change
+For every change to timing, universe, signal, ranking, allocation, regime, or
+execution:
 
-A change is **bigger** (and requires GitHub collaboration steps below) if it
-matches any of:
+1. Add focused tests for the changed invariant.
+2. Run `python3 -m pytest -q`.
+3. Check that every historical signal reads at most D and every fill occurs no
+   earlier than D+1. Add a synthetic causality regression when practical.
+4. Run the fixed-parameter validator and inspect excess CAGR, Jensen alpha,
+   beta, information ratio, Sharpe, max drawdown, turnover, and concentration.
+   Do not optimize on one headline metric.
+5. Promotion must fail if any ranking symbol has no cached bars, lacks a bar at
+   the validation end, contains invalid OHLCV, or if a required SPY/BIL/sector
+   auxiliary is incomplete or misses a reference session.
+6. Record the exact date range, universe source, costs, and parameter set with
+   any reported result.
+7. Rerun validation after any strategy-identity source or ranking-universe
+   change, or after the latest local SPY session changes. A previous `PASS`
+   must fail closed when any canonical boundary or identity changes.
 
-- Edits `scripts/strategy_config.py`, `scripts/execute_trades.py`,
-  `scripts/trade.py`, or anything that decides whether/what to trade.
-- Changes risk rules, position sizing, stops, hedge sizing, or regime logic.
-- Adds, removes, or reschedules a routine in `.github/workflows/`.
-- Adds or removes a `requirements.txt` package.
-- Refactors > ~50 lines or touches > 3 files in one commit.
-- Adds a new feature, screener source, scoring component, or data source.
+Useful commands:
 
-A change is **routine** (skip the steps below, just commit per Git Workflow)
-if it only touches: `state/`, `journal/`, `memory/`, `watchlist.json`, or is
-a typo/docstring fix.
-
-### The 5 steps for every bigger change
-
-1. **Find or open the issue.** Before editing code, run
-   `gh issue list --repo DanilaAnikin/nate_trader --search "<keyword>"` to
-   see if it already exists. If not, open one with the right template
-   (`gh issue create --repo DanilaAnikin/nate_trader -t bug.yml` etc.) and
-   the right labels. The issue is the **plan**; the code change is its
-   execution.
-2. **Set the labels.** Use `strategy`, `risk`, `research`, `routine`,
-   `backtest`, `infra`, `security`, `bug`, plus a priority (`P0`/`P1`/`P2`).
-   Add `claude-code` to anything you (Claude Code) drive end-to-end.
-3. **Reference the issue in the commit.** Use `Refs #N` for partial work
-   and `Closes #N` for work that fully resolves the issue. Example:
-   `git commit -m "strategy: tighten BEAR confidence threshold to 82 — Closes #17"`.
-4. **Update the Project board.** The active project is
-   **"Nate Trader Roadmap"** at
-   https://github.com/users/DanilaAnikin/projects/2 (project number `2`).
-   After commit:
-   - Add the issue: `gh project item-add 2 --owner DanilaAnikin --url <issue-url>`.
-   - Set `Status`, `Priority`, and `Domain` via
-     `gh project item-edit --id <item-id> --project-id PVT_kwHOBawbPM4BXaEn --field-id <field-id> --single-select-option-id <option-id>`.
-   - When the issue closes, the Project status moves to `Done`
-     automatically.
-5. **Close with a summary comment.** When the work is done, `gh issue close N`
-   with a comment that names the file(s) changed, the backtest result if
-   any, and the commit SHA(s). Future-you reads this.
-
-### Strategy changes — extra rule
-
-Any change to scoring, thresholds, or regime rules MUST cite a backtest:
-either link a `backtest:` commit in the issue, or paste the
-`state/backtest/` result summary into the closing comment. No backtest →
-no merge. (We measure this against the goal: WF mean OOS alpha ≥ +5%/yr.)
-
-### Risk events — extra rule
-
-If a stop fires unexpectedly, a routine fails during market hours, or risk
-tier escalates, open a `[risk]` issue **the same day**. Cross-link from the
-journal entry (`See gh issue #N`) and from `memory/lessons_learned.md` once
-the lesson is extracted.
-
-### Dependabot PRs
-
-Dependabot opens PRs against `main` weekly. When you see one:
-- `pip-audit` and the test suite (once it exists) must pass.
-- Minor/patch upgrades grouped by Dependabot can be merged directly.
-- Major upgrades — open an `[infra]` issue first, validate that imports
-  and routines still work, then merge.
-
-### Security
-
-`.github/dependabot.yml` and the `Code Quality & Security` workflow are
-load-bearing. Do not disable them. Do not commit anything that looks like
-an API key — secrets live only in GitHub Actions Secrets and local `.env`.
-See `SECURITY.md`.
-
----
-
-## Git Workflow
-
-**CRITICAL: Always push directly to `main`. Never create feature branches, never create `claude/` branches, never open pull requests for routine work. All routine work commits directly to the `main` branch.**
-
-The one exception: a Dependabot PR is created by Dependabot itself — review
-and merge it via `gh pr merge`, do not close it and reapply manually.
-
-After every routine execution:
-1. Make sure you are on the `main` branch: `git checkout main`
-2. Pull latest: `git pull origin main`
-3. Save state: `python3 scripts/portfolio.py save`
-4. Stage state + journal: `git add state/ journal/ memory/ watchlist.json`
-5. Commit: `git commit -m "routine: <routine-name> YYYY-MM-DD"`
-6. Push directly to main: `git push origin main`
-
-For **bigger changes** (see GitHub Collaboration above), the commit message
-must end with `Refs #N` or `Closes #N`. State-only routine commits do not
-need an issue reference.
-
-**Rules:**
-- Never use `git checkout -b` to create new branches for your own work.
-- Never push to any branch other than `main` (Dependabot's branches are an exception you only `gh pr merge`).
-- Never create pull requests for your own work — only Dependabot's PRs exist.
-- If on a branch other than `main`, switch back with `git checkout main` first.
-
----
-
-## Routine Schedule (Eastern Time)
-
-| # | Routine | Time | Purpose |
-|---|---------|------|---------|
-| 1 | Pre-Market Research | 9:45 AM M–F | Screener scan, fetch data, compute technicals, Perplexity analysis |
-| 2 | Market-Open Execution | 10:00 AM M–F | Read research, validate & place trades |
-| 3 | Midday Scan | 1:00 PM M–F | Check stops, manage positions, scan news |
-| 4 | End-of-Day Summary | 4:15 PM M–F | Final P&L, journal, ClickUp recap, benchmark |
-| 5 | Weekly Review | 6:00 PM Friday | Performance grading, strategy review, watchlist updates |
-
-### Routine 1 — Pre-Market Research (9:45 AM)
 ```bash
-python3 scripts/screener.py full                        # 1. Discover new candidates
-python3 scripts/research.py report                      # 2. Research watchlist (preserves existing Perplexity scores)
-python3 scripts/perplexity_research.py enhance          # 3. Perplexity scores for watchlist
-python3 scripts/perplexity_research.py enhance-screener # 4. Perplexity scores for top screener candidates
-python3 scripts/portfolio.py save                       # 5. Save state
+python3 scripts/universe.py show
+python3 scripts/universe.py refresh
+python3 scripts/backtest/download_history.py --start 2020-01-01
+python3 scripts/backtest/validate_v11.py
+python3 scripts/sanity_check.py
 ```
 
-### Routine 2 — Market-Open Execution (10:00 AM)
-```bash
-python3 scripts/execute_trades.py dry-run               # 1. Preview what would trade
-python3 scripts/execute_trades.py run                    # 2. Execute trades (after review)
-```
+Do not recommend `run.py sweep`, `walk-forward`, or `compare`: they are
+archived pre-V11 optimizers and the CLI intentionally rejects them because
+their grids do not alter the adaptive V11 policy.
 
-### Routine 3 — Midday Scan (1:00 PM)
-```bash
-python3 scripts/execute_trades.py midday                # 1. Sync trailing stops, check stop-losses, save state
-python3 scripts/research.py report                      # 2. Refresh research data
-```
+Sharpe and Jensen alpha use adjusted BIL as the risk-free proxy. Metrics must
+retain the explicit starting-capital observation so initial fill friction is
+included in both returns and drawdown. BIL is metric infrastructure only, not
+an invested V11 cash sleeve.
+
+Current-universe historical tests have survivorship/selection bias. The 2025
+period was inspected during earlier development and is not an untouched
+holdout. A positive reused temporal check is not fresh OOS evidence. Never
+label a result from those data as proof of forward alpha. A validator `PASS`
+only makes the unchanged code and exact ranking universe eligible for paper
+validation.
+
+At present `state/universe.json` is absent, so validation resolves the locally
+maintained `watchlist.json` fallback and its available bars. Do not
+claim that this validates the broad dynamic common-stock/ADR universe; it has
+not yet been downloaded and historically validated as one frozen ranking set.
+A newly refreshed dynamic cache changes the universe hash and requires a full
+adjusted rebuild, fixed validation, and sanity check. The required next
+evidence is frozen-rule forward paper performance across several monthly
+rebalances; point-in-time universe and delisting data are required for stronger
+historical claims.
+
+## Code boundaries
+
+| Concern | Source of truth |
+|---|---|
+| Strategy defaults | `scripts/strategy_config.py` (`_V11_POLICY`) |
+| Signal and target weights | `scripts/adaptive_momentum.py` |
+| Universe discovery/cache | `scripts/universe.py` |
+| Live orchestration | `scripts/execute_trades.py` |
+| Broker orders and validation | `scripts/trade.py` |
+| Risk-tier state | `scripts/portfolio.py` |
+| Shared rolling risk logic | `scripts/risk_policy.py` |
+| Strategy/universe identity | `scripts/strategy_identity.py` |
+| Historical simulation | `scripts/backtest/engine.py` |
+| Benchmark-relative metrics | `scripts/backtest/metrics.py` |
+| Fixed V11 validation | `scripts/backtest/validate_v11.py` |
+| Strategy specification | `strategy/v11_adaptive_momentum.md` |
+
+Keep signal construction broker-independent. The planner should return target
+weights; execution should converge actual positions to those targets. Do not
+move broker calls into `adaptive_momentum.py`.
+
+## Historical context
+
+V10's apparent performance was not a valid production baseline: the portfolio
+was concentrated in TQQQ/UPRO, the simulator used same-session close
+information for same-session-open trades, the live stock picker did not fetch
+enough trading sessions for its lookback, and an infrastructure symbol was not
+consistently marked to market. Preserve old code only as an explicit audit
+reference; do not imply that every old strategy/result remains reproducible.
+
+The separate `claude-trader` repository supplied useful conceptual patterns:
+12-1 ranking, D/D+1 timing, and a strategy -> target planner -> execution
+boundary. Its allocator and order lifecycle were not ported. Do not reintroduce
+unverified risk-parity labels, misaligned correlation inputs, or
+submission-equals-fill accounting.
+
+## Completion checklist
+
+- Confirm only intended files changed; preserve unrelated user work.
+- Run focused and full tests relevant to the change.
+- State what was validated and what remains uncertain.
+- Keep README and the V11 specification aligned with executable defaults.
+- Do not create schedules, place orders, push, or claim performance unless the
+  user explicitly authorizes that action.

@@ -1,0 +1,1178 @@
+{
+  "schema_version": 1,
+  "kind": "v11_development_only_tactic_research",
+  "generated_at": "2026-08-01T20:36:51.328963+00:00",
+  "selection_contract": "strategy/v11_tactic_selection.md",
+  "development_period": {
+    "start_date": "2022-01-04",
+    "end_date": "2024-12-31"
+  },
+  "calendar_year_segments": {
+    "2022": {
+      "start_date": "2022-01-04",
+      "end_date": "2022-12-30"
+    },
+    "2023": {
+      "start_date": "2023-01-03",
+      "end_date": "2023-12-29"
+    },
+    "2024": {
+      "start_date": "2024-01-02",
+      "end_date": "2024-12-31"
+    }
+  },
+  "starting_cash": 1000000.0,
+  "slippage_bps": 15.0,
+  "frozen_baseline_overrides": {
+    "momentum_use_breadth_scaling": false
+  },
+  "strategy_identity": {
+    "schema_version": 1,
+    "algorithm": "sha256",
+    "value": "20fcfc6fa77f1f12037a57f7fe3bebcab9caf7b2ea353c8189996f9f5e533e5e",
+    "sources": [
+      "requirements.txt",
+      "watchlist.json",
+      "scripts/adaptive_momentum.py",
+      "scripts/risk_policy.py",
+      "scripts/research.py",
+      "scripts/strategy_config.py",
+      "scripts/universe.py",
+      "scripts/backtest/data_provider.py",
+      "scripts/backtest/download_history.py",
+      "scripts/backtest/engine.py",
+      "scripts/backtest/metrics.py",
+      "scripts/backtest/portfolio_sim.py",
+      "scripts/backtest/validate_v11.py",
+      "scripts/execute_trades.py",
+      "scripts/momentum_picker.py",
+      "scripts/portfolio.py",
+      "scripts/strategy_identity.py",
+      "scripts/trade.py",
+      "scripts/utils.py"
+    ],
+    "runtime_versions": {
+      "python": "3.10.12",
+      "alpaca-py": "0.30.1",
+      "numpy": "2.2.6",
+      "pandas": "2.3.3"
+    }
+  },
+  "ranking_universe_count": 540,
+  "ranking_universe_sha256": "c86dc489c62625cd380dae6c105e28ee3dbe9aa124363b4dcd1a9f932bafa074",
+  "data_boundary": {
+    "provider_max_date": "2024-12-31",
+    "post_development_rows_excluded_before_simulation": true
+  },
+  "scan_cache": {
+    "hits": 1076,
+    "misses": 37
+  },
+  "warnings": [
+    "DEVELOPMENT_ONLY_SELECTION",
+    "NO_FRESH_OOS",
+    "CURRENT_UNIVERSE_SURVIVORSHIP_BIAS",
+    "START_BOUNDARY_WARMUP_SENSITIVITY",
+    "NO_GUARANTEE"
+  ],
+  "candidates": [
+    {
+      "name": "baseline",
+      "description": "Frozen pre-promotion V11 policy",
+      "params": {},
+      "ranking_mode": "canonical",
+      "development": {
+        "annual_return_pct": 15.5786,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 6.7588,
+        "jensen_alpha_annual_pct": 9.2239,
+        "sharpe_ratio": 0.8981,
+        "max_drawdown_pct": -20.2379,
+        "annual_vol_pct": 12.7785,
+        "beta_to_spy": 0.3651,
+        "information_ratio": 0.336,
+        "n_trades": 222,
+        "total_return_pct": 53.9516
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -12.7234,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 6.7616,
+          "jensen_alpha_annual_pct": -12.789,
+          "sharpe_ratio": -1.9046,
+          "max_drawdown_pct": -12.5819,
+          "annual_vol_pct": 7.6981,
+          "beta_to_spy": 0.0936,
+          "information_ratio": 0.2343,
+          "n_trades": 83,
+          "total_return_pct": -12.5819
+        },
+        "2023": {
+          "annual_return_pct": 14.0368,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -12.1605,
+          "jensen_alpha_annual_pct": -2.995,
+          "sharpe_ratio": 0.7403,
+          "max_drawdown_pct": -8.7733,
+          "annual_vol_pct": 12.0386,
+          "beta_to_spy": 0.6208,
+          "information_ratio": -1.0212,
+          "n_trades": 77,
+          "total_return_pct": 13.8586
+        },
+        "2024": {
+          "annual_return_pct": 57.2334,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 30.5519,
+          "jensen_alpha_annual_pct": 21.4995,
+          "sharpe_ratio": 2.4661,
+          "max_drawdown_pct": -8.6103,
+          "annual_vol_pct": 16.7804,
+          "beta_to_spy": 1.0334,
+          "information_ratio": 2.1078,
+          "n_trades": 60,
+          "total_return_pct": 56.9513
+        }
+      },
+      "worst_year_excess_cagr_pct": -12.1605
+    },
+    {
+      "name": "market_vol_10",
+      "description": "Scale gross exposure toward 10% SPY annual volatility",
+      "params": {
+        "momentum_use_market_volatility_scaling": true,
+        "momentum_target_market_vol_pct": 10.0
+      },
+      "ranking_mode": "canonical",
+      "development": {
+        "annual_return_pct": 14.2986,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 5.4788,
+        "jensen_alpha_annual_pct": 8.2962,
+        "sharpe_ratio": 0.9466,
+        "max_drawdown_pct": -12.1619,
+        "annual_vol_pct": 10.6873,
+        "beta_to_spy": 0.2958,
+        "information_ratio": 0.2528,
+        "n_trades": 226,
+        "total_return_pct": 48.9261
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -8.0433,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 11.4418,
+          "jensen_alpha_annual_pct": -8.1605,
+          "sharpe_ratio": -1.6426,
+          "max_drawdown_pct": -9.1971,
+          "annual_vol_pct": 5.8394,
+          "beta_to_spy": 0.0715,
+          "information_ratio": 0.4536,
+          "n_trades": 84,
+          "total_return_pct": -7.9515
+        },
+        "2023": {
+          "annual_return_pct": 12.8256,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -13.3717,
+          "jensen_alpha_annual_pct": -1.5232,
+          "sharpe_ratio": 0.7866,
+          "max_drawdown_pct": -5.8858,
+          "annual_vol_pct": 9.6456,
+          "beta_to_spy": 0.4755,
+          "information_ratio": -1.1446,
+          "n_trades": 69,
+          "total_return_pct": 12.6637
+        },
+        "2024": {
+          "annual_return_pct": 43.6927,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 17.0112,
+          "jensen_alpha_annual_pct": 14.9909,
+          "sharpe_ratio": 2.2066,
+          "max_drawdown_pct": -8.1532,
+          "annual_vol_pct": 14.5308,
+          "beta_to_spy": 0.8871,
+          "information_ratio": 1.374,
+          "n_trades": 67,
+          "total_return_pct": 43.4861
+        }
+      },
+      "worst_year_excess_cagr_pct": -13.3717
+    },
+    {
+      "name": "market_vol_12",
+      "description": "Scale gross exposure toward 12% SPY annual volatility",
+      "params": {
+        "momentum_use_market_volatility_scaling": true,
+        "momentum_target_market_vol_pct": 12.0
+      },
+      "ranking_mode": "canonical",
+      "development": {
+        "annual_return_pct": 15.0302,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 6.2104,
+        "jensen_alpha_annual_pct": 8.8696,
+        "sharpe_ratio": 0.9322,
+        "max_drawdown_pct": -16.2122,
+        "annual_vol_pct": 11.655,
+        "beta_to_spy": 0.3236,
+        "information_ratio": 0.2981,
+        "n_trades": 221,
+        "total_return_pct": 51.7851
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -11.4996,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 7.9855,
+          "jensen_alpha_annual_pct": -11.8655,
+          "sharpe_ratio": -2.0853,
+          "max_drawdown_pct": -11.3708,
+          "annual_vol_pct": 6.4162,
+          "beta_to_spy": 0.0751,
+          "information_ratio": 0.2895,
+          "n_trades": 83,
+          "total_return_pct": -11.3708
+        },
+        "2023": {
+          "annual_return_pct": 14.4844,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -11.7129,
+          "jensen_alpha_annual_pct": -0.7918,
+          "sharpe_ratio": 0.8849,
+          "max_drawdown_pct": -5.8605,
+          "annual_vol_pct": 10.2843,
+          "beta_to_spy": 0.5164,
+          "information_ratio": -1.006,
+          "n_trades": 72,
+          "total_return_pct": 14.3002
+        },
+        "2024": {
+          "annual_return_pct": 50.4258,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 23.7444,
+          "jensen_alpha_annual_pct": 18.0304,
+          "sharpe_ratio": 2.3024,
+          "max_drawdown_pct": -8.6092,
+          "annual_vol_pct": 16.0048,
+          "beta_to_spy": 0.9779,
+          "information_ratio": 1.7363,
+          "n_trades": 65,
+          "total_return_pct": 50.1823
+        }
+      },
+      "worst_year_excess_cagr_pct": -11.7129
+    },
+    {
+      "name": "breadth_scaled",
+      "description": "Scale gross exposure by eligible-stock breadth",
+      "params": {
+        "momentum_use_breadth_scaling": true
+      },
+      "ranking_mode": "canonical",
+      "development": {
+        "annual_return_pct": 15.8933,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 7.0735,
+        "jensen_alpha_annual_pct": 9.5498,
+        "sharpe_ratio": 0.9385,
+        "max_drawdown_pct": -19.7053,
+        "annual_vol_pct": 12.4772,
+        "beta_to_spy": 0.3502,
+        "information_ratio": 0.3497,
+        "n_trades": 226,
+        "total_return_pct": 55.2043
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -13.1511,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 6.3339,
+          "jensen_alpha_annual_pct": -13.6947,
+          "sharpe_ratio": -2.2956,
+          "max_drawdown_pct": -13.0052,
+          "annual_vol_pct": 6.6373,
+          "beta_to_spy": 0.0767,
+          "information_ratio": 0.209,
+          "n_trades": 83,
+          "total_return_pct": -13.0052
+        },
+        "2023": {
+          "annual_return_pct": 15.3886,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -10.8087,
+          "jensen_alpha_annual_pct": -1.4136,
+          "sharpe_ratio": 0.8587,
+          "max_drawdown_pct": -7.6947,
+          "annual_vol_pct": 11.6939,
+          "beta_to_spy": 0.5975,
+          "information_ratio": -0.9071,
+          "n_trades": 82,
+          "total_return_pct": 15.1921
+        },
+        "2024": {
+          "annual_return_pct": 57.2334,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 30.5519,
+          "jensen_alpha_annual_pct": 21.4995,
+          "sharpe_ratio": 2.4661,
+          "max_drawdown_pct": -8.6103,
+          "annual_vol_pct": 16.7804,
+          "beta_to_spy": 1.0334,
+          "information_ratio": 2.1078,
+          "n_trades": 60,
+          "total_return_pct": 56.9513
+        }
+      },
+      "worst_year_excess_cagr_pct": -10.8087
+    },
+    {
+      "name": "market_vol_12_breadth",
+      "description": "Combine 12% market-volatility and breadth scaling",
+      "params": {
+        "momentum_use_market_volatility_scaling": true,
+        "momentum_target_market_vol_pct": 12.0,
+        "momentum_use_breadth_scaling": true
+      },
+      "ranking_mode": "canonical",
+      "development": {
+        "annual_return_pct": 15.0577,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 6.2379,
+        "jensen_alpha_annual_pct": 8.9352,
+        "sharpe_ratio": 0.9427,
+        "max_drawdown_pct": -16.1501,
+        "annual_vol_pct": 11.5362,
+        "beta_to_spy": 0.3146,
+        "information_ratio": 0.2971,
+        "n_trades": 221,
+        "total_return_pct": 51.8933
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -12.014,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 7.471,
+          "jensen_alpha_annual_pct": -12.6898,
+          "sharpe_ratio": -2.3486,
+          "max_drawdown_pct": -11.8799,
+          "annual_vol_pct": 5.9603,
+          "beta_to_spy": 0.0644,
+          "information_ratio": 0.2616,
+          "n_trades": 82,
+          "total_return_pct": -11.8799
+        },
+        "2023": {
+          "annual_return_pct": 15.2328,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -10.9645,
+          "jensen_alpha_annual_pct": 0.075,
+          "sharpe_ratio": 0.9589,
+          "max_drawdown_pct": -5.8598,
+          "annual_vol_pct": 10.1504,
+          "beta_to_spy": 0.5044,
+          "information_ratio": -0.935,
+          "n_trades": 73,
+          "total_return_pct": 15.0384
+        },
+        "2024": {
+          "annual_return_pct": 50.4258,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 23.7444,
+          "jensen_alpha_annual_pct": 18.0304,
+          "sharpe_ratio": 2.3024,
+          "max_drawdown_pct": -8.6092,
+          "annual_vol_pct": 16.0048,
+          "beta_to_spy": 0.9779,
+          "information_ratio": 1.7363,
+          "n_trades": 65,
+          "total_return_pct": 50.1823
+        }
+      },
+      "worst_year_excess_cagr_pct": -10.9645
+    },
+    {
+      "name": "stock_vol_cap_50",
+      "description": "Reject stocks above 50% annualized 63-session volatility",
+      "params": {
+        "momentum_max_annual_vol_pct": 50.0
+      },
+      "ranking_mode": "canonical",
+      "development": {
+        "annual_return_pct": 8.9608,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 0.141,
+        "jensen_alpha_annual_pct": 3.3207,
+        "sharpe_ratio": 0.4566,
+        "max_drawdown_pct": -16.5699,
+        "annual_vol_pct": 12.054,
+        "beta_to_spy": 0.3529,
+        "information_ratio": -0.0451,
+        "n_trades": 224,
+        "total_return_pct": 29.1432
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -8.6485,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 10.8365,
+          "jensen_alpha_annual_pct": -8.487,
+          "sharpe_ratio": -1.4491,
+          "max_drawdown_pct": -8.7972,
+          "annual_vol_pct": 7.0155,
+          "beta_to_spy": 0.0842,
+          "information_ratio": 0.4283,
+          "n_trades": 83,
+          "total_return_pct": -8.5501
+        },
+        "2023": {
+          "annual_return_pct": 12.2308,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -13.9665,
+          "jensen_alpha_annual_pct": -4.3995,
+          "sharpe_ratio": 0.6172,
+          "max_drawdown_pct": -8.7733,
+          "annual_vol_pct": 11.8305,
+          "beta_to_spy": 0.6099,
+          "information_ratio": -1.187,
+          "n_trades": 77,
+          "total_return_pct": 12.0768
+        },
+        "2024": {
+          "annual_return_pct": 25.3196,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": -1.3619,
+          "jensen_alpha_annual_pct": -1.0243,
+          "sharpe_ratio": 1.1952,
+          "max_drawdown_pct": -13.5002,
+          "annual_vol_pct": 15.5838,
+          "beta_to_spy": 1.0184,
+          "information_ratio": -0.0767,
+          "n_trades": 63,
+          "total_return_pct": 25.2074
+        }
+      },
+      "worst_year_excess_cagr_pct": -13.9665
+    },
+    {
+      "name": "stock_vol_cap_60",
+      "description": "Reject stocks above 60% annualized 63-session volatility",
+      "params": {
+        "momentum_max_annual_vol_pct": 60.0
+      },
+      "ranking_mode": "canonical",
+      "development": {
+        "annual_return_pct": 9.5301,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 0.7103,
+        "jensen_alpha_annual_pct": 3.899,
+        "sharpe_ratio": 0.5036,
+        "max_drawdown_pct": -18.7123,
+        "annual_vol_pct": 11.9274,
+        "beta_to_spy": 0.3409,
+        "information_ratio": -0.0122,
+        "n_trades": 229,
+        "total_return_pct": 31.1645
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -11.0251,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 8.46,
+          "jensen_alpha_annual_pct": -11.32,
+          "sharpe_ratio": -1.9433,
+          "max_drawdown_pct": -10.9013,
+          "annual_vol_pct": 6.5985,
+          "beta_to_spy": 0.0752,
+          "information_ratio": 0.3122,
+          "n_trades": 83,
+          "total_return_pct": -10.9013
+        },
+        "2023": {
+          "annual_return_pct": 13.7903,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -12.407,
+          "jensen_alpha_annual_pct": -3.0586,
+          "sharpe_ratio": 0.7301,
+          "max_drawdown_pct": -8.7733,
+          "annual_vol_pct": 11.89,
+          "beta_to_spy": 0.612,
+          "information_ratio": -1.0462,
+          "n_trades": 77,
+          "total_return_pct": 13.6154
+        },
+        "2024": {
+          "annual_return_pct": 37.113,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 10.4315,
+          "jensen_alpha_annual_pct": 7.7628,
+          "sharpe_ratio": 1.7272,
+          "max_drawdown_pct": -11.5217,
+          "annual_vol_pct": 15.9974,
+          "beta_to_spy": 1.0308,
+          "information_ratio": 0.9052,
+          "n_trades": 63,
+          "total_return_pct": 36.9413
+        }
+      },
+      "worst_year_excess_cagr_pct": -12.407
+    },
+    {
+      "name": "inverse_volatility",
+      "description": "Allocate selected names by constrained inverse volatility",
+      "params": {
+        "momentum_weighting_scheme": "inverse_volatility"
+      },
+      "ranking_mode": "canonical",
+      "development": {
+        "annual_return_pct": 15.7467,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 6.9269,
+        "jensen_alpha_annual_pct": 9.3796,
+        "sharpe_ratio": 0.91,
+        "max_drawdown_pct": -20.6154,
+        "annual_vol_pct": 12.7682,
+        "beta_to_spy": 0.3632,
+        "information_ratio": 0.3445,
+        "n_trades": 222,
+        "total_return_pct": 54.62
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -13.1234,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 6.3616,
+          "jensen_alpha_annual_pct": -13.3141,
+          "sharpe_ratio": -1.9882,
+          "max_drawdown_pct": -12.9778,
+          "annual_vol_pct": 7.6085,
+          "beta_to_spy": 0.0906,
+          "information_ratio": 0.2138,
+          "n_trades": 83,
+          "total_return_pct": -12.9778
+        },
+        "2023": {
+          "annual_return_pct": 14.0368,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -12.1605,
+          "jensen_alpha_annual_pct": -2.995,
+          "sharpe_ratio": 0.7403,
+          "max_drawdown_pct": -8.7733,
+          "annual_vol_pct": 12.0386,
+          "beta_to_spy": 0.6208,
+          "information_ratio": -1.0212,
+          "n_trades": 77,
+          "total_return_pct": 13.8586
+        },
+        "2024": {
+          "annual_return_pct": 57.2334,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 30.5519,
+          "jensen_alpha_annual_pct": 21.4995,
+          "sharpe_ratio": 2.4661,
+          "max_drawdown_pct": -8.6103,
+          "annual_vol_pct": 16.7804,
+          "beta_to_spy": 1.0334,
+          "information_ratio": 2.1078,
+          "n_trades": 60,
+          "total_return_pct": 56.9513
+        }
+      },
+      "worst_year_excess_cagr_pct": -12.1605
+    },
+    {
+      "name": "top_12",
+      "description": "Hold up to 12 names with a coherent 7.5% name cap",
+      "params": {
+        "momentum_top_n": 12,
+        "max_positions": 12,
+        "max_position_pct": 7.5
+      },
+      "ranking_mode": "canonical",
+      "development": {
+        "annual_return_pct": 13.7553,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 4.9355,
+        "jensen_alpha_annual_pct": 7.6455,
+        "sharpe_ratio": 0.8533,
+        "max_drawdown_pct": -15.8174,
+        "annual_vol_pct": 11.3885,
+        "beta_to_spy": 0.3364,
+        "information_ratio": 0.2318,
+        "n_trades": 243,
+        "total_return_pct": 46.8265
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -8.9054,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 10.5796,
+          "jensen_alpha_annual_pct": -8.57,
+          "sharpe_ratio": -1.4145,
+          "max_drawdown_pct": -9.2623,
+          "annual_vol_pct": 7.3657,
+          "beta_to_spy": 0.0928,
+          "information_ratio": 0.4192,
+          "n_trades": 93,
+          "total_return_pct": -8.8042
+        },
+        "2023": {
+          "annual_return_pct": 11.5951,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -14.6022,
+          "jensen_alpha_annual_pct": -4.5574,
+          "sharpe_ratio": 0.6112,
+          "max_drawdown_pct": -7.6952,
+          "annual_vol_pct": 10.838,
+          "beta_to_spy": 0.5828,
+          "information_ratio": -1.3419,
+          "n_trades": 85,
+          "total_return_pct": 11.4495
+        },
+        "2024": {
+          "annual_return_pct": 44.5056,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 17.8241,
+          "jensen_alpha_annual_pct": 14.8616,
+          "sharpe_ratio": 2.2319,
+          "max_drawdown_pct": -6.8883,
+          "annual_vol_pct": 14.623,
+          "beta_to_spy": 0.9236,
+          "information_ratio": 1.517,
+          "n_trades": 62,
+          "total_return_pct": 44.2946
+        }
+      },
+      "worst_year_excess_cagr_pct": -14.6022
+    },
+    {
+      "name": "hold_rank_12",
+      "description": "Retain incumbents while they remain in the top 12",
+      "params": {
+        "momentum_hold_rank_n": 12
+      },
+      "ranking_mode": "canonical",
+      "development": {
+        "annual_return_pct": 13.2295,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 4.4097,
+        "jensen_alpha_annual_pct": 7.097,
+        "sharpe_ratio": 0.7752,
+        "max_drawdown_pct": -19.2992,
+        "annual_vol_pct": 12.046,
+        "beta_to_spy": 0.3629,
+        "information_ratio": 0.2071,
+        "n_trades": 213,
+        "total_return_pct": 44.8133
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -12.4883,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 6.9967,
+          "jensen_alpha_annual_pct": -12.5215,
+          "sharpe_ratio": -1.87,
+          "max_drawdown_pct": -12.3493,
+          "annual_vol_pct": 7.6969,
+          "beta_to_spy": 0.0936,
+          "information_ratio": 0.2459,
+          "n_trades": 82,
+          "total_return_pct": -12.3493
+        },
+        "2023": {
+          "annual_return_pct": 17.3145,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -8.8828,
+          "jensen_alpha_annual_pct": -0.2521,
+          "sharpe_ratio": 0.9759,
+          "max_drawdown_pct": -7.9362,
+          "annual_vol_pct": 12.0149,
+          "beta_to_spy": 0.6249,
+          "information_ratio": -0.749,
+          "n_trades": 74,
+          "total_return_pct": 17.0917
+        },
+        "2024": {
+          "annual_return_pct": 36.9487,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 10.2672,
+          "jensen_alpha_annual_pct": 7.6573,
+          "sharpe_ratio": 1.8082,
+          "max_drawdown_pct": -9.8568,
+          "annual_vol_pct": 15.1403,
+          "beta_to_spy": 1.0235,
+          "information_ratio": 1.0385,
+          "n_trades": 54,
+          "total_return_pct": 36.7779
+        }
+      },
+      "worst_year_excess_cagr_pct": -8.8828
+    },
+    {
+      "name": "hold_rank_15",
+      "description": "Retain incumbents while they remain in the top 15",
+      "params": {
+        "momentum_hold_rank_n": 15
+      },
+      "ranking_mode": "canonical",
+      "development": {
+        "annual_return_pct": 12.7857,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 3.9659,
+        "jensen_alpha_annual_pct": 6.6929,
+        "sharpe_ratio": 0.7432,
+        "max_drawdown_pct": -19.2928,
+        "annual_vol_pct": 12.0349,
+        "beta_to_spy": 0.3645,
+        "information_ratio": 0.1816,
+        "n_trades": 207,
+        "total_return_pct": 43.1283
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -12.4819,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 7.0032,
+          "jensen_alpha_annual_pct": -12.5092,
+          "sharpe_ratio": -1.8649,
+          "max_drawdown_pct": -12.3428,
+          "annual_vol_pct": 7.7132,
+          "beta_to_spy": 0.0938,
+          "information_ratio": 0.2463,
+          "n_trades": 81,
+          "total_return_pct": -12.3428
+        },
+        "2023": {
+          "annual_return_pct": 15.502,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -10.6953,
+          "jensen_alpha_annual_pct": -1.9789,
+          "sharpe_ratio": 0.8426,
+          "max_drawdown_pct": -7.9362,
+          "annual_vol_pct": 12.0899,
+          "beta_to_spy": 0.6344,
+          "information_ratio": -0.9114,
+          "n_trades": 70,
+          "total_return_pct": 15.304
+        },
+        "2024": {
+          "annual_return_pct": 37.1667,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 10.4852,
+          "jensen_alpha_annual_pct": 7.7216,
+          "sharpe_ratio": 1.8212,
+          "max_drawdown_pct": -9.8392,
+          "annual_vol_pct": 15.1187,
+          "beta_to_spy": 1.0282,
+          "information_ratio": 1.0783,
+          "n_trades": 51,
+          "total_return_pct": 36.9948
+        }
+      },
+      "worst_year_excess_cagr_pct": -10.6953
+    },
+    {
+      "name": "sector_cap_18",
+      "description": "Reduce the maximum sector allocation to 18%",
+      "params": {
+        "momentum_max_sector_pct": 18.0
+      },
+      "ranking_mode": "canonical",
+      "development": {
+        "annual_return_pct": 15.5786,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 6.7588,
+        "jensen_alpha_annual_pct": 9.2239,
+        "sharpe_ratio": 0.8981,
+        "max_drawdown_pct": -20.2379,
+        "annual_vol_pct": 12.7785,
+        "beta_to_spy": 0.3651,
+        "information_ratio": 0.336,
+        "n_trades": 222,
+        "total_return_pct": 53.9516
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -12.7234,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 6.7616,
+          "jensen_alpha_annual_pct": -12.789,
+          "sharpe_ratio": -1.9046,
+          "max_drawdown_pct": -12.5819,
+          "annual_vol_pct": 7.6981,
+          "beta_to_spy": 0.0936,
+          "information_ratio": 0.2343,
+          "n_trades": 83,
+          "total_return_pct": -12.5819
+        },
+        "2023": {
+          "annual_return_pct": 14.0368,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -12.1605,
+          "jensen_alpha_annual_pct": -2.995,
+          "sharpe_ratio": 0.7403,
+          "max_drawdown_pct": -8.7733,
+          "annual_vol_pct": 12.0386,
+          "beta_to_spy": 0.6208,
+          "information_ratio": -1.0212,
+          "n_trades": 77,
+          "total_return_pct": 13.8586
+        },
+        "2024": {
+          "annual_return_pct": 57.2334,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 30.5519,
+          "jensen_alpha_annual_pct": 21.4995,
+          "sharpe_ratio": 2.4661,
+          "max_drawdown_pct": -8.6103,
+          "annual_vol_pct": 16.7804,
+          "beta_to_spy": 1.0334,
+          "information_ratio": 2.1078,
+          "n_trades": 60,
+          "total_return_pct": 56.9513
+        }
+      },
+      "worst_year_excess_cagr_pct": -12.1605
+    },
+    {
+      "name": "positive_6_1",
+      "description": "Require positive 6-1 momentum in addition to 12-1",
+      "params": {},
+      "ranking_mode": "positive_6_1",
+      "development": {
+        "annual_return_pct": 13.7252,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 4.9054,
+        "jensen_alpha_annual_pct": 7.5889,
+        "sharpe_ratio": 0.7728,
+        "max_drawdown_pct": -18.0938,
+        "annual_vol_pct": 12.7573,
+        "beta_to_spy": 0.3678,
+        "information_ratio": 0.2342,
+        "n_trades": 218,
+        "total_return_pct": 46.7106
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -10.4241,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 9.061,
+          "jensen_alpha_annual_pct": -10.0324,
+          "sharpe_ratio": -1.4731,
+          "max_drawdown_pct": -10.3257,
+          "annual_vol_pct": 8.1683,
+          "beta_to_spy": 0.1002,
+          "information_ratio": 0.348,
+          "n_trades": 81,
+          "total_return_pct": -10.3066
+        },
+        "2023": {
+          "annual_return_pct": 7.4157,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -18.7816,
+          "jensen_alpha_annual_pct": -9.0821,
+          "sharpe_ratio": 0.2463,
+          "max_drawdown_pct": -8.673,
+          "annual_vol_pct": 12.0987,
+          "beta_to_spy": 0.6278,
+          "information_ratio": -1.6212,
+          "n_trades": 75,
+          "total_return_pct": 7.3243
+        },
+        "2024": {
+          "annual_return_pct": 52.5302,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 25.8487,
+          "jensen_alpha_annual_pct": 18.5898,
+          "sharpe_ratio": 2.3286,
+          "max_drawdown_pct": -8.6123,
+          "annual_vol_pct": 16.4532,
+          "beta_to_spy": 1.0244,
+          "information_ratio": 1.885,
+          "n_trades": 58,
+          "total_return_pct": 52.2748
+        }
+      },
+      "worst_year_excess_cagr_pct": -18.7816
+    },
+    {
+      "name": "composite_12_1_6_1",
+      "description": "Rank by the equal sum of 12-1 and 6-1 cross-sectional ranks",
+      "params": {},
+      "ranking_mode": "composite_12_1_6_1",
+      "development": {
+        "annual_return_pct": 12.0669,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 3.2471,
+        "jensen_alpha_annual_pct": 6.1694,
+        "sharpe_ratio": 0.6445,
+        "max_drawdown_pct": -19.7382,
+        "annual_vol_pct": 13.0969,
+        "beta_to_spy": 0.3674,
+        "information_ratio": 0.1408,
+        "n_trades": 227,
+        "total_return_pct": 40.4269
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -13.1405,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 6.3446,
+          "jensen_alpha_annual_pct": -13.2143,
+          "sharpe_ratio": -1.9393,
+          "max_drawdown_pct": -12.9947,
+          "annual_vol_pct": 7.8009,
+          "beta_to_spy": 0.0958,
+          "information_ratio": 0.2142,
+          "n_trades": 83,
+          "total_return_pct": -12.9947
+        },
+        "2023": {
+          "annual_return_pct": 13.5327,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -12.6646,
+          "jensen_alpha_annual_pct": -3.6364,
+          "sharpe_ratio": 0.6791,
+          "max_drawdown_pct": -8.1257,
+          "annual_vol_pct": 12.5767,
+          "beta_to_spy": 0.6346,
+          "information_ratio": -1.0184,
+          "n_trades": 76,
+          "total_return_pct": 13.3613
+        },
+        "2024": {
+          "annual_return_pct": 40.719,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 14.0375,
+          "jensen_alpha_annual_pct": 10.5696,
+          "sharpe_ratio": 1.7821,
+          "max_drawdown_pct": -12.059,
+          "annual_vol_pct": 17.058,
+          "beta_to_spy": 1.0288,
+          "information_ratio": 1.0116,
+          "n_trades": 66,
+          "total_return_pct": 40.5284
+        }
+      },
+      "worst_year_excess_cagr_pct": -12.6646
+    },
+    {
+      "name": "beat_spy_12_1",
+      "description": "Require each stock's 12-1 return to exceed SPY's 12-1 return",
+      "params": {},
+      "ranking_mode": "beat_spy_12_1",
+      "development": {
+        "annual_return_pct": 14.911,
+        "spy_annual_return_pct": 8.8198,
+        "excess_cagr_pct": 6.0912,
+        "jensen_alpha_annual_pct": 8.6495,
+        "sharpe_ratio": 0.8652,
+        "max_drawdown_pct": -19.9313,
+        "annual_vol_pct": 12.5641,
+        "beta_to_spy": 0.36,
+        "information_ratio": 0.2989,
+        "n_trades": 215,
+        "total_return_pct": 51.3168
+      },
+      "years": {
+        "2022": {
+          "annual_return_pct": -12.3825,
+          "spy_annual_return_pct": -19.4851,
+          "excess_cagr_pct": 7.1025,
+          "jensen_alpha_annual_pct": -12.3723,
+          "sharpe_ratio": -1.8321,
+          "max_drawdown_pct": -12.2445,
+          "annual_vol_pct": 7.7874,
+          "beta_to_spy": 0.0947,
+          "information_ratio": 0.2514,
+          "n_trades": 80,
+          "total_return_pct": -12.2445
+        },
+        "2023": {
+          "annual_return_pct": 15.5431,
+          "spy_annual_return_pct": 26.1973,
+          "excess_cagr_pct": -10.6542,
+          "jensen_alpha_annual_pct": -1.592,
+          "sharpe_ratio": 0.8531,
+          "max_drawdown_pct": -8.7733,
+          "annual_vol_pct": 11.9644,
+          "beta_to_spy": 0.6154,
+          "information_ratio": -0.8913,
+          "n_trades": 76,
+          "total_return_pct": 15.3446
+        },
+        "2024": {
+          "annual_return_pct": 51.1523,
+          "spy_annual_return_pct": 26.6815,
+          "excess_cagr_pct": 24.4708,
+          "jensen_alpha_annual_pct": 17.9359,
+          "sharpe_ratio": 2.2845,
+          "max_drawdown_pct": -8.6125,
+          "annual_vol_pct": 16.3672,
+          "beta_to_spy": 1.0106,
+          "information_ratio": 1.7796,
+          "n_trades": 55,
+          "total_return_pct": 50.9047
+        }
+      },
+      "worst_year_excess_cagr_pct": -10.6542
+    }
+  ],
+  "pareto_front": [
+    "breadth_scaled",
+    "market_vol_10",
+    "market_vol_12_breadth"
+  ],
+  "winners": {
+    "maximum_return": {
+      "winner": "breadth_scaled",
+      "eligible": [
+        "baseline",
+        "market_vol_10",
+        "market_vol_12",
+        "breadth_scaled",
+        "market_vol_12_breadth",
+        "stock_vol_cap_50",
+        "stock_vol_cap_60",
+        "inverse_volatility",
+        "hold_rank_12",
+        "hold_rank_15",
+        "sector_cap_18",
+        "composite_12_1_6_1",
+        "beat_spy_12_1"
+      ],
+      "rejections": {
+        "top_12": [
+          "worst-year excess trails baseline by more than 2 pp"
+        ],
+        "positive_6_1": [
+          "worst-year excess trails baseline by more than 2 pp"
+        ]
+      }
+    },
+    "minimum_risk": {
+      "winner": "market_vol_10",
+      "eligible": [
+        "baseline",
+        "market_vol_10",
+        "market_vol_12",
+        "breadth_scaled",
+        "market_vol_12_breadth",
+        "inverse_volatility",
+        "top_12",
+        "hold_rank_12",
+        "sector_cap_18",
+        "positive_6_1",
+        "beat_spy_12_1"
+      ],
+      "rejections": {
+        "stock_vol_cap_50": [
+          "excess CAGR is below +2 pp",
+          "CAGR is less than 2 pp above SPY",
+          "Sharpe is below 0.75"
+        ],
+        "stock_vol_cap_60": [
+          "excess CAGR is below +2 pp",
+          "CAGR is less than 2 pp above SPY",
+          "Sharpe is below 0.75"
+        ],
+        "hold_rank_15": [
+          "Sharpe is below 0.75"
+        ],
+        "composite_12_1_6_1": [
+          "Sharpe is below 0.75"
+        ]
+      }
+    },
+    "balanced": {
+      "winner": "breadth_scaled",
+      "eligible": [
+        "baseline",
+        "breadth_scaled"
+      ],
+      "rejections": {
+        "market_vol_10": [
+          "CAGR is more than 0.50 pp below baseline",
+          "worst-year excess trails baseline by more than 1 pp",
+          "annual_return_pct exceeds its degradation tolerance",
+          "jensen_alpha_annual_pct exceeds its degradation tolerance"
+        ],
+        "market_vol_12": [
+          "CAGR is more than 0.50 pp below baseline",
+          "annual_return_pct exceeds its degradation tolerance"
+        ],
+        "market_vol_12_breadth": [
+          "CAGR is more than 0.50 pp below baseline",
+          "annual_return_pct exceeds its degradation tolerance"
+        ],
+        "stock_vol_cap_50": [
+          "CAGR is more than 0.50 pp below baseline",
+          "worst-year excess trails baseline by more than 1 pp",
+          "annual_return_pct exceeds its degradation tolerance",
+          "jensen_alpha_annual_pct exceeds its degradation tolerance",
+          "sharpe_ratio exceeds its degradation tolerance",
+          "candidate improves fewer than two balanced metrics"
+        ],
+        "stock_vol_cap_60": [
+          "CAGR is more than 0.50 pp below baseline",
+          "annual_return_pct exceeds its degradation tolerance",
+          "jensen_alpha_annual_pct exceeds its degradation tolerance",
+          "sharpe_ratio exceeds its degradation tolerance",
+          "candidate improves fewer than two balanced metrics"
+        ],
+        "inverse_volatility": [
+          "maximum drawdown is worse than baseline"
+        ],
+        "top_12": [
+          "CAGR is more than 0.50 pp below baseline",
+          "worst-year excess trails baseline by more than 1 pp",
+          "annual_return_pct exceeds its degradation tolerance",
+          "jensen_alpha_annual_pct exceeds its degradation tolerance",
+          "sharpe_ratio exceeds its degradation tolerance",
+          "candidate improves fewer than two balanced metrics"
+        ],
+        "hold_rank_12": [
+          "CAGR is more than 0.50 pp below baseline",
+          "annual_return_pct exceeds its degradation tolerance",
+          "jensen_alpha_annual_pct exceeds its degradation tolerance",
+          "sharpe_ratio exceeds its degradation tolerance",
+          "candidate improves fewer than two balanced metrics"
+        ],
+        "hold_rank_15": [
+          "CAGR is more than 0.50 pp below baseline",
+          "annual_return_pct exceeds its degradation tolerance",
+          "jensen_alpha_annual_pct exceeds its degradation tolerance",
+          "sharpe_ratio exceeds its degradation tolerance",
+          "candidate improves fewer than two balanced metrics"
+        ],
+        "sector_cap_18": [
+          "candidate improves fewer than two balanced metrics"
+        ],
+        "positive_6_1": [
+          "CAGR is more than 0.50 pp below baseline",
+          "worst-year excess trails baseline by more than 1 pp",
+          "annual_return_pct exceeds its degradation tolerance",
+          "jensen_alpha_annual_pct exceeds its degradation tolerance",
+          "sharpe_ratio exceeds its degradation tolerance",
+          "candidate improves fewer than two balanced metrics"
+        ],
+        "composite_12_1_6_1": [
+          "CAGR is more than 0.50 pp below baseline",
+          "annual_return_pct exceeds its degradation tolerance",
+          "jensen_alpha_annual_pct exceeds its degradation tolerance",
+          "sharpe_ratio exceeds its degradation tolerance",
+          "candidate improves fewer than two balanced metrics"
+        ],
+        "beat_spy_12_1": [
+          "CAGR is more than 0.50 pp below baseline",
+          "annual_return_pct exceeds its degradation tolerance",
+          "jensen_alpha_annual_pct exceeds its degradation tolerance",
+          "sharpe_ratio exceeds its degradation tolerance",
+          "candidate improves fewer than two balanced metrics"
+        ]
+      }
+    }
+  }
+}
