@@ -320,6 +320,7 @@ def check_broker(
         if risk_snapshot is not None
         else _capture_execution_risk_snapshot()
     )
+    risk_reason = str(snapshot.get("reason", "unspecified"))[:300]
     risk_ok = bool(
         snapshot.get("available")
         and snapshot.get("tier") in {"NORMAL", "CAUTIOUS", "HALT"}
@@ -328,7 +329,10 @@ def check_broker(
         checks,
         "fresh_risk_snapshot",
         risk_ok,
-        f"available={bool(snapshot.get('available'))}, tier={snapshot.get('tier')}",
+        (
+            f"available={bool(snapshot.get('available'))}, "
+            f"tier={snapshot.get('tier')}, reason={risk_reason}"
+        ),
     )
 
     details.update(
@@ -340,6 +344,7 @@ def check_broker(
             "open_order_count": len(orders),
             "open_buy_count": int(open_buys),
             "risk_tier": snapshot.get("tier"),
+            "risk_snapshot_reason": risk_reason,
         }
     )
     return checks, details

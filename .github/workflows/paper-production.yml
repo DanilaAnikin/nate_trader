@@ -89,14 +89,18 @@ jobs:
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-        run: python scripts/production_preflight.py | tee production-preflight.json
+        run: |
+          set -euo pipefail
+          python scripts/production_preflight.py | tee production-preflight.json
 
       - name: Read-only strategy preview
         if: github.event_name == 'workflow_dispatch'
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-        run: python scripts/execute_trades.py dry-run | tee production-dry-run.log
+        run: |
+          set -euo pipefail
+          python scripts/execute_trades.py dry-run | tee production-dry-run.log
 
       - name: Execute one guarded paper cycle
         id: execute
@@ -104,7 +108,9 @@ jobs:
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-        run: python scripts/production_run.py | tee production-execution.json
+        run: |
+          set -euo pipefail
+          python scripts/production_run.py | tee production-execution.json
 
       - name: Preserve private runtime state
         if: always() && steps.execute.outcome != 'skipped'
