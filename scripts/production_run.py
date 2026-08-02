@@ -5,16 +5,22 @@ from __future__ import annotations
 import json
 import os
 from collections import Counter
+from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Any, Iterator
+from typing import Any
 
 from execute_trades import require_paper_trading_mode, run_execution
 from portfolio import save_positions_state, update_performance_state
 from utils import STATE_DIR, save_json
 
-
 PRODUCTION_STATE = STATE_DIR / "production" / "last_run.json"
 BLOCKING_ACTIONS = frozenset({"ABORT", "ERROR"})
+
+
+def _release_sha() -> str:
+    """Return the externally approved immutable release, never the trigger SHA."""
+
+    return os.getenv("APPROVED_RELEASE_SHA", os.getenv("GITHUB_SHA", "local"))[:40]
 
 
 def iter_action_records(value: Any) -> Iterator[dict[str, Any]]:
@@ -48,7 +54,7 @@ def summarize_execution(result: dict[str, Any]) -> dict[str, Any]:
         "schema_version": 1,
         "kind": "v11_paper_production_run",
         "completed_at": datetime.now(timezone.utc).isoformat(),
-        "release_sha": os.getenv("GITHUB_SHA", "local")[:40],
+        "release_sha": _release_sha(),
         "strategy_version": "v11-adaptive-momentum",
         "status": "PASS" if not blocking else "DEGRADED",
         "paper_only": True,
@@ -64,7 +70,7 @@ def _failed_summary(exc: BaseException) -> dict[str, Any]:
         "schema_version": 1,
         "kind": "v11_paper_production_run",
         "completed_at": datetime.now(timezone.utc).isoformat(),
-        "release_sha": os.getenv("GITHUB_SHA", "local")[:40],
+        "release_sha": _release_sha(),
         "strategy_version": "v11-adaptive-momentum",
         "status": "FAIL",
         "paper_only": True,

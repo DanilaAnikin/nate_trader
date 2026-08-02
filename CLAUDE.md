@@ -11,8 +11,10 @@ There is one supported scheduled trader:
 `.github/workflows/paper-production.yml`. It runs only the V11 Alpaca paper
 path after release and broker preflight, with a private artifact for persistent
 runtime state. `.github/workflows/v11-release.yml` is the non-trading release
-gate. A push triggers tests but never directly submits an order. Do not restore
-the archived optimizer/research/multi-account workflows.
+gate. The paper workflow must check out the full SHA in the environment variable
+`PRODUCTION_RELEASE_SHA` and find a successful release gate for that exact SHA.
+A push triggers tests but never directly submits an order. Do not restore the
+archived optimizer/research/multi-account workflows.
 
 The authoritative strategy document is
 `strategy/v11_adaptive_momentum.md`. Older v3-v10 documents and code paths are
@@ -31,8 +33,9 @@ Preserve these defaults unless a change is explicitly requested and validated:
   legacy sleeves, universe refresh, or direct `trade.py` mutations to that
   workflow.
 - Runtime `performance.json`, `positions.json`, and production health state are
-  restored from and saved to the private `paper-runtime-state` artifact. They
-  must not be committed by the scheduled workflow.
+  restored from and saved to a private artifact named for the approved release
+  SHA. Its schema and release lineage must pass before restore. These files must
+  not be committed by the scheduled workflow.
 
 - Signal at completed close D; earliest simulated execution at D+1 open.
   An all-cash target may buy then. If D+1 requires a sell/trim, freeze the

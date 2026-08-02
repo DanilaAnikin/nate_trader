@@ -170,8 +170,11 @@ Production forward validation is run by the single guarded
 weekdays, serializes every invocation, verifies the exact release and paper
 account before execution, and stores mutable reconciliation state in a private
 Actions artifact rather than committing broker state to this public repository.
-A push alone never submits an order: the scheduled/manual job must pass every
-gate, and the only accepted mutating mode remains Alpaca paper trading.
+A push alone never submits an order: the workflow checks out only the full
+commit SHA approved in the `paper-production` environment, requires a green
+release gate for that SHA, and validates the SHA-bound runtime artifact before
+restore. The scheduled/manual job must pass every gate, and the only accepted
+mutating mode remains Alpaca paper trading.
 
 See [the production runbook](strategy/PRODUCTION_RUNBOOK.md) for canary,
 monitoring, emergency-stop, state-recovery, and rollback procedures.
@@ -260,6 +263,9 @@ gh workflow run paper-production.yml \
   --repo DanilaAnikin/nate_trader \
   -f operation=preflight
 ```
+
+Before the canary, `PRODUCTION_RELEASE_SHA` in the `paper-production` GitHub
+environment must contain the full commit SHA whose release gate passed.
 
 The preflight checks the exact Python/dependency lock, strategy and historical
 bar fingerprints, validated universe, paper endpoint/account, current broker

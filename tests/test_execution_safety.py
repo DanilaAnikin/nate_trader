@@ -2494,18 +2494,19 @@ def test_nonfinite_current_equity_blocks_new_exposure(monkeypatch):
 
 def test_recent_equity_history_comes_from_broker_and_is_bounded(monkeypatch):
     import portfolio
+    from alpaca.trading.models import PortfolioHistory
     from utils import EDT
 
     calls = []
     today = datetime.now(EDT).date()
 
     class Broker:
-        def get(self, path, params):
-            calls.append((path, params))
+        def get_portfolio_history(self, request):
+            calls.append(request)
             dates = [today - timedelta(days=days) for days in (5, 4, 3, 2, 1, 0)]
-            return {
-                "equity": [None, 0, 90_000, 91_000, 92_000, 999_999],
-                "timestamp": [
+            return PortfolioHistory(
+                equity=[89_000, 90_000, 90_500, 91_000, 92_000, 999_999],
+                timestamp=[
                     int(
                         datetime(
                             value.year,
@@ -2517,19 +2518,136 @@ def test_recent_equity_history_comes_from_broker_and_is_bounded(monkeypatch):
                     )
                     for value in dates
                 ],
-            }
+                profit_loss=[0.0] * 6,
+                profit_loss_pct=[0.0] * 6,
+                timeframe="1D",
+            )
 
     monkeypatch.setattr(portfolio, "_client", Broker())
 
     equities = portfolio.get_recent_equity_history(max_observations=2)
 
     assert equities == [91_000.0, 92_000.0]
-    assert calls == [
-        (
-            "/v2/account/portfolio/history",
-            {"period": "3M", "timeframe": "1D", "extended_hours": False},
-        )
-    ]
+    assert len(calls) == 1
+    assert calls[0].period == "3M"
+    assert calls[0].timeframe == "1D"
+    assert calls[0].extended_hours is False
+
+
+def _broker_history_payload(dates, equities):
+    return {
+        "timestamp": [
+            int(
+                datetime(
+                    value.year,
+                    value.month,
+                    value.day,
+                    12,
+                    tzinfo=timezone.utc,
+                ).timestamp()
+            )
+            for value in dates
+        ],
+        "equity": equities,
+    }
+
+
+def test_recent_equity_history_rejects_stale_completed_data(monkeypatch):
+    import portfolio
+    from utils import EDT
+
+    today = datetime.now(EDT).date()
+    payload = _broker_history_payload(
+        [today - timedelta(days=90), today - timedelta(days=89)],
+        [100_000, 101_000],
+    )
+    monkeypatch.setattr(
+        portfolio,
+        "_client",
+        SimpleNamespace(get_portfolio_history=lambda request: payload),
+    )
+
+    with pytest.raises(ValueError, match="no recent completed observation"):
+        portfolio.get_recent_equity_history()
+
+
+@pytest.mark.parametrize("date_offsets", [(-2, -2), (-1, -2)])
+def test_recent_equity_history_rejects_duplicate_or_unordered_days(
+    monkeypatch, date_offsets
+):
+    import portfolio
+    from utils import EDT
+
+    today = datetime.now(EDT).date()
+    payload = _broker_history_payload(
+        [today + timedelta(days=offset) for offset in date_offsets],
+        [100_000, 101_000],
+    )
+    monkeypatch.setattr(
+        portfolio,
+        "_client",
+        SimpleNamespace(get_portfolio_history=lambda request: payload),
+    )
+
+    with pytest.raises(ValueError, match="strictly increasing|duplicate or unordered"):
+        portfolio.get_recent_equity_history()
+
+
+def test_recent_equity_history_rejects_future_daily_bucket(monkeypatch):
+    import portfolio
+    from utils import EDT
+
+    today = datetime.now(EDT).date()
+    payload = _broker_history_payload(
+        [today - timedelta(days=1), today + timedelta(days=1)],
+        [100_000, 101_000],
+    )
+    monkeypatch.setattr(
+        portfolio,
+        "_client",
+        SimpleNamespace(get_portfolio_history=lambda request: payload),
+    )
+
+    with pytest.raises(ValueError, match="future daily bucket"):
+        portfolio.get_recent_equity_history()
+
+
+def test_recent_equity_history_uses_new_york_date_at_utc_midnight(monkeypatch):
+    import portfolio
+    from utils import EDT
+
+    today = datetime.now(EDT).date()
+    prior = today - timedelta(days=2)
+    utc_midnight = datetime(
+        today.year,
+        today.month,
+        today.day,
+        0,
+        30,
+        tzinfo=timezone.utc,
+    )
+    payload = {
+        "timestamp": [
+            int(
+                datetime(
+                    prior.year,
+                    prior.month,
+                    prior.day,
+                    12,
+                    tzinfo=timezone.utc,
+                ).timestamp()
+            ),
+            int(utc_midnight.timestamp()),
+        ],
+        "equity": [100_000, 101_000],
+    }
+    monkeypatch.setattr(
+        portfolio,
+        "_client",
+        SimpleNamespace(get_portfolio_history=lambda request: payload),
+    )
+
+    assert portfolio.get_recent_equity_history() == [100_000.0, 101_000.0]
 
 
 @pytest.mark.parametrize(

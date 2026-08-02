@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import production_preflight
@@ -35,6 +36,37 @@ class _PaperBroker:
 
     def get_orders(self, *, filter=None):
         return self.orders
+
+
+def test_pinned_alpaca_sdk_has_supported_portfolio_history_api():
+    from alpaca.trading.client import TradingClient
+
+    assert callable(getattr(TradingClient, "get_portfolio_history", None))
+
+
+def test_paper_workflow_pins_release_and_runtime_artifact_lineage():
+    workflow = (
+        Path(__file__).resolve().parents[1]
+        / ".github"
+        / "workflows"
+        / "paper-production.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "ref: ${{ vars.PRODUCTION_RELEASE_SHA }}" in workflow
+    assert "paper-runtime-state-${APPROVED_RELEASE_SHA}" in workflow
+    assert "paper-runtime-state-${{ vars.PRODUCTION_RELEASE_SHA }}" in workflow
+    assert '"$runtime_dir/restored/performance.json"' in workflow
+    assert 'last_run.get("release_sha") != approved_sha' in workflow
+
+
+def test_production_summary_records_approved_release_sha(monkeypatch):
+    approved = "a" * 40
+    monkeypatch.setenv("APPROVED_RELEASE_SHA", approved)
+    monkeypatch.setenv("GITHUB_SHA", "b" * 40)
+
+    summary = production_run.summarize_execution({"entry_gate": {}})
+
+    assert summary["release_sha"] == approved
 
 
 def test_environment_requires_explicit_paper_mode_without_leaking_credentials():

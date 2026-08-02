@@ -7,11 +7,13 @@ not a live-money release. `TRADING_MODE=paper`, the hard-coded Alpaca paper
 endpoint, the canonical validation artifact, and the current market/risk gates
 must all agree before new exposure is allowed.
 
-The scheduled production input is the immutable commit checked out by
-`.github/workflows/paper-production.yml`. Runtime broker reconciliation state
-is kept in the private `paper-runtime-state` Actions artifact rather than
-committed to this public repository. Workflow concurrency permits only one
-execution at a time.
+The scheduled production input is the full immutable commit SHA stored in the
+`paper-production` environment variable `PRODUCTION_RELEASE_SHA`. The workflow
+requires a successful `V11 Release Gate` for that exact SHA before it accesses
+the broker. Runtime broker reconciliation state is kept in a private Actions
+artifact named for the approved SHA rather than committed to this public
+repository. Its JSON schema and release lineage are validated before restore.
+Workflow concurrency permits only one execution at a time.
 
 ## Release contract
 
@@ -30,17 +32,20 @@ execution at a time.
 
 ## Deployment and canary
 
-1. Push the reviewed release commit and immutable release tag.
-2. Run `V11 Paper Production` manually with `operation=preflight`.
-3. Require a green offline sanity check, paper endpoint/account check, current
+1. Push the reviewed release commit, wait for its `V11 Release Gate`, and create
+   an immutable release tag.
+2. Set `PRODUCTION_RELEASE_SHA` in the `paper-production` GitHub environment to
+   the full tagged commit SHA.
+3. Run `V11 Paper Production` manually with `operation=preflight`.
+4. Require a green offline sanity check, paper endpoint/account check, current
    broker clock, no shorts, a fresh rolling risk snapshot, and a dry-run that
    performs no mutations.
-4. Inspect the dry-run plan and account snapshot. A closed weekend/holiday
+5. Inspect the dry-run plan and account snapshot. A closed weekend/holiday
    market is acceptable for preflight; a stale broker clock is not.
-5. The weekday scheduler runs at 15:05 UTC, which is 10:05 EST or 11:05 EDT.
+6. The weekday scheduler runs at 15:05 UTC, which is 10:05 EST or 11:05 EDT.
    Alpaca's clock remains authoritative and blocks new exposure outside the
    regular session.
-6. The first open-market run is the canary. Inspect its Actions result and
+7. The first open-market run is the canary. Inspect its Actions result and
    Alpaca paper orders before treating later cycles as unattended validation.
 
 No dynamic universe refresh, optimizer, legacy sleeve, options executor,

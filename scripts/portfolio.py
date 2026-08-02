@@ -2,21 +2,30 @@
 
 import math
 import sys
-from datetime import datetime, timezone
-from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import GetOrdersRequest
-from alpaca.trading.enums import QueryOrderStatus
+from collections.abc import Mapping
+from datetime import date, datetime, timezone
 
-from utils import (
-    ALPACA_API_KEY, ALPACA_SECRET_KEY,
-    POSITIONS_STATE, PERFORMANCE_STATE,
-    EDT, setup_logging, get_now_str, load_json, save_json, get_risk_tier,
-)
+from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import QueryOrderStatus
+from alpaca.trading.requests import GetOrdersRequest, GetPortfolioHistoryRequest
 from risk_policy import assess_portfolio_risk
+from utils import (
+    ALPACA_API_KEY,
+    ALPACA_SECRET_KEY,
+    EDT,
+    PERFORMANCE_STATE,
+    POSITIONS_STATE,
+    get_now_str,
+    get_risk_tier,
+    load_json,
+    save_json,
+    setup_logging,
+)
 
 log = setup_logging("portfolio")
 
 _client: "TradingClient | None" = None
+MAX_HISTORY_STALENESS_DAYS = 7
 
 
 def _get_client() -> TradingClient:
@@ -61,14 +70,19 @@ def get_recent_equity_history(max_observations: int = 22) -> list[float]:
 
     if type(max_observations) is not int or max_observations < 1:
         raise ValueError("max_observations must be a positive integer")
-    payload = _get_client().get(
-        "/v2/account/portfolio/history",
-        {"period": "3M", "timeframe": "1D", "extended_hours": False},
+    payload = _get_client().get_portfolio_history(
+        GetPortfolioHistoryRequest(
+            period="3M",
+            timeframe="1D",
+            extended_hours=False,
+        )
     )
-    if not isinstance(payload, dict):
-        raise ValueError("Alpaca portfolio history response is not an object")
-    raw_equities = payload.get("equity")
-    raw_timestamps = payload.get("timestamp")
+    if isinstance(payload, Mapping):
+        raw_equities = payload.get("equity")
+        raw_timestamps = payload.get("timestamp")
+    else:
+        raw_equities = getattr(payload, "equity", None)
+        raw_timestamps = getattr(payload, "timestamp", None)
     if not isinstance(raw_equities, list):
         raise ValueError("Alpaca portfolio history has no equity array")
     if not isinstance(raw_timestamps, list) or len(raw_timestamps) != len(
@@ -76,25 +90,54 @@ def get_recent_equity_history(max_observations: int = 22) -> list[float]:
     ):
         raise ValueError("Alpaca portfolio history timestamps are missing or misaligned")
     today = datetime.now(EDT).date()
-    equities: list[float] = []
+    observations: list[tuple[date, float]] = []
+    previous_timestamp: datetime | None = None
+    previous_date = None
     for raw_timestamp, raw in zip(raw_timestamps, raw_equities, strict=True):
         try:
+            if isinstance(raw_timestamp, bool):
+                raise TypeError("boolean is not a timestamp")
             if isinstance(raw_timestamp, (int, float)):
-                observation_date = datetime.fromtimestamp(
-                    float(raw_timestamp), timezone.utc
-                ).date()
+                numeric_timestamp = float(raw_timestamp)
+                if not math.isfinite(numeric_timestamp):
+                    raise ValueError("timestamp is not finite")
+                observation_timestamp = datetime.fromtimestamp(
+                    numeric_timestamp,
+                    timezone.utc,
+                )
             else:
-                observation_date = datetime.fromisoformat(
+                observation_timestamp = datetime.fromisoformat(
                     str(raw_timestamp).replace("Z", "+00:00")
-                ).date()
+                )
+                if (
+                    observation_timestamp.tzinfo is None
+                    or observation_timestamp.utcoffset() is None
+                ):
+                    raise ValueError("timestamp has no timezone")
+                observation_timestamp = observation_timestamp.astimezone(
+                    timezone.utc
+                )
         except (OSError, OverflowError, TypeError, ValueError) as exc:
             raise ValueError(
                 "Alpaca portfolio history contains invalid timestamp"
             ) from exc
+        observation_date = observation_timestamp.astimezone(EDT).date()
+        if previous_timestamp is not None and observation_timestamp <= previous_timestamp:
+            raise ValueError(
+                "Alpaca portfolio history timestamps are not strictly increasing"
+            )
+        if previous_date is not None and observation_date <= previous_date:
+            raise ValueError(
+                "Alpaca portfolio history contains duplicate or unordered daily buckets"
+            )
+        previous_timestamp = observation_timestamp
+        previous_date = observation_date
+        if observation_date > today:
+            raise ValueError("Alpaca portfolio history contains a future daily bucket")
         # The current account equity is appended separately by the shared risk
         # policy.  Excluding today's history bucket prevents counting the same
         # in-progress session twice.
-        if observation_date >= today:
+        if observation_date == today:
             continue
         if raw is None:
             continue
@@ -105,10 +148,13 @@ def get_recent_equity_history(max_observations: int = 22) -> list[float]:
         if not math.isfinite(equity):
             raise ValueError("Alpaca portfolio history contains non-finite equity")
         if equity > 0:
-            equities.append(equity)
-    if not equities:
+            observations.append((observation_date, equity))
+    if not observations:
         raise ValueError("Alpaca portfolio history has no positive equity observations")
-    return equities[-max_observations:]
+    latest_date = observations[-1][0]
+    if (today - latest_date).days > MAX_HISTORY_STALENESS_DAYS:
+        raise ValueError("Alpaca portfolio history has no recent completed observation")
+    return [equity for _, equity in observations[-max_observations:]]
 
 
 def get_positions() -> list[dict]:

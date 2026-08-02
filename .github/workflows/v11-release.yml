@@ -39,9 +39,6 @@ jobs:
         run: >-
           ruff check
           --select E9,F63,F7,F82
-          scripts/production_preflight.py
-          scripts/production_run.py
-          scripts/sanity_check.py
-          scripts/strategy_identity.py
+          scripts tests
       - name: Verify canonical promotion artifact
         run: python scripts/sanity_check.py
