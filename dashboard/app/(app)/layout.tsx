@@ -5,19 +5,22 @@ import { getSupabaseServer } from "@/lib/supabase/server";
 import { getSelectedAccount } from "@/lib/account-context";
 import { SUPABASE_CONFIGURED } from "@/lib/supabase/config";
 import type { SafeAccount } from "@/lib/accounts/service";
+import AccountLiveProvider from "@/components/accounts/AccountLiveProvider";
 
 /**
  * Authenticated shell for every dashboard screen.
  *
  * Auth + the account switcher activate only once Supabase is configured via
- * env vars. Until then the dashboard keeps working in its legacy mode so
- * deploying this code never locks anyone out.
+ * env vars. Repository-only legacy mode is available solely behind the
+ * explicit ALLOW_LEGACY_DASHBOARD runtime opt-in; the proxy otherwise blocks
+ * this shell when auth configuration is absent.
  */
 export default async function AppLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   let accounts: SafeAccount[] = [];
   let selectedId: string | null = null;
+  let selectedAccount: SafeAccount | null = null;
 
   if (SUPABASE_CONFIGURED) {
     let user = null;
@@ -31,12 +34,13 @@ export default async function AppLayout({
       if (user) {
         const selection = await getSelectedAccount();
         accounts = selection.accounts;
-        selectedId = selection.selected?.id ?? null;
+        selectedAccount = selection.selected;
+        selectedId = selectedAccount?.id ?? null;
       }
     } catch {
       // Supabase is configured but unreachable (e.g. the free-tier project
-      // auto-paused). Degrade to legacy mode — render the dashboard with no
-      // account switcher — instead of 504ing the whole shell.
+      // auto-paused). Render the shell without an account selection; the live
+      // provider then fails closed instead of substituting legacy broker data.
       supabaseReachable = false;
     }
 
@@ -47,16 +51,29 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="min-h-screen flex">
-      <Sidebar accounts={accounts} selectedAccountId={selectedId} />
-      <main className="flex-1 overflow-auto">
-        <div className="max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 pt-16 lg:pt-8">
-          <div className="flex justify-end mb-4">
-            <RefreshButton />
+    <AccountLiveProvider
+      enabled={SUPABASE_CONFIGURED}
+      selectedAccount={
+        selectedAccount
+          ? {
+              id: selectedAccount.id,
+              nickname: selectedAccount.nickname,
+              mode: selectedAccount.mode,
+            }
+          : null
+      }
+    >
+      <div className="min-h-screen flex">
+        <Sidebar accounts={accounts} selectedAccountId={selectedId} />
+        <main className="flex-1 overflow-auto">
+          <div className="max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 pt-16 lg:pt-8">
+            <div className="flex justify-end mb-4">
+              <RefreshButton />
+            </div>
+            {children}
           </div>
-          {children}
-        </div>
-      </main>
-    </div>
+        </main>
+      </div>
+    </AccountLiveProvider>
   );
 }

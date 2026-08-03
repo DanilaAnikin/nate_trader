@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "strategyVersion": "v11-adaptive-momentum",
+  "displayName": "V11 Adaptive Momentum",
+  "signal": "12-1 momentum",
+  "weighting": "equal",
+  "topN": 10,
+  "maxPositions": 10,
+  "minEligiblePositions": 8,
+  "maxPositionPct": 9,
+  "minCashPct": 10,
+  "maxSectorPct": 20,
+  "maxGrossExposurePct": 90,
+  "cautiousGrossMultiplier": 0.5,
+  "breadthScalingEnabled": true,
+  "riskOnReentryDays": 1,
+  "productionExecutionMode": "paper-only",
+  "riskThresholds": {
+    "dailyCautiousPct": -5,
+    "dailyHaltPct": -8,
+    "rollingDrawdownCautiousPct": -10
+  },
+  "disabledLegacyLeveragedEtfs": [
+    "TQQQ",
+    "UPRO",
+    "SSO"
+  ],
+  "excludedSymbols": [
+    "SPY",
+    "QQQ",
+    "SH",
+    "SSO",
+    "TQQQ",
+    "UPRO",
+    "SQQQ",
+    "SPXU",
+    "SPXL",
+    "SOXL",
+    "SOXS",
+    "UVXY",
+    "VXX"
+  ],
+  "legacyOverlaysEnabled": false,
+  "legacyStopsEnabled": false,
+  "maxLegacyLeveragedEtfTargetPct": 0
+}

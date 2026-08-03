@@ -177,7 +177,7 @@ export default function EditAccountDialog({
               onChange={(e) => setIsActive(e.target.checked)}
             />
             <span className="text-xs text-foreground">
-              Active — the agent trades this account
+              Active — available in the dashboard account switcher
             </span>
           </label>
           {noteEl(detailsNote)}

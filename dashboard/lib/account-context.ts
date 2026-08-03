@@ -16,8 +16,8 @@ export async function getUserAccounts(): Promise<SafeAccount[]> {
       .order("created_at", { ascending: true });
     return (data ?? []).map(toSafe);
   } catch {
-    // Supabase unreachable (e.g. paused project). Treat as "no accounts" so
-    // the dashboard renders its GitHub-sourced data instead of 504ing.
+    // Supabase unreachable (e.g. paused project). Treat as "no accounts";
+    // account-scoped screens then fail closed without substituting repo data.
     return [];
   }
 }

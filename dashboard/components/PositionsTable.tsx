@@ -1,4 +1,5 @@
 import type { Position } from "@/lib/types";
+import { V11_POLICY } from "@/lib/v11-policy";
 
 interface PositionsTableProps {
   positions: Position[];
@@ -15,7 +16,7 @@ export default function PositionsTable({ positions, equity = 0 }: PositionsTable
         </svg>
         <p className="text-foreground font-medium mb-2">No Open Positions</p>
         <p className="text-xs text-muted max-w-sm mx-auto">
-          Positions will appear here when the agent opens trades. All entries require a confidence score of 65+ with all five checklist criteria passing.
+          No broker positions are open. V11 forms a diversified top-{V11_POLICY.topN} portfolio from {V11_POLICY.signal} when its trend and risk gates permit exposure.
         </p>
       </div>
     );
@@ -45,7 +46,6 @@ export default function PositionsTable({ positions, equity = 0 }: PositionsTable
               <th className="text-right px-4 py-3">Avg Cost</th>
               <th className="text-right px-4 py-3">Current</th>
               <th className="text-right px-4 py-3">Weight</th>
-              <th className="text-right px-4 py-3">Stop (8%)</th>
               <th className="text-right px-4 py-3">Mkt Value</th>
               <th className="text-right px-4 py-3">P&L</th>
               <th className="text-right px-5 py-3">P&L %</th>
@@ -53,11 +53,12 @@ export default function PositionsTable({ positions, equity = 0 }: PositionsTable
           </thead>
           <tbody>
             {positions.map((p) => {
-              const plPct = p.unrealized_plpc * 100;
+              // The shared Position contract stores percentage points
+              // (1.85 means +1.85%), for both repository and Alpaca sources.
+              const plPct = p.unrealized_plpc;
               const isPositive = p.unrealized_pl >= 0;
               const plColor = isPositive ? "text-green" : "text-red";
-              const weight = equity > 0 ? (p.market_value / equity) * 100 : 0;
-              const stopPrice = p.avg_entry_price * 0.92;
+              const weight = equity > 0 ? (Math.abs(p.market_value) / equity) * 100 : 0;
               const barWidth = Math.min(Math.abs(plPct) * 5, 100);
 
               return (
@@ -67,11 +68,10 @@ export default function PositionsTable({ positions, equity = 0 }: PositionsTable
                   <td className="px-4 py-3 text-right text-secondary">${p.avg_entry_price.toFixed(2)}</td>
                   <td className="px-4 py-3 text-right text-foreground">${p.current_price.toFixed(2)}</td>
                   <td className="px-4 py-3 text-right">
-                    <span className={weight > 5 ? "text-amber font-medium" : "text-secondary"}>
+                    <span className={weight > V11_POLICY.maxPositionPct ? "text-amber font-medium" : "text-secondary"}>
                       {weight.toFixed(1)}%
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right text-muted">${stopPrice.toFixed(2)}</td>
                   <td className="px-4 py-3 text-right text-secondary">
                     ${p.market_value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
@@ -97,7 +97,7 @@ export default function PositionsTable({ positions, equity = 0 }: PositionsTable
           </tbody>
           <tfoot>
             <tr className="border-t border-border bg-surface/50">
-              <td className="px-5 py-3 text-xs text-muted font-medium" colSpan={6}>Total</td>
+              <td className="px-5 py-3 text-xs text-muted font-medium" colSpan={5}>Total</td>
               <td className="px-4 py-3 text-right text-xs font-medium text-secondary">
                 ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </td>

@@ -20,11 +20,17 @@ export default async function ResearchPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
-        <h2 className="text-2xl font-semibold text-foreground">Research Signals</h2>
+        <h2 className="text-2xl font-semibold text-foreground">Legacy Research Diagnostics</h2>
         <p className="text-xs text-muted mt-0.5">
           Last updated: {updatedAt}
           {perplexityAt && ` | Perplexity: ${perplexityAt}`}
         </p>
+      </div>
+
+      <div className="rounded-xl border border-amber/25 bg-amber/5 px-4 py-3 text-xs text-amber">
+        These BUY/HOLD/SELL confidence scores are archived V10 diagnostics.
+        V11 execution does not trade from them; it uses 12–1 momentum,
+        liquidity, SMA200, breadth, and portfolio risk gates.
       </div>
 
       <div className="glass-card p-5">

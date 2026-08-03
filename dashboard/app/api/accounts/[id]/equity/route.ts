@@ -11,9 +11,9 @@ type Ctx = { params: Promise<{ id: string }> };
 /**
  * GET /api/accounts/[id]/equity — the account's daily equity curve.
  *
- * The first time an account is charted it has no snapshots, so this lazily
- * backfills from Alpaca Portfolio History — the chart is correct on first
- * view without waiting for the scheduled agent.
+ * Refreshes the idempotent Alpaca Portfolio History mirror on each validated
+ * account refresh. Existing rows remain a clearly warned fallback if Alpaca
+ * history is temporarily unavailable.
  */
 export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
@@ -38,21 +38,14 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   const svc = getSupabaseService();
 
-  const { count } = await svc
-    .from("equity_snapshots")
-    .select("id", { count: "exact", head: true })
-    .eq("account_id", id);
-
   let backfilled = 0;
-  if (!count) {
-    try {
-      backfilled = await backfillEquity(svc, id, account.mode);
-    } catch (e) {
-      return NextResponse.json(
-        { error: e instanceof Error ? e.message : "backfill failed" },
-        { status: 502 },
-      );
-    }
+  let refreshWarning: string | null = null;
+  try {
+    // Idempotent upsert keeps the curve current on every validated account
+    // refresh instead of freezing it after the first-ever dashboard visit.
+    backfilled = await backfillEquity(svc, id, account.mode);
+  } catch (e) {
+    refreshWarning = e instanceof Error ? e.message : "equity refresh failed";
   }
 
   const { data: snapshots, error } = await svc
@@ -69,25 +62,37 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
+  if ((snapshots?.length ?? 0) === 0 && refreshWarning) {
+    return NextResponse.json(
+      { error: refreshWarning },
+      { status: 502, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const { data: flows } = await svc
     .from("cash_flows")
     .select("flow_date,amount")
     .eq("account_id", id);
 
-  return NextResponse.json({
-    accountId: id,
-    backfilled,
-    snapshots: (snapshots ?? []).map((s) => ({
-      date: s.snapshot_date,
-      equity: s.equity,
-      cash: s.cash,
-      pnl: s.profit_loss,
-      pnl_pct: s.profit_loss_pct,
-      num_positions: s.num_positions,
-    })),
-    cashFlows: (flows ?? []).map((f) => ({
-      date: f.flow_date,
-      amount: f.amount,
-    })),
-  });
+  return NextResponse.json(
+    {
+      accountId: id,
+      backfilled,
+      refreshedAt: new Date().toISOString(),
+      warning: refreshWarning,
+      snapshots: (snapshots ?? []).map((s) => ({
+        date: s.snapshot_date,
+        equity: s.equity,
+        cash: s.cash,
+        pnl: s.profit_loss,
+        pnl_pct: s.profit_loss_pct,
+        num_positions: s.num_positions,
+      })),
+      cashFlows: (flows ?? []).map((f) => ({
+        date: f.flow_date,
+        amount: f.amount,
+      })),
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

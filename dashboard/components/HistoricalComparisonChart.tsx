@@ -104,17 +104,17 @@ export default function HistoricalComparisonChart({ portfolioHistory }: Props) {
     // Initial fetch
     fetchHistory();
 
-    // Refresh button (or auto-mount fetch in DashboardClient) dispatches
-    // dashboard:live; treat that as a signal to refetch SPY history too
+    // The account provider dispatches dashboard:refreshed after a validated
+    // account refresh; use it to pick up a new SPY history bar as well.
     // so the chart's grey baseline picks up any new bar from today's
     // routine. Silent retry — don't blow away existing data on transient
     // failure.
     const refreshHandler = () => fetchHistory(/* silent */ true);
-    window.addEventListener("dashboard:live", refreshHandler);
+    window.addEventListener("dashboard:refreshed", refreshHandler);
 
     return () => {
       cancelled = true;
-      window.removeEventListener("dashboard:live", refreshHandler);
+      window.removeEventListener("dashboard:refreshed", refreshHandler);
     };
   }, []);
 

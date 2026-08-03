@@ -155,7 +155,7 @@ export default function Sidebar({
       <div className="p-3 border-t border-border space-y-1">
         <div className="flex items-center gap-2 text-xs text-muted px-3 py-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-green animate-pulse-dot" />
-          System Active
+          Dashboard Online
         </div>
         <ThemeToggle />
         <form action={signOut}>

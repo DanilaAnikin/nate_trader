@@ -1,12 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import type {
-  DailyHistory,
-  PerformanceData,
-  SignalCounts,
-  SpyBenchmark,
-} from "@/lib/types";
+import type { DailyHistory, PerformanceData, SpyBenchmark } from "@/lib/types";
+import { formatLiveTimestamp } from "@/lib/account-live";
+import { evaluateV11Portfolio, V11_POLICY } from "@/lib/v11-policy";
+import { useAccountLive } from "@/components/accounts/AccountLiveProvider";
 import MetricCard from "@/components/MetricCard";
 import EquityChart from "@/components/EquityChart";
 import SpyComparison from "@/components/SpyComparison";
@@ -16,87 +15,95 @@ import HistoricalComparisonChart from "@/components/HistoricalComparisonChart";
 interface Props {
   performance: PerformanceData | null;
   spy: SpyBenchmark | null;
-  signals: SignalCounts;
-  selectedAccountId?: string | null;
 }
 
-/**
- * Shape of the data the dashboard actually displays. This may come from
- * the server snapshot (GitHub state file) or from a live Alpaca fetch
- * triggered by the Refresh button.
- */
 interface DisplayMetrics {
   equity: number;
   cash: number;
   cashPct: number;
   dailyPnl: number;
   dailyPnlPct: number;
-  monthlyPnl: number;
-  monthlyPnlPct: number;
+  monthlyPnl: number | null;
+  monthlyPnlPct: number | null;
   numPositions: number;
   updatedAt: string;
-  source: "snapshot" | "live";
+  source: "repository" | "alpaca";
 }
 
-/**
- * The Refresh button (in the layout top bar) hits /api/live and dispatches
- * a CustomEvent("dashboard:live") with the response payload. We listen
- * for that event here and override the displayed metrics with the live
- * Alpaca values. Without a click, we render the GitHub snapshot.
- */
-export default function DashboardClient({
-  performance,
-  spy,
-  signals,
-  selectedAccountId,
-}: Props) {
-  const [live, setLive] = useState<{
-    account: {
-      equity: number;
-      cash: number;
-      cash_pct: number;
-      daily_pnl: number;
-      daily_pnl_pct: number;
-      num_positions: number;
-    };
-    timestamp: string;
+export default function DashboardClient({ performance, spy }: Props) {
+  const { enabled, selectedAccount, status, data, error, refresh } =
+    useAccountLive();
+  const legacy = !enabled;
+  const [accountHistoryState, setAccountHistoryState] = useState<{
+    accountId: string;
+    liveTimestamp: string;
+    rows: DailyHistory[];
   } | null>(null);
-
-  // Real equity history for the selected account, pulled from Alpaca
-  // Portfolio History via /api/accounts/[id]/equity (fixes the flat chart).
-  const [snapshotHistory, setSnapshotHistory] = useState<DailyHistory[] | null>(
-    null,
-  );
-  // True when the selected account has no Alpaca credentials stored, so the
-  // real equity curve can't be fetched and we're showing the GitHub snapshot.
-  const [credsMissing, setCredsMissing] = useState(false);
+  const [historyErrorState, setHistoryErrorState] = useState<{
+    accountId: string;
+    liveTimestamp: string;
+    message: string;
+  } | null>(null);
+  const accountHistory =
+    accountHistoryState !== null &&
+    accountHistoryState.accountId === selectedAccount?.id &&
+    accountHistoryState.liveTimestamp === data?.timestamp
+      ? accountHistoryState.rows
+      : null;
+  const historyError =
+    historyErrorState !== null &&
+    historyErrorState.accountId === selectedAccount?.id &&
+    historyErrorState.liveTimestamp === data?.timestamp
+      ? historyErrorState.message
+      : null;
+  const liveRefreshTimestamp = data?.timestamp;
 
   useEffect(() => {
-    if (!selectedAccountId) return;
-    let cancelled = false;
+    const accountId = selectedAccount?.id;
+    if (!enabled || !accountId || !liveRefreshTimestamp) return;
+    const liveTimestamp = liveRefreshTimestamp;
+
+    const controller = new AbortController();
     (async () => {
+      await Promise.resolve();
+      if (controller.signal.aborted) return;
+      setAccountHistoryState(null);
+      setHistoryErrorState(null);
       try {
-        const res = await fetch(
-          `/api/accounts/${selectedAccountId}/equity`,
-          { cache: "no-store" },
+        const response = await fetch(
+          `/api/accounts/${encodeURIComponent(accountId)}/equity`,
+          { cache: "no-store", signal: controller.signal },
         );
-        if (!res.ok) {
-          // 502 + "credentials" means the account exists but has no Alpaca
-          // keys stored — surface a prompt instead of silently falling back.
-          if (!cancelled) {
-            const msg = await res.json().catch(() => null);
-            setCredsMissing(
-              res.status === 502 &&
-                typeof msg?.error === "string" &&
-                msg.error.toLowerCase().includes("credential"),
-            );
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+          if (!controller.signal.aborted) {
+            setHistoryErrorState({
+              accountId,
+              liveTimestamp,
+              message:
+                typeof body?.error === "string"
+                  ? body.error
+                  : `Equity history failed (HTTP ${response.status}).`,
+            });
           }
           return;
         }
-        const body = await res.json();
-        if (cancelled) return;
-        setCredsMissing(false);
-        type Snap = {
+        if (body?.accountId !== accountId || !Array.isArray(body?.snapshots)) {
+          setHistoryErrorState({
+            accountId,
+            liveTimestamp,
+            message: "Equity history did not match the selected account.",
+          });
+          return;
+        }
+        if (typeof body.warning === "string") {
+          setHistoryErrorState({
+            accountId,
+            liveTimestamp,
+            message: body.warning,
+          });
+        }
+        type Snapshot = {
           date: string;
           equity: number;
           cash: number | null;
@@ -104,101 +111,45 @@ export default function DashboardClient({
           pnl_pct: number | null;
           num_positions: number | null;
         };
-        const hist: DailyHistory[] = (body.snapshots ?? []).map((s: Snap) => ({
-          date: s.date,
-          equity: s.equity,
-          cash: s.cash ?? 0,
-          pnl: s.pnl ?? 0,
-          pnl_pct: s.pnl_pct ?? 0,
-          num_positions: s.num_positions ?? 0,
-        }));
-        setSnapshotHistory(hist);
-      } catch {
-        // Keep the legacy snapshot fallback.
+        setAccountHistoryState({
+          accountId,
+          liveTimestamp,
+          rows: body.snapshots.map((snapshot: Snapshot) => ({
+            date: snapshot.date,
+            equity: snapshot.equity,
+            cash: snapshot.cash ?? 0,
+            pnl: snapshot.pnl ?? 0,
+            pnl_pct: snapshot.pnl_pct ?? 0,
+            num_positions: snapshot.num_positions ?? 0,
+          })),
+        });
+      } catch (caught) {
+        if (!controller.signal.aborted) {
+          setHistoryErrorState({
+            accountId,
+            liveTimestamp,
+            message:
+              caught instanceof Error
+                ? caught.message
+                : "Equity history unavailable.",
+          });
+        }
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAccountId]);
+    return () => controller.abort();
+  }, [enabled, selectedAccount?.id, liveRefreshTimestamp]);
 
-  // Listen for live data dispatched by the Refresh button
-  useEffect(() => {
-    type LivePayload = {
-      account: {
-        equity: number;
-        cash: number;
-        cash_pct: number;
-        daily_pnl: number;
-        daily_pnl_pct: number;
-        num_positions: number;
-      };
-      timestamp: string;
-    };
-    function handler(e: Event) {
-      const detail = (e as CustomEvent<LivePayload>).detail;
-      if (detail && detail.account) {
-        setLive({ account: detail.account, timestamp: detail.timestamp });
-      }
-    }
-    window.addEventListener("dashboard:live", handler);
-    return () => window.removeEventListener("dashboard:live", handler);
-  }, []);
-
-  // Auto-fetch live data on page load — every F5 hits Alpaca for fresh
-  // equity/cash/positions. GitHub state (snapshot from last routine) is
-  // used as the initial render; this useEffect upgrades it to live the
-  // moment the client mounts.
-  useEffect(() => {
-    let cancelled = false;
-    const liveUrl = selectedAccountId
-      ? `/api/accounts/${selectedAccountId}/live`
-      : "/api/live";
-    fetch(liveUrl, { cache: "no-store" })
-      .then(async (res) => {
-        if (!res.ok) return null;
-        return res.json();
-      })
-      .then((data) => {
-        if (cancelled || !data || !data.account) return;
-        setLive({ account: data.account, timestamp: data.timestamp });
-        // Also broadcast so other components (e.g. HistoricalComparisonChart)
-        // can refetch their own data alongside.
-        window.dispatchEvent(new CustomEvent("dashboard:live", { detail: data }));
-      })
-      .catch(() => {
-        // Silent — falls back to GitHub snapshot already rendered
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAccountId]);
-
-  // Build display metrics — prefer live values when available, fall back to GitHub snapshot
-  const snapshotEquity = performance?.equity ?? 0;
-  const snapshotCash = performance?.cash ?? 0;
-  // Prefer the real Alpaca-sourced equity curve; fall back to the legacy
-  // GitHub snapshot until Supabase data is available. Guard on length: an
-  // account with no equity snapshots yet returns an empty array, and `??`
-  // would let that empty array shadow the GitHub history — blanking both the
-  // equity curve and the SPY comparison chart. Only use it when non-empty.
   const dailyHistory = useMemo(
-    () =>
-      snapshotHistory && snapshotHistory.length > 0
-        ? snapshotHistory
-        : performance?.daily_history ?? [],
-    [snapshotHistory, performance],
+    () => (legacy ? performance?.daily_history ?? [] : accountHistory ?? []),
+    [legacy, performance, accountHistory],
   );
 
-  // For monthly P&L we compute from live equity vs the earliest daily_history entry,
-  // since /api/live only knows today's account state. Using last-22-day window per
-  // the same logic as portfolio.update_performance_state().
-  const monthWindow = dailyHistory.length >= 22 ? dailyHistory.slice(-22) : dailyHistory;
-  const monthStartEquity = monthWindow[0]?.equity ?? snapshotEquity;
-
-  const liveEquity = live?.account.equity;
+  const monthWindow =
+    dailyHistory.length >= 22 ? dailyHistory.slice(-22) : dailyHistory;
+  const liveEquity = data?.account.equity;
+  const monthStartEquity = monthWindow[0]?.equity ?? liveEquity ?? 0;
   const liveMonthlyPnl =
-    liveEquity !== undefined && monthStartEquity > 0
+    liveEquity !== undefined && monthWindow.length > 0 && monthStartEquity > 0
       ? liveEquity - monthStartEquity
       : null;
   const liveMonthlyPnlPct =
@@ -206,260 +157,379 @@ export default function DashboardClient({
       ? (liveMonthlyPnl / monthStartEquity) * 100
       : null;
 
-  const display: DisplayMetrics = live
+  const display: DisplayMetrics | null = data
     ? {
-        equity: live.account.equity,
-        cash: live.account.cash,
-        cashPct: live.account.cash_pct,
-        dailyPnl: live.account.daily_pnl,
-        dailyPnlPct: live.account.daily_pnl_pct,
-        monthlyPnl: liveMonthlyPnl ?? performance?.monthly_pnl ?? 0,
-        monthlyPnlPct: liveMonthlyPnlPct ?? performance?.monthly_pnl_pct ?? 0,
-        numPositions: live.account.num_positions,
-        updatedAt: live.timestamp.replace("T", " ").slice(0, 19),
-        source: "live",
+        equity: data.account.equity,
+        cash: data.account.cash,
+        cashPct: data.account.cash_pct,
+        dailyPnl: data.account.daily_pnl,
+        dailyPnlPct: data.account.daily_pnl_pct,
+        monthlyPnl: liveMonthlyPnl,
+        monthlyPnlPct: liveMonthlyPnlPct,
+        numPositions: data.account.num_positions,
+        updatedAt: formatLiveTimestamp(data.timestamp),
+        source: "alpaca",
       }
-    : {
-        equity: snapshotEquity,
-        cash: snapshotCash,
-        cashPct: performance?.cash_pct ?? 0,
-        dailyPnl: performance?.daily_pnl ?? 0,
-        dailyPnlPct: performance?.daily_pnl_pct ?? 0,
-        monthlyPnl: performance?.monthly_pnl ?? 0,
-        monthlyPnlPct: performance?.monthly_pnl_pct ?? 0,
-        numPositions: performance?.num_positions ?? 0,
-        updatedAt: performance?.updated_at ?? "N/A",
-        source: "snapshot",
-      };
+    : legacy
+      ? {
+          equity: performance?.equity ?? 0,
+          cash: performance?.cash ?? 0,
+          cashPct: performance?.cash_pct ?? 0,
+          dailyPnl: performance?.daily_pnl ?? 0,
+          dailyPnlPct: performance?.daily_pnl_pct ?? 0,
+          monthlyPnl: performance?.monthly_pnl ?? 0,
+          monthlyPnlPct: performance?.monthly_pnl_pct ?? 0,
+          numPositions: performance?.num_positions ?? 0,
+          updatedAt: performance?.updated_at
+            ? formatLiveTimestamp(performance.updated_at)
+            : "Unknown time",
+          source: "repository",
+        }
+      : null;
 
-  const riskTier = performance?.risk_tier ?? "NORMAL";
-  const spyMonthly = spy?.monthly_return ?? 0;
-  const marketRegime = spy?.market_regime ?? "UNKNOWN";
-
-  // Inject the live equity into today's daily_history entry so the
-  // historical chart's portfolio line ends at the live number, not at
-  // the last snapshot the routines wrote to GitHub.
-  const effectiveDailyHistory: DailyHistory[] = useMemo(() => {
-    if (!live || dailyHistory.length === 0) return dailyHistory;
+  const effectiveDailyHistory = useMemo(() => {
+    if (!data || dailyHistory.length === 0) return dailyHistory;
     const today = new Date().toISOString().slice(0, 10);
     const liveEntry: DailyHistory = {
       date: today,
-      pnl: live.account.daily_pnl,
-      pnl_pct: live.account.daily_pnl_pct,
-      equity: live.account.equity,
-      cash: live.account.cash,
-      num_positions: live.account.num_positions,
+      pnl: data.account.daily_pnl,
+      pnl_pct: data.account.daily_pnl_pct,
+      equity: data.account.equity,
+      cash: data.account.cash,
+      num_positions: data.account.num_positions,
     };
     const last = dailyHistory[dailyHistory.length - 1];
-    if (last?.date === today) {
-      // Today already in history — replace with live values
-      return [...dailyHistory.slice(0, -1), liveEntry];
-    }
-    return [...dailyHistory, liveEntry];
-  }, [dailyHistory, live]);
+    return last?.date === today
+      ? [...dailyHistory.slice(0, -1), liveEntry]
+      : [...dailyHistory, liveEntry];
+  }, [dailyHistory, data]);
 
-  const { buy: buyCount, hold: holdCount, sell: sellCount } = signals;
+  const policy = display
+    ? evaluateV11Portfolio(
+        data?.positions ?? [],
+        display.equity,
+        display.cash,
+      )
+    : null;
+  const spyMonthly = spy?.monthly_return ?? 0;
+  const marketRegime = spy?.market_regime ?? "UNKNOWN";
+  const marketUpdatedAt = spy?.updated_at
+    ? formatLiveTimestamp(spy.updated_at)
+    : "Unknown time";
+  const ready = Boolean(display);
 
-  // Regime-adaptive limits mirror scripts/strategy_config.py
-  const limitsByRegime: Record<string, { maxPos: number; minCash: number }> = {
-    BULL: { maxPos: 15, minCash: 5 },
-    NEUTRAL: { maxPos: 12, minCash: 20 },
-    BEAR: { maxPos: 8, minCash: 40 },
-    UNKNOWN: { maxPos: 12, minCash: 20 },
-  };
-  const activeLimits = limitsByRegime[marketRegime] ?? limitsByRegime.UNKNOWN;
-
-  const rules: { label: string; ok: boolean; hint?: string }[] = [
-    {
-      label: `Cash Reserve ≥ ${activeLimits.minCash}%`,
-      ok: display.cashPct >= activeLimits.minCash,
-      hint:
-        marketRegime === "BULL"
-          ? "In a BULL regime the leveraged overlay (TQQQ/SSO) is fully deployed by design, so cash often sits below the reserve target."
-          : undefined,
-    },
-    { label: `Max ${activeLimits.maxPos} Positions`, ok: display.numPositions <= activeLimits.maxPos },
-    { label: "Risk Tier: NORMAL", ok: riskTier === "NORMAL" },
-    { label: "Daily Loss < 3%", ok: display.dailyPnlPct > -3 },
-  ];
+  const rules = display && policy
+    ? [
+        {
+          label: `Cash reserve ≥ ${V11_POLICY.minCashPct}%`,
+          ok: policy.checks.minCash,
+        },
+        {
+          label: `Max ${V11_POLICY.maxPositions} positions`,
+          ok: data
+            ? policy.checks.maxPositions
+            : display.numPositions <= V11_POLICY.maxPositions,
+        },
+        {
+          label: `Each position ≤ ${V11_POLICY.maxPositionPct}%`,
+          ok: data ? policy.checks.maxPositionWeight : null,
+        },
+        {
+          label: "No excluded ETF infrastructure",
+          ok: data ? policy.checks.noExcludedSymbols : null,
+        },
+        {
+          label: `Daily breaker above ${V11_POLICY.riskThresholds.dailyHaltPct}%`,
+          ok: display.dailyPnlPct > V11_POLICY.riskThresholds.dailyHaltPct,
+        },
+      ]
+    : [];
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-2xl font-semibold text-foreground">Dashboard</h2>
-          <p className="text-xs text-muted mt-0.5">
-            {display.source === "live" ? (
-              <span className="inline-block bg-green/10 text-green text-[10px] font-semibold px-1.5 py-0.5 rounded mr-1.5 align-middle">LIVE</span>
+          <p className="text-xs text-muted mt-1 flex flex-wrap items-center gap-1.5">
+            {data ? (
+              <>
+                <span className="inline-block bg-green/10 text-green text-[10px] font-semibold px-1.5 py-0.5 rounded">
+                  ALPACA FRESH
+                </span>
+                <span>{data.nickname}</span>
+                <span>·</span>
+                <span className={data.mode === "paper" ? "text-blue" : "text-red"}>
+                  {data.mode.toUpperCase()}
+                </span>
+                <span>· Updated {display?.updatedAt}</span>
+              </>
+            ) : legacy ? (
+              <>
+                <span className="inline-block bg-amber/10 text-amber text-[10px] font-semibold px-1.5 py-0.5 rounded">
+                  REPOSITORY SNAPSHOT
+                </span>
+                <span>Legacy mode · {display?.updatedAt}</span>
+              </>
             ) : (
-              <span className="inline-block bg-surface text-muted text-[10px] font-semibold px-1.5 py-0.5 rounded mr-1.5 align-middle">SNAPSHOT</span>
+              <>
+                <span className="inline-block bg-surface text-muted text-[10px] font-semibold px-1.5 py-0.5 rounded">
+                  {status.toUpperCase()}
+                </span>
+                <span>{selectedAccount?.nickname ?? "No selected account"}</span>
+              </>
             )}
-            {display.source === "live" ? "Live as of" : "Snapshot from"}: {display.updatedAt}
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-muted">Market:</span>
+          <span className="text-xs text-muted">Market snapshot:</span>
           <span
             className={`text-xs font-semibold px-2.5 py-1 rounded-lg ${
               marketRegime === "BULL"
                 ? "bg-green/8 text-green"
                 : marketRegime === "BEAR"
-                ? "bg-red/8 text-red"
-                : "bg-amber/8 text-amber"
+                  ? "bg-red/8 text-red"
+                  : "bg-amber/8 text-amber"
             }`}
           >
             {marketRegime}
           </span>
-          <RiskBadge tier={riskTier} />
+          <span
+            className="text-[10px] text-muted"
+            title={`Repository market snapshot from ${marketUpdatedAt}`}
+          >
+            REPO · {marketUpdatedAt}
+          </span>
+          {legacy && performance?.risk_tier && (
+            <RiskBadge tier={performance.risk_tier} />
+          )}
         </div>
       </div>
 
-      {credsMissing && (
-        <a
-          href="/accounts"
-          className="flex items-center gap-3 rounded-xl border border-amber/30 bg-amber/8 px-4 py-3 text-sm text-amber hover:bg-amber/12 transition-colors"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-            <path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-          </svg>
-          <span>
-            <span className="font-medium">This account has no Alpaca keys connected.</span>{" "}
-            Showing the saved snapshot — add your API keys to see the live equity curve. →
-          </span>
-        </a>
+      {selectedAccount?.mode === "live" && (
+        <div className="rounded-xl border border-amber/30 bg-amber/8 px-4 py-3 text-sm text-amber">
+          This is a read-only LIVE broker view. The V11 production executor is
+          intentionally paper-only and will not place live-money orders.
+        </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          label="Equity"
-          value={`$${display.equity.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
-          subValue={`${display.numPositions} positions`}
-          accent="blue"
-          index={0}
-        />
-        <MetricCard
-          label="Cash Reserve"
-          value={`${display.cashPct.toFixed(1)}%`}
-          subValue={`$${display.cash.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
-          trend={display.cashPct >= activeLimits.minCash ? "up" : "down"}
-          accent="amber"
-          index={1}
-        />
-        <MetricCard
-          label="Daily P&L"
-          value={`${display.dailyPnl >= 0 ? "+" : ""}$${display.dailyPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
-          subValue={`${display.dailyPnlPct >= 0 ? "+" : ""}${display.dailyPnlPct.toFixed(2)}%`}
-          trend={display.dailyPnl >= 0 ? "up" : "down"}
-          accent="green"
-          index={2}
-        />
-        <MetricCard
-          label="Monthly P&L"
-          value={`${display.monthlyPnlPct >= 0 ? "+" : ""}${display.monthlyPnlPct.toFixed(2)}%`}
-          subValue={`SPY: ${spyMonthly >= 0 ? "+" : ""}${spyMonthly.toFixed(2)}%`}
-          trend={display.monthlyPnlPct >= 0 ? "up" : "down"}
-          accent={display.monthlyPnlPct >= 0 ? "green" : "red"}
-          index={3}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="lg:col-span-3">
-          <EquityChart data={effectiveDailyHistory} />
+      {!ready && status === "loading" && (
+        <div className="glass-card min-h-48 flex items-center justify-center text-sm text-muted">
+          Loading the selected Alpaca account…
         </div>
-        <div className="lg:col-span-2">
-          <SpyComparison portfolioReturn={display.monthlyPnlPct} spyReturn={spyMonthly} />
+      )}
+      {!ready && status === "no-account" && (
+        <div className="glass-card p-8 text-center">
+          <p className="text-sm font-medium text-foreground">No account selected</p>
+          <p className="text-xs text-muted mt-1 mb-4">
+            Add or activate an Alpaca account to load account-scoped data.
+          </p>
+          <Link href="/accounts" className="text-sm font-medium text-blue">
+            Manage accounts →
+          </Link>
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="glass-card p-5">
-          <h3 className="text-sm font-medium text-secondary mb-3">Rules Compliance</h3>
-          <div className="space-y-3">
-            {rules.map((rule) => (
-              <div key={rule.label} className="flex items-center gap-2.5 text-sm">
-                {rule.ok ? (
-                  <svg width="18" height="18" viewBox="0 0 18 18" className="text-green shrink-0">
-                    <circle cx="9" cy="9" r="8" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1.5" />
-                    <path d="M5.5 9l2.5 2.5 4.5-4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                ) : (
-                  <svg width="18" height="18" viewBox="0 0 18 18" className="text-red shrink-0">
-                    <circle cx="9" cy="9" r="8" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1.5" />
-                    <path d="M6 6l6 6M12 6l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                  </svg>
-                )}
-                <span
-                  className={`${rule.ok ? "text-foreground" : "text-red"} ${rule.hint ? "underline decoration-dotted decoration-muted underline-offset-4 cursor-help" : ""}`}
-                  title={rule.hint}
-                >
-                  {rule.label}
-                </span>
-              </div>
-            ))}
+      )}
+      {!ready && status === "error" && (
+        <div className="rounded-xl border border-red/25 bg-red/5 p-5">
+          <p className="text-sm font-medium text-red">Live account unavailable</p>
+          <p className="text-xs text-muted mt-1">
+            {error?.error ?? "The selected account could not be loaded."} No
+            repository or global-account data has been substituted.
+          </p>
+          <div className="flex items-center gap-4 mt-4">
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="text-xs font-medium text-blue hover:underline"
+            >
+              Try again
+            </button>
+            <Link href="/accounts" className="text-xs font-medium text-secondary hover:underline">
+              Check credentials
+            </Link>
           </div>
         </div>
+      )}
 
-        <div className="glass-card p-5">
-          <h3 className="text-sm font-medium text-secondary mb-3">Research Signals</h3>
-          <div className="flex items-center justify-around h-[calc(100%-2rem)]">
-            <div className="text-center">
-              <p className="text-2xl font-semibold text-green">{buyCount}</p>
-              <p className="text-xs text-muted uppercase tracking-wider mt-1">Buy</p>
+      {ready && display && policy && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <MetricCard
+              label="Equity"
+              value={`$${display.equity.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+              subValue={`${display.numPositions} positions`}
+              accent="blue"
+              index={0}
+            />
+            <MetricCard
+              label="Cash Reserve"
+              value={`${display.cashPct.toFixed(1)}%`}
+              subValue={`$${display.cash.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+              trend={policy.checks.minCash ? "up" : "down"}
+              accent="amber"
+              index={1}
+            />
+            <MetricCard
+              label="Daily P&L"
+              value={`${display.dailyPnl >= 0 ? "+" : ""}$${display.dailyPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+              subValue={`${display.dailyPnlPct >= 0 ? "+" : ""}${display.dailyPnlPct.toFixed(2)}%`}
+              trend={display.dailyPnl >= 0 ? "up" : "down"}
+              accent={display.dailyPnl >= 0 ? "green" : "red"}
+              index={2}
+            />
+            <MetricCard
+              label="Monthly P&L"
+              value={
+                display.monthlyPnlPct === null
+                  ? "—"
+                  : `${display.monthlyPnlPct >= 0 ? "+" : ""}${display.monthlyPnlPct.toFixed(2)}%`
+              }
+              subValue={
+                display.monthlyPnlPct === null
+                  ? historyError
+                    ? "Account history unavailable"
+                    : "Loading account history…"
+                  : `SPY repo snapshot: ${spyMonthly >= 0 ? "+" : ""}${spyMonthly.toFixed(2)}%`
+              }
+              trend={
+                display.monthlyPnlPct === null
+                  ? undefined
+                  : display.monthlyPnlPct >= 0
+                    ? "up"
+                    : "down"
+              }
+              accent={
+                display.monthlyPnlPct === null
+                  ? "blue"
+                  : display.monthlyPnlPct >= 0
+                    ? "green"
+                    : "red"
+              }
+              index={3}
+            />
+          </div>
+
+          {historyError && (
+            <div className="rounded-xl border border-amber/25 bg-amber/5 px-4 py-3 text-xs text-amber">
+              Account metrics are live, but the account-scoped equity history is
+              unavailable: {historyError}
             </div>
-            <div className="w-px h-10 bg-border" />
-            <div className="text-center">
-              <p className="text-2xl font-semibold text-amber">{holdCount}</p>
-              <p className="text-xs text-muted uppercase tracking-wider mt-1">Hold</p>
+          )}
+
+          {effectiveDailyHistory.length > 0 && display.monthlyPnlPct !== null ? (
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+              <div className="lg:col-span-3">
+                <EquityChart data={effectiveDailyHistory} />
+              </div>
+              <div className="lg:col-span-2">
+                <SpyComparison portfolioReturn={display.monthlyPnlPct} spyReturn={spyMonthly} />
+              </div>
             </div>
-            <div className="w-px h-10 bg-border" />
-            <div className="text-center">
-              <p className="text-2xl font-semibold text-red">{sellCount}</p>
-              <p className="text-xs text-muted uppercase tracking-wider mt-1">Sell</p>
+          ) : (
+            <div className="glass-card p-8 text-center text-xs text-muted">
+              Account-scoped equity history is not available yet. Live account
+              totals above remain current.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="glass-card p-5">
+              <h3 className="text-sm font-medium text-secondary mb-1">
+                Visible Guardrails
+              </h3>
+              <p className="text-[10px] text-muted mb-4 uppercase tracking-wider">
+                {V11_POLICY.displayName}
+              </p>
+              <div className="space-y-3">
+                {rules.map((rule) => (
+                  <div key={rule.label} className="flex items-center gap-2.5 text-sm">
+                    {rule.ok === null ? (
+                      <span className="h-[18px] w-[18px] rounded-full border border-border text-[10px] text-muted flex items-center justify-center shrink-0">?</span>
+                    ) : rule.ok ? (
+                      <svg width="18" height="18" viewBox="0 0 18 18" className="text-green shrink-0">
+                        <circle cx="9" cy="9" r="8" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1.5" />
+                        <path d="M5.5 9l2.5 2.5 4.5-4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    ) : (
+                      <svg width="18" height="18" viewBox="0 0 18 18" className="text-red shrink-0">
+                        <circle cx="9" cy="9" r="8" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1.5" />
+                        <path d="M6 6l6 6M12 6l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                      </svg>
+                    )}
+                    <span className={`text-xs ${rule.ok === false ? "text-red" : "text-foreground"}`}>
+                      {rule.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="glass-card p-5">
+              <h3 className="text-sm font-medium text-secondary mb-4">
+                V11 Mandate
+              </h3>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div>
+                  <p className="text-2xl font-semibold text-blue">{V11_POLICY.topN}</p>
+                  <p className="text-[10px] text-muted uppercase tracking-wider mt-1">Top names</p>
+                </div>
+                <div className="border-x border-border">
+                  <p className="text-lg font-semibold text-foreground">{V11_POLICY.signal.split(" ")[0]}</p>
+                  <p className="text-[10px] text-muted uppercase tracking-wider mt-1">Momentum</p>
+                </div>
+                <div>
+                  <p className="text-lg font-semibold text-purple">Equal</p>
+                  <p className="text-[10px] text-muted uppercase tracking-wider mt-1">Weighting</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted mt-5 leading-relaxed">
+                {V11_POLICY.signal} selection with breadth scaling, a SPY
+                200-day trend gate, and no excluded ETF infrastructure.
+              </p>
+              <p className="text-[10px] text-muted mt-2 leading-relaxed">
+                Dynamic breadth and rolling-risk status remain runner-side; the
+                checks shown here use only verified broker data.
+              </p>
+            </div>
+
+            <div className="glass-card p-5">
+              <h3 className="text-sm font-medium text-secondary mb-3">
+                Portfolio Allocation
+              </h3>
+              <div className="space-y-3.5">
+                {[
+                  { label: "Invested", value: Math.max(0, 100 - display.cashPct), color: "bg-blue" },
+                  { label: "Cash", value: display.cashPct, color: "bg-amber" },
+                ].map((row) => (
+                  <div key={row.label}>
+                    <div className="flex justify-between text-xs mb-1.5">
+                      <span className="text-muted">{row.label}</span>
+                      <span className="text-foreground font-medium">{row.value.toFixed(1)}%</span>
+                    </div>
+                    <div className="h-2 bg-surface rounded-full overflow-hidden">
+                      <div className={`h-full ${row.color} rounded-full transition-all`} style={{ width: `${Math.min(100, Math.max(0, row.value))}%` }} />
+                    </div>
+                  </div>
+                ))}
+                <div>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-muted">Positions</span>
+                    <span className="text-foreground font-medium">
+                      {display.numPositions} / {V11_POLICY.maxPositions}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-surface rounded-full overflow-hidden">
+                    <div className="h-full bg-purple rounded-full transition-all" style={{ width: `${Math.min(100, (display.numPositions / V11_POLICY.maxPositions) * 100)}%` }} />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="glass-card p-5">
-          <h3 className="text-sm font-medium text-secondary mb-3">Portfolio Allocation</h3>
-          <div className="space-y-3.5">
-            <div>
-              <div className="flex justify-between text-xs mb-1.5">
-                <span className="text-muted">Invested</span>
-                <span className="text-foreground font-medium">{(100 - display.cashPct).toFixed(1)}%</span>
-              </div>
-              <div className="h-2 bg-surface rounded-full overflow-hidden">
-                <div className="h-full bg-blue rounded-full transition-all" style={{ width: `${100 - display.cashPct}%` }} />
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-xs mb-1.5">
-                <span className="text-muted">Cash</span>
-                <span className="text-foreground font-medium">{display.cashPct.toFixed(1)}%</span>
-              </div>
-              <div className="h-2 bg-surface rounded-full overflow-hidden">
-                <div className="h-full bg-amber rounded-full transition-all" style={{ width: `${display.cashPct}%` }} />
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-xs mb-1.5">
-                <span className="text-muted">Positions</span>
-                <span className="text-foreground font-medium">
-                  {display.numPositions} / {activeLimits.maxPos}
-                </span>
-              </div>
-              <div className="h-2 bg-surface rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-purple rounded-full transition-all"
-                  style={{ width: `${Math.min(100, (display.numPositions / activeLimits.maxPos) * 100)}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <HistoricalComparisonChart portfolioHistory={effectiveDailyHistory} />
+          {effectiveDailyHistory.length > 0 && (
+            <HistoricalComparisonChart portfolioHistory={effectiveDailyHistory} />
+          )}
+        </>
+      )}
     </div>
   );
 }

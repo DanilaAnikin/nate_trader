@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { getSupabaseService } from "@/lib/supabase/service";
+import {
+  ACCOUNT_LIVE_SCHEMA_VERSION,
+  ACCOUNT_LIVE_SOURCE,
+  normalizeAlpacaPosition,
+  type AccountLiveErrorCode,
+} from "@/lib/account-live";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -11,6 +17,13 @@ const ALPACA_BASE: Record<string, string> = {
   paper: "https://paper-api.alpaca.markets/v2",
   live: "https://api.alpaca.markets/v2",
 };
+
+function apiError(code: AccountLiveErrorCode, error: string, status: number) {
+  return NextResponse.json(
+    { code, error },
+    { status, headers: { "Cache-Control": "no-store" } },
+  );
+}
 
 /**
  * GET /api/accounts/[id]/live — live Alpaca account + positions for one
@@ -24,18 +37,18 @@ export async function GET(_req: Request, { params }: Ctx) {
     data: { user },
   } = await supa.auth.getUser();
   if (!user) {
-    return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+    return apiError("UNAUTHENTICATED", "Authentication is required.", 401);
   }
 
   // RLS scopes this to the caller's own accounts.
   const { data: account } = await supa
     .from("accounts")
-    .select("id,mode")
+    .select("id,nickname,mode")
     .eq("id", id)
     .is("deleted_at", null)
     .single();
   if (!account) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    return apiError("ACCOUNT_NOT_FOUND", "Account not found.", 404);
   }
 
   const svc = getSupabaseService();
@@ -43,10 +56,17 @@ export async function GET(_req: Request, { params }: Ctx) {
     acct: id,
   });
   if (credErr || !cred || cred.length === 0) {
-    return NextResponse.json({ error: "no stored credentials" }, { status: 409 });
+    return apiError(
+      "CREDENTIALS_MISSING",
+      "This account has no stored Alpaca credentials.",
+      409,
+    );
   }
 
   const base = ALPACA_BASE[account.mode];
+  if (!base) {
+    return apiError("INVALID_RESPONSE", "Account broker mode is invalid.", 500);
+  }
   const headers = {
     "APCA-API-KEY-ID": cred[0].api_key,
     "APCA-API-SECRET-KEY": cred[0].api_secret,
@@ -55,24 +75,32 @@ export async function GET(_req: Request, { params }: Ctx) {
   let accountRes: Response;
   let positionsRes: Response;
   try {
+    const signal = AbortSignal.timeout(10_000);
     [accountRes, positionsRes] = await Promise.all([
-      fetch(`${base}/account`, { headers, cache: "no-store" }),
-      fetch(`${base}/positions`, { headers, cache: "no-store" }),
+      fetch(`${base}/account`, { headers, cache: "no-store", signal }),
+      fetch(`${base}/positions`, { headers, cache: "no-store", signal }),
     ]);
   } catch {
-    return NextResponse.json({ error: "could not reach Alpaca" }, { status: 502 });
+    return apiError(
+      "ALPACA_UNREACHABLE",
+      "Could not reach Alpaca for the selected account.",
+      502,
+    );
   }
 
   if (accountRes.status === 401 || accountRes.status === 403) {
     await svc.from("accounts").update({ status: "auth_failed" }).eq("id", id);
-    return NextResponse.json({ error: "alpaca auth failed" }, { status: 502 });
+    return apiError(
+      "ALPACA_AUTH_FAILED",
+      "Alpaca rejected this account's credentials.",
+      502,
+    );
   }
   if (!accountRes.ok || !positionsRes.ok) {
-    return NextResponse.json(
-      {
-        error: `Alpaca API error: account=${accountRes.status}, positions=${positionsRes.status}`,
-      },
-      { status: 502 },
+    return apiError(
+      "ALPACA_API_ERROR",
+      `Alpaca API error: account=${accountRes.status}, positions=${positionsRes.status}.`,
+      502,
     );
   }
 
@@ -83,27 +111,25 @@ export async function GET(_req: Request, { params }: Ctx) {
   const lastEquity = parseFloat(acc.last_equity ?? String(equity));
   const cash = parseFloat(acc.cash ?? "0");
 
-  return NextResponse.json({
-    accountId: id,
-    mode: account.mode,
-    timestamp: new Date().toISOString(),
-    account: {
-      equity,
-      cash,
-      cash_pct: equity > 0 ? (cash / equity) * 100 : 0,
-      daily_pnl: equity - lastEquity,
-      daily_pnl_pct: lastEquity > 0 ? ((equity - lastEquity) / lastEquity) * 100 : 0,
-      num_positions: positions.length,
+  return NextResponse.json(
+    {
+      schemaVersion: ACCOUNT_LIVE_SCHEMA_VERSION,
+      source: ACCOUNT_LIVE_SOURCE,
+      accountId: id,
+      nickname: account.nickname,
+      mode: account.mode,
+      timestamp: new Date().toISOString(),
+      account: {
+        equity,
+        cash,
+        cash_pct: equity > 0 ? (cash / equity) * 100 : 0,
+        daily_pnl: equity - lastEquity,
+        daily_pnl_pct:
+          lastEquity > 0 ? ((equity - lastEquity) / lastEquity) * 100 : 0,
+        num_positions: positions.length,
+      },
+      positions: positions.map(normalizeAlpacaPosition),
     },
-    positions: positions.map((p) => ({
-      symbol: p.symbol,
-      qty: parseFloat(p.qty),
-      avg_entry_price: parseFloat(p.avg_entry_price),
-      current_price: parseFloat(p.current_price),
-      market_value: parseFloat(p.market_value),
-      unrealized_pl: parseFloat(p.unrealized_pl),
-      unrealized_plpc: parseFloat(p.unrealized_plpc) * 100,
-      side: p.side,
-    })),
-  });
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

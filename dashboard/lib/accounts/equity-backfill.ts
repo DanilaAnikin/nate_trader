@@ -47,6 +47,7 @@ export async function backfillEquity(
         "APCA-API-SECRET-KEY": cred[0].api_secret,
       },
       cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
     },
   );
   if (!res.ok) {

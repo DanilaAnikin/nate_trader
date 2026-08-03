@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Modal from "./Modal";
+import { V11_POLICY } from "@/lib/v11-policy";
 
 const COLORS = [
   "#007aff",
@@ -52,7 +53,7 @@ export default function AddAccountDialog({
     e.preventDefault();
     setError(null);
     if (mode === "live" && !liveConfirmed) {
-      setError("Please confirm you understand this account trades real money.");
+      setError("Please confirm you understand these are LIVE-account credentials.");
       return;
     }
     setBusy(true);
@@ -179,8 +180,9 @@ export default function AddAccountDialog({
               className="mt-0.5"
             />
             <span className="text-xs text-foreground">
-              I understand this is a <strong>live</strong> account and the agent
-              will place orders with <strong>real money</strong>.
+              I understand this connects a <strong>LIVE</strong> account for
+              read-only monitoring. V11 production execution remains {V11_POLICY.productionExecutionMode}
+              and will not place orders on this account.
             </span>
           </label>
         )}

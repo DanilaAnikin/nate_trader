@@ -3,15 +3,13 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { refreshAll } from "@/app/actions";
+import { useAccountLive } from "@/components/accounts/AccountLiveProvider";
 
 /**
- * Refresh button — three concurrent jobs in one click:
+ * Refresh button — three coordinated jobs in one click:
  *
- *   1. Hit /api/live  → fetch fresh Alpaca account/positions.
- *      If creds are set on the server, dispatch a "dashboard:live"
- *      CustomEvent that DashboardClient listens for. That makes the
- *      visible metrics jump to live Alpaca values immediately, without
- *      waiting for the next routine to write GitHub state.
+ *   1. Ask the shared account provider to fetch the selected account through
+ *      its authenticated account-scoped endpoint and validate its identity.
  *
  *   2. refreshAll() server action → revalidatePath("/", "layout")
  *      drops Next.js cache so every page re-fetches fresh GitHub state.
@@ -19,7 +17,7 @@ import { refreshAll } from "@/app/actions";
  *   3. router.refresh() → re-renders the current page.
  *
  * UI feedback: spinner while pending, 2s green check on success,
- * "LIVE" tag + timestamp visible when live data was applied.
+ * "FRESH" tag + timestamp visible when account data was applied.
  */
 export default function RefreshButton() {
   const [pending, startTransition] = useTransition();
@@ -27,28 +25,15 @@ export default function RefreshButton() {
   const [liveOk, setLiveOk] = useState(false);
   const [justSucceeded, setJustSucceeded] = useState(false);
   const router = useRouter();
+  const { enabled, selectedAccount, refresh } = useAccountLive();
 
   function handleClick() {
     startTransition(async () => {
       let live = false;
 
-      // 1. Live Alpaca pull — best effort, silent fallback
-      try {
-        const res = await fetch("/api/live", { cache: "no-store" });
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.account) {
-            // Tell DashboardClient (or any future listener) to swap displayed
-            // metrics for the live values.
-            window.dispatchEvent(
-              new CustomEvent("dashboard:live", { detail: data })
-            );
-            live = true;
-          }
-        }
-      } catch {
-        // network error → fall back to GitHub revalidate path
-      }
+      // 1. Pull only the selected, ownership-checked account. The shared
+      // provider validates account id + mode before publishing the response.
+      if (enabled && selectedAccount) live = await refresh();
       setLiveOk(live);
 
       // 2. Invalidate Next.js cache (so GitHub-state-backed pages re-fetch)
@@ -73,7 +58,7 @@ export default function RefreshButton() {
     <div className="flex items-center gap-2.5">
       {lastRefresh && (
         <span className="text-[10px] text-muted">
-          {liveOk && <span className="text-green font-medium mr-1">LIVE</span>}
+          {liveOk && <span className="text-green font-medium mr-1">FRESH</span>}
           {lastRefresh}
         </span>
       )}
@@ -82,9 +67,9 @@ export default function RefreshButton() {
         onClick={handleClick}
         disabled={pending}
         title={
-          liveOk
-            ? "Refresh dashboard (live Alpaca data)"
-            : "Refresh dashboard (state cache invalidate)"
+          selectedAccount
+            ? `Refresh ${selectedAccount.nickname} (${selectedAccount.mode.toUpperCase()})`
+            : "Refresh dashboard snapshots"
         }
         className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${
           justSucceeded

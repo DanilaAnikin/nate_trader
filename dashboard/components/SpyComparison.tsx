@@ -7,8 +7,6 @@ interface SpyComparisonProps {
 
 export default function SpyComparison({ portfolioReturn, spyReturn }: SpyComparisonProps) {
   const alpha = portfolioReturn - spyReturn;
-  const target = 5;
-  const onTrack = portfolioReturn >= spyReturn + target;
 
   return (
     <div className="glass-card p-6">
@@ -44,23 +42,11 @@ export default function SpyComparison({ portfolioReturn, spyReturn }: SpyCompari
       </div>
 
       <div className="mt-6 pt-4 border-t border-border">
-        <div className="flex items-center justify-between text-xs mb-2">
-          <span className="text-muted">Progress to +5% target over SPY</span>
-          <span className={`font-medium ${onTrack ? "text-green" : "text-amber"}`}>
-            {onTrack ? "On Track" : `${(alpha - target).toFixed(1)}% to go`}
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted">Relative result for available monthly data</span>
+          <span className={`font-medium ${alpha >= 0 ? "text-green" : "text-red"}`}>
+            {alpha >= 0 ? "Ahead of SPY" : "Behind SPY"}
           </span>
-        </div>
-        <div className="h-2 bg-surface rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-500 ${
-              alpha >= target ? "bg-green" : alpha >= 0 ? "bg-blue" : "bg-red"
-            }`}
-            style={{ width: `${Math.min(Math.max((alpha / target) * 100, 0), 100)}%` }}
-          />
-        </div>
-        <div className="flex justify-between text-[10px] text-muted mt-1">
-          <span>SPY baseline</span>
-          <span>+5% target</span>
         </div>
       </div>
     </div>
