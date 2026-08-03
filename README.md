@@ -219,6 +219,9 @@ python3 scripts/sanity_check.py
 
 # Frozen development-only 15-tactic leaderboard; never reads past 2024-12-31
 python3 scripts/backtest/research_v11_tactics.py
+
+# Pre-registered cross-strategy tournament; research-only, never deploys a winner
+python3 scripts/backtest/run_strategy_tournament.py
 ```
 
 The no-argument validator is the sole promotion command. Its canonical policy
@@ -359,6 +362,38 @@ Consequently:
   monthly rebalances, including a weak-market period, before considering any
   further deployment.
 
+### Current strategy-tournament snapshot
+
+The pre-registered epoch-1 tournament completed on 2026-08-03 with the fixed
+decision **RETAIN_V11**. It compared eleven distinct long-only approaches at
+7/15/25/50 bps per fill, added a 30 bps reversal check, delayed every strategy
+by one extra session, and applied paired stationary bootstrap, White Reality
+Check, Deflated Sharpe, fold-stability, and capacity gates. No challenger
+cleared every gate, so no production strategy or live state changed.
+
+At the primary 15 bps cost, V11 remained the development return leader with
+15.87% CAGR, +7.06 percentage points over SPY, and a -19.71% maximum drawdown.
+Risk-adjusted momentum was the most interesting challenger: its reused-period
+excess was +8.02 points, but its development CAGR was lower at 12.27%, it lost
+development excess at 50 bps and under D+2 execution, and its bootstrap and
+multiple-testing gates failed. Low-volatility trend was the descriptive
+minimum-risk leader (23.27% adverse q95 bootstrap drawdown at 25 bps versus
+27.14% for V11), but its primary development CAGR was only 4.21% and it lagged
+SPY in both aggregate periods.
+
+See
+[`strategy/strategy_tournament_epoch_1_results.md`](strategy/strategy_tournament_epoch_1_results.md)
+for the compact table and
+[`state/backtest/strategy_tournament_epoch_1.json`](state/backtest/strategy_tournament_epoch_1.json)
+for the complete reproducible evidence. The later interval remains reused and
+the current-universe history remains survivorship-biased; these results do not
+establish future alpha.
+
+A separate clean diagnostic under the locked Python 3.12.11, NumPy 2.5.1, and
+Pandas 3.0.5 runtime reproduced every stored V11 and risk-adjusted-momentum
+development/reused metric to four decimal places. The complete artifact keeps
+the runtime of its original full run recorded explicitly.
+
 ## Repository map
 
 | Path | Purpose |
@@ -371,8 +406,13 @@ Consequently:
 | `scripts/risk_policy.py` | Shared 22-session rolling risk classification |
 | `scripts/strategy_identity.py` | Strategy fingerprint and ranking-universe hash |
 | `scripts/backtest/validate_v11.py` | Fixed non-optimizing validation and PASS artifact |
+| `scripts/backtest/run_strategy_tournament.py` | Frozen research-only multi-strategy tournament |
+| `scripts/backtest/strategy_candidates.py` | Point-in-time candidate factors and target portfolios |
+| `scripts/backtest/target_strategy_runner.py` | Common causal D+1/D+2 target-weight simulator |
+| `scripts/backtest/tournament_statistics.py` | Bootstrap, Reality Check, DSR, and fold evidence |
 | `scripts/backtest/` | Adjusted data, causal simulator, and BIL-aware metrics |
 | `strategy/v11_adaptive_momentum.md` | Authoritative V11 specification |
+| `strategy/strategy_tournament_epoch_1.md` | Pre-registered tournament contract |
 | `state/` | Local runtime and research artifacts |
 | `dashboard/` | Read-only Next.js dashboard |
 
