@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { SafeAccount } from "@/lib/accounts/service";
 import { selectAccount } from "@/lib/account-actions";
+import { money } from "@/lib/status/client";
+import type { AccountBindingInfo, AccountRole } from "@/lib/status/types";
+import { StatePill, Timestamp } from "@/components/status/primitives";
 import { ModeBadge, StatusBadge } from "./badges";
 import AddAccountDialog from "./AddAccountDialog";
 import EditAccountDialog from "./EditAccountDialog";
@@ -15,35 +18,26 @@ type LiveInfo = {
   error?: boolean;
 };
 
-function money(n: number | undefined): string {
-  if (n === undefined) return "—";
-  return n.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  });
-}
-
-function timeAgo(iso: string | null): string {
-  if (!iso) return "never";
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.round(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
+const ROLE_LABEL: Record<AccountRole, string> = {
+  PRODUCTION_CONTROLLED_PAPER: "PRODUCTION-CONTROLLED PAPER ACCOUNT",
+  OBSERVER_ONLY_PAPER: "OBSERVER-ONLY PAPER ACCOUNT",
+  READ_ONLY_LIVE: "READ-ONLY LIVE ACCOUNT",
+};
 
 async function fetchLive(id: string): Promise<LiveInfo> {
   try {
-    const res = await fetch(`/api/accounts/${id}/live`, { cache: "no-store" });
+    const res = await fetch(`/api/accounts/${encodeURIComponent(id)}/live`, {
+      cache: "no-store",
+    });
     if (!res.ok) return { loading: false, error: true };
     const body = await res.json();
+    if (body?.accountId !== id || typeof body?.broker !== "object") {
+      return { loading: false, error: true };
+    }
     return {
       loading: false,
-      equity: body.account?.equity,
-      numPositions: body.account?.num_positions,
+      equity: body.broker.equity,
+      numPositions: body.broker.positionCount,
     };
   } catch {
     return { loading: false, error: true };
@@ -53,9 +47,11 @@ async function fetchLive(id: string): Promise<LiveInfo> {
 export default function AccountsClient({
   initialAccounts,
   selectedAccountId,
+  bindings,
 }: {
   initialAccounts: SafeAccount[];
   selectedAccountId: string | null;
+  bindings: Record<string, AccountBindingInfo>;
 }) {
   const router = useRouter();
   const [accounts, setAccounts] = useState<SafeAccount[]>(initialAccounts);
@@ -71,9 +67,7 @@ export default function AccountsClient({
     let active = true;
     (async () => {
       const entries = await Promise.all(
-        initialAccounts.map(
-          async (a) => [a.id, await fetchLive(a.id)] as const,
-        ),
+        initialAccounts.map(async (a) => [a.id, await fetchLive(a.id)] as const),
       );
       if (active) setLive(Object.fromEntries(entries));
     })();
@@ -82,7 +76,7 @@ export default function AccountsClient({
     };
   }, [initialAccounts]);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     const res = await fetch("/api/accounts", { cache: "no-store" });
     const body = await res.json().catch(() => ({ accounts: [] }));
     const next: SafeAccount[] = body.accounts ?? [];
@@ -93,7 +87,7 @@ export default function AccountsClient({
     );
     setLive(Object.fromEntries(entries));
     router.refresh();
-  }
+  }, [router]);
 
   async function makeActive(id: string) {
     setBusyId(id);
@@ -108,7 +102,9 @@ export default function AccountsClient({
   async function testConnection(id: string) {
     setTesting(id);
     try {
-      await fetch(`/api/accounts/${id}/verify`, { method: "POST" });
+      await fetch(`/api/accounts/${encodeURIComponent(id)}/verify`, {
+        method: "POST",
+      });
     } finally {
       setTesting(null);
       await refresh();
@@ -116,51 +112,54 @@ export default function AccountsClient({
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Accounts</h1>
-          <p className="text-sm text-muted">
-            Connect and manage your Alpaca trading accounts.
+          <p className="text-sm text-muted max-w-prose">
+            Observer accounts the dashboard can read. Switching the selected
+            account changes only what this UI displays — it never changes which
+            account the guarded GitHub Actions executor trades.
           </p>
         </div>
         <button
           type="button"
           onClick={() => setAddOpen(true)}
-          className="rounded-lg bg-blue text-white px-4 py-2 text-sm font-medium"
+          className="rounded-md bg-blue text-white px-4 py-2 text-sm font-medium"
         >
           + Add account
         </button>
       </div>
 
       {accounts.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
+        <div className="panel p-10 text-center">
           <p className="text-sm font-medium text-foreground mb-1">
             No accounts yet
           </p>
           <p className="text-xs text-muted mb-4">
-            Add your first Alpaca account to start tracking it here.
+            Add an Alpaca account to observe it here.
           </p>
           <button
             type="button"
             onClick={() => setAddOpen(true)}
-            className="rounded-lg bg-blue text-white px-4 py-2 text-sm font-medium"
+            className="rounded-md bg-blue text-white px-4 py-2 text-sm font-medium"
           >
             + Add account
           </button>
         </div>
       ) : (
-        <div className="space-y-3">
+        <ul className="space-y-3">
           {accounts.map((a) => {
             const info = live[a.id] ?? { loading: true };
+            const binding = bindings[a.id];
             const isSelected = a.id === selectedAccountId;
             return (
-              <div
+              <li
                 key={a.id}
-                className="bg-card border border-border rounded-2xl p-4 flex items-start gap-4"
+                className="panel p-4 flex flex-col sm:flex-row sm:items-start gap-4"
                 style={{ borderLeft: `3px solid ${a.color}` }}
               >
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 space-y-1.5">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-semibold text-foreground truncate">
                       {a.nickname}
@@ -168,7 +167,7 @@ export default function AccountsClient({
                     <ModeBadge mode={a.mode} />
                     {isSelected && (
                       <span className="text-[10px] font-medium text-blue bg-blue/10 rounded px-1.5 py-0.5">
-                        Active
+                        Selected
                       </span>
                     )}
                     {!a.is_active && (
@@ -177,63 +176,94 @@ export default function AccountsClient({
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 mt-1.5 text-[11px] text-muted flex-wrap">
+
+                  {binding && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <StatePill
+                        size="xs"
+                        state={
+                          binding.role === "PRODUCTION_CONTROLLED_PAPER"
+                            ? "PASS"
+                            : binding.role === "READ_ONLY_LIVE"
+                              ? "NOT_APPLICABLE"
+                              : "UNAVAILABLE"
+                        }
+                        label={ROLE_LABEL[binding.role]}
+                      />
+                    </div>
+                  )}
+                  {binding && (
+                    <p className="text-[11px] text-muted max-w-prose">
+                      {binding.bindingDetail}
+                    </p>
+                  )}
+
+                  <div className="flex items-center gap-2 text-[11px] text-muted flex-wrap">
                     <StatusBadge status={a.status} />
-                    {a.alpaca_account_number && (
-                      <span>· #{a.alpaca_account_number}</span>
+                    {binding?.brokerAccountMask && (
+                      <span>· {binding.brokerAccountMask}</span>
                     )}
                     {info.numPositions !== undefined && (
                       <span>· {info.numPositions} positions</span>
                     )}
-                    <span>· verified {timeAgo(a.last_verified_at)}</span>
+                    <span>
+                      · verified{" "}
+                      {a.last_verified_at ? (
+                        <Timestamp iso={a.last_verified_at} />
+                      ) : (
+                        "never"
+                      )}
+                    </span>
                   </div>
                 </div>
 
-                <div className="text-right shrink-0">
-                  <div className="text-sm font-semibold text-foreground tabular-nums">
-                    {info.loading
-                      ? "…"
-                      : info.error
-                        ? "—"
-                        : money(info.equity)}
+                <div className="text-left sm:text-right shrink-0">
+                  <div className="text-sm font-semibold text-foreground numeric">
+                    {info.loading ? "…" : info.error ? "—" : money(info.equity)}
                   </div>
                   <div className="text-[10px] text-muted">
-                    {info.error ? "connection failed" : "equity"}
+                    {info.error ? "connection failed" : "broker equity"}
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-1.5 shrink-0">
+                <div className="flex flex-row sm:flex-col gap-1.5 shrink-0">
                   {!isSelected && (
                     <button
                       type="button"
                       onClick={() => makeActive(a.id)}
                       disabled={busyId === a.id}
-                      className="rounded-lg border border-border px-2.5 py-1 text-xs text-secondary hover:bg-surface disabled:opacity-50"
+                      className="rounded-md border border-border px-2.5 py-1 text-xs text-secondary hover:bg-surface disabled:opacity-50"
                     >
-                      Set active
+                      Select
                     </button>
                   )}
                   <button
                     type="button"
                     onClick={() => testConnection(a.id)}
                     disabled={testing === a.id}
-                    className="rounded-lg border border-border px-2.5 py-1 text-xs text-secondary hover:bg-surface disabled:opacity-50"
+                    className="rounded-md border border-border px-2.5 py-1 text-xs text-secondary hover:bg-surface disabled:opacity-50"
                   >
                     {testing === a.id ? "Testing…" : "Test"}
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditing(a)}
-                    className="rounded-lg border border-border px-2.5 py-1 text-xs text-secondary hover:bg-surface"
+                    className="rounded-md border border-border px-2.5 py-1 text-xs text-secondary hover:bg-surface"
                   >
                     Edit
                   </button>
                 </div>
-              </div>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
+
+      <p className="text-[11px] text-muted max-w-prose">
+        Alpaca keys are stored in Supabase Vault and are only ever decrypted
+        server-side. A live account is read-only monitoring: the V11 executor is
+        hard-wired to the Alpaca paper endpoint and never trades live money.
+      </p>
 
       <AddAccountDialog
         open={addOpen}

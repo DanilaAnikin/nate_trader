@@ -1,20 +1,7 @@
-import { fetchStateFile } from "@/lib/github";
-import type { PositionsData, PerformanceData } from "@/lib/types";
-import PositionsClient from "@/components/PositionsClient";
-import { SUPABASE_CONFIGURED } from "@/lib/supabase/config";
+import PortfolioClient from "@/components/PortfolioClient";
 
-export default async function PositionsPage() {
-  const [positions, performance] = SUPABASE_CONFIGURED
-    ? [null, null]
-    : await Promise.all([
-        fetchStateFile<PositionsData>("positions.json"),
-        fetchStateFile<PerformanceData>("performance.json"),
-      ]);
+export const metadata = { title: "Portfolio · V11 Adaptive Momentum" };
 
-  return (
-    <PositionsClient
-      initialPositions={positions}
-      initialPerformance={performance}
-    />
-  );
+export default function PortfolioPage() {
+  return <PortfolioClient />;
 }

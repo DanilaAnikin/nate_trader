@@ -4,36 +4,67 @@
    <html> (set by the no-FOUC script + ThemeToggle), not the OS setting. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+  Palette for a financial operations console: quiet neutrals so that status
+  colour is always meaningful, and one accent reserved for interaction.
+  Status hues are deliberately distinct in both themes — a "stale" amber must
+  never be mistaken for a "current" green at a glance.
+*/
 :root {
-  --bg-primary: #f5f5f7;
+  --bg-primary: #f6f7f9;
   --bg-secondary: #ffffff;
   --bg-card: #ffffff;
-  --bg-hover: #f9f9fb;
-  --bg-surface: #f0f0f2;
-  --border: #e5e5e7;
-  --border-glow: rgba(0, 122, 255, 0.1);
-  --text-primary: #1d1d1f;
-  --text-secondary: #6e6e73;
-  --text-muted: #86868b;
-  --accent-green: #34c759;
-  --accent-red: #ff3b30;
-  --accent-blue: #007aff;
-  --accent-amber: #ff9500;
-  --accent-purple: #af52de;
-  --accent-cyan: #5ac8fa;
+  --bg-hover: #f1f3f6;
+  --bg-surface: #eceff3;
+  --border: #dde1e7;
+  --border-strong: #c4cad3;
+  --text-primary: #14181f;
+  --text-secondary: #525b69;
+  --text-muted: #78818f;
+
+  --accent-blue: #1f6feb;
+  --accent-green: #1a7f47;
+  --accent-red: #c1291f;
+  --accent-amber: #9a6100;
+  --accent-purple: #6b3fd4;
+  --accent-cyan: #0b7285;
+  --accent-slate: #5b6472;
+
+  --tint-blue: rgba(31, 111, 235, 0.1);
+  --tint-green: rgba(26, 127, 71, 0.1);
+  --tint-red: rgba(193, 41, 31, 0.1);
+  --tint-amber: rgba(154, 97, 0, 0.12);
+  --tint-purple: rgba(107, 63, 212, 0.1);
+  --tint-slate: rgba(91, 100, 114, 0.1);
 }
 
 .dark {
-  --bg-primary: #0b0b0e;
-  --bg-secondary: #161619;
-  --bg-card: #161619;
-  --bg-hover: #1f1f23;
-  --bg-surface: #1f1f23;
-  --border: #2b2b30;
-  --border-glow: rgba(0, 122, 255, 0.18);
-  --text-primary: #f5f5f7;
-  --text-secondary: #a1a1a6;
-  --text-muted: #86868b;
+  --bg-primary: #0c0e12;
+  --bg-secondary: #14171d;
+  --bg-card: #14171d;
+  --bg-hover: #1c2029;
+  --bg-surface: #1c2029;
+  --border: #272c36;
+  --border-strong: #3a414e;
+  --text-primary: #e8ebef;
+  --text-secondary: #a3abb8;
+  --text-muted: #7d8695;
+
+  --accent-blue: #5b9bff;
+  --accent-green: #4cc38a;
+  --accent-red: #ff6b5e;
+  --accent-amber: #e5a13a;
+  --accent-purple: #a684ff;
+  --accent-cyan: #4fc3d9;
+  --accent-slate: #97a1b0;
+
+  --tint-blue: rgba(91, 155, 255, 0.14);
+  --tint-green: rgba(76, 195, 138, 0.14);
+  --tint-red: rgba(255, 107, 94, 0.14);
+  --tint-amber: rgba(229, 161, 58, 0.16);
+  --tint-purple: rgba(166, 132, 255, 0.14);
+  --tint-slate: rgba(151, 161, 176, 0.14);
+
   color-scheme: dark;
 }
 
@@ -44,6 +75,7 @@
   --color-card-hover: var(--bg-hover);
   --color-surface: var(--bg-surface);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-muted: var(--text-muted);
   --color-secondary: var(--text-secondary);
   --color-green: var(--accent-green);
@@ -52,6 +84,7 @@
   --color-amber: var(--accent-amber);
   --color-purple: var(--accent-purple);
   --color-cyan: var(--accent-cyan);
+  --color-slate: var(--accent-slate);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -61,64 +94,133 @@ body {
   color: var(--text-primary);
 }
 
-/* Apple-style card */
-.glass-card {
+/* Visible, consistent keyboard focus everywhere. */
+:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.skip-link {
+  position: absolute;
+  left: 0.5rem;
+  top: -3rem;
+  z-index: 100;
+  padding: 0.5rem 0.875rem;
+  border-radius: 8px;
   background: var(--bg-card);
-  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  transition: top 0.12s ease-out;
+}
+
+.skip-link:focus {
+  top: 0.5rem;
+}
+
+/* Panel: the single container primitive. No nested card-in-card chrome. */
+.panel {
+  background: var(--bg-card);
   border: 1px solid var(--border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  border-radius: 10px;
 }
 
-/* Entry animations */
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* Tabular numerals keep dense financial columns aligned. */
+.numeric {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Dense data table. Wide tables scroll inside their own container so the page
+   body never scrolls horizontally on a 390 px viewport. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
 }
 
-.animate-fade-in {
-  animation: fadeIn 0.3s ease-out both;
+table.data thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
 }
 
-.animate-slide-up {
-  animation: slideUp 0.35s ease-out both;
+table.data tbody td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
 }
 
-.animate-pulse-dot {
-  animation: pulse-dot 2s ease-in-out infinite;
+table.data tbody tr:last-child td {
+  border-bottom: none;
 }
 
-/* Loading skeleton shimmer */
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+table.data tbody tr:hover td {
+  background: var(--bg-hover);
 }
 
+table.data .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Loading skeleton. */
 .skeleton {
+  background: var(--bg-surface);
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
   background: linear-gradient(
     90deg,
-    var(--bg-surface) 25%,
-    var(--bg-hover) 37%,
-    var(--bg-surface) 63%
+    transparent 0%,
+    var(--bg-hover) 50%,
+    transparent 100%
   );
-  background-size: 200% 100%;
   animation: shimmer 1.4s ease-in-out infinite;
-  border-radius: 8px;
 }
 
-/* Scrollbar styling */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Motion is decorative only; honour the user's system preference. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -126,10 +228,6 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+  background: var(--border-strong);
+  border-radius: 4px;
 }

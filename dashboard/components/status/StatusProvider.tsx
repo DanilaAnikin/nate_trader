@@ -10,45 +10,53 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { isStrategyStatusPayload, type StatusIdentity } from "@/lib/status/client";
 import {
-  accountLiveUrl,
-  isAccountLivePayload,
-  parseAccountLiveError,
-  scopeAccountLiveState,
-  type AccountIdentity,
-  type AccountLiveErrorPayload,
-  type AccountLivePayload,
-  type AccountLiveStatus,
-} from "@/lib/account-live";
+  parseStatusError,
+  scopeStatusState,
+  statusUrl,
+  type ScopedStatusState,
+  type StatusError,
+  type StatusFetchStatus,
+} from "@/lib/status/scope";
+import type { StrategyStatusPayload } from "@/lib/status/types";
 
-interface AccountLiveContextValue {
-  enabled: boolean;
-  selectedAccount: AccountIdentity | null;
-  status: AccountLiveStatus;
-  data: AccountLivePayload | null;
-  error: AccountLiveErrorPayload | null;
-  refresh: () => Promise<boolean>;
+/**
+ * Single client-side owner of the account-scoped V11 read model.
+ *
+ * Pages never fetch strategy data themselves, so no component can join two
+ * sources with different accounts, releases or timestamps. In-flight requests
+ * are aborted on account switch and every response is identity-checked before
+ * it is published.
+ */
+
+interface StatusContextValue extends ScopedStatusState {
+  readonly enabled: boolean;
+  readonly selectedAccount: StatusIdentity | null;
+  readonly refresh: () => Promise<boolean>;
+  readonly lastRefreshedAt: string | null;
 }
 
-const AccountLiveContext = createContext<AccountLiveContextValue | null>(null);
+const StatusContext = createContext<StatusContextValue | null>(null);
 
-export default function AccountLiveProvider({
+export default function StatusProvider({
   enabled,
   selectedAccount,
   children,
 }: {
   enabled: boolean;
-  selectedAccount: AccountIdentity | null;
+  selectedAccount: StatusIdentity | null;
   children: ReactNode;
 }) {
-  const [status, setStatus] = useState<AccountLiveStatus>(
-    enabled ? (selectedAccount ? "loading" : "no-account") : "legacy",
+  const [status, setStatus] = useState<StatusFetchStatus>(
+    enabled ? (selectedAccount ? "loading" : "no-account") : "disabled",
   );
-  const [data, setData] = useState<AccountLivePayload | null>(null);
-  const [error, setError] = useState<AccountLiveErrorPayload | null>(null);
+  const [data, setData] = useState<StrategyStatusPayload | null>(null);
+  const [error, setError] = useState<StatusError | null>(null);
   const [requestAccountId, setRequestAccountId] = useState<string | null>(
     selectedAccount?.id ?? null,
   );
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const requestRef = useRef(0);
 
@@ -64,7 +72,7 @@ export default function AccountLiveProvider({
 
     if (!enabled) {
       setRequestAccountId(null);
-      setStatus("legacy");
+      setStatus("disabled");
       return false;
     }
     if (!selectedId || !selectedNickname || !selectedMode) {
@@ -73,13 +81,13 @@ export default function AccountLiveProvider({
       return false;
     }
 
-    const expected: AccountIdentity = {
+    const expected: StatusIdentity = {
       id: selectedId,
       nickname: selectedNickname,
       mode: selectedMode,
     };
     setRequestAccountId(expected.id);
-    const url = accountLiveUrl(expected);
+    const url = statusUrl(expected);
     if (!url) {
       setStatus("no-account");
       return false;
@@ -97,21 +105,22 @@ export default function AccountLiveProvider({
       const body: unknown = await response.json().catch(() => null);
       if (requestRef.current !== requestId) return false;
       if (!response.ok) {
-        setError(parseAccountLiveError(response.status, body));
+        setError(parseStatusError(response.status, body));
         setStatus("error");
         return false;
       }
-      if (!isAccountLivePayload(body, expected)) {
+      if (!isStrategyStatusPayload(body, expected)) {
         setError({
           code: "INVALID_RESPONSE",
-          error: "Broker returned data for a different account or an invalid schema.",
+          message:
+            "The server returned status data for a different account or an unrecognised schema.",
         });
         setStatus("error");
         return false;
       }
       setData(body);
-      setStatus("live");
-      window.dispatchEvent(new CustomEvent("dashboard:refreshed"));
+      setStatus("ready");
+      setLastRefreshedAt(new Date().toISOString());
       return true;
     } catch (caught) {
       if (controller.signal.aborted || requestRef.current !== requestId) {
@@ -119,10 +128,10 @@ export default function AccountLiveProvider({
       }
       setError({
         code: "REQUEST_FAILED",
-        error:
+        message:
           caught instanceof Error
             ? caught.message
-            : "Could not load the selected broker account.",
+            : "Could not load the V11 status for the selected account.",
       });
       setStatus("error");
       return false;
@@ -130,14 +139,12 @@ export default function AccountLiveProvider({
   }, [enabled, selectedId, selectedMode, selectedNickname]);
 
   useEffect(() => {
-    // Defer the initial refresh by one microtask so the effect only schedules
-    // work; all state transitions then happen in the async request lifecycle.
     void Promise.resolve().then(refresh);
     return () => abortRef.current?.abort();
   }, [refresh]);
 
-  const value = useMemo<AccountLiveContextValue>(() => {
-    const scoped = scopeAccountLiveState({
+  const value = useMemo<StatusContextValue>(() => {
+    const scoped = scopeStatusState({
       enabled,
       selectedAccount,
       requestAccountId,
@@ -150,20 +157,28 @@ export default function AccountLiveProvider({
       selectedAccount,
       ...scoped,
       refresh,
+      lastRefreshedAt,
     };
-  }, [enabled, selectedAccount, requestAccountId, status, data, error, refresh]);
+  }, [
+    enabled,
+    selectedAccount,
+    requestAccountId,
+    status,
+    data,
+    error,
+    refresh,
+    lastRefreshedAt,
+  ]);
 
   return (
-    <AccountLiveContext.Provider value={value}>
-      {children}
-    </AccountLiveContext.Provider>
+    <StatusContext.Provider value={value}>{children}</StatusContext.Provider>
   );
 }
 
-export function useAccountLive(): AccountLiveContextValue {
-  const value = useContext(AccountLiveContext);
+export function useStrategyStatus(): StatusContextValue {
+  const value = useContext(StatusContext);
   if (!value) {
-    throw new Error("useAccountLive must be used inside AccountLiveProvider");
+    throw new Error("useStrategyStatus must be used inside StatusProvider");
   }
   return value;
 }

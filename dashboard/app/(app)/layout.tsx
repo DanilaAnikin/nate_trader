@@ -1,19 +1,19 @@
 import { redirect } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
-import RefreshButton from "@/components/RefreshButton";
+import AppHeader from "@/components/AppHeader";
+import StatusProvider from "@/components/status/StatusProvider";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { getSelectedAccount } from "@/lib/account-context";
 import { SUPABASE_CONFIGURED } from "@/lib/supabase/config";
 import type { SafeAccount } from "@/lib/accounts/service";
-import AccountLiveProvider from "@/components/accounts/AccountLiveProvider";
 
 /**
  * Authenticated shell for every dashboard screen.
  *
- * Auth + the account switcher activate only once Supabase is configured via
- * env vars. Repository-only legacy mode is available solely behind the
- * explicit ALLOW_LEGACY_DASHBOARD runtime opt-in; the proxy otherwise blocks
- * this shell when auth configuration is absent.
+ * Auth and the account switcher activate only once Supabase is configured.
+ * Repository-only legacy mode is available solely behind the explicit
+ * ALLOW_LEGACY_DASHBOARD opt-in; the proxy otherwise blocks this shell when
+ * auth configuration is absent.
  */
 export default async function AppLayout({
   children,
@@ -38,20 +38,18 @@ export default async function AppLayout({
         selectedId = selectedAccount?.id ?? null;
       }
     } catch {
-      // Supabase is configured but unreachable (e.g. the free-tier project
-      // auto-paused). Render the shell without an account selection; the live
-      // provider then fails closed instead of substituting legacy broker data.
+      // Supabase is configured but unreachable (for example an auto-paused
+      // project). Render the shell without a selection; the status provider
+      // then fails closed instead of substituting legacy repository data.
       supabaseReachable = false;
     }
 
-    // Only enforce the login gate when Supabase actually answered. The
-    // redirect() lives outside the try/catch: Next implements it by throwing
-    // NEXT_REDIRECT, which must not be swallowed by the catch above.
+    // redirect() throws NEXT_REDIRECT, so it must live outside the try/catch.
     if (supabaseReachable && !user) redirect("/login");
   }
 
   return (
-    <AccountLiveProvider
+    <StatusProvider
       enabled={SUPABASE_CONFIGURED}
       selectedAccount={
         selectedAccount
@@ -63,17 +61,24 @@ export default async function AppLayout({
           : null
       }
     >
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       <div className="min-h-screen flex">
         <Sidebar accounts={accounts} selectedAccountId={selectedId} />
-        <main className="flex-1 overflow-auto">
-          <div className="max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 pt-16 lg:pt-8">
-            <div className="flex justify-end mb-4">
-              <RefreshButton />
+        <div className="flex-1 min-w-0 flex flex-col">
+          <AppHeader />
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="flex-1 overflow-x-hidden"
+          >
+            <div className="max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8">
+              {children}
             </div>
-            {children}
-          </div>
-        </main>
+          </main>
+        </div>
       </div>
-    </AccountLiveProvider>
+    </StatusProvider>
   );
 }
