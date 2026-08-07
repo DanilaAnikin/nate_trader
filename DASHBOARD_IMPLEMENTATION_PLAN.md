@@ -1,5 +1,28 @@
 # Nate Trader — Multi-Account Platform & Dashboard Implementation Plan
 
+> ## ⚠️ HISTORICAL DOCUMENT — SUPERSEDED, DO NOT IMPLEMENT
+>
+> **Status: archived on 2026-08-07. This is planning material, not current
+> policy or an authority for any implementation.**
+>
+> This document was written when the ambition was an agent that trades *every*
+> Supabase paper **and live** account. That directly contradicts the system as
+> it exists today: the only supported executor is the guarded
+> `V11 Paper Production` GitHub Actions workflow, it is hard-wired to a single
+> Alpaca **paper** endpoint, and it is driven by an explicitly approved
+> `PRODUCTION_RELEASE_SHA` — not by whichever account a browser session has
+> selected. The dashboard is a **read-only** observability layer that cannot
+> place, cancel or approve anything.
+>
+> Its multi-account trading-control assumptions must not be revived. Its
+> authentication, RLS, Vault and data-model ideas were retained and are
+> described in their current form in `OVERVIEW.md` and the dashboard section of
+> `README.md`.
+>
+> Authoritative current documents:
+> `OVERVIEW.md`, `CLAUDE.md`, `strategy/v11_adaptive_momentum.md`,
+> `strategy/PRODUCTION_RUNBOOK.md`.
+
 > **Document type:** Engineering implementation plan
 > **Status:** Draft v1.0 — for review
 > **Owner:** Danila Anikin
