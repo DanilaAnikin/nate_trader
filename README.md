@@ -302,12 +302,134 @@ BIL is not an invested cash sleeve in V11.
 
 ```bash
 cd dashboard
-npm install
+npm ci
 npm run dev
 ```
 
-The Next.js dashboard reads the repository state and backtest artifacts. It is
-a view layer, not a trading control plane.
+The Next.js dashboard is a **read-only observability layer** for the V11 paper
+forward validation. It cannot place, replace, cancel or approve anything: there
+is no execute, cancel, buy, sell, release-approval or emergency control in the
+UI, and no server route that can reach a mutating broker endpoint.
+
+Routes: `/` overview, `/positions` portfolio (actual vs V11 target),
+`/screener` signals and universe, `/research` validation and research,
+`/operations` release/scheduler/gates, `/accounts`, `/settings`, `/login`.
+
+#### One server-side read model
+
+Every screen consumes a single account-scoped, runtime-validated payload from
+`GET /api/accounts/[id]/status` (`dashboard/lib/status/`). Components never join
+unrelated JSON sources themselves. The payload keeps these facts strictly
+separate, each with its own `source`, `scope`, absolute `asOf`, relative age and
+freshness state:
+
+| Section | Source |
+|---|---|
+| `web` | this deployment's build SHA and data mode |
+| `release` | approved paper release SHA, repository/research SHA, release gate |
+| `accountBinding` | explicit server-side production-account binding |
+| `broker` | fresh Alpaca REST snapshot for the selected account |
+| `strategy` | private `paper-runtime-state-<approved SHA>` Actions artifact |
+| `universe` | production preflight report + frozen plan |
+| `validation` | `state/backtest/v11_validation.json` read at the approved SHA |
+| `preflight` / `execution` | last successful production cycle |
+| `operations` | GitHub Actions workflow runs for `paper-production.yml` |
+| `tournament` | frozen epoch-1 research evidence |
+| `convergence` | frozen plan vs the bound account's actual holdings |
+
+States are explicit — `CURRENT`, `STALE`, `EXPIRED`, `MISMATCH`, `UNAVAILABLE`,
+`NOT_APPLICABLE`, `PENDING`, `PASS`, `WARN`, `FAIL`. Missing, stale, expired or
+mismatched data is never rendered as `0`, a green check, `LIVE` or `ONLINE`, and
+the committed V10-era `state/performance.json` / `state/positions.json`
+snapshots are never used as a fallback.
+
+#### Reading the private V11 runtime safely
+
+The strategy sections come from the private Actions artifacts, read **server
+side only** with a `GITHUB_TOKEN` that never reaches the browser. The reader
+selects the artifact by the *approved release SHA* (not the trigger SHA),
+validates the artifact name, release lineage, schema, size and exact expected
+entry list, and returns a sanitized DTO. Broker order IDs, client order IDs,
+Vault identifiers, full broker account numbers and raw artifacts never leave the
+server. Any failure returns `UNAVAILABLE`.
+
+Nothing in this path touches a strategy-identity source, so the existing
+canonical validation and release approval remain valid.
+
+#### Production-account binding
+
+The executor uses repository Alpaca secrets; the dashboard uses Supabase Vault.
+They are only connected by explicit server configuration —
+`PRODUCTION_ACCOUNT_ID` or `PRODUCTION_ALPACA_ACCOUNT_NUMBER`. Without a match,
+an account is labelled `OBSERVER-ONLY PAPER ACCOUNT` (or `READ-ONLY LIVE
+ACCOUNT`) and V11 target compliance for it is `NOT_APPLICABLE`. A binding is
+never inferred from tickers, equity size or paper mode. A live account is always
+read-only monitoring and is never presented as traded by V11.
+
+#### Forward performance
+
+`GET /api/accounts/[id]/performance` reports cash-flow-adjusted time-weighted
+return against the benchmark over exactly the sessions both series share, dated
+in America/New_York, with no forward-fill past the last real benchmark bar. It
+requires a persisted, auditable V11 epoch baseline
+(`state/v11_epoch_baseline.json`, or the `V11_EPOCH_BASELINE` server variable)
+carrying the release SHA, start time, starting equity and benchmark baseline.
+**No baseline is currently persisted, so this panel reports `UNAVAILABLE`** —
+all-time account history contains pre-V11 (V10 / TQQQ / UPRO) results and must
+never be relabelled as V11 alpha.
+
+#### Server environment
+
+Documented without values in `.env.example`: `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `BUILD_SHA`,
+`GITHUB_TOKEN`, `GITHUB_REPO`, `GITHUB_STATE_REF`, `PRODUCTION_ACCOUNT_ID`,
+`PRODUCTION_ALPACA_ACCOUNT_NUMBER`, `PRODUCTION_RELEASE_SHA`,
+`V11_EPOCH_BASELINE`, `ALLOW_LEGACY_DASHBOARD`.
+
+#### Dashboard testing
+
+```bash
+cd dashboard
+npm ci
+npm test                 # vitest: parsers, freshness, binding, convergence,
+                         # TWR, scoping, read model, component states
+npm run lint
+npx tsc --noEmit
+npm run build
+npm audit --audit-level=high
+
+npm run test:e2e:install # once, downloads Chromium
+npm run test:e2e         # Playwright: routes, a11y, responsive, fail-closed,
+                         # security headers, no secrets in the bundle
+```
+
+The Playwright suite runs the production build twice with different runtime
+configuration — an explicit-legacy shell and a fully unconfigured, fail-closed
+server — so both halves of the contract are covered without ever adding a
+test-only authentication bypass. Authenticated flows against real broker data
+require a Supabase test project and are not part of the default run.
+
+#### Recovering from an unavailable runtime
+
+1. Check `/operations`: is the failure the latest workflow attempt, the artifact
+   read, or the token?
+2. An **infrastructure failure** (no job step ran) leaves the last successful
+   executor snapshot valid — nothing needs fixing in the dashboard.
+3. `UNAVAILABLE` with a token message → the deployment is missing `GITHUB_TOKEN`
+   or its `actions: read` scope.
+4. `MISMATCH` → the artifact belongs to a different release than the approved
+   `PRODUCTION_RELEASE_SHA`. Do **not** change the approval to make the UI
+   green; investigate the workflow.
+5. `EXPIRED` validation → regenerate the canonical report per
+   `strategy/PRODUCTION_RUNBOOK.md`. Paper buys are already blocked by the
+   Python gate; the UI is only reporting it.
+
+Deployment of the dashboard never changes `PRODUCTION_RELEASE_SHA`, never
+triggers a paper cycle and never places an order.
+
+Older `DASHBOARD_SPECIFICATION.md` and `DASHBOARD_IMPLEMENTATION_PLAN.md` are
+archived planning documents; their multi-account trading-control assumptions
+contradict the current paper-only executor and must not be implemented.
 
 ## Interpreting results honestly
 
