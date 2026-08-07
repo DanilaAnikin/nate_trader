@@ -94,3 +94,83 @@ export async function backfillEquity(
   }
   return rows.length;
 }
+
+type Activity = {
+  id?: string;
+  activity_type?: string;
+  date?: string;
+  transaction_time?: string;
+  net_amount?: string | number;
+};
+
+const CASH_ACTIVITY_TYPES = ["CSD", "CSW", "JNLC"] as const;
+
+/**
+ * Mirror external cash movements (deposits, withdrawals, cash journals) into
+ * `cash_flows`.
+ *
+ * Without these rows a $10k deposit looks like $10k of profit. Time-weighted
+ * return needs them, so they are backfilled idempotently on the Alpaca
+ * activity id. Read-only against the broker.
+ */
+export async function backfillCashFlows(
+  svc: Service,
+  accountId: string,
+  mode: Mode,
+): Promise<number> {
+  const { data: cred, error: credErr } = await svc.rpc(
+    "get_account_credentials",
+    { acct: accountId },
+  );
+  if (credErr || !cred || cred.length === 0) {
+    throw new Error("account has no stored credentials");
+  }
+
+  const query = new URLSearchParams({
+    activity_types: CASH_ACTIVITY_TYPES.join(","),
+    page_size: "100",
+  });
+  const res = await fetch(`${ALPACA_BASE[mode]}/account/activities?${query}`, {
+    headers: {
+      "APCA-API-KEY-ID": cred[0].api_key,
+      "APCA-API-SECRET-KEY": cred[0].api_secret,
+    },
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`Alpaca activities HTTP ${res.status}`);
+
+  const activities = (await res.json()) as Activity[];
+  if (!Array.isArray(activities)) return 0;
+
+  const etDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+  });
+  const rows: Database["public"]["Tables"]["cash_flows"]["Insert"][] = [];
+  for (const activity of activities) {
+    const amount = Number(activity.net_amount);
+    if (!activity.id || !Number.isFinite(amount) || amount === 0) continue;
+    const stamp = activity.date ?? activity.transaction_time;
+    if (!stamp) continue;
+    const parsed = Date.parse(
+      /^\d{4}-\d{2}-\d{2}$/.test(stamp) ? `${stamp}T12:00:00Z` : stamp,
+    );
+    if (!Number.isFinite(parsed)) continue;
+    rows.push({
+      account_id: accountId,
+      flow_date: etDate.format(new Date(parsed)),
+      amount: Math.round(amount * 100) / 100,
+      kind: amount > 0 ? "deposit" : "withdrawal",
+      source: "alpaca_activities",
+      external_id: activity.id,
+    });
+  }
+
+  if (rows.length > 0) {
+    const { error } = await svc
+      .from("cash_flows")
+      .upsert(rows, { onConflict: "account_id,external_id" });
+    if (error) throw new Error(`cash_flows upsert failed: ${error.message}`);
+  }
+  return rows.length;
+}
