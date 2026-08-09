@@ -9,6 +9,13 @@ const SECRET_PATTERNS = [
   /GITHUB_TOKEN/i,
   /ghp_[A-Za-z0-9]{20,}/,
   /PRODUCTION_ALPACA_ACCOUNT_NUMBER/,
+  /PRODUCTION_OWNER_USER_ID/,
+  // A full Alpaca account number must never appear anywhere client-side; only
+  // a four-character mask is ever rendered.
+  /alpaca_account_number/i,
+  /"owner_id"/,
+  /alpaca_key_secret_id/i,
+  /alpaca_secret_secret_id/i,
 ];
 
 test.describe("security headers", () => {
@@ -61,6 +68,39 @@ test.describe("no secrets reach the browser", () => {
       for (const pattern of SECRET_PATTERNS) {
         expect(body, `${url} must not contain ${pattern}`).not.toMatch(pattern);
       }
+    }
+  });
+});
+
+
+test.describe("registration is closed", () => {
+  test("the login page offers sign-in only", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Sign in" }),
+    ).toBeVisible();
+
+    const text = await page.locator("body").innerText();
+    expect(text).not.toMatch(/sign up/i);
+    expect(text).not.toMatch(/create your account/i);
+    expect(text).not.toMatch(/need an account/i);
+    expect(text).toMatch(/does not offer public registration/i);
+  });
+});
+
+test.describe("RSC payload", () => {
+  test("no server-managed account column reaches the streamed HTML", async ({
+    page,
+  }) => {
+    // The login page is the only route this fail-closed server renders, and it
+    // must still carry no account internals in its Flight payload.
+    const response = await page.goto("/login");
+    const html = (await response?.text()) ?? "";
+    for (const pattern of SECRET_PATTERNS) {
+      expect(html, `RSC payload must not contain ${pattern}`).not.toMatch(
+        pattern,
+      );
     }
   });
 });

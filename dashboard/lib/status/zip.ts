@@ -2,22 +2,33 @@ import "server-only";
 import { inflateRawSync } from "node:zlib";
 
 /**
- * Minimal, defensive ZIP reader for GitHub Actions artifact downloads.
+ * Hardened, dependency-free ZIP reader for GitHub Actions artifact downloads.
  *
- * Actions artifacts are the only zip input, and they are produced by
- * `actions/upload-artifact`. We deliberately implement the narrow subset we
- * need (stored + deflate, no encryption, no zip64) instead of adding a
- * dependency, and we hard-cap every size so a corrupt or hostile archive
- * cannot exhaust server memory.
+ * Actions artifacts are the only input, and they are produced by
+ * `actions/upload-artifact`, so we implement exactly the subset we need
+ * (stored + deflate, no encryption, no zip64) and reject everything else.
+ *
+ * The archive is attacker-influenced in the sense that anything with write
+ * access to the workflow could change it, so every dimension is bounded and
+ * verified: archive size, entry count, per-entry declared and *actual*
+ * inflated size, duplicate names, path traversal, encryption flags,
+ * local/central header agreement and CRC-32.
  */
 
 const END_OF_CENTRAL_DIRECTORY = 0x06054b50;
 const CENTRAL_FILE_HEADER = 0x02014b50;
 const LOCAL_FILE_HEADER = 0x04034b50;
+const ZIP64_EOCD_LOCATOR = 0x07064b50;
 
 export const MAX_ARCHIVE_BYTES = 5 * 1024 * 1024;
 export const MAX_ENTRY_BYTES = 4 * 1024 * 1024;
+export const MAX_TOTAL_UNCOMPRESSED_BYTES = 8 * 1024 * 1024;
 export const MAX_ENTRIES = 64;
+
+/** General-purpose bit flags we refuse outright. */
+const FLAG_ENCRYPTED = 0x0001;
+const FLAG_STRONG_ENCRYPTION = 0x0040;
+const FLAG_DATA_DESCRIPTOR = 0x0008;
 
 export class ZipError extends Error {}
 
@@ -27,7 +38,33 @@ export interface ZipEntry {
   readonly uncompressedSize: number;
   readonly localHeaderOffset: number;
   readonly compressionMethod: number;
+  readonly flags: number;
+  readonly crc32: number;
 }
+
+/* --------------------------------------------------------------- CRC-32 */
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+
+export function crc32(buffer: Buffer): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buffer.length; i++) {
+    crc = CRC_TABLE[(crc ^ buffer[i]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+/* --------------------------------------------------------------- parsing */
 
 function findEndOfCentralDirectory(buffer: Buffer): number {
   // The EOCD record is at most 22 + 65535 bytes from the end.
@@ -38,6 +75,25 @@ function findEndOfCentralDirectory(buffer: Buffer): number {
   throw new ZipError("zip end-of-central-directory record not found");
 }
 
+function assertSafeName(name: string): void {
+  if (!name) throw new ZipError("zip entry has an empty name");
+  if (name.length > 255) throw new ZipError("zip entry name is too long");
+  if (name.endsWith("/")) throw new ZipError(`zip entry ${name} is a directory`);
+  if (name.includes("\\")) throw new ZipError(`zip entry ${name} uses a backslash`);
+  if (name.startsWith("/") || /^[A-Za-z]:/.test(name)) {
+    throw new ZipError(`zip entry ${name} is an absolute path`);
+  }
+  if (name.split("/").some((part) => part === "..")) {
+    throw new ZipError(`zip entry ${name} escapes the archive root`);
+  }
+  for (let i = 0; i < name.length; i++) {
+    const code = name.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) {
+      throw new ZipError("zip entry name contains a control character");
+    }
+  }
+}
+
 /** List central-directory entries without decompressing any of them. */
 export function listZipEntries(buffer: Buffer): ZipEntry[] {
   if (buffer.length === 0) throw new ZipError("zip archive is empty");
@@ -45,6 +101,12 @@ export function listZipEntries(buffer: Buffer): ZipEntry[] {
     throw new ZipError("zip archive exceeds the allowed size");
   }
   const eocd = findEndOfCentralDirectory(buffer);
+
+  // zip64 changes the size/offset semantics; we do not support it.
+  if (eocd >= 20 && buffer.readUInt32LE(eocd - 20) === ZIP64_EOCD_LOCATOR) {
+    throw new ZipError("zip64 archives are not supported");
+  }
+
   const entryCount = buffer.readUInt16LE(eocd + 10);
   const directorySize = buffer.readUInt32LE(eocd + 12);
   const directoryOffset = buffer.readUInt32LE(eocd + 16);
@@ -56,7 +118,10 @@ export function listZipEntries(buffer: Buffer): ZipEntry[] {
   }
 
   const entries: ZipEntry[] = [];
+  const seen = new Set<string>();
+  let totalUncompressed = 0;
   let cursor = directoryOffset;
+
   for (let i = 0; i < entryCount; i++) {
     if (cursor + 46 > buffer.length) {
       throw new ZipError("zip central directory is truncated");
@@ -64,7 +129,9 @@ export function listZipEntries(buffer: Buffer): ZipEntry[] {
     if (buffer.readUInt32LE(cursor) !== CENTRAL_FILE_HEADER) {
       throw new ZipError("zip central directory header is invalid");
     }
+    const flags = buffer.readUInt16LE(cursor + 8);
     const compressionMethod = buffer.readUInt16LE(cursor + 10);
+    const entryCrc = buffer.readUInt32LE(cursor + 16);
     const compressedSize = buffer.readUInt32LE(cursor + 20);
     const uncompressedSize = buffer.readUInt32LE(cursor + 24);
     const nameLength = buffer.readUInt16LE(cursor + 28);
@@ -74,19 +141,57 @@ export function listZipEntries(buffer: Buffer): ZipEntry[] {
     const name = buffer
       .subarray(cursor + 46, cursor + 46 + nameLength)
       .toString("utf8");
+
+    assertSafeName(name);
+    if (seen.has(name)) {
+      throw new ZipError(`zip archive contains a duplicate entry: ${name}`);
+    }
+    seen.add(name);
+
+    if (flags & (FLAG_ENCRYPTED | FLAG_STRONG_ENCRYPTION)) {
+      throw new ZipError(`zip entry ${name} is encrypted`);
+    }
+    if (flags & FLAG_DATA_DESCRIPTOR) {
+      // Sizes/CRC then live after the data, which we deliberately do not parse.
+      throw new ZipError(`zip entry ${name} uses a streaming data descriptor`);
+    }
+    if (compressionMethod !== 0 && compressionMethod !== 8) {
+      throw new ZipError(
+        `zip entry ${name} uses unsupported compression ${compressionMethod}`,
+      );
+    }
+    if (uncompressedSize > MAX_ENTRY_BYTES) {
+      throw new ZipError(`zip entry ${name} exceeds the allowed size`);
+    }
+    if (compressionMethod === 0 && compressedSize !== uncompressedSize) {
+      throw new ZipError(`zip entry ${name} has inconsistent stored sizes`);
+    }
+    totalUncompressed += uncompressedSize;
+    if (totalUncompressed > MAX_TOTAL_UNCOMPRESSED_BYTES) {
+      throw new ZipError("zip archive expands beyond the allowed total size");
+    }
+
     entries.push({
       name,
       compressedSize,
       uncompressedSize,
       localHeaderOffset,
       compressionMethod,
+      flags,
+      crc32: entryCrc,
     });
     cursor += 46 + nameLength + extraLength + commentLength;
   }
   return entries;
 }
 
-/** Decompress one entry, enforcing the per-entry size cap. */
+/**
+ * Decompress one entry and verify it against its central-directory record.
+ *
+ * The local header must agree with the central directory, the inflated output
+ * must be exactly the declared length, and the CRC-32 must match — so a
+ * tampered or truncated member is rejected rather than silently parsed.
+ */
 export function readZipEntry(buffer: Buffer, entry: ZipEntry): Buffer {
   if (entry.uncompressedSize > MAX_ENTRY_BYTES) {
     throw new ZipError(`zip entry ${entry.name} exceeds the allowed size`);
@@ -98,8 +203,35 @@ export function readZipEntry(buffer: Buffer, entry: ZipEntry): Buffer {
   if (buffer.readUInt32LE(offset) !== LOCAL_FILE_HEADER) {
     throw new ZipError(`zip entry ${entry.name} has an invalid local header`);
   }
+
+  const localFlags = buffer.readUInt16LE(offset + 6);
+  const localMethod = buffer.readUInt16LE(offset + 8);
+  const localCrc = buffer.readUInt32LE(offset + 14);
+  const localCompressed = buffer.readUInt32LE(offset + 18);
+  const localUncompressed = buffer.readUInt32LE(offset + 22);
   const nameLength = buffer.readUInt16LE(offset + 26);
   const extraLength = buffer.readUInt16LE(offset + 28);
+  const localName = buffer
+    .subarray(offset + 30, offset + 30 + nameLength)
+    .toString("utf8");
+
+  if (localName !== entry.name) {
+    throw new ZipError(
+      `zip entry ${entry.name} disagrees with its local header name`,
+    );
+  }
+  if (
+    localMethod !== entry.compressionMethod ||
+    localFlags !== entry.flags ||
+    localCrc !== entry.crc32 ||
+    localCompressed !== entry.compressedSize ||
+    localUncompressed !== entry.uncompressedSize
+  ) {
+    throw new ZipError(
+      `zip entry ${entry.name} local header disagrees with the central directory`,
+    );
+  }
+
   const start = offset + 30 + nameLength + extraLength;
   const end = start + entry.compressedSize;
   if (end > buffer.length) {
@@ -107,42 +239,89 @@ export function readZipEntry(buffer: Buffer, entry: ZipEntry): Buffer {
   }
   const raw = buffer.subarray(start, end);
 
-  if (entry.compressionMethod === 0) return Buffer.from(raw);
-  if (entry.compressionMethod === 8) {
+  let output: Buffer;
+  if (entry.compressionMethod === 0) {
+    output = Buffer.from(raw);
+  } else {
     try {
-      return inflateRawSync(raw, { maxOutputLength: MAX_ENTRY_BYTES });
+      output = inflateRawSync(raw, { maxOutputLength: MAX_ENTRY_BYTES });
     } catch (cause) {
       throw new ZipError(`zip entry ${entry.name} could not be inflated`, {
         cause,
       });
     }
   }
-  throw new ZipError(
-    `zip entry ${entry.name} uses unsupported compression ${entry.compressionMethod}`,
-  );
+
+  if (output.length !== entry.uncompressedSize) {
+    throw new ZipError(
+      `zip entry ${entry.name} inflated to an unexpected length`,
+    );
+  }
+  if (crc32(output) !== entry.crc32) {
+    throw new ZipError(`zip entry ${entry.name} failed its CRC-32 check`);
+  }
+  return output;
+}
+
+export interface EntryContract {
+  /** Names that must all be present and parse as JSON. */
+  readonly required: readonly string[];
+  /** Names that may be present; parsed as JSON when they are. */
+  readonly optional?: readonly string[];
+  /** Names that may be present but are never read (for example a log file). */
+  readonly ignored?: readonly string[];
+  /**
+   * When true the archive must contain exactly `required` and nothing else —
+   * not even an allowlisted optional entry.
+   */
+  readonly exact?: boolean;
 }
 
 /**
- * Read the named entries as parsed JSON. Entry names are matched exactly
- * against the expected artifact layout so a renamed or injected file cannot be
- * silently accepted.
+ * Read the contracted entries as parsed JSON.
+ *
+ * The archive's entry set is checked against an explicit allowlist so an extra
+ * injected member is a hard failure rather than something quietly ignored.
  */
 export function readJsonEntries(
   buffer: Buffer,
-  expectedNames: readonly string[],
+  contract: EntryContract | readonly string[],
 ): Record<string, unknown> {
+  const spec: EntryContract = Array.isArray(contract)
+    ? { required: contract, exact: true }
+    : (contract as EntryContract);
+
   const entries = listZipEntries(buffer);
   const byName = new Map(entries.map((entry) => [entry.name, entry]));
-  const result: Record<string, unknown> = {};
-  for (const name of expectedNames) {
-    const entry = byName.get(name);
-    if (!entry) throw new ZipError(`zip archive is missing ${name}`);
-    const text = readZipEntry(buffer, entry).toString("utf8");
-    try {
-      result[name] = JSON.parse(text) as unknown;
-    } catch {
-      throw new ZipError(`zip entry ${name} is not valid JSON`);
+
+  const allowed = new Set<string>([
+    ...spec.required,
+    ...(spec.exact ? [] : [...(spec.optional ?? []), ...(spec.ignored ?? [])]),
+  ]);
+  for (const entry of entries) {
+    if (!allowed.has(entry.name)) {
+      throw new ZipError(`zip archive contains an unexpected entry: ${entry.name}`);
     }
   }
+
+  const result: Record<string, unknown> = {};
+  for (const name of spec.required) {
+    const entry = byName.get(name);
+    if (!entry) throw new ZipError(`zip archive is missing ${name}`);
+    result[name] = parseJsonEntry(buffer, entry);
+  }
+  for (const name of spec.exact ? [] : (spec.optional ?? [])) {
+    const entry = byName.get(name);
+    if (entry) result[name] = parseJsonEntry(buffer, entry);
+  }
   return result;
+}
+
+function parseJsonEntry(buffer: Buffer, entry: ZipEntry): unknown {
+  const text = readZipEntry(buffer, entry).toString("utf8");
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new ZipError(`zip entry ${entry.name} is not valid JSON`);
+  }
 }

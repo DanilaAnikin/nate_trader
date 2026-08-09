@@ -14,7 +14,11 @@ export default defineConfig({
     // Data/contract modules run in Node. Component tests opt into jsdom with
     // an `@vitest-environment jsdom` docblock at the top of the file.
     environment: "node",
-    include: ["lib/**/*.test.ts", "components/**/*.test.tsx"],
+    include: [
+      "lib/**/*.test.ts",
+      "app/**/*.test.ts",
+      "components/**/*.test.tsx",
+    ],
     setupFiles: ["test/setup.ts"],
   },
 });
