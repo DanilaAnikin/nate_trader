@@ -1,6 +1,7 @@
 import "server-only";
 import type { Database } from "@/lib/database.types";
 import { getSupabaseService } from "@/lib/supabase/service";
+import { maskAccountNumber } from "./mask";
 import {
   validateAlpacaKeys,
   storeCredentials,
@@ -11,27 +12,38 @@ import {
 
 type AccountRow = Database["public"]["Tables"]["accounts"]["Row"];
 
-/** An account as exposed to clients — never carries Vault secret references. */
-export type SafeAccount = Omit<
-  AccountRow,
-  "alpaca_key_secret_id" | "alpaca_secret_secret_id"
->;
+/**
+ * The account shape the browser is allowed to see.
+ *
+ * This is an explicit allowlist, deliberately *not* `Omit<AccountRow, ...>`:
+ * a new sensitive column added to the table must not become client-visible by
+ * default. The full broker account number, the Vault secret UUIDs, `owner_id`
+ * and `deleted_at` are all withheld; only a four-character broker mask is
+ * exposed so the operator can tell two accounts apart.
+ */
+export interface SafeAccount {
+  readonly id: string;
+  readonly nickname: string;
+  readonly mode: Database["public"]["Enums"]["account_mode"];
+  readonly status: Database["public"]["Enums"]["account_status"];
+  readonly color: string;
+  readonly is_active: boolean;
+  readonly brokerAccountMask: string | null;
+  readonly last_verified_at: string | null;
+  readonly created_at: string;
+}
 
 export function toSafe(row: AccountRow): SafeAccount {
   return {
     id: row.id,
-    owner_id: row.owner_id,
     nickname: row.nickname,
     mode: row.mode,
     status: row.status,
     color: row.color,
-    alpaca_account_number: row.alpaca_account_number,
     is_active: row.is_active,
+    brokerAccountMask: maskAccountNumber(row.alpaca_account_number),
     last_verified_at: row.last_verified_at,
-    last_synced_at: row.last_synced_at,
     created_at: row.created_at,
-    updated_at: row.updated_at,
-    deleted_at: row.deleted_at,
   };
 }
 
