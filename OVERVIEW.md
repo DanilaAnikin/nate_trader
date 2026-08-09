@@ -24,14 +24,33 @@ implemented. What changed:
   schema, size and the exact expected entry list before returning a sanitized
   DTO. No Python, workflow or other strategy-identity source was modified, so
   the existing canonical validation and release approval remain valid.
-- Production-account binding is explicit server configuration
-  (`PRODUCTION_ACCOUNT_ID` / `PRODUCTION_ALPACA_ACCOUNT_NUMBER`). Unproven
+- Access to that runtime is authorized server-side by
+  `PRODUCTION_OWNER_USER_ID` **and** `PRODUCTION_ACCOUNT_ID` **and** paper mode
+  **and** account ownership; `PRODUCTION_ALPACA_ACCOUNT_NUMBER` is an optional
+  extra AND check against a freshly read Alpaca `/v2/account`. An unauthorized
+  viewer receives none of it and triggers no GitHub Actions call. Unproven
   accounts are observer-only and their V11 compliance is `NOT_APPLICABLE`.
+- `accounts` is SELECT-only for end users (migration
+  `0009_accounts_server_managed.sql`); server-managed columns are not
+  client-writable, and the client DTO is an explicit allowlist that exposes only
+  a four-character broker mask.
 - The legacy V10 screener/research/benchmark screens, the committed-state
   fallbacks, the static "Dashboard Online" dot and the stale-SPY alpha chart
   were removed. `/operations` was added.
 - Forward performance uses cash-flow-adjusted TWR over a shared benchmark
   window and requires a persisted V11 epoch baseline.
+
+An independent security audit of that first build (2026-08-09) found and
+required fixes for: a cross-tenant leak of the central production runtime to any
+signed-in user; a production binding that accepted a client-writable broker
+account number as an OR proof; the full Alpaca account number reaching the
+browser; a release gate that accepted pull-request and manual successes; a
+runtime selection where a newer preflight-only run hid an older valid execution;
+lineage mismatches that only warned; a validation gate that conflated the stored
+report with the effective authorization; forward performance that could start at
+the wrong session or report a number after a refresh error; and a ZIP reader
+without CRC, duplicate-entry, header-agreement or streaming size checks. All are
+fixed and covered by regression tests; see the dashboard section of `README.md`.
 
 Gaps that the UI genuinely cannot close are tracked in section 18 and are
 rendered as `UNAVAILABLE` rather than estimated.
@@ -1170,7 +1189,9 @@ well-tested observability contract — not frontend inference.
 | `dashboard/lib/status/` | The unified server-side V11 read model. |
 | `dashboard/lib/status/read-model.ts` | Assembles `StrategyStatusPayload`. |
 | `dashboard/lib/status/runtime.ts` | Lineage-validated private-artifact reader. |
-| `dashboard/lib/status/binding.ts` | Explicit production-account binding. |
+| `dashboard/lib/status/authz.ts` | Server-side production-runtime authorization. |
+| `dashboard/lib/status/binding.ts` | Account role derived from that authorization. |
+| `dashboard/lib/status/validation-gate.ts` | The one effective paper-buy gate. |
 | `dashboard/lib/status/performance.ts` | Cash-flow-adjusted TWR and benchmark alignment. |
 | `dashboard/lib/v11-policy.json` | Tested UI mirror of static V11 labels/limits. |
 | `supabase/` | Auth/account/Vault/RLS and telemetry data model. |

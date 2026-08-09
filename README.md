@@ -343,6 +343,26 @@ mismatched data is never rendered as `0`, a green check, `LIVE` or `ONLINE`, and
 the committed V10-era `state/performance.json` / `state/positions.json`
 snapshots are never used as a fallback.
 
+Three contracts inside the model are worth calling out:
+
+- **Independent source selection.** The latest workflow attempt, the latest
+  valid preflight and the latest valid executor cycle are chosen separately. A
+  newer manual `operation=preflight` run updates only the preflight and never
+  hides an older, still-valid execution; each section carries its own run URL,
+  source and `asOf`.
+- **Lineage mismatch is fail-closed.** If the newest runtime artifact is not
+  named for the approved release, or its recorded release disagrees, or the
+  preflight identity disagrees, the affected plan, preflight, executor record,
+  universe and convergence are `null` with state `MISMATCH`. An older artifact
+  is never silently substituted.
+- **One effective validation gate.** `validationGate` separates the historical
+  `reportAssessment` from the currently `effective` gate. Effective `PASS`
+  requires all of: report PASS, present and non-future generation and bar
+  boundary dates, an unexpired deadline, a matching strategy identity, a
+  matching ranking universe, and an authoritatively known approved release.
+  Overview, Operations and Research all render this one value, so an expired or
+  mismatched report can never look like a green "Validation gate PASS".
+
 #### Reading the private V11 runtime safely
 
 The strategy sections come from the private Actions artifacts, read **server
@@ -353,25 +373,89 @@ entry list, and returns a sanitized DTO. Broker order IDs, client order IDs,
 Vault identifiers, full broker account numbers and raw artifacts never leave the
 server. Any failure returns `UNAVAILABLE`.
 
+Artifact handling is hardened: the advertised size is checked before any
+download, the body is streamed and abandoned the moment it exceeds the cap (so
+a chunked response with no `Content-Length` cannot be buffered to exhaustion),
+and the archive itself must pass duplicate-name, path-traversal, encryption
+flag, compression method, declared-versus-actual size, local/central header
+agreement and CRC-32 checks. The runtime artifact must contain exactly its three
+expected entries; the diagnostics artifact has an explicit
+required/optional/ignored allowlist and rejects anything else.
+
+A release gate counts as `PASS` only when a **push**-triggered `v11-release`
+run for the exact approved SHA completed successfully. A pull-request or
+`workflow_dispatch` success never authorizes a release.
+
 Nothing in this path touches a strategy-identity source, so the existing
 canonical validation and release approval remain valid.
 
-#### Production-account binding
+#### Production authorization and account binding
 
-The executor uses repository Alpaca secrets; the dashboard uses Supabase Vault.
-They are only connected by explicit server configuration —
-`PRODUCTION_ACCOUNT_ID` or `PRODUCTION_ALPACA_ACCOUNT_NUMBER`. Without a match,
-an account is labelled `OBSERVER-ONLY PAPER ACCOUNT` (or `READ-ONLY LIVE
-ACCOUNT`) and V11 target compliance for it is `NOT_APPLICABLE`. A binding is
-never inferred from tickers, equity size or paper mode. A live account is always
+The frozen plan, pending order intents, preflight, executor results and workflow
+operations describe **one central production account**. They are not per-tenant
+data, so owning some Supabase account is never enough to read them.
+Authorization requires all of the following together — an AND, never an OR:
+
+1. `PRODUCTION_OWNER_USER_ID` equals the signed-in Supabase user;
+2. `PRODUCTION_ACCOUNT_ID` equals the selected account;
+3. that account is in **paper** mode; and
+4. that account is owned by the production owner (read service-side from
+   `accounts.owner_id`, never from anything the browser sent).
+
+`PRODUCTION_ALPACA_ACCOUNT_NUMBER` is an optional *additional* AND check. When
+set, the number read fresh from Alpaca `/v2/account` must also match; a value
+stored in Supabase is never accepted as proof, and an unreadable broker fails
+the check closed.
+
+An unauthorized viewer receives no plan, pending actions, preflight, executor
+record or production operations, gets `NOT_APPLICABLE` for all of them, and
+**causes no GitHub Actions API call at all**. Their own broker snapshot and the
+public repository research evidence are still shown. A live account is always
 read-only monitoring and is never presented as traded by V11.
+
+Supporting database lockdown: migration `0009_accounts_server_managed.sql`
+reduces `accounts` to a SELECT-only policy for end users, revokes their
+INSERT/UPDATE/DELETE grants, and adds a trigger that rejects any client write to
+`owner_id`, `mode`, `status`, `alpaca_account_number`, the Vault secret UUIDs,
+`last_verified_at`, `last_synced_at`, `created_at` or `deleted_at`. All account
+mutations go through the narrow server routes under the service role.
+`supabase/tests/accounts_server_managed.test.sql` proves it against a database;
+`tests/test_supabase_account_lockdown.py` keeps the migration honest in CI.
+
+#### Registration and the client account DTO
+
+There is no public sign-up: the login screen is sign-in only. That is a UI
+change, not an authorization boundary, so **public sign-ups must also be
+disabled in the Supabase project** (Authentication → Providers → Email →
+disable "Enable sign ups"). Even a registered user is refused the production
+runtime by the server-side authorization above.
+
+`SafeAccount` is an explicit allowlist, not `Omit<Row, …>`, so a new sensitive
+column cannot become client-visible by default. The browser only ever receives
+`id`, `nickname`, `mode`, `status`, `color`, `is_active`, `last_verified_at`,
+`created_at` and a four-character `brokerAccountMask`. The full broker account
+number, the Vault UUIDs, `owner_id` and `deleted_at` never leave the server —
+in an API body, in Server Component props, or in the RSC Flight payload.
 
 #### Forward performance
 
 `GET /api/accounts/[id]/performance` reports cash-flow-adjusted time-weighted
 return against the benchmark over exactly the sessions both series share, dated
-in America/New_York, with no forward-fill past the last real benchmark bar. It
-requires a persisted, auditable V11 epoch baseline
+in America/New_York, with no forward-fill past the last real benchmark bar.
+
+It is strictly fail-closed: every one of these returns `UNAVAILABLE` with a
+named reason code rather than a number — a non-production viewer, an approved
+release that is unknown or only derived, a baseline bound to a different
+release, strategy version or account, a baseline whose recorded start session,
+starting equity or benchmark close is absent or disagrees
+(`BASELINE_OBSERVATION_MISSING` / `BASELINE_OBSERVATION_MISMATCH`), an equity or
+cash-flow refresh or query error, an incomplete Alpaca activity walk, or a
+window the two series do not genuinely share. The calculation never silently
+re-anchors to the first later common day, and Alpaca activities are paginated
+past the 100-item page cap back to the epoch boundary with completeness
+recorded.
+
+It requires a persisted, auditable V11 epoch baseline
 (`state/v11_epoch_baseline.json`, or the `V11_EPOCH_BASELINE` server variable)
 carrying the release SHA, start time, starting equity and benchmark baseline.
 **No baseline is currently persisted, so this panel reports `UNAVAILABLE`** —
@@ -382,9 +466,15 @@ never be relabelled as V11 alpha.
 
 Documented without values in `.env.example`: `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `BUILD_SHA`,
-`GITHUB_TOKEN`, `GITHUB_REPO`, `GITHUB_STATE_REF`, `PRODUCTION_ACCOUNT_ID`,
+`GITHUB_TOKEN` (needs `Actions: read` and `Environments: read`, or set an
+explicit server-only `PRODUCTION_RELEASE_SHA` fallback), `GITHUB_REPO`,
+`GITHUB_STATE_REF`, **`PRODUCTION_OWNER_USER_ID`**, `PRODUCTION_ACCOUNT_ID`,
 `PRODUCTION_ALPACA_ACCOUNT_NUMBER`, `PRODUCTION_RELEASE_SHA`,
 `V11_EPOCH_BASELINE`, `ALLOW_LEGACY_DASHBOARD`.
+
+The dashboard container must **not** receive the executor's `ALPACA_API_KEY`,
+`ALPACA_SECRET_KEY` or `TRADING_MODE`. It reads broker data only through
+per-account Supabase Vault credentials and has no mutating broker path.
 
 #### Dashboard testing
 
