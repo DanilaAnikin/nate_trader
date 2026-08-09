@@ -22,7 +22,12 @@ function renderOverview(
       "No auditable V11 forward-validation epoch baseline is persisted.",
     baseline: null,
     performance: null,
-    warning: null,
+    provenance: {
+      source: "Supabase equity mirror + Alpaca activities + Alpaca daily bars",
+      scope: "account acc-1",
+      asOf: null,
+      freshness: "UNAVAILABLE",
+    },
   },
 ) {
   vi.stubGlobal(

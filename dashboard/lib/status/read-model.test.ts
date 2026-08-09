@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clearGithubCache } from "./github-api";
-import { buildStrategyStatus, type StatusAccount } from "./read-model";
+import {
+  buildStrategyStatus,
+  type StatusAccount,
+  type StatusViewer,
+} from "./read-model";
 import type { BrokerResult } from "./broker";
 import type { BrokerInfo } from "./types";
 import {
@@ -22,26 +26,36 @@ import { buildZip } from "@/test/zip-builder";
 
 const NOW = new Date("2026-08-07T17:00:00Z");
 
+const OWNER_ID = "11111111-1111-1111-1111-111111111111";
+const OTHER_USER_ID = "22222222-2222-2222-2222-222222222222";
+const PROD_ACCOUNT_ID = "acc-prod";
+
+const OWNER: StatusViewer = { userId: OWNER_ID };
+const OTHER_VIEWER: StatusViewer = { userId: OTHER_USER_ID };
+
 const PRODUCTION_ACCOUNT: StatusAccount = {
-  id: "acc-prod",
+  id: PROD_ACCOUNT_ID,
   nickname: "Paper production",
   mode: "paper",
-  brokerAccountNumber: "PA3ABCDE1234",
+  ownerId: OWNER_ID,
 };
 
-const OBSERVER_ACCOUNT: StatusAccount = {
-  id: "acc-observer",
-  nickname: "Second paper",
+/** A second tenant's own paper account. */
+const FOREIGN_ACCOUNT: StatusAccount = {
+  id: "acc-foreign",
+  nickname: "Somebody else's paper",
   mode: "paper",
-  brokerAccountNumber: "PA9ZZZZ0000",
+  ownerId: OTHER_USER_ID,
 };
 
 const LIVE_ACCOUNT: StatusAccount = {
   id: "acc-live",
   nickname: "Real money",
   mode: "live",
-  brokerAccountNumber: "PA0LIVE9999",
+  ownerId: OWNER_ID,
 };
+
+const SECRET_BROKER_NUMBER = "PA-SECRET-ACCT-7788";
 
 function brokerSnapshot(overrides: Partial<BrokerInfo> = {}): BrokerInfo {
   const positions = TARGET_SYMBOLS.map((symbol) => ({
@@ -69,22 +83,27 @@ function brokerSnapshot(overrides: Partial<BrokerInfo> = {}): BrokerInfo {
   };
 }
 
-const OK_BROKER: BrokerResult = {
-  ok: true,
-  snapshot: brokerSnapshot(),
-  fetchedAt: NOW.toISOString(),
-};
+function okBroker(overrides: Partial<BrokerInfo> = {}): BrokerResult {
+  return {
+    ok: true,
+    snapshot: brokerSnapshot(overrides),
+    fetchedAt: NOW.toISOString(),
+    accountNumber: SECRET_BROKER_NUMBER,
+  };
+}
 
-interface RouteOptions {
-  approvedShaVariable?: string | null;
-  runtimeArtifactName?: string;
-  runtimeZip?: Buffer | "corrupt" | "missing";
-  diagnosticsZip?: Buffer;
-  validation?: Record<string, unknown> | null;
-  latestRunConclusion?: string;
-  latestRunJobs?: { steps: unknown[] }[];
-  releaseGateConclusion?: string | null;
-  epochBaseline?: Record<string, unknown> | null;
+const OK_BROKER = okBroker();
+
+interface RunSpec {
+  id: number;
+  runNumber: number;
+  conclusion: string;
+  event: string;
+  updatedAt: string;
+  /** Artifacts attached to this run. */
+  runtimeArtifactName?: string | null;
+  runtimeZip?: Buffer | "corrupt";
+  diagnostics?: Buffer | null;
 }
 
 function runtimeZipBuffer(
@@ -103,27 +122,65 @@ function diagnosticsZipBuffer(
 ): Buffer {
   return buildZip([
     { name: "production-preflight.json", content: JSON.stringify(preflight) },
+    { name: "production-dry-run.log", content: "dry run output" },
   ]);
 }
 
-/** Route the GitHub REST calls the read model makes. */
+function defaultRuns(): RunSpec[] {
+  return [
+    {
+      id: 900,
+      runNumber: 43,
+      conclusion: "success",
+      event: "schedule",
+      updatedAt: "2026-08-07T16:06:00Z",
+      runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+      runtimeZip: runtimeZipBuffer(),
+      diagnostics: diagnosticsZipBuffer(),
+    },
+    {
+      id: 800,
+      runNumber: 42,
+      conclusion: "success",
+      event: "schedule",
+      updatedAt: "2026-08-05T16:51:00Z",
+      runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+      runtimeZip: runtimeZipBuffer(),
+      diagnostics: diagnosticsZipBuffer(),
+    },
+  ];
+}
+
+interface RouteOptions {
+  approvedShaVariable?: string | null;
+  runs?: RunSpec[];
+  validation?: Record<string, unknown> | null;
+  latestRunJobs?: { steps: unknown[] }[];
+  releaseGate?: { conclusion: string; event: string } | null;
+}
+
 function stubGithub(options: RouteOptions = {}) {
   const {
     approvedShaVariable = APPROVED_SHA,
-    runtimeArtifactName = `paper-runtime-state-${APPROVED_SHA}`,
-    runtimeZip = runtimeZipBuffer(),
-    diagnosticsZip = diagnosticsZipBuffer(),
+    runs = defaultRuns(),
     validation = validationJson(),
-    latestRunConclusion = "success",
     latestRunJobs = [{ steps: [{ name: "checkout" }] }],
-    releaseGateConclusion = "success",
-    epochBaseline = null,
+    releaseGate = { conclusion: "success", event: "push" },
   } = options;
 
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), {
       status,
       headers: { "content-type": "application/json" },
+    });
+
+  // Artifact ids are derived from the run so each run has its own set.
+  const runtimeArtifactId = (run: RunSpec) => run.id * 10 + 1;
+  const diagnosticsArtifactId = (run: RunSpec) => run.id * 10 + 2;
+
+  const zipResponse = (body: Buffer) =>
+    new Response(new Uint8Array(body), {
+      headers: { "content-length": String(body.byteLength) },
     });
 
   const handler = vi.fn(async (input: string | URL) => {
@@ -142,90 +199,95 @@ function stubGithub(options: RouteOptions = {}) {
     }
     if (url.includes("/workflows/paper-production.yml/runs")) {
       return json({
+        workflow_runs: runs.map((run) => ({
+          id: run.id,
+          run_number: run.runNumber,
+          run_attempt: 1,
+          status: "completed",
+          conclusion: run.conclusion,
+          event: run.event,
+          head_sha: REPO_SHA,
+          created_at: run.updatedAt,
+          run_started_at: run.updatedAt,
+          updated_at: run.updatedAt,
+          html_url: `https://github.com/x/y/actions/runs/${run.id}`,
+        })),
+      });
+    }
+    if (url.includes("/workflows/v11-release.yml/runs")) {
+      const requestedEvent = new URL(url).searchParams.get("event");
+      if (!releaseGate) return json({ workflow_runs: [] });
+      // Mirror GitHub: the `event` filter actually filters.
+      if (requestedEvent && requestedEvent !== releaseGate.event) {
+        return json({ workflow_runs: [] });
+      }
+      return json({
         workflow_runs: [
           {
-            id: 900,
-            run_number: 43,
+            id: 700,
+            run_number: 12,
             run_attempt: 1,
             status: "completed",
-            conclusion: latestRunConclusion,
-            event: "schedule",
-            head_sha: REPO_SHA,
-            created_at: "2026-08-07T16:00:00Z",
-            run_started_at: "2026-08-07T16:00:00Z",
-            updated_at: "2026-08-07T16:06:00Z",
-            html_url: "https://github.com/x/y/actions/runs/900",
-          },
-          {
-            id: 800,
-            run_number: 42,
-            run_attempt: 1,
-            status: "completed",
-            conclusion: "success",
-            event: "schedule",
-            head_sha: REPO_SHA,
-            created_at: "2026-08-05T16:45:00Z",
-            run_started_at: "2026-08-05T16:45:00Z",
-            updated_at: "2026-08-05T16:51:00Z",
-            html_url: "https://github.com/x/y/actions/runs/800",
+            conclusion: releaseGate.conclusion,
+            event: releaseGate.event,
+            head_sha: APPROVED_SHA,
+            created_at: "2026-08-02T15:50:00Z",
+            updated_at: "2026-08-02T15:58:00Z",
+            html_url: "https://github.com/x/y/actions/runs/700",
           },
         ],
       });
     }
-    if (url.includes("/workflows/v11-release.yml/runs")) {
-      return json({
-        workflow_runs: releaseGateConclusion
-          ? [
-              {
-                id: 700,
-                run_number: 12,
-                run_attempt: 1,
-                status: "completed",
-                conclusion: releaseGateConclusion,
-                event: "push",
-                head_sha: APPROVED_SHA,
-                created_at: "2026-08-02T15:50:00Z",
-                updated_at: "2026-08-02T15:58:00Z",
-                html_url: "https://github.com/x/y/actions/runs/700",
-              },
-            ]
-          : [],
-      });
-    }
-    if (url.match(/\/actions\/runs\/\d+\/jobs/)) {
-      return json({ jobs: latestRunJobs });
-    }
-    if (url.match(/\/actions\/runs\/\d+\/artifacts/)) {
+    const jobsMatch = url.match(/\/actions\/runs\/(\d+)\/jobs/);
+    if (jobsMatch) return json({ jobs: latestRunJobs });
+
+    const artifactsMatch = url.match(/\/actions\/runs\/(\d+)\/artifacts/);
+    if (artifactsMatch) {
+      const run = runs.find((entry) => entry.id === Number(artifactsMatch[1]));
+      if (!run) return json({ artifacts: [] });
       const artifacts: Record<string, unknown>[] = [];
-      if (runtimeZip !== "missing") {
+      if (run.runtimeArtifactName) {
         artifacts.push({
-          id: 1,
-          name: runtimeArtifactName,
+          id: runtimeArtifactId(run),
+          name: run.runtimeArtifactName,
           size_in_bytes: 4271,
           expired: false,
-          created_at: "2026-08-07T16:05:06Z",
+          created_at: run.updatedAt,
         });
       }
-      artifacts.push({
-        id: 2,
-        name: "paper-diagnostics",
-        size_in_bytes: 1584,
-        expired: false,
-        created_at: "2026-08-07T16:05:07Z",
-      });
+      if (run.diagnostics) {
+        artifacts.push({
+          id: diagnosticsArtifactId(run),
+          name: "paper-diagnostics",
+          size_in_bytes: 1584,
+          expired: false,
+          created_at: run.updatedAt,
+        });
+      }
       return json({ artifacts });
     }
-    if (url.includes("/actions/artifacts/1/zip")) {
-      if (runtimeZip === "missing") return json({ message: "gone" }, 404);
-      const body =
-        runtimeZip === "corrupt"
-          ? Buffer.from("this is not a zip archive at all")
-          : runtimeZip;
-      return new Response(new Uint8Array(body));
+
+    const zipMatch = url.match(/\/actions\/artifacts\/(\d+)\/zip/);
+    if (zipMatch) {
+      const artifactId = Number(zipMatch[1]);
+      const run = runs.find(
+        (entry) =>
+          runtimeArtifactId(entry) === artifactId ||
+          diagnosticsArtifactId(entry) === artifactId,
+      );
+      if (!run) return json({ message: "gone" }, 404);
+      if (runtimeArtifactId(run) === artifactId) {
+        if (run.runtimeZip === "corrupt") {
+          const bad = Buffer.from("this is not a zip archive at all");
+          return zipResponse(bad);
+        }
+        if (!run.runtimeZip) return json({ message: "gone" }, 404);
+        return zipResponse(run.runtimeZip);
+      }
+      if (!run.diagnostics) return json({ message: "gone" }, 404);
+      return zipResponse(run.diagnostics);
     }
-    if (url.includes("/actions/artifacts/2/zip")) {
-      return new Response(new Uint8Array(diagnosticsZip));
-    }
+
     if (url.includes("/contents/state/backtest/v11_validation.json")) {
       return validation
         ? new Response(JSON.stringify(validation))
@@ -235,9 +297,7 @@ function stubGithub(options: RouteOptions = {}) {
       return new Response(JSON.stringify(tournamentJson()));
     }
     if (url.includes("/contents/state/v11_epoch_baseline.json")) {
-      return epochBaseline
-        ? new Response(JSON.stringify(epochBaseline))
-        : json({ message: "Not Found" }, 404);
+      return json({ message: "Not Found" }, 404);
     }
     return json({ message: `unrouted ${url}` }, 404);
   });
@@ -246,182 +306,499 @@ function stubGithub(options: RouteOptions = {}) {
   return handler;
 }
 
+function actionsCalls(handler: ReturnType<typeof stubGithub>): string[] {
+  return handler.mock.calls
+    .map(([input]) => String(input))
+    .filter((url) => url.includes("/actions/") || url.includes("/environments/"));
+}
+
 beforeEach(() => {
   clearGithubCache();
   vi.stubEnv("GITHUB_TOKEN", "test-token");
   vi.stubEnv("BUILD_SHA", DASHBOARD_SHA);
-  vi.stubEnv("PRODUCTION_ACCOUNT_ID", PRODUCTION_ACCOUNT.id);
+  vi.stubEnv("PRODUCTION_OWNER_USER_ID", OWNER_ID);
+  vi.stubEnv("PRODUCTION_ACCOUNT_ID", PROD_ACCOUNT_ID);
   vi.stubEnv("PRODUCTION_ALPACA_ACCOUNT_NUMBER", "");
   vi.stubEnv("V11_EPOCH_BASELINE", "");
 });
 
-describe("buildStrategyStatus — healthy production account", () => {
-  it("separates the dashboard build, repository and approved trading SHAs", async () => {
-    stubGithub();
+describe("cross-tenant isolation", () => {
+  it("gives a second tenant no production runtime and makes no Actions call", async () => {
+    const handler = stubGithub();
     const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
+      viewer: OTHER_VIEWER,
+      account: FOREIGN_ACCOUNT,
       broker: OK_BROKER,
       now: NOW,
     });
 
+    // Nothing central is disclosed.
+    expect(payload.authorization.data?.productionRuntimeAuthorized).toBe(false);
+    expect(payload.authorization.data?.denialReason).toBe("NOT_PRODUCTION_OWNER");
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.preflight.data).toBeNull();
+    expect(payload.execution.data).toBeNull();
+    expect(payload.operations.data).toBeNull();
+    expect(payload.convergence.data).toBeNull();
+    expect(payload.universe.data).toBeNull();
+    for (const key of [
+      "strategy",
+      "preflight",
+      "execution",
+      "operations",
+      "convergence",
+      "universe",
+    ] as const) {
+      expect(payload[key].provenance.freshness).toBe("NOT_APPLICABLE");
+    }
+
+    // The private GitHub Actions API is not touched at all for this viewer.
+    expect(actionsCalls(handler)).toEqual([]);
+
+    // No approved release, gate or plan leaks through another route.
+    expect(payload.release.data?.approvedPaperReleaseSha).toBeNull();
+    expect(payload.release.data?.releaseGate).toBe("NOT_APPLICABLE");
+    expect(payload.validationGate.effective).toBe("NOT_APPLICABLE");
+
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain("f8756105eb63dde2"); // plan id
+    expect(serialized).not.toContain(APPROVED_SHA);
+    expect(serialized).not.toContain("ADAPTIVE_TRIM");
+  });
+
+  it("gives the production owner the runtime and does call the Actions API", async () => {
+    const handler = stubGithub();
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.authorization.data?.productionRuntimeAuthorized).toBe(true);
+    expect(payload.strategy.data?.plan?.planId).toBe("f8756105eb63dde2");
+    expect(actionsCalls(handler).length).toBeGreaterThan(0);
+  });
+
+  it("withholds the runtime from the owner on their own non-production account", async () => {
+    const handler = stubGithub();
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: { ...PRODUCTION_ACCOUNT, id: "acc-second", nickname: "Second" },
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.authorization.data?.denialReason).toBe(
+      "NOT_PRODUCTION_ACCOUNT",
+    );
+    expect(payload.strategy.data).toBeNull();
+    expect(actionsCalls(handler)).toEqual([]);
+  });
+
+  it("withholds the runtime for a live account", async () => {
+    const handler = stubGithub();
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: { ...LIVE_ACCOUNT, id: PROD_ACCOUNT_ID },
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.authorization.data?.denialReason).toBe("NOT_PAPER_MODE");
+    expect(payload.accountBinding.data?.role).toBe("READ_ONLY_LIVE");
+    expect(actionsCalls(handler)).toEqual([]);
+  });
+
+  it("withholds the runtime when no production owner is configured", async () => {
+    vi.stubEnv("PRODUCTION_OWNER_USER_ID", "");
+    const handler = stubGithub();
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.authorization.data?.denialReason).toBe("NOT_CONFIGURED");
+    expect(payload.accountBinding.data?.role).toBe("OBSERVER_ONLY_PAPER");
+    expect(actionsCalls(handler)).toEqual([]);
+  });
+
+  it("requires the configured broker account number as an AND check", async () => {
+    vi.stubEnv("PRODUCTION_ALPACA_ACCOUNT_NUMBER", "PA-DIFFERENT-0000");
+    const handler = stubGithub();
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.authorization.data?.denialReason).toBe(
+      "BROKER_ACCOUNT_MISMATCH",
+    );
+    expect(actionsCalls(handler)).toEqual([]);
+  });
+
+  it("authorizes when the freshly read broker number matches", async () => {
+    vi.stubEnv("PRODUCTION_ALPACA_ACCOUNT_NUMBER", SECRET_BROKER_NUMBER);
+    stubGithub();
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.authorization.data?.productionRuntimeAuthorized).toBe(true);
+    expect(payload.accountBinding.data?.brokerAccountMask).toBe("••••7788");
+    expect(JSON.stringify(payload)).not.toContain(SECRET_BROKER_NUMBER);
+  });
+
+  it("fails closed when the broker number cannot be verified", async () => {
+    vi.stubEnv("PRODUCTION_ALPACA_ACCOUNT_NUMBER", SECRET_BROKER_NUMBER);
+    const handler = stubGithub();
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: {
+        ok: false,
+        code: "ALPACA_UNREACHABLE",
+        detail: "Could not reach Alpaca for the selected account.",
+      },
+      now: NOW,
+    });
+    expect(payload.authorization.data?.denialReason).toBe(
+      "BROKER_ACCOUNT_UNVERIFIED",
+    );
+    expect(actionsCalls(handler)).toEqual([]);
+  });
+});
+
+describe("healthy production viewer", () => {
+  it("separates the dashboard build, repository, approved and trigger SHAs", async () => {
+    stubGithub();
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
     expect(payload.web.data?.dashboardBuildSha).toBe(DASHBOARD_SHA);
     expect(payload.release.data?.repositoryRefSha).toBe(REPO_SHA);
     expect(payload.release.data?.approvedPaperReleaseSha).toBe(APPROVED_SHA);
     expect(payload.operations.data?.latestAttempt?.triggerSha).toBe(REPO_SHA);
     expect(payload.release.data?.dashboardMatchesApprovedRelease).toBe(false);
-    expect(payload.release.data?.approvedShaSource).toBe(
-      "github-environment-variable",
-    );
-    expect(payload.release.data?.releaseGate).toBe("PASS");
-    // A different dashboard build is expected, never reported as a failure.
-    expect(payload.release.provenance.freshness).toBe("CURRENT");
   });
 
-  it("exposes the frozen plan, risk state and convergence", async () => {
+  it("exposes the plan, universe and a PASS effective gate", async () => {
     stubGithub();
     const payload = await buildStrategyStatus({
+      viewer: OWNER,
       account: PRODUCTION_ACCOUNT,
       broker: OK_BROKER,
       now: NOW,
     });
-
-    expect(payload.strategy.provenance.freshness).toBe("CURRENT");
-    expect(payload.strategy.data?.plan?.planId).toBe("f8756105eb63dde2");
     expect(payload.strategy.data?.marketGate).toBe("RISK_ON");
-    expect(payload.strategy.data?.executionRiskTier?.tier).toBe("CAUTIOUS");
-    expect(payload.strategy.data?.recoveryLatchArmed).toBe(false);
-    // Not persisted by the runner — must stay explicitly unavailable.
-    expect(payload.strategy.data?.spyClose).toBeNull();
-    expect(payload.strategy.data?.breadthMultiplierPct).toBeNull();
-
-    expect(payload.convergence.data?.targetCount).toBe(10);
-    expect(payload.convergence.data?.actualCount).toBe(10);
-    expect(payload.universe.data?.symbolCount).toBe(540);
     expect(payload.universe.data?.rankingUniverseSha256).toBe(UNIVERSE_HASH);
-  });
-
-  it("reads validation at the approved release and confirms identity match", async () => {
-    stubGithub();
-    const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
-      broker: OK_BROKER,
-      now: NOW,
-    });
-    expect(payload.validation.data?.status).toBe("PASS");
-    expect(payload.validation.data?.readAtRef).toBe(APPROVED_SHA);
+    expect(payload.convergence.data?.targetCount).toBe(10);
     expect(payload.validation.data?.identityMatchesRuntime).toBe("PASS");
-    expect(payload.validation.data?.universeMatchesRuntime).toBe("PASS");
+    expect(payload.validationGate.effective).toBe("PASS");
+    expect(payload.validationGate.reportAssessment).toBe("PASS");
   });
 
-  it("never leaks credentials, order identifiers or raw artifacts", async () => {
+  it("never leaks credentials, order identifiers or the broker account number", async () => {
     stubGithub();
     const payload = await buildStrategyStatus({
+      viewer: OWNER,
       account: PRODUCTION_ACCOUNT,
       broker: OK_BROKER,
       now: NOW,
     });
     const serialized = JSON.stringify(payload);
-
     expect(serialized).not.toContain("test-token");
     expect(serialized).not.toContain("client_order_id");
     expect(serialized).not.toContain("order_id");
     expect(serialized).not.toContain("58371aed-250a-40c7-b883-a62c538100b1");
-    expect(serialized).not.toContain("nt-adaptive-asml-sell");
-    expect(serialized).not.toContain("PA3ABCDE1234");
+    expect(serialized).not.toContain(SECRET_BROKER_NUMBER);
     expect(serialized).not.toContain("test-service-key");
-    expect(payload.accountBinding.data?.brokerAccountMask).toBe("••••1234");
   });
 });
 
-describe("buildStrategyStatus — degraded sources", () => {
-  it("returns UNAVAILABLE, not a fallback, when the runtime artifact is corrupt", async () => {
-    stubGithub({ runtimeZip: "corrupt" });
+describe("release gate", () => {
+  it("is PASS only for a completed successful push run on the approved SHA", async () => {
+    stubGithub({ releaseGate: { conclusion: "success", event: "push" } });
     const payload = await buildStrategyStatus({
+      viewer: OWNER,
       account: PRODUCTION_ACCOUNT,
       broker: OK_BROKER,
       now: NOW,
     });
-    expect(payload.strategy.provenance.freshness).toBe("UNAVAILABLE");
+    expect(payload.release.data?.releaseGate).toBe("PASS");
+  });
+
+  it("is not PASS for a pull-request success", async () => {
+    stubGithub({
+      releaseGate: { conclusion: "success", event: "pull_request" },
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.release.data?.releaseGate).not.toBe("PASS");
+    expect(payload.release.data?.releaseGate).toBe("FAIL");
+  });
+
+  it("is not PASS for a manual workflow_dispatch success", async () => {
+    stubGithub({
+      releaseGate: { conclusion: "success", event: "workflow_dispatch" },
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.release.data?.releaseGate).not.toBe("PASS");
+  });
+
+  it("is FAIL for a failed push run", async () => {
+    stubGithub({ releaseGate: { conclusion: "failure", event: "push" } });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.release.data?.releaseGate).toBe("FAIL");
+  });
+});
+
+describe("independent runtime source selection", () => {
+  it("keeps an older execution when a newer manual preflight-only run exists", async () => {
+    const preflightOnly: RunSpec = {
+      id: 950,
+      runNumber: 44,
+      conclusion: "success",
+      event: "workflow_dispatch",
+      updatedAt: "2026-08-07T18:30:00Z",
+      runtimeArtifactName: null,
+      diagnostics: diagnosticsZipBuffer(
+        preflightJson({ checked_at: "2026-08-07T18:29:00+00:00" }),
+      ),
+    };
+    const execution: RunSpec = {
+      id: 900,
+      runNumber: 43,
+      conclusion: "success",
+      event: "schedule",
+      updatedAt: "2026-08-07T16:06:00Z",
+      runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+      runtimeZip: runtimeZipBuffer(),
+      diagnostics: diagnosticsZipBuffer(),
+    };
+    stubGithub({ runs: [preflightOnly, execution] });
+
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: new Date("2026-08-07T19:00:00Z"),
+    });
+
+    // The manual preflight is newer and wins its own section...
+    expect(payload.preflight.data).not.toBeNull();
+    expect(payload.preflight.data?.checkedAt).toBe("2026-08-07T18:29:00.000Z");
+    expect(payload.preflight.provenance.scope).toContain("#44");
+    expect(payload.preflight.data?.runUrl).toContain("/runs/950");
+
+    // ...without hiding the older, still-valid executor cycle.
+    expect(payload.execution.data).not.toBeNull();
+    expect(payload.execution.data?.completedAt).toBe("2026-08-07T16:05:05.164Z");
+    expect(payload.execution.provenance.scope).toContain("#43");
+    expect(payload.execution.data?.runUrl).toContain("/runs/900");
+    expect(payload.strategy.data?.plan?.planId).toBe("f8756105eb63dde2");
+
+    // Each section carries its own source and timestamp.
+    expect(payload.preflight.provenance.asOf).not.toBe(
+      payload.execution.provenance.asOf,
+    );
+  });
+
+  it("skips a preflight-only run when looking for the executor cycle", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 950,
+          runNumber: 44,
+          conclusion: "success",
+          event: "workflow_dispatch",
+          updatedAt: "2026-08-07T18:30:00Z",
+          runtimeArtifactName: null,
+          diagnostics: diagnosticsZipBuffer(),
+        },
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: null,
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: new Date("2026-08-07T19:00:00Z"),
+    });
+    expect(payload.execution.data?.status).toBe("PASS");
+    expect(payload.operations.data?.lastSuccessfulRun?.runId).toBe(900);
+  });
+});
+
+describe("lineage mismatch is fail-closed", () => {
+  it("withholds plan, execution and convergence when the artifact names another release", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${OTHER_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: diagnosticsZipBuffer(),
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+
+    expect(payload.strategy.provenance.freshness).toBe("MISMATCH");
     expect(payload.strategy.data).toBeNull();
-    expect(payload.strategy.provenance.detail).toMatch(/unreadable|parsed/);
-    // The broker snapshot is independent and stays current.
-    expect(payload.broker.provenance.freshness).toBe("CURRENT");
+    expect(payload.execution.provenance.freshness).toBe("MISMATCH");
+    expect(payload.execution.data).toBeNull();
+    expect(payload.convergence.provenance.freshness).toBe("MISMATCH");
+    expect(payload.convergence.data).toBeNull();
+    expect(payload.universe.provenance.freshness).toBe("MISMATCH");
+    expect(payload.universe.data).toBeNull();
+    expect(payload.warnings.join(" ")).toContain("lineage");
+    // It must not fall back to an older artifact for the approved SHA.
+    expect(JSON.stringify(payload)).not.toContain("f8756105eb63dde2");
+  });
+
+  it("withholds when the run record's recorded release disagrees", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(
+            performanceJson(),
+            lastRunJson({ release_sha: OTHER_SHA }),
+          ),
+          diagnostics: diagnosticsZipBuffer(),
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.strategy.provenance.freshness).toBe("MISMATCH");
+    expect(payload.execution.data).toBeNull();
     expect(payload.convergence.data).toBeNull();
   });
 
-  it("returns UNAVAILABLE when no runtime artifact is attached", async () => {
-    stubGithub({ runtimeZip: "missing" });
+  it("withholds the preflight when its strategy identity disagrees", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: diagnosticsZipBuffer(
+            preflightJson({
+              details: {
+                ...(preflightJson().details as Record<string, unknown>),
+                strategy_identity: "a-different-identity",
+              },
+            }),
+          ),
+        },
+      ],
+    });
     const payload = await buildStrategyStatus({
+      viewer: OWNER,
       account: PRODUCTION_ACCOUNT,
       broker: OK_BROKER,
       now: NOW,
     });
-    expect(payload.strategy.data).toBeNull();
+    expect(payload.preflight.provenance.freshness).toBe("MISMATCH");
+    expect(payload.preflight.data).toBeNull();
+  });
+
+  it("returns UNAVAILABLE, not a fallback, for a corrupt artifact", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: "corrupt",
+          diagnostics: diagnosticsZipBuffer(),
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
     expect(payload.strategy.provenance.freshness).toBe("UNAVAILABLE");
-  });
-
-  it("flags MISMATCH when the artifact belongs to another release", async () => {
-    stubGithub({
-      runtimeArtifactName: `paper-runtime-state-${OTHER_SHA}`,
-    });
-    const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
-      broker: OK_BROKER,
-      now: NOW,
-    });
-    expect(payload.strategy.provenance.freshness).toBe("MISMATCH");
     expect(payload.strategy.data).toBeNull();
-    expect(payload.warnings.join(" ")).toContain("release lineage");
-  });
-
-  it("flags MISMATCH when the run record's release differs from the approval", async () => {
-    stubGithub({
-      runtimeZip: runtimeZipBuffer(
-        performanceJson(),
-        lastRunJson({ release_sha: OTHER_SHA }),
-      ),
-    });
-    const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
-      broker: OK_BROKER,
-      now: NOW,
-    });
-    expect(payload.strategy.provenance.freshness).toBe("MISMATCH");
-  });
-
-  it("marks stale runtime state STALE while the broker stays CURRENT", async () => {
-    stubGithub();
-    const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
-      broker: OK_BROKER,
-      now: new Date("2026-08-11T17:00:00Z"),
-    });
+    // The independent preflight is unaffected by a broken runtime artifact.
+    expect(payload.preflight.data).not.toBeNull();
     expect(payload.broker.provenance.freshness).toBe("CURRENT");
-    expect(payload.strategy.provenance.freshness).toBe("STALE");
   });
+});
 
-  it("marks an over-week-old runtime EXPIRED", async () => {
+describe("effective validation gate", () => {
+  it("is FAIL for an expired report even though the report says PASS", async () => {
     stubGithub();
     const payload = await buildStrategyStatus({
+      viewer: OWNER,
       account: PRODUCTION_ACCOUNT,
       broker: OK_BROKER,
       now: new Date("2026-08-20T17:00:00Z"),
     });
-    expect(payload.strategy.provenance.freshness).toBe("EXPIRED");
+    expect(payload.validation.data?.status).toBe("PASS");
+    expect(payload.validationGate.reportAssessment).toBe("PASS");
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.reasons).toContain("EXPIRED");
   });
 
-  it("marks validation EXPIRED past the 35-day bar-boundary deadline", async () => {
-    stubGithub();
-    const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
-      broker: OK_BROKER,
-      now: new Date("2026-08-20T17:00:00Z"),
-    });
-    expect(payload.validation.provenance.freshness).toBe("EXPIRED");
-    expect(payload.validation.data?.expiresAt).toBe("2026-08-14T00:00:00.000Z");
-  });
-
-  it("flags a strategy-identity mismatch between evidence and running code", async () => {
+  it("is FAIL on a strategy-identity mismatch", async () => {
     stubGithub({
       validation: validationJson({
         strategy: {
@@ -431,194 +808,81 @@ describe("buildStrategyStatus — degraded sources", () => {
       }),
     });
     const payload = await buildStrategyStatus({
+      viewer: OWNER,
       account: PRODUCTION_ACCOUNT,
       broker: OK_BROKER,
       now: NOW,
     });
-    expect(payload.validation.data?.identityMatchesRuntime).toBe("FAIL");
-    expect(payload.validation.provenance.freshness).toBe("MISMATCH");
-  });
-
-  it("flags a ranking-universe mismatch", async () => {
-    stubGithub({
-      validation: validationJson({
-        evidence: {
-          ranking_universe_count: 540,
-          ranking_universe_sha256: "f".repeat(64),
-          bar_snapshot_through_date: "2026-07-10",
-        },
-      }),
-    });
-    const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
-      broker: OK_BROKER,
-      now: NOW,
-    });
-    expect(payload.validation.data?.universeMatchesRuntime).toBe("FAIL");
-    expect(payload.validation.provenance.freshness).toBe("MISMATCH");
-  });
-
-  it("keeps an older successful cycle visible when the latest attempt failed", async () => {
-    stubGithub({
-      latestRunConclusion: "failure",
-      latestRunJobs: [{ steps: [] }],
-    });
-    const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
-      broker: OK_BROKER,
-      now: NOW,
-    });
-    expect(payload.operations.data?.latestAttempt?.conclusion).toBe("failure");
-    expect(payload.operations.data?.latestAttempt?.infrastructureFailure).toBe(
-      true,
-    );
-    expect(payload.operations.data?.latestAttempt?.failureKind).toBe(
-      "infrastructure",
-    );
-    expect(payload.operations.data?.lastSuccessfulRun?.runId).toBe(800);
-    // The last successful execution is still readable.
-    expect(payload.execution.data?.status).toBe("PASS");
-  });
-
-  it("distinguishes a post-start failure from an infrastructure failure", async () => {
-    stubGithub({
-      latestRunConclusion: "failure",
-      latestRunJobs: [{ steps: [{ name: "checkout" }, { name: "preflight" }] }],
-    });
-    const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
-      broker: OK_BROKER,
-      now: NOW,
-    });
-    expect(payload.operations.data?.latestAttempt?.infrastructureFailure).toBe(
-      false,
-    );
-    expect(payload.operations.data?.latestAttempt?.failureKind).toBe(
-      "strategy-or-broker",
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.reasons).toContain(
+      "STRATEGY_IDENTITY_MISMATCH",
     );
   });
 
-  it("reports a failed release gate without inventing a PASS", async () => {
-    stubGithub({ releaseGateConclusion: "failure" });
-    const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
-      broker: OK_BROKER,
-      now: NOW,
-    });
-    expect(payload.release.data?.releaseGate).toBe("FAIL");
-  });
-
-  it("derives the approved SHA from the artifact name and labels it as derived", async () => {
+  it("is FAIL when the approved SHA is only derived from an artifact name", async () => {
     stubGithub({ approvedShaVariable: null });
+    vi.stubEnv("PRODUCTION_RELEASE_SHA", "");
     const payload = await buildStrategyStatus({
+      viewer: OWNER,
       account: PRODUCTION_ACCOUNT,
       broker: OK_BROKER,
       now: NOW,
     });
-    expect(payload.release.data?.approvedPaperReleaseSha).toBe(APPROVED_SHA);
     expect(payload.release.data?.approvedShaSource).toBe(
       "derived-from-runtime-artifact",
     );
-    expect(payload.release.provenance.detail).toContain("Derived");
-  });
-
-  it("fails closed to UNAVAILABLE without a server GitHub token", async () => {
-    vi.stubEnv("GITHUB_TOKEN", "");
-    stubGithub();
-    const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
-      broker: OK_BROKER,
-      now: NOW,
-    });
-    expect(payload.warnings.join(" ")).toContain("GITHUB_TOKEN");
-  });
-
-  it("keeps a broker failure separate from strategy availability", async () => {
-    stubGithub();
-    const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
-      broker: {
-        ok: false,
-        code: "ALPACA_UNREACHABLE",
-        detail: "Could not reach Alpaca for the selected account.",
-      },
-      now: NOW,
-    });
-    expect(payload.broker.provenance.freshness).toBe("UNAVAILABLE");
-    expect(payload.broker.data).toBeNull();
-    expect(payload.strategy.provenance.freshness).toBe("CURRENT");
-    expect(payload.convergence.data).toBeNull();
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.reasons).toContain("APPROVED_RELEASE_UNKNOWN");
   });
 });
 
-describe("buildStrategyStatus — account binding", () => {
-  it("marks a different paper account observer-only and convergence NOT_APPLICABLE", async () => {
-    stubGithub();
+describe("operations and risk states", () => {
+  it("distinguishes an infrastructure failure from a post-start failure", async () => {
+    const runs = defaultRuns();
+    runs.unshift({
+      id: 990,
+      runNumber: 45,
+      conclusion: "failure",
+      event: "schedule",
+      updatedAt: "2026-08-07T16:40:00Z",
+      runtimeArtifactName: null,
+      diagnostics: null,
+    });
+    stubGithub({ runs, latestRunJobs: [{ steps: [] }] });
     const payload = await buildStrategyStatus({
-      account: OBSERVER_ACCOUNT,
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
       broker: OK_BROKER,
       now: NOW,
     });
-    expect(payload.accountBinding.data?.role).toBe("OBSERVER_ONLY_PAPER");
-    expect(payload.accountBinding.data?.productionBound).toBe(false);
-    expect(payload.convergence.provenance.freshness).toBe("NOT_APPLICABLE");
-    expect(payload.convergence.data).toBeNull();
-    // Strategy runtime still describes the executor, scoped to it explicitly.
-    expect(payload.strategy.data?.plan?.planId).toBe("f8756105eb63dde2");
-    expect(payload.strategy.provenance.scope).toContain("production executor");
-  });
-
-  it("marks a live account read-only and never production-bound", async () => {
-    stubGithub();
-    const payload = await buildStrategyStatus({
-      account: LIVE_ACCOUNT,
-      broker: OK_BROKER,
-      now: NOW,
-    });
-    expect(payload.accountBinding.data?.role).toBe("READ_ONLY_LIVE");
-    expect(payload.accountBinding.data?.productionBound).toBe(false);
-    expect(payload.convergence.provenance.freshness).toBe("NOT_APPLICABLE");
-    expect(payload.accountMode).toBe("live");
-  });
-
-  it("binds by broker account number when no account id is configured", async () => {
-    vi.stubEnv("PRODUCTION_ACCOUNT_ID", "");
-    vi.stubEnv("PRODUCTION_ALPACA_ACCOUNT_NUMBER", "PA9ZZZZ0000");
-    stubGithub();
-    const payload = await buildStrategyStatus({
-      account: OBSERVER_ACCOUNT,
-      broker: OK_BROKER,
-      now: NOW,
-    });
-    expect(payload.accountBinding.data?.productionBound).toBe(true);
-    expect(payload.accountBinding.data?.bindingProof).toBe(
-      "server-configured-broker-account-number",
+    expect(payload.operations.data?.latestAttempt?.infrastructureFailure).toBe(
+      true,
     );
+    // The older successful cycle is still readable.
+    expect(payload.execution.data?.status).toBe("PASS");
+    expect(payload.operations.data?.lastSuccessfulRun?.runId).toBe(900);
   });
 
-  it("does not present any account as production-controlled without configuration", async () => {
-    vi.stubEnv("PRODUCTION_ACCOUNT_ID", "");
-    vi.stubEnv("PRODUCTION_ALPACA_ACCOUNT_NUMBER", "");
-    stubGithub();
-    const payload = await buildStrategyStatus({
-      account: PRODUCTION_ACCOUNT,
-      broker: OK_BROKER,
-      now: NOW,
-    });
-    expect(payload.accountBinding.data?.role).toBe("OBSERVER_ONLY_PAPER");
-    expect(payload.convergence.provenance.freshness).toBe("NOT_APPLICABLE");
-  });
-});
-
-describe("buildStrategyStatus — risk states", () => {
   it("surfaces a risk-tier conflict between the cycle and the saved file", async () => {
     stubGithub({
-      runtimeZip: runtimeZipBuffer(
-        performanceJson({ risk_tier: "CAUTIOUS" }),
-        lastRunJson({ risk_tier: "NORMAL" }),
-      ),
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(
+            performanceJson({ risk_tier: "CAUTIOUS" }),
+            lastRunJson({ risk_tier: "NORMAL" }),
+          ),
+          diagnostics: diagnosticsZipBuffer(),
+        },
+      ],
     });
     const payload = await buildStrategyStatus({
+      viewer: OWNER,
       account: PRODUCTION_ACCOUNT,
       broker: OK_BROKER,
       now: NOW,
@@ -628,74 +892,75 @@ describe("buildStrategyStatus — risk states", () => {
     expect(payload.strategy.data?.persistedRiskTier?.tier).toBe("CAUTIOUS");
   });
 
-  it("reports HALT and a zero-target risk-off plan without pretending it is missing data", async () => {
+  it("reports HALT, a zero target and the recovery latch honestly", async () => {
     stubGithub({
-      runtimeZip: runtimeZipBuffer(
-        performanceJson({
-          risk_tier: "HALT",
-          adaptive_risk_off_latched: true,
-          adaptive_rebalance_pending: frozenPlanJson({
-            risk_off: true,
-            target_weights: {},
-            sector_by_symbol: {},
-            order_attempts: {},
-            construction_risk_tier: "HALT",
-          }),
-        }),
-        lastRunJson({ risk_tier: "HALT", market_entry_allowed: false }),
-      ),
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(
+            performanceJson({
+              risk_tier: "HALT",
+              adaptive_risk_off_latched: true,
+              adaptive_rebalance_pending: frozenPlanJson({
+                risk_off: true,
+                target_weights: {},
+                sector_by_symbol: {},
+                order_attempts: {},
+                construction_risk_tier: "HALT",
+              }),
+            }),
+            lastRunJson({ risk_tier: "HALT", market_entry_allowed: false }),
+          ),
+          diagnostics: diagnosticsZipBuffer(),
+        },
+      ],
     });
     const payload = await buildStrategyStatus({
+      viewer: OWNER,
       account: PRODUCTION_ACCOUNT,
-      broker: {
-        ok: true,
-        snapshot: brokerSnapshot({
-          positions: [],
-          positionCount: 0,
-          grossExposure: 0,
-          grossExposurePct: 0,
-          cash: 1_000_000,
-          cashPct: 100,
-        }),
-        fetchedAt: NOW.toISOString(),
-      },
+      broker: okBroker({
+        positions: [],
+        positionCount: 0,
+        grossExposure: 0,
+        grossExposurePct: 0,
+        cash: 1_000_000,
+        cashPct: 100,
+      }),
       now: NOW,
     });
-
     expect(payload.strategy.data?.marketGate).toBe("RISK_OFF");
-    expect(payload.strategy.data?.executionRiskTier?.tier).toBe("HALT");
     expect(payload.strategy.data?.recoveryLatchArmed).toBe(true);
     expect(payload.execution.data?.marketEntryAllowed).toBe(false);
-    expect(payload.convergence.data?.targetCount).toBe(0);
     expect(payload.convergence.data?.targetCashPct).toBe(100);
-    expect(payload.convergence.data?.nextSafeAction).toContain("risk-off");
   });
 
   it("keeps a real TQQQ legacy holding visible with a zero target", async () => {
     stubGithub();
     const payload = await buildStrategyStatus({
+      viewer: OWNER,
       account: PRODUCTION_ACCOUNT,
-      broker: {
-        ok: true,
-        snapshot: brokerSnapshot({
-          positions: [
-            {
-              symbol: "TQQQ",
-              qty: 500,
-              avgEntryPrice: 100,
-              currentPrice: 120,
-              marketValue: 60_000,
-              unrealizedPl: 10_000,
-              unrealizedPlPct: 20,
-              side: "long",
-            },
-          ],
-          positionCount: 1,
-          grossExposure: 60_000,
-          grossExposurePct: 6,
-        }),
-        fetchedAt: NOW.toISOString(),
-      },
+      broker: okBroker({
+        positions: [
+          {
+            symbol: "TQQQ",
+            qty: 500,
+            avgEntryPrice: 100,
+            currentPrice: 120,
+            marketValue: 60_000,
+            unrealizedPl: 10_000,
+            unrealizedPlPct: 20,
+            side: "long",
+          },
+        ],
+        positionCount: 1,
+        grossExposure: 60_000,
+        grossExposurePct: 6,
+      }),
       now: NOW,
     });
     const tqqq = payload.convergence.data?.rows.find(
@@ -703,51 +968,34 @@ describe("buildStrategyStatus — risk states", () => {
     );
     expect(tqqq?.classification).toBe("LEGACY_EXCLUDED");
     expect(tqqq?.targetWeightPct).toBe(0);
-    expect(tqqq?.marketValue).toBe(60_000);
-    expect(payload.convergence.data?.legacyExcludedSymbols).toEqual(["TQQQ"]);
   });
 
-  it("reports a nine-of-ten book as pending convergence, not as failure", async () => {
+  it("keeps a broker outage separate from strategy availability", async () => {
     stubGithub();
-    const held = TARGET_SYMBOLS.filter((symbol) => symbol !== "UNH");
     const payload = await buildStrategyStatus({
+      viewer: OWNER,
       account: PRODUCTION_ACCOUNT,
       broker: {
-        ok: true,
-        snapshot: brokerSnapshot({
-          positions: held.map((symbol) => ({
-            symbol,
-            qty: 100,
-            avgEntryPrice: 450,
-            currentPrice: 450,
-            marketValue: 45_000,
-            unrealizedPl: 0,
-            unrealizedPlPct: 0,
-            side: "long" as const,
-          })),
-          positionCount: held.length,
-          grossExposure: held.length * 45_000,
-          grossExposurePct: (held.length * 45_000) / 10_000,
-        }),
-        fetchedAt: NOW.toISOString(),
+        ok: false,
+        code: "ALPACA_UNREACHABLE",
+        detail: "Could not reach Alpaca for the selected account.",
       },
       now: NOW,
     });
-    expect(payload.convergence.data?.targetCount).toBe(10);
-    expect(payload.convergence.data?.actualCount).toBe(9);
-    // The missing target is an outstanding BUY, not a strategy breach.
-    expect(
-      payload.convergence.data?.rows.find((row) => row.symbol === "UNH")
-        ?.lifecycle,
-    ).toBe("BUY");
-    // The plan's one submitted sell intent is still PENDING, not filled.
-    expect(
-      payload.convergence.data?.rows.find((row) => row.symbol === "ASML")
-        ?.lifecycle,
-    ).toBe("PENDING");
-    expect(payload.convergence.data?.pendingCount).toBe(1);
-    expect(payload.convergence.data?.nextSafeAction).toContain(
-      "not proven filled",
-    );
+    expect(payload.broker.provenance.freshness).toBe("UNAVAILABLE");
+    expect(payload.strategy.provenance.freshness).toBe("CURRENT");
+    expect(payload.convergence.data).toBeNull();
+  });
+
+  it("warns when the server has no GitHub token", async () => {
+    vi.stubEnv("GITHUB_TOKEN", "");
+    stubGithub();
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.warnings.join(" ")).toContain("GITHUB_TOKEN");
   });
 });

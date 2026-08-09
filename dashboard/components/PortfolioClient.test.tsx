@@ -64,9 +64,11 @@ function payloadWithBook(
       ...base.accountBinding.data!,
       role: bound ? "PRODUCTION_CONTROLLED_PAPER" : "OBSERVER_ONLY_PAPER",
       productionBound: bound,
-      bindingProof: bound ? "server-configured-account-id" : null,
+      bindingProof: bound
+        ? ("server-authorized-production-owner-and-account" as const)
+        : null,
       bindingDetail: bound
-        ? "Bound by the server-side PRODUCTION_ACCOUNT_ID configuration."
+        ? "Signed-in production owner and configured production account match."
         : "This paper account does not match the server-configured production executor account.",
     }),
     broker: section(base.broker.provenance, snapshot),

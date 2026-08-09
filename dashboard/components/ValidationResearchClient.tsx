@@ -39,6 +39,7 @@ export default function ValidationResearchClient() {
 
 function CanonicalPanel({ payload }: { payload: StrategyStatusPayload }) {
   const validation = payload.validation.data;
+  const gate = payload.validationGate;
   return (
     <Panel
       title="Canonical V11 validation"
@@ -48,15 +49,18 @@ function CanonicalPanel({ payload }: { payload: StrategyStatusPayload }) {
       {validation ? (
         <div className="grid gap-x-8 md:grid-cols-2">
           <FactList>
-            <Fact label="Assessment">
+            <Fact label="Stored report assessment">
               <span className="inline-flex items-center gap-2">
-                <StatePill size="xs" state={validation.status} />
+                <StatePill size="xs" state={gate.reportAssessment} />
                 {validation.checksPassed !== null && (
                   <span className="numeric">
                     {validation.checksPassed}/{validation.checksEvaluated} checks
                   </span>
                 )}
               </span>
+            </Fact>
+            <Fact label="Effective paper-buy gate">
+              <StatePill size="xs" state={gate.effective} />
             </Fact>
             <Fact label="Allowed mode">{validation.allowedMode ?? <Dash />}</Fact>
             <Fact label="Generated">
@@ -111,8 +115,19 @@ function CanonicalPanel({ payload }: { payload: StrategyStatusPayload }) {
           source={payload.validation.provenance.source}
         />
       )}
+      {gate.details.length > 0 && (
+        <ul className="mt-4 space-y-1 text-xs list-disc pl-5" style={{ color: "var(--accent-amber)" }}>
+          {gate.details.map((detail) => (
+            <li key={detail}>{detail}</li>
+          ))}
+        </ul>
+      )}
       <p className="mt-4 text-xs text-secondary max-w-prose">
-        A <strong>PASS</strong> authorizes forward <em>paper</em> validation of
+        The stored assessment is a historical conclusion. Only the{" "}
+        <strong>effective</strong> gate above may authorize a paper buy, and it
+        additionally requires unexpired evidence, a matching strategy identity
+        and ranking universe, and a known approved release. A{" "}
+        <strong>PASS</strong> authorizes forward <em>paper</em> validation of
         the unchanged code against this exact ranking universe. It does not
         authorize live money and is not a claim of future alpha. The report
         digest is tamper-evident, not a keyed authorization signature.

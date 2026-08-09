@@ -117,7 +117,7 @@ describe("systemIndicators", () => {
     ).toBe("FAIL");
   });
 
-  it("propagates an expired validation instead of its stored PASS", () => {
+  it("reports the effective gate, never the stored report assessment", () => {
     const base = buildPayload();
     const payload = buildPayload({
       validation: section(
@@ -130,10 +130,37 @@ describe("systemIndicators", () => {
         }),
         base.validation.data,
       ),
+      validationGate: {
+        effective: "FAIL",
+        // The historical report still says PASS; the shell must not.
+        reportAssessment: "PASS",
+        reasons: ["EXPIRED"],
+        details: [
+          "The evidence is past its 35-day freshness deadline and can no longer authorize a paper buy.",
+        ],
+        expiresAt: "2026-08-14T00:00:00Z",
+      },
+    });
+    const indicator = systemIndicators(payload).find(
+      (i) => i.key === "validation",
+    );
+    expect(indicator?.state).toBe("FAIL");
+    expect(indicator?.detail).toContain("35-day");
+  });
+
+  it("shows NOT_APPLICABLE for a viewer who may not see production evidence", () => {
+    const payload = buildPayload({
+      validationGate: {
+        effective: "NOT_APPLICABLE",
+        reportAssessment: "UNAVAILABLE",
+        reasons: [],
+        details: ["Not evaluated for a non-production viewer."],
+        expiresAt: null,
+      },
     });
     expect(
       systemIndicators(payload).find((i) => i.key === "validation")?.state,
-    ).toBe("EXPIRED");
+    ).toBe("NOT_APPLICABLE");
   });
 
   it("reports an unavailable runtime rather than a green default", () => {

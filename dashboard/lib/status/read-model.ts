@@ -4,7 +4,12 @@ import {
   LEGACY_DASHBOARD_ALLOWED,
   SUPABASE_CONFIGURED,
 } from "@/lib/supabase/config";
-import { readBindingConfig, resolveAccountBinding } from "./binding";
+import {
+  authorizeProductionRuntime,
+  readProductionAuthzConfig,
+  type ProductionAuthorization,
+} from "./authz";
+import { resolveAccountBinding } from "./binding";
 import type { BrokerResult } from "./broker";
 import { buildConvergence } from "./convergence";
 import {
@@ -22,10 +27,18 @@ import {
 } from "./github-api";
 import { executionFromLastRun, parseTournament, parseValidation } from "./parse";
 import { parseEpochBaseline, type V11EpochBaseline } from "./performance";
-import { loadRuntimeBundle, RUNTIME_ARTIFACT_PREFIX, type RuntimeBundle } from "./runtime";
+import {
+  RUNTIME_ARTIFACT_PREFIX,
+  selectLatestExecution,
+  selectLatestPreflight,
+  type ExecutionSelection,
+  type PreflightSelection,
+} from "./runtime";
 import type {
+  AuthorizationInfo,
   BrokerInfo,
   ConvergenceInfo,
+  EffectiveValidationGate,
   ExecutionInfo,
   OperationsInfo,
   PreflightInfo,
@@ -43,6 +56,10 @@ import {
   STRATEGY_STATUS_SOURCE,
 } from "./types";
 import {
+  computeEffectiveValidationGate,
+  NOT_APPLICABLE_GATE,
+} from "./validation-gate";
+import {
   classifyAge,
   DAY,
   HOUR,
@@ -59,6 +76,12 @@ export const PAPER_WORKFLOW = "paper-production.yml";
 export const RELEASE_WORKFLOW = "v11-release.yml";
 export const PAPER_ENVIRONMENT = "paper-production";
 export const EPOCH_BASELINE_PATH = "state/v11_epoch_baseline.json";
+export const VALIDATION_PATH = "state/backtest/v11_validation.json";
+export const TOURNAMENT_PATH = "state/backtest/strategy_tournament_epoch_1.json";
+
+const RUNTIME_SOURCE = "github-actions artifact paper-runtime-state (server-only)";
+const DIAGNOSTICS_SOURCE =
+  "github-actions artifact paper-diagnostics (server-only)";
 
 /** Freshness contracts, one per independently ageing source. */
 export const CONTRACTS = {
@@ -72,7 +95,19 @@ export interface StatusAccount {
   readonly id: string;
   readonly nickname: string;
   readonly mode: "paper" | "live";
-  readonly brokerAccountNumber: string | null;
+  /** Service-role read of `accounts.owner_id`; never client-supplied. */
+  readonly ownerId: string | null;
+}
+
+export interface StatusViewer {
+  readonly userId: string;
+}
+
+function ageSeconds(asOf: string | null, now: Date): number | null {
+  if (!asOf) return null;
+  const parsed = Date.parse(asOf);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.round((now.getTime() - parsed) / 1000);
 }
 
 function webInfo(): WebInfo {
@@ -97,6 +132,12 @@ export interface ApprovedRelease {
   readonly sha: string | null;
   readonly source: ReleaseInfo["approvedShaSource"];
   readonly detail: string | null;
+  /**
+   * True only for the two sources a human explicitly approved. A SHA derived
+   * from an artifact name is a display convenience and can never satisfy the
+   * effective validation gate.
+   */
+  readonly authoritative: boolean;
 }
 
 /**
@@ -113,8 +154,8 @@ export async function getApprovedReleaseSha(): Promise<ApprovedRelease> {
  * The authoritative source is the `paper-production` environment variable. A
  * server env override exists for deployments whose token cannot read
  * environment variables. As a last resort the SHA is *derived* from the
- * runtime artifact name and labelled as such, so the UI never presents a
- * guess as the authoritative approval.
+ * runtime artifact name and flagged non-authoritative, so the UI never
+ * presents a guess as an approval.
  */
 async function resolveApprovedSha(
   latestSuccessfulRun: WorkflowRunSummary | null,
@@ -129,6 +170,7 @@ async function resolveApprovedSha(
         sha: fromEnvironment.trim(),
         source: "github-environment-variable",
         detail: null,
+        authoritative: true,
       };
     }
   }
@@ -140,6 +182,7 @@ async function resolveApprovedSha(
       source: "server-environment",
       detail:
         "Read from the dashboard's own server configuration, not from the GitHub environment.",
+      authoritative: true,
     };
   }
 
@@ -154,12 +197,13 @@ async function resolveApprovedSha(
         sha: derived,
         source: "derived-from-runtime-artifact",
         detail:
-          "Derived from the runtime artifact name because the approved GitHub environment variable could not be read.",
+          "Derived from the runtime artifact name because the approved GitHub environment variable could not be read. This is not an approval and cannot satisfy the effective validation gate.",
+        authoritative: false,
       };
     }
   }
 
-  return { sha: null, source: null, detail: null };
+  return { sha: null, source: null, detail: null, authoritative: false };
 }
 
 function toAttempt(
@@ -190,7 +234,8 @@ function toAttempt(
   };
 }
 
-async function loadEpochBaseline(
+/** Load the persisted V11 forward-validation epoch baseline, if one exists. */
+export async function getEpochBaseline(
   approvedSha: string | null,
 ): Promise<V11EpochBaseline | null> {
   const inline = process.env.V11_EPOCH_BASELINE?.trim();
@@ -207,45 +252,42 @@ async function loadEpochBaseline(
   return document ? parseEpochBaseline(document) : null;
 }
 
-/** Load the persisted V11 forward-validation epoch baseline, if one exists. */
-export async function getEpochBaseline(
-  approvedSha: string | null,
-): Promise<V11EpochBaseline | null> {
-  return loadEpochBaseline(approvedSha);
-}
+/* ------------------------------------------------------------- sections */
 
-function buildStrategySection(
-  bundle: RuntimeBundle,
+function strategySection(
+  execution: ExecutionSelection,
   approvedSha: string | null,
   now: Date,
 ): Section<StrategyRuntimeInfo> {
   const scope = approvedSha
     ? `approved paper release ${approvedSha.slice(0, 12)} · production executor account`
     : "production executor account";
-  const source = "github-actions artifact paper-runtime-state (server-only)";
 
-  if (!bundle.performance || !bundle.lastRun) {
-    const detail =
-      bundle.errors[0] ??
-      "the private V11 runtime state could not be read safely";
+  // A lineage disagreement is fail-closed: no plan, no risk state, no numbers.
+  if (execution.lineageMismatch) {
     return unavailable<StrategyRuntimeInfo>(
-      source,
+      RUNTIME_SOURCE,
       scope,
-      detail,
-      bundle.lineageMismatch ? "MISMATCH" : "UNAVAILABLE",
+      execution.errors[0] ??
+        "the runtime artifact does not belong to the approved paper release",
+      "MISMATCH",
+    );
+  }
+  if (!execution.performance || !execution.lastRun) {
+    return unavailable<StrategyRuntimeInfo>(
+      RUNTIME_SOURCE,
+      scope,
+      execution.errors[0] ?? "the private V11 runtime state could not be read safely",
     );
   }
 
-  const performance = bundle.performance;
-  const lastRun = bundle.lastRun;
+  const { performance, lastRun } = execution;
   const plan = performance.plan;
 
   const executionRiskTier = lastRun.riskTier
     ? {
         tier: lastRun.riskTier,
-        reason:
-          bundle.preflight?.riskSnapshotReason ??
-          "captured from a fresh broker account and rolling-history snapshot",
+        reason: "captured from a fresh broker account and rolling-history snapshot",
         source: "production run record (authoritative for that cycle)",
         asOf: lastRun.completedAt,
       }
@@ -260,106 +302,115 @@ function buildStrategySection(
     : null;
 
   const asOf = lastRun.completedAt ?? performance.updatedAt;
-  const prov = provenance({
-    source,
-    scope,
-    asOf,
-    now,
-    freshness: bundle.lineageMismatch
-      ? "MISMATCH"
-      : classifyAge(
-          asOf === null ? null : Math.round((now.getTime() - Date.parse(asOf)) / 1000),
-          CONTRACTS.runtime,
-        ),
-    detail: bundle.errors.length > 0 ? bundle.errors.join("; ") : null,
-  });
-
-  return section(prov, {
-    strategyVersion: lastRun.strategyVersion,
-    paperOnly: true,
-    marketGate: plan ? (plan.riskOff ? "RISK_OFF" : "RISK_ON") : null,
-    marketGateSource: plan
-      ? "frozen V11 plan risk_off flag recorded by the runner at the signal close"
-      : null,
-    // The runner does not persist the SPY close, its SMA200 or the breadth
-    // census. Recomputing them in TypeScript would duplicate the strategy, so
-    // they stay explicitly unavailable until the runner exports them.
-    spyClose: null,
-    spySma200: null,
-    breadthPct: null,
-    breadthNumerator: null,
-    breadthDenominator: null,
-    breadthMultiplierPct: null,
-    recoveryLatchArmed: performance.recoveryLatchArmed,
-    rollingDrawdownPct: performance.rollingDrawdownPct,
-    rollingPeakEquity: performance.rollingPeakEquity,
-    riskLookbackSessions: performance.riskLookbackSessions,
-    executionRiskTier,
-    persistedRiskTier,
-    riskTierConflict:
-      executionRiskTier !== null &&
-      persistedRiskTier !== null &&
-      executionRiskTier.tier !== persistedRiskTier.tier,
-    plan,
-    runtimeEquity: performance.equity,
-    runtimeCash: performance.cash,
-    runtimePositionCount: performance.numPositions,
-    runtimeSnapshotAt: performance.updatedAt,
-  });
+  return section(
+    provenance({
+      source: RUNTIME_SOURCE,
+      scope: execution.run
+        ? `${scope} · run #${execution.run.runNumber}`
+        : scope,
+      asOf,
+      now,
+      freshness: classifyAge(ageSeconds(asOf, now), CONTRACTS.runtime),
+      detail: execution.errors.length > 0 ? execution.errors.join("; ") : null,
+    }),
+    {
+      strategyVersion: lastRun.strategyVersion,
+      paperOnly: true,
+      marketGate: plan ? (plan.riskOff ? "RISK_OFF" : "RISK_ON") : null,
+      marketGateSource: plan
+        ? "frozen V11 plan risk_off flag recorded by the runner at the signal close"
+        : null,
+      // The runner does not persist the SPY close, its SMA200 or the breadth
+      // census. Recomputing them here would duplicate the strategy.
+      spyClose: null,
+      spySma200: null,
+      breadthPct: null,
+      breadthNumerator: null,
+      breadthDenominator: null,
+      breadthMultiplierPct: null,
+      recoveryLatchArmed: performance.recoveryLatchArmed,
+      rollingDrawdownPct: performance.rollingDrawdownPct,
+      rollingPeakEquity: performance.rollingPeakEquity,
+      riskLookbackSessions: performance.riskLookbackSessions,
+      executionRiskTier,
+      persistedRiskTier,
+      riskTierConflict:
+        executionRiskTier !== null &&
+        persistedRiskTier !== null &&
+        executionRiskTier.tier !== persistedRiskTier.tier,
+      plan,
+      runtimeEquity: performance.equity,
+      runtimeCash: performance.cash,
+      runtimePositionCount: performance.numPositions,
+      runtimeSnapshotAt: performance.updatedAt,
+    },
+  );
 }
 
-function buildUniverseSection(
-  bundle: RuntimeBundle,
+function universeSection(
+  execution: ExecutionSelection,
+  preflight: PreflightSelection,
   now: Date,
 ): Section<UniverseInfo> {
-  const preflight = bundle.preflight;
-  const plan = bundle.performance?.plan ?? null;
-  if (!preflight && !plan) {
+  const scope = "ranking universe used by the production executor";
+  const source = "production preflight report + frozen V11 plan";
+
+  if (execution.lineageMismatch || preflight.lineageMismatch) {
     return unavailable<UniverseInfo>(
-      "github-actions artifact paper-diagnostics (server-only)",
-      "ranking universe resolved by the production runner",
+      source,
+      scope,
+      "the ranking universe cannot be attributed while release lineage disagrees",
+      "MISMATCH",
+    );
+  }
+
+  const report = preflight.preflight;
+  const plan = execution.performance?.plan ?? null;
+  if (!report && !plan) {
+    return unavailable<UniverseInfo>(
+      source,
+      scope,
       "no preflight report or frozen plan is available",
     );
   }
 
-  const asOf = preflight?.checkedAt ?? plan?.createdAt ?? null;
+  const hashMismatch = Boolean(
+    report?.universeSha256 &&
+      plan?.rankingUniverseSha256 &&
+      report.universeSha256 !== plan.rankingUniverseSha256,
+  );
+  if (hashMismatch) {
+    return unavailable<UniverseInfo>(
+      source,
+      scope,
+      "the preflight ranking-universe hash differs from the frozen plan's hash",
+      "MISMATCH",
+    );
+  }
+
+  const asOf = report?.checkedAt ?? plan?.createdAt ?? null;
   const cacheState =
-    preflight?.universeSource === "alpaca-cache"
+    report?.universeSource === "alpaca-cache"
       ? ("alpaca-cache" as const)
-      : preflight?.universeSource === "validated-watchlist-fallback"
+      : report?.universeSource === "validated-watchlist-fallback"
         ? ("validated-watchlist-fallback" as const)
         : null;
 
-  const hashMismatch =
-    preflight?.universeSha256 &&
-    plan?.rankingUniverseSha256 &&
-    preflight.universeSha256 !== plan.rankingUniverseSha256;
-
   return section(
     provenance({
-      source: "production preflight report + frozen V11 plan",
-      scope: "ranking universe used by the production executor",
+      source,
+      scope,
       asOf,
       now,
-      freshness: hashMismatch
-        ? "MISMATCH"
-        : classifyAge(
-            asOf === null
-              ? null
-              : Math.round((now.getTime() - Date.parse(asOf)) / 1000),
-            CONTRACTS.runtime,
-          ),
-      detail: hashMismatch
-        ? "the preflight ranking-universe hash differs from the frozen plan's hash"
-        : null,
+      freshness: classifyAge(ageSeconds(asOf, now), CONTRACTS.runtime),
+      detail: null,
     }),
     {
       source:
-        preflight?.universeSource ??
-        "unknown (recorded only in the preflight report)",
-      symbolCount: preflight?.universeCount ?? null,
+        report?.universeSource ?? "unknown (recorded only in the preflight report)",
+      symbolCount: report?.universeCount ?? null,
       rankingUniverseSha256:
-        plan?.rankingUniverseSha256 ?? preflight?.universeSha256 ?? null,
+        plan?.rankingUniverseSha256 ?? report?.universeSha256 ?? null,
       eligibleCount: plan?.eligibleCount ?? null,
       selectedCount: plan?.targets.length ?? null,
       cacheState,
@@ -367,14 +418,16 @@ function buildUniverseSection(
   );
 }
 
-function buildValidationSection(
+function validationSection(
   report: Omit<
     ValidationInfo,
     "identityMatchesRuntime" | "universeMatchesRuntime"
   > | null,
-  bundle: RuntimeBundle,
+  execution: ExecutionSelection,
+  preflight: PreflightSelection,
   ref: string,
   now: Date,
+  authorized: boolean,
 ): Section<ValidationInfo> {
   const source = "repository state/backtest/v11_validation.json";
   const scope = `canonical fixed-strategy promotion evidence · read at ${ref.slice(0, 12)}`;
@@ -386,14 +439,18 @@ function buildValidationSection(
     );
   }
 
-  const runtimeIdentity =
-    bundle.performance?.plan?.strategyIdentityValue ??
-    bundle.preflight?.strategyIdentity ??
-    null;
-  const runtimeUniverse =
-    bundle.performance?.plan?.rankingUniverseSha256 ??
-    bundle.preflight?.universeSha256 ??
-    null;
+  // Identity/universe matching is only meaningful against a runtime the viewer
+  // is allowed to see. Otherwise both stay explicitly unknown.
+  const runtimeIdentity = authorized
+    ? (execution.performance?.plan?.strategyIdentityValue ??
+      preflight.preflight?.strategyIdentity ??
+      null)
+    : null;
+  const runtimeUniverse = authorized
+    ? (execution.performance?.plan?.rankingUniverseSha256 ??
+      preflight.preflight?.universeSha256 ??
+      null)
+    : null;
 
   const identityMatchesRuntime: CheckState =
     runtimeIdentity === null || report.strategyIdentityValue === null
@@ -414,7 +471,6 @@ function buildValidationSection(
     Number.isFinite(expiresAtMs) &&
     !expired &&
     expiresAtMs - now.getTime() < 7 * DAY * 1000;
-
   const mismatch =
     identityMatchesRuntime === "FAIL" || universeMatchesRuntime === "FAIL";
 
@@ -443,8 +499,11 @@ function buildValidationSection(
   );
 }
 
-/** Assemble the complete, sanitized read model for one selected account. */
+/* ------------------------------------------------------------- assembly */
+
+/** Assemble the complete, sanitized read model for one viewer and account. */
 export async function buildStrategyStatus(input: {
+  viewer: StatusViewer;
   account: StatusAccount;
   broker: BrokerResult;
   now?: Date;
@@ -452,8 +511,9 @@ export async function buildStrategyStatus(input: {
   const now = input.now ?? new Date();
   const collectedAt = now.toISOString();
   const warnings: string[] = [];
+  const web = webInfo();
 
-  const web = section(
+  const webSection = section(
     provenance({
       source: "dashboard runtime configuration",
       scope: "this web deployment",
@@ -461,91 +521,46 @@ export async function buildStrategyStatus(input: {
       now,
       freshness: "CURRENT",
     }),
-    webInfo(),
+    web,
   );
 
-  if (!githubReadConfigured()) {
-    warnings.push(
-      "GITHUB_TOKEN is not configured on the dashboard server, so release, workflow, runtime and validation evidence cannot be read.",
-    );
-  }
+  // ---- authorization decides everything below, before any Actions call ----
+  const authorization: ProductionAuthorization = authorizeProductionRuntime({
+    viewerUserId: input.viewer.userId,
+    accountId: input.account.id,
+    accountOwnerId: input.account.ownerId,
+    mode: input.account.mode,
+    liveBrokerAccountNumber: input.broker.ok ? input.broker.accountNumber : null,
+    config: readProductionAuthzConfig(),
+  });
+  const authorized = authorization.authorized;
 
-  const [paperRuns, repositoryCommit] = await Promise.all([
-    fetchWorkflowRuns(PAPER_WORKFLOW, { perPage: 20 }),
-    fetchRefCommit(GITHUB_STATE_REF),
-  ]);
-
-  const latestRun = paperRuns?.[0] ?? null;
-  const latestSuccessfulRun =
-    paperRuns?.find((run) => run.conclusion === "success") ?? null;
-
-  const approved = await resolveApprovedSha(latestSuccessfulRun);
-  const approvedSha = approved.sha;
-
-  const [releaseGateRuns, bundle, latestJobs] = await Promise.all([
-    approvedSha
-      ? fetchWorkflowRuns(RELEASE_WORKFLOW, { perPage: 10, headSha: approvedSha })
-      : Promise.resolve(null),
-    loadRuntimeBundle(approvedSha, latestSuccessfulRun),
-    latestRun ? fetchRunJobs(latestRun.id) : Promise.resolve(null),
-  ]);
-
-  const gateRun = releaseGateRuns?.find((run) => run.conclusion === "success") ?? null;
-  const releaseGate: CheckState = !approvedSha
-    ? "UNAVAILABLE"
-    : releaseGateRuns === null
-      ? "UNAVAILABLE"
-      : gateRun
-        ? "PASS"
-        : releaseGateRuns.some((run) => run.status !== "completed")
-          ? "PENDING"
-          : "FAIL";
-
-  const buildSha = webInfo().dashboardBuildSha;
-  const release = section(
+  const authorizationSection = section(
     provenance({
-      source:
-        approved.source === "github-environment-variable"
-          ? "GitHub paper-production environment variable"
-          : approved.source === "server-environment"
-            ? "dashboard server environment"
-            : approved.source === "derived-from-runtime-artifact"
-              ? "runtime artifact name"
-              : "GitHub API",
-      scope: "approved paper release and repository reference",
-      asOf: gateRun?.updatedAt ?? repositoryCommit?.committedAt ?? collectedAt,
+      source: "dashboard server authorization configuration",
+      scope: `viewer ${input.viewer.userId.slice(0, 8)}… · account ${input.account.nickname}`,
+      asOf: collectedAt,
       now,
-      freshness: approvedSha ? "CURRENT" : "UNAVAILABLE",
-      detail:
-        approved.detail ??
-        (approvedSha ? null : "the approved paper release SHA could not be read"),
+      freshness: authorized ? "CURRENT" : "NOT_APPLICABLE",
+      detail: authorization.detail,
     }),
-    approvedSha || repositoryCommit
-      ? ({
-          repositoryRefSha: repositoryCommit?.sha ?? null,
-          repositoryRef: GITHUB_STATE_REF,
-          repositoryRefCommittedAt: repositoryCommit?.committedAt ?? null,
-          approvedPaperReleaseSha: approvedSha,
-          approvedShaSource: approved.source,
-          releaseGate,
-          releaseGateRunUrl: gateRun?.url ?? null,
-          releaseGateCompletedAt: gateRun?.updatedAt ?? null,
-          dashboardMatchesApprovedRelease:
-            buildSha && approvedSha ? buildSha === approvedSha : null,
-        } satisfies ReleaseInfo)
-      : null,
+    {
+      productionRuntimeAuthorized: authorized,
+      denialReason: authorization.reason,
+      detail: authorization.detail,
+    } satisfies AuthorizationInfo,
   );
 
   const binding = resolveAccountBinding({
     accountId: input.account.id,
     nickname: input.account.nickname,
     mode: input.account.mode,
-    brokerAccountNumber: input.account.brokerAccountNumber,
-    config: readBindingConfig(),
+    liveBrokerAccountNumber: input.broker.ok ? input.broker.accountNumber : null,
+    authorization,
   });
   const accountBinding = section(
     provenance({
-      source: "dashboard server binding configuration + Supabase account record",
+      source: "dashboard server authorization + fresh Alpaca account read",
       scope: `selected account ${input.account.nickname}`,
       asOf: collectedAt,
       now,
@@ -573,107 +588,276 @@ export async function buildStrategyStatus(input: {
         input.broker.detail,
       );
 
-  const strategy = buildStrategySection(bundle, approvedSha, now);
-  const universe = buildUniverseSection(bundle, now);
+  if (authorized && !githubReadConfigured()) {
+    warnings.push(
+      "GITHUB_TOKEN is not configured on the dashboard server, so release, workflow, runtime and validation evidence cannot be read.",
+    );
+  }
 
-  const validationRef = approvedSha ?? GITHUB_STATE_REF;
+  // Repository metadata is public and viewer-independent.
+  const repositoryCommit = await fetchRefCommit(GITHUB_STATE_REF);
+
+  const notAuthorizedDetail = authorization.detail;
+  const withheld = <T,>(source: string, scope: string): Section<T> =>
+    unavailable<T>(source, scope, notAuthorizedDetail, "NOT_APPLICABLE");
+
+  let approved: ApprovedRelease = {
+    sha: null,
+    source: null,
+    detail: null,
+    authoritative: false,
+  };
+  let paperRuns: WorkflowRunSummary[] | null = null;
+  let latestRun: WorkflowRunSummary | null = null;
+  let latestJobs: { stepCount: number }[] | null = null;
+  let executionSelection: ExecutionSelection = {
+    performance: null,
+    lastRun: null,
+    run: null,
+    artifactName: null,
+    artifactCreatedAt: null,
+    errors: [],
+    lineageMismatch: false,
+  };
+  let preflightSelection: PreflightSelection = {
+    preflight: null,
+    run: null,
+    artifactCreatedAt: null,
+    errors: [],
+    lineageMismatch: false,
+  };
+  let releaseGate: CheckState = "NOT_APPLICABLE";
+  let gateRun: WorkflowRunSummary | null = null;
+
+  if (authorized) {
+    paperRuns = await fetchWorkflowRuns(PAPER_WORKFLOW, { perPage: 20 });
+    latestRun = paperRuns?.[0] ?? null;
+    const latestSuccessfulRun =
+      paperRuns?.find((run) => run.conclusion === "success") ?? null;
+
+    approved = await resolveApprovedSha(latestSuccessfulRun);
+
+    // Independent selection: a manual preflight-only run must not hide an
+    // older, still-valid execution, and vice versa.
+    executionSelection = await selectLatestExecution(approved.sha, paperRuns ?? []);
+    preflightSelection = await selectLatestPreflight(
+      paperRuns ?? [],
+      executionSelection.performance?.plan?.strategyIdentityValue ?? null,
+    );
+    latestJobs = latestRun ? await fetchRunJobs(latestRun.id) : null;
+
+    // A release gate is only a gate when a *push* run for the exact approved
+    // commit completed successfully. A pull-request or manual dispatch success
+    // never authorizes a release.
+    if (approved.sha) {
+      const gateRuns = await fetchWorkflowRuns(RELEASE_WORKFLOW, {
+        perPage: 20,
+        headSha: approved.sha,
+        event: "push",
+      });
+      if (gateRuns === null) {
+        releaseGate = "UNAVAILABLE";
+      } else {
+        const pushRuns = gateRuns.filter(
+          (run) => run.event === "push" && run.headSha === approved.sha,
+        );
+        gateRun =
+          pushRuns.find(
+            (run) => run.status === "completed" && run.conclusion === "success",
+          ) ?? null;
+        releaseGate = gateRun
+          ? "PASS"
+          : pushRuns.some((run) => run.status !== "completed")
+            ? "PENDING"
+            : "FAIL";
+      }
+    } else {
+      releaseGate = "UNAVAILABLE";
+    }
+  }
+
+  const release = section(
+    provenance({
+      source: authorized
+        ? approved.source === "github-environment-variable"
+          ? "GitHub paper-production environment variable"
+          : approved.source === "server-environment"
+            ? "dashboard server environment"
+            : approved.source === "derived-from-runtime-artifact"
+              ? "runtime artifact name"
+              : "GitHub API"
+        : "GitHub repository metadata",
+      scope: "approved paper release and repository reference",
+      asOf: gateRun?.updatedAt ?? repositoryCommit?.committedAt ?? collectedAt,
+      now,
+      freshness: authorized
+        ? approved.sha
+          ? "CURRENT"
+          : "UNAVAILABLE"
+        : "NOT_APPLICABLE",
+      detail: authorized
+        ? (approved.detail ??
+          (approved.sha ? null : "the approved paper release SHA could not be read"))
+        : notAuthorizedDetail,
+    }),
+    {
+      repositoryRefSha: repositoryCommit?.sha ?? null,
+      repositoryRef: GITHUB_STATE_REF,
+      repositoryRefCommittedAt: repositoryCommit?.committedAt ?? null,
+      approvedPaperReleaseSha: approved.sha,
+      approvedShaSource: approved.source,
+      releaseGate,
+      releaseGateRunUrl: gateRun?.url ?? null,
+      releaseGateCompletedAt: gateRun?.updatedAt ?? null,
+      dashboardMatchesApprovedRelease:
+        web.dashboardBuildSha && approved.sha
+          ? web.dashboardBuildSha === approved.sha
+          : null,
+    } satisfies ReleaseInfo,
+  );
+
+  const strategy = authorized
+    ? strategySection(executionSelection, approved.sha, now)
+    : withheld<StrategyRuntimeInfo>(RUNTIME_SOURCE, "production executor account");
+
+  const universe = authorized
+    ? universeSection(executionSelection, preflightSelection, now)
+    : withheld<UniverseInfo>(
+        "production preflight report + frozen V11 plan",
+        "ranking universe used by the production executor",
+      );
+
+  const validationRef = authorized
+    ? (approved.sha ?? GITHUB_STATE_REF)
+    : GITHUB_STATE_REF;
   const validationDocument = await fetchRepoJson<unknown>(
-    "state/backtest/v11_validation.json",
+    VALIDATION_PATH,
     validationRef,
     600,
   );
-  const validation = buildValidationSection(
+  const validation = validationSection(
     validationDocument ? parseValidation(validationDocument, validationRef) : null,
-    bundle,
+    executionSelection,
+    preflightSelection,
     validationRef,
     now,
+    authorized,
   );
 
-  const preflight: Section<PreflightInfo> = bundle.preflight
-    ? section(
-        provenance({
-          source: "github-actions artifact paper-diagnostics (server-only)",
-          scope: "last successful production preflight",
-          asOf: bundle.preflight.checkedAt,
-          now,
-          freshness: classifyAge(
-            bundle.preflight.checkedAt === null
-              ? null
-              : Math.round(
-                  (now.getTime() - Date.parse(bundle.preflight.checkedAt)) / 1000,
-                ),
-            CONTRACTS.runtime,
-          ),
-          detail: null,
-        }),
-        bundle.preflight,
-      )
-    : unavailable<PreflightInfo>(
-        "github-actions artifact paper-diagnostics (server-only)",
+  const validationGate: EffectiveValidationGate = authorized
+    ? computeEffectiveValidationGate({
+        report: validation.data,
+        approvedReleaseSha: approved.sha,
+        approvedReleaseAuthoritative: approved.authoritative,
+        now,
+      })
+    : NOT_APPLICABLE_GATE;
+
+  const preflight: Section<PreflightInfo> = !authorized
+    ? withheld<PreflightInfo>(
+        DIAGNOSTICS_SOURCE,
         "last successful production preflight",
-        bundle.errors.find((error) => error.includes("preflight")) ??
-          "no preflight report is available",
-      );
-
-  const execution: Section<ExecutionInfo> = bundle.lastRun
-    ? section(
-        provenance({
-          source: "github-actions artifact paper-runtime-state (server-only)",
-          scope: `last successful executor cycle · release ${(approvedSha ?? "").slice(0, 12)}`,
-          asOf: bundle.lastRun.completedAt,
-          now,
-          freshness: classifyAge(
-            bundle.lastRun.completedAt === null
-              ? null
-              : Math.round(
-                  (now.getTime() - Date.parse(bundle.lastRun.completedAt)) / 1000,
-                ),
-            CONTRACTS.runtime,
-          ),
-          detail: null,
-        }),
-        executionFromLastRun(
-          bundle.lastRun,
-          latestSuccessfulRun ? actionsRunUrl(latestSuccessfulRun.id) : null,
-        ),
       )
-    : unavailable<ExecutionInfo>(
-        "github-actions artifact paper-runtime-state (server-only)",
-        "last successful executor cycle",
-        bundle.errors[0] ?? "no executor run record is available",
-      );
+    : preflightSelection.lineageMismatch
+      ? unavailable<PreflightInfo>(
+          DIAGNOSTICS_SOURCE,
+          "last successful production preflight",
+          preflightSelection.errors[0] ??
+            "the preflight report does not match the running strategy identity",
+          "MISMATCH",
+        )
+      : preflightSelection.preflight
+        ? section(
+            provenance({
+              source: DIAGNOSTICS_SOURCE,
+              scope: preflightSelection.run
+                ? `last successful preflight · run #${preflightSelection.run.runNumber} (${preflightSelection.run.event})`
+                : "last successful production preflight",
+              asOf: preflightSelection.preflight.checkedAt,
+              now,
+              freshness: classifyAge(
+                ageSeconds(preflightSelection.preflight.checkedAt, now),
+                CONTRACTS.runtime,
+              ),
+              detail: null,
+            }),
+            preflightSelection.preflight,
+          )
+        : unavailable<PreflightInfo>(
+            DIAGNOSTICS_SOURCE,
+            "last successful production preflight",
+            preflightSelection.errors[0] ?? "no preflight report is available",
+          );
 
-  const operations: Section<OperationsInfo> = paperRuns
-    ? section(
-        provenance({
-          source: "GitHub Actions workflow runs",
-          scope: PAPER_WORKFLOW,
-          asOf: latestRun?.updatedAt ?? latestRun?.createdAt ?? null,
-          now,
-          freshness: classifyAge(
-            latestRun?.updatedAt
-              ? Math.round((now.getTime() - Date.parse(latestRun.updatedAt)) / 1000)
+  const execution: Section<ExecutionInfo> = !authorized
+    ? withheld<ExecutionInfo>(RUNTIME_SOURCE, "last successful executor cycle")
+    : executionSelection.lineageMismatch
+      ? unavailable<ExecutionInfo>(
+          RUNTIME_SOURCE,
+          "last successful executor cycle",
+          executionSelection.errors[0] ??
+            "the executor record does not belong to the approved paper release",
+          "MISMATCH",
+        )
+      : executionSelection.lastRun
+        ? section(
+            provenance({
+              source: RUNTIME_SOURCE,
+              scope: executionSelection.run
+                ? `last successful executor cycle · run #${executionSelection.run.runNumber} · release ${(approved.sha ?? "").slice(0, 12)}`
+                : "last successful executor cycle",
+              asOf: executionSelection.lastRun.completedAt,
+              now,
+              freshness: classifyAge(
+                ageSeconds(executionSelection.lastRun.completedAt, now),
+                CONTRACTS.runtime,
+              ),
+              detail: null,
+            }),
+            executionFromLastRun(
+              executionSelection.lastRun,
+              executionSelection.run
+                ? actionsRunUrl(executionSelection.run.id)
+                : null,
+            ),
+          )
+        : unavailable<ExecutionInfo>(
+            RUNTIME_SOURCE,
+            "last successful executor cycle",
+            executionSelection.errors[0] ?? "no executor run record is available",
+          );
+
+  const operations: Section<OperationsInfo> = !authorized
+    ? withheld<OperationsInfo>("GitHub Actions workflow runs", PAPER_WORKFLOW)
+    : paperRuns
+      ? section(
+          provenance({
+            source: "GitHub Actions workflow runs",
+            scope: PAPER_WORKFLOW,
+            asOf: latestRun?.updatedAt ?? latestRun?.createdAt ?? null,
+            now,
+            freshness: classifyAge(
+              ageSeconds(latestRun?.updatedAt ?? null, now),
+              CONTRACTS.workflow,
+            ),
+            detail: null,
+          }),
+          {
+            latestAttempt: latestRun ? toAttempt(latestRun, latestJobs) : null,
+            lastSuccessfulRun: executionSelection.run
+              ? toAttempt(executionSelection.run, null)
               : null,
-            CONTRACTS.workflow,
-          ),
-          detail: null,
-        }),
-        {
-          latestAttempt: latestRun ? toAttempt(latestRun, latestJobs) : null,
-          lastSuccessfulRun: latestSuccessfulRun
-            ? toAttempt(latestSuccessfulRun, null)
-            : null,
-          workflowUrl: workflowUrl(PAPER_WORKFLOW),
-        } satisfies OperationsInfo,
-      )
-    : unavailable<OperationsInfo>(
-        "GitHub Actions workflow runs",
-        PAPER_WORKFLOW,
-        "the workflow run history could not be read",
-      );
+            workflowUrl: workflowUrl(PAPER_WORKFLOW),
+          } satisfies OperationsInfo,
+        )
+      : unavailable<OperationsInfo>(
+          "GitHub Actions workflow runs",
+          PAPER_WORKFLOW,
+          "the workflow run history could not be read",
+        );
 
   const tournamentDocument = await fetchRepoJson<unknown>(
-    "state/backtest/strategy_tournament_epoch_1.json",
+    TOURNAMENT_PATH,
     GITHUB_STATE_REF,
     900,
   );
@@ -699,43 +883,43 @@ export async function buildStrategyStatus(input: {
         "the tournament evidence could not be read or failed schema validation",
       );
 
-  // Convergence compares the *production* plan with *this account's* holdings.
-  // That is only meaningful for an account proven to be the executor's.
   const convergenceScope = `frozen plan vs ${input.account.nickname}`;
-  const convergence = !binding.productionBound
-    ? unavailable<ConvergenceInfo>(
-        "frozen V11 plan + broker snapshot",
-        convergenceScope,
-        "this account is not proven to be the production executor account, so V11 target compliance does not apply to it",
-        "NOT_APPLICABLE",
-      )
-    : strategy.data?.plan && input.broker.ok
-      ? section<ConvergenceInfo>(
-          provenance({
-            source: "frozen V11 plan (runtime artifact) + fresh broker snapshot",
-            scope: convergenceScope,
-            asOf: input.broker.fetchedAt,
-            now,
-            freshness:
-              strategy.provenance.freshness === "CURRENT" ? "CURRENT" : "STALE",
-            detail:
-              strategy.provenance.freshness === "CURRENT"
-                ? null
-                : "the broker snapshot is fresh but the frozen plan is older than its contract",
-          }),
-          buildConvergence(strategy.data.plan, input.broker.snapshot),
-        )
-      : unavailable<ConvergenceInfo>(
+  const convergence: Section<ConvergenceInfo> = !authorized
+    ? withheld<ConvergenceInfo>("frozen V11 plan + broker snapshot", convergenceScope)
+    : executionSelection.lineageMismatch
+      ? unavailable<ConvergenceInfo>(
           "frozen V11 plan + broker snapshot",
           convergenceScope,
-          !input.broker.ok
-            ? input.broker.detail
-            : "no frozen V11 plan is available from the private runtime artifact",
-        );
+          "convergence is not computed while release lineage disagrees",
+          "MISMATCH",
+        )
+      : strategy.data?.plan && input.broker.ok
+        ? section<ConvergenceInfo>(
+            provenance({
+              source: "frozen V11 plan (runtime artifact) + fresh broker snapshot",
+              scope: convergenceScope,
+              asOf: input.broker.fetchedAt,
+              now,
+              freshness:
+                strategy.provenance.freshness === "CURRENT" ? "CURRENT" : "STALE",
+              detail:
+                strategy.provenance.freshness === "CURRENT"
+                  ? null
+                  : "the broker snapshot is fresh but the frozen plan is older than its contract",
+            }),
+            buildConvergence(strategy.data.plan, input.broker.snapshot),
+          )
+        : unavailable<ConvergenceInfo>(
+            "frozen V11 plan + broker snapshot",
+            convergenceScope,
+            !input.broker.ok
+              ? input.broker.detail
+              : "no frozen V11 plan is available from the private runtime artifact",
+          );
 
-  if (bundle.lineageMismatch) {
+  if (executionSelection.lineageMismatch || preflightSelection.lineageMismatch) {
     warnings.push(
-      "A runtime artifact was found but its release lineage does not match the approved paper release. Strategy runtime data is withheld.",
+      "A runtime artifact was found but its release or strategy lineage does not match the approved paper release. All affected data is withheld.",
     );
   }
   if (
@@ -754,8 +938,9 @@ export async function buildStrategyStatus(input: {
     accountId: input.account.id,
     accountNickname: input.account.nickname,
     accountMode: input.account.mode,
-    web,
+    web: webSection,
     release,
+    authorization: authorizationSection,
     accountBinding,
     broker,
     strategy,
@@ -766,6 +951,7 @@ export async function buildStrategyStatus(input: {
     operations,
     tournament,
     convergence,
+    validationGate,
     warnings,
   };
 }

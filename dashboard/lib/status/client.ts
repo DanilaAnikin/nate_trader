@@ -39,6 +39,7 @@ function isSectionLike(value: unknown): boolean {
 const REQUIRED_SECTIONS = [
   "web",
   "release",
+  "authorization",
   "accountBinding",
   "broker",
   "strategy",
@@ -69,6 +70,16 @@ export function isStrategyStatusPayload(
     return false;
   }
   if (!Array.isArray(payload.warnings)) return false;
+  const gate = payload.validationGate as Record<string, unknown> | undefined;
+  if (
+    typeof gate !== "object" ||
+    gate === null ||
+    typeof gate.effective !== "string" ||
+    typeof gate.reportAssessment !== "string" ||
+    !Array.isArray(gate.reasons)
+  ) {
+    return false;
+  }
   return REQUIRED_SECTIONS.every((key) => isSectionLike(payload[key]));
 }
 
@@ -105,11 +116,10 @@ export function systemIndicators(
         ? `attempt #${latest.runNumber} failed in GitHub infrastructure before any step ran; no strategy, preflight or broker work happened`
         : `attempt #${latest.runNumber} failed after the job started`;
 
-  const validationState: SystemIndicator["state"] =
-    payload.validation.provenance.freshness === "CURRENT" &&
-    payload.validation.data
-      ? payload.validation.data.status
-      : payload.validation.provenance.freshness;
+  // The shell reports the *effective* gate, never the stored report
+  // assessment: an expired or mismatched PASS must not look green anywhere.
+  const validationState: SystemIndicator["state"] = payload.validationGate
+    .effective;
 
   return [
     {
@@ -164,7 +174,9 @@ export function systemIndicators(
       scope: payload.validation.provenance.scope,
       asOf: payload.validation.provenance.asOf,
       ageSeconds: payload.validation.provenance.ageSeconds,
-      detail: payload.validation.provenance.detail,
+      detail:
+        payload.validationGate.details[0] ??
+        payload.validation.provenance.detail,
     },
   ];
 }

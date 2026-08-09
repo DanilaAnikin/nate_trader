@@ -67,8 +67,9 @@ export function buildPayload(
         mode: "paper" as const,
         role: "PRODUCTION_CONTROLLED_PAPER" as const,
         productionBound: true,
-        bindingProof: "server-configured-account-id" as const,
-        bindingDetail: "Bound by the server-side PRODUCTION_ACCOUNT_ID configuration.",
+        bindingProof: "server-authorized-production-owner-and-account" as const,
+        bindingDetail:
+          "Signed-in production owner, configured production account, paper mode and account ownership all match.",
         brokerAccountMask: "••••1234",
       },
       NOW.toISOString(),
@@ -257,11 +258,29 @@ export function buildPayload(
       },
       "2026-08-03T15:00:00Z",
     ),
+    authorization: fresh(
+      "dashboard server authorization configuration",
+      "viewer 00000000… · account Paper prod",
+      {
+        productionRuntimeAuthorized: true,
+        denialReason: null,
+        detail:
+          "Signed-in production owner, configured production account, paper mode and account ownership all match.",
+      },
+      NOW.toISOString(),
+    ),
     convergence: unavailable(
       "frozen V11 plan + broker snapshot",
       "frozen plan vs Paper prod",
       "no frozen V11 plan is available from the private runtime artifact",
     ),
+    validationGate: {
+      effective: "PASS" as const,
+      reportAssessment: "PASS" as const,
+      reasons: [],
+      details: [],
+      expiresAt: "2026-08-14T00:00:00Z",
+    },
     warnings: [],
     ...overrides,
   };

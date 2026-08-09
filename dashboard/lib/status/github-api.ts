@@ -199,11 +199,17 @@ function toRunSummary(run: RawWorkflowRun): WorkflowRunSummary | null {
 /** Recent runs of one workflow file, newest first. */
 export async function fetchWorkflowRuns(
   workflowFile: string,
-  options: { perPage?: number; headSha?: string; ttlSeconds?: number } = {},
+  options: {
+    perPage?: number;
+    headSha?: string;
+    event?: string;
+    ttlSeconds?: number;
+  } = {},
 ): Promise<WorkflowRunSummary[] | null> {
   const perPage = Math.min(options.perPage ?? 20, 100);
   const query = new URLSearchParams({ per_page: String(perPage) });
   if (options.headSha) query.set("head_sha", options.headSha);
+  if (options.event) query.set("event", options.event);
   const key = `runs:${workflowFile}:${query.toString()}`;
   const cached = cacheGet<WorkflowRunSummary[] | null>(key);
   if (cached !== undefined) return cached;
@@ -355,22 +361,64 @@ export async function fetchRunArtifacts(
 }
 
 /**
- * Download an artifact zip, hard-capped so a corrupt or oversized archive
- * cannot exhaust server memory. Returns null on any failure.
+ * True when the artifact's advertised size is a sane, in-budget number.
+ *
+ * Checked *before* any download so an artifact whose metadata is missing,
+ * NaN, negative or oversized never becomes a request at all.
+ */
+export function artifactSizeIsAcceptable(artifact: ArtifactMeta): boolean {
+  const size = artifact.sizeInBytes;
+  return Number.isFinite(size) && size > 0 && size <= MAX_ARCHIVE_BYTES;
+}
+
+/**
+ * Download an artifact zip.
+ *
+ * The body is read as a stream and abandoned the moment it exceeds the cap, so
+ * a chunked response with no `Content-Length` — or one that lies about it —
+ * cannot be buffered to exhaustion first. Returns null on any failure.
  */
 export async function downloadArtifactZip(
-  artifactId: number,
+  artifact: ArtifactMeta,
 ): Promise<Buffer | null> {
-  const url = `${API_ROOT}/repos/${GITHUB_REPO}/actions/artifacts/${artifactId}/zip`;
+  if (artifact.expired || !artifactSizeIsAcceptable(artifact)) return null;
+
+  const url = `${API_ROOT}/repos/${GITHUB_REPO}/actions/artifacts/${artifact.id}/zip`;
   const response = await request(url, "application/vnd.github+json", 20_000);
   if (!response || !response.ok) return null;
 
-  const declared = Number(response.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > MAX_ARCHIVE_BYTES) return null;
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_ARCHIVE_BYTES) {
+    await response.body?.cancel().catch(() => {});
+    return null;
+  }
+  if (!response.body) return null;
 
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.byteLength > MAX_ARCHIVE_BYTES) return null;
-  return buffer;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > MAX_ARCHIVE_BYTES) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    await reader.cancel().catch(() => {});
+    return null;
+  }
+
+  // A body that undershoots its own advertised length is truncated, not valid.
+  if (Number.isFinite(declared) && declared > 0 && total !== declared) {
+    return null;
+  }
+  return Buffer.concat(chunks, total);
 }
 
 export function actionsRunUrl(runId: number): string {

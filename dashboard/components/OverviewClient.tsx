@@ -400,10 +400,11 @@ function OperationsPanel({ payload }: { payload: StrategyStatusPayload }) {
           <Fact label="Release gate">
             {release ? <StatePill size="xs" state={release.releaseGate} /> : "—"}
           </Fact>
-          <Fact label="Validation gate">
+          <Fact label="Validation gate (effective)">
             <StatePill
               size="xs"
-              state={payload.validation.data?.status ?? "UNAVAILABLE"}
+              state={payload.validationGate.effective}
+              title={payload.validationGate.details.join(" ")}
             />
           </Fact>
           <Fact label="Market entry allowed">
@@ -447,10 +448,19 @@ function EvidencePanel({ payload }: { payload: StrategyStatusPayload }) {
         <>
           <MetricGrid>
             <Metric
-              label="Canonical validation"
-              value={validation.status}
-              state={validation.status}
-              hint={validation.allowedMode ?? undefined}
+              label="Effective paper-buy gate"
+              value={payload.validationGate.effective}
+              state={payload.validationGate.effective}
+              hint={
+                payload.validationGate.details[0] ??
+                (validation.allowedMode ?? undefined)
+              }
+            />
+            <Metric
+              label="Stored report assessment"
+              value={payload.validationGate.reportAssessment}
+              state={payload.validationGate.reportAssessment}
+              hint="Historical conclusion; not an authorization on its own"
             />
             <Metric
               label="Generated"

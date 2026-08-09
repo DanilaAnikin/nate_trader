@@ -60,11 +60,8 @@ export interface AccountBindingInfo {
   readonly mode: AccountMode;
   readonly role: AccountRole;
   readonly productionBound: boolean;
-  /** How the binding was proven, or why it could not be. */
-  readonly bindingProof:
-    | "server-configured-account-id"
-    | "server-configured-broker-account-number"
-    | null;
+  /** How the binding was proven, or null when it could not be. */
+  readonly bindingProof: "server-authorized-production-owner-and-account" | null;
   readonly bindingDetail: string;
   /** Last four characters only; the full broker account number never leaves the server. */
   readonly brokerAccountMask: string | null;
@@ -179,6 +176,21 @@ export interface UniverseInfo {
   readonly cacheState: "alpaca-cache" | "validated-watchlist-fallback" | null;
 }
 
+/* --------------------------------------------------------- authorization */
+
+/**
+ * Whether this viewer may see the central production runtime at all.
+ *
+ * The frozen plan, preflight, executor results and workflow operations belong
+ * to one production account, not to whoever is signed in. An unauthorized
+ * viewer causes no GitHub Actions call and receives none of that data.
+ */
+export interface AuthorizationInfo {
+  readonly productionRuntimeAuthorized: boolean;
+  readonly denialReason: string | null;
+  readonly detail: string;
+}
+
 /* ------------------------------------------------------------ validation */
 
 export interface ValidationSegmentMetric {
@@ -196,6 +208,18 @@ export interface ValidationSegmentMetric {
   readonly betaToSpy: number | null;
   readonly informationRatio: number | null;
   readonly maxDrawdownPct: number | null;
+}
+
+/**
+ * The historical report assessment and the currently *effective* paper-buy
+ * gate, deliberately kept apart.
+ */
+export interface EffectiveValidationGate {
+  readonly effective: CheckState;
+  readonly reportAssessment: CheckState;
+  readonly reasons: readonly string[];
+  readonly details: readonly string[];
+  readonly expiresAt: string | null;
 }
 
 export interface ValidationInfo {
@@ -378,6 +402,7 @@ export interface StrategyStatusPayload {
   readonly accountMode: AccountMode;
   readonly web: Section<WebInfo>;
   readonly release: Section<ReleaseInfo>;
+  readonly authorization: Section<AuthorizationInfo>;
   readonly accountBinding: Section<AccountBindingInfo>;
   readonly broker: Section<BrokerInfo>;
   readonly strategy: Section<StrategyRuntimeInfo>;
@@ -388,6 +413,8 @@ export interface StrategyStatusPayload {
   readonly operations: Section<OperationsInfo>;
   readonly tournament: Section<TournamentInfo>;
   readonly convergence: Section<ConvergenceInfo>;
+  /** Derived, single source of truth for "may V11 buy right now". */
+  readonly validationGate: EffectiveValidationGate;
   readonly warnings: readonly string[];
 }
 

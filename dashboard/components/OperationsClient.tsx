@@ -82,9 +82,19 @@ function IdentityPanel({ payload }: { payload: StrategyStatusPayload }) {
               )}
             </span>
           </Fact>
-          <Fact label="Validation gate">
-            <StatePill size="xs" state={validation?.status ?? "UNAVAILABLE"} />
+          <Fact label="Validation gate (effective)">
+            <span className="inline-flex items-center gap-2">
+              <StatePill size="xs" state={payload.validationGate.effective} />
+              <span className="text-[10px] text-muted">
+                report {payload.validationGate.reportAssessment}
+              </span>
+            </span>
           </Fact>
+          {payload.validationGate.details.length > 0 && (
+            <Fact label="Why the gate is not effective">
+              {payload.validationGate.details.join(" ")}
+            </Fact>
+          )}
           <Fact label="Validation expiry">
             {validation?.expiresAt?.slice(0, 10) ?? <Dash />}
           </Fact>
