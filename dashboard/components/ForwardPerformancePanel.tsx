@@ -118,8 +118,13 @@ export default function ForwardPerformancePanel() {
               : "V11 forward performance unavailable"
           }
           detail={body.detail ?? undefined}
-          source="account equity mirror + benchmark daily bars"
+          source={body.provenance.source}
         />
+        {body.reason && (
+          <p className="mt-3 text-[11px] text-muted">
+            Reason code: <code className="font-mono">{body.reason}</code>
+          </p>
+        )}
         <p className="mt-3 text-xs text-secondary max-w-prose">
           All-time account equity contains pre-V11 (V10 / TQQQ / UPRO) history
           and must not be relabelled as V11 performance. Record an epoch
@@ -247,11 +252,10 @@ export default function ForwardPerformancePanel() {
           This is a forward paper result, not a backtest and not a guarantee.
         </p>
       )}
-      {body.warning && (
-        <p className="mt-2 text-[11px]" style={{ color: "var(--accent-amber)" }}>
-          Refresh warning: {body.warning}
-        </p>
-      )}
+      <p className="mt-2 text-[11px] text-muted">
+        Source: {body.provenance.source} · {body.provenance.scope} · through{" "}
+        {body.provenance.asOf ?? "unknown"}.
+      </p>
     </Panel>
   );
 }

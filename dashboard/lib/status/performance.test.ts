@@ -187,21 +187,29 @@ describe("computeForwardPerformance", () => {
     { date: "2026-08-05", close: 714 },
   ];
 
-  it("computes TWR and benchmark return over the same sessions", () => {
-    const result = computeForwardPerformance({
+  function run(overrides: Partial<Parameters<typeof computeForwardPerformance>[0]> = {}) {
+    return computeForwardPerformance({
       baseline: BASELINE,
       accountId: "acc-1",
       equity,
       cashFlows: [],
       benchmark,
+      ...overrides,
     });
-    expect(result?.startDate).toBe("2026-08-03");
-    expect(result?.endDate).toBe("2026-08-05");
-    expect(result?.sessions).toBe(3);
-    expect(result?.portfolioTwrPct).toBeCloseTo(2, 4);
-    expect(result?.benchmarkReturnPct).toBeCloseTo(2, 4);
-    expect(result?.excessReturnPct).toBeCloseTo(0, 4);
-    expect(result?.series[0]).toEqual({
+  }
+
+  it("computes TWR and benchmark return over the same sessions", () => {
+    const result = run();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const performance = result.performance;
+    expect(performance.startDate).toBe("2026-08-03");
+    expect(performance.endDate).toBe("2026-08-05");
+    expect(performance.sessions).toBe(3);
+    expect(performance.portfolioTwrPct).toBeCloseTo(2, 4);
+    expect(performance.benchmarkReturnPct).toBeCloseTo(2, 4);
+    expect(performance.excessReturnPct).toBeCloseTo(0, 4);
+    expect(performance.series[0]).toEqual({
       date: "2026-08-03",
       portfolioIndex: 100,
       benchmarkIndex: 100,
@@ -209,59 +217,100 @@ describe("computeForwardPerformance", () => {
   });
 
   it("removes a deposit from the reported return", () => {
-    const result = computeForwardPerformance({
-      baseline: BASELINE,
-      accountId: "acc-1",
+    const result = run({
       equity: [
         { date: "2026-08-03", equity: 1_000_000 },
         { date: "2026-08-04", equity: 1_510_000 },
         { date: "2026-08-05", equity: 1_510_000 },
       ],
       cashFlows: [{ date: "2026-08-04", amount: 500_000 }],
-      benchmark,
     });
-    expect(result?.portfolioTwrPct).toBeCloseTo(1, 4);
-    expect(result?.netCashFlow).toBe(500_000);
-    expect(result?.cashFlowCount).toBe(1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.performance.portfolioTwrPct).toBeCloseTo(1, 4);
+    expect(result.performance.netCashFlow).toBe(500_000);
+    expect(result.performance.cashFlowCount).toBe(1);
   });
 
-  it("refuses to measure a baseline that belongs to another account", () => {
-    expect(
-      computeForwardPerformance({
-        baseline: BASELINE,
-        accountId: "acc-2",
-        equity,
-        cashFlows: [],
-        benchmark,
-      }),
-    ).toBeNull();
+  it("refuses a baseline that belongs to another account", () => {
+    const result = run({ accountId: "acc-2" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("BASELINE_ACCOUNT_MISMATCH");
   });
 
-  it("refuses to measure when the two series share no window", () => {
-    expect(
-      computeForwardPerformance({
-        baseline: BASELINE,
-        accountId: "acc-1",
-        equity,
-        cashFlows: [],
-        benchmark: [
-          { date: "2027-01-04", close: 800 },
-          { date: "2027-01-05", close: 805 },
-        ],
-      }),
-    ).toBeNull();
+  it("refuses when the baseline start session has no equity observation", () => {
+    const result = run({ equity: equity.slice(1) });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("BASELINE_OBSERVATION_MISSING");
+    expect(result.detail).toContain("2026-08-03");
+  });
+
+  it("refuses when the starting equity disagrees with the baseline", () => {
+    const result = run({
+      equity: [{ date: "2026-08-03", equity: 999_000 }, ...equity.slice(1)],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("BASELINE_OBSERVATION_MISMATCH");
+  });
+
+  it("refuses when the benchmark baseline bar is absent", () => {
+    const result = run({ benchmark: benchmark.slice(1) });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("BASELINE_OBSERVATION_MISSING");
+  });
+
+  it("refuses when the benchmark baseline close disagrees", () => {
+    const result = run({
+      benchmark: [{ date: "2026-08-03", close: 690 }, ...benchmark.slice(1)],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("BASELINE_OBSERVATION_MISMATCH");
+  });
+
+  it("never silently starts at the first later shared session", () => {
+    // Equity exists on the baseline day but the benchmark does not, so the
+    // first shared day is later. That must fail, not quietly re-anchor.
+    const result = run({
+      benchmark: [
+        { date: "2026-08-04", close: 707 },
+        { date: "2026-08-05", close: 714 },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("BASELINE_OBSERVATION_MISSING");
+  });
+
+  it("refuses when the two series share no window at all", () => {
+    const result = run({
+      benchmark: [
+        { date: "2027-01-04", close: 800 },
+        { date: "2027-01-05", close: 805 },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("BASELINE_OBSERVATION_MISSING");
   });
 
   it("truncates to the last shared session instead of forward-filling", () => {
-    const result = computeForwardPerformance({
-      baseline: BASELINE,
-      accountId: "acc-1",
-      equity,
-      cashFlows: [],
-      benchmark: benchmark.slice(0, 2),
+    const result = run({ benchmark: benchmark.slice(0, 2) });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.performance.endDate).toBe("2026-08-04");
+    expect(result.performance.sessions).toBe(2);
+    expect(result.performance.endEquity).toBe(1_010_000);
+  });
+
+  it("tolerates rounding but not a real difference in the anchors", () => {
+    const rounded = run({
+      equity: [{ date: "2026-08-03", equity: 1_000_000.004 }, ...equity.slice(1)],
     });
-    expect(result?.endDate).toBe("2026-08-04");
-    expect(result?.sessions).toBe(2);
-    expect(result?.endEquity).toBe(1_010_000);
+    expect(rounded.ok).toBe(true);
   });
 });

@@ -201,6 +201,29 @@ export function alignSeries(
   };
 }
 
+export type ForwardPerformanceFailure =
+  | "BASELINE_ACCOUNT_MISMATCH"
+  | "BASELINE_OBSERVATION_MISSING"
+  | "BASELINE_OBSERVATION_MISMATCH"
+  | "NO_COMMON_SESSIONS"
+  | "UNCOMPUTABLE";
+
+export type ForwardPerformanceResult =
+  | { ok: true; performance: ForwardPerformance }
+  | { ok: false; reason: ForwardPerformanceFailure; detail: string };
+
+/**
+ * Relative tolerance for anchoring the baseline. Equity and closes are stored
+ * rounded, so an exact float comparison would be brittle; anything beyond this
+ * means the baseline describes a different series.
+ */
+const ANCHOR_RELATIVE_TOLERANCE = 1e-6;
+
+function anchorsMatch(recorded: number, observed: number): boolean {
+  if (!(recorded > 0) || !Number.isFinite(observed)) return false;
+  return Math.abs(observed - recorded) <= Math.abs(recorded) * ANCHOR_RELATIVE_TOLERANCE + 0.01;
+}
+
 export interface ForwardPerformance {
   readonly startDate: string;
   readonly endDate: string;
@@ -222,8 +245,13 @@ export interface ForwardPerformance {
 
 /**
  * Compute cash-flow-adjusted forward performance against a benchmark over one
- * exactly shared interval. `null` means the comparison could not be made
- * honestly and the UI must render `UNAVAILABLE`.
+ * exactly shared interval.
+ *
+ * The baseline must genuinely anchor the calculation: the recorded start
+ * session must exist in the equity series with the recorded starting equity,
+ * and the recorded benchmark session must exist with the recorded close. The
+ * window may not silently begin at the first later common day — that would
+ * quietly measure a different period than the one the baseline claims.
  */
 export function computeForwardPerformance(input: {
   baseline: V11EpochBaseline;
@@ -231,14 +259,75 @@ export function computeForwardPerformance(input: {
   equity: readonly EquityPoint[];
   cashFlows: readonly CashFlow[];
   benchmark: readonly BenchmarkBar[];
-}): ForwardPerformance | null {
-  if (input.baseline.accountId !== input.accountId) return null;
+}): ForwardPerformanceResult {
+  const { baseline } = input;
+  if (baseline.accountId !== input.accountId) {
+    return {
+      ok: false,
+      reason: "BASELINE_ACCOUNT_MISMATCH",
+      detail:
+        "The persisted V11 epoch baseline belongs to a different account than the one being measured.",
+    };
+  }
+
+  const startEquityObservation = input.equity.find(
+    (point) => point.date === baseline.startSessionDate,
+  );
+  if (!startEquityObservation) {
+    return {
+      ok: false,
+      reason: "BASELINE_OBSERVATION_MISSING",
+      detail: `No equity observation exists for the baseline start session ${baseline.startSessionDate}.`,
+    };
+  }
+  if (!anchorsMatch(baseline.startingEquity, startEquityObservation.equity)) {
+    return {
+      ok: false,
+      reason: "BASELINE_OBSERVATION_MISMATCH",
+      detail: `Equity on ${baseline.startSessionDate} does not match the baseline starting equity.`,
+    };
+  }
+
+  const benchmarkObservation = input.benchmark.find(
+    (bar) => bar.date === baseline.benchmarkBaselineDate,
+  );
+  if (!benchmarkObservation) {
+    return {
+      ok: false,
+      reason: "BASELINE_OBSERVATION_MISSING",
+      detail: `No ${baseline.benchmarkSymbol} bar exists for the baseline session ${baseline.benchmarkBaselineDate}.`,
+    };
+  }
+  if (
+    !anchorsMatch(baseline.benchmarkBaselineClose, benchmarkObservation.close)
+  ) {
+    return {
+      ok: false,
+      reason: "BASELINE_OBSERVATION_MISMATCH",
+      detail: `The ${baseline.benchmarkSymbol} close on ${baseline.benchmarkBaselineDate} does not match the baseline close.`,
+    };
+  }
+
   const aligned = alignSeries(
     input.equity,
     input.benchmark,
-    input.baseline.startSessionDate,
+    baseline.startSessionDate,
   );
-  if (!aligned) return null;
+  if (!aligned) {
+    return {
+      ok: false,
+      reason: "NO_COMMON_SESSIONS",
+      detail:
+        "The portfolio and benchmark series do not share at least two sessions since the baseline.",
+    };
+  }
+  if (aligned.startDate !== baseline.startSessionDate) {
+    return {
+      ok: false,
+      reason: "BASELINE_OBSERVATION_MISSING",
+      detail: `The first session shared by the portfolio and the benchmark is ${aligned.startDate}, not the baseline session ${baseline.startSessionDate}.`,
+    };
+  }
 
   const relevantFlows = input.cashFlows.filter(
     (flow) =>
@@ -248,11 +337,23 @@ export function computeForwardPerformance(input: {
       flow.date <= aligned.endDate,
   );
   const portfolioTwr = timeWeightedReturn(aligned.portfolio, relevantFlows);
-  if (portfolioTwr === null) return null;
+  if (portfolioTwr === null) {
+    return {
+      ok: false,
+      reason: "UNCOMPUTABLE",
+      detail: "The equity series contains a non-positive value, so no return can be computed.",
+    };
+  }
 
   const benchmarkStart = aligned.benchmark[0].close;
   const benchmarkEnd = aligned.benchmark[aligned.benchmark.length - 1].close;
-  if (!(benchmarkStart > 0)) return null;
+  if (!(benchmarkStart > 0)) {
+    return {
+      ok: false,
+      reason: "UNCOMPUTABLE",
+      detail: "The benchmark baseline close is not usable.",
+    };
+  }
   const benchmarkReturn = benchmarkEnd / benchmarkStart - 1;
 
   // Index both lines from 100 at the shared start so the chart cannot imply a
@@ -277,21 +378,24 @@ export function computeForwardPerformance(input: {
   });
 
   return {
-    startDate: aligned.startDate,
-    endDate: aligned.endDate,
-    sessions: aligned.dates.length,
-    startEquity: aligned.portfolio[0].equity,
-    endEquity: aligned.portfolio[aligned.portfolio.length - 1].equity,
-    portfolioTwrPct: round(portfolioTwr * 100, 4),
-    benchmarkReturnPct: round(benchmarkReturn * 100, 4),
-    excessReturnPct: round((portfolioTwr - benchmarkReturn) * 100, 4),
-    netCashFlow: round(
-      relevantFlows.reduce((total, flow) => total + flow.amount, 0),
-      2,
-    ),
-    cashFlowCount: relevantFlows.length,
-    benchmarkSymbol: input.baseline.benchmarkSymbol,
-    series,
+    ok: true,
+    performance: {
+      startDate: aligned.startDate,
+      endDate: aligned.endDate,
+      sessions: aligned.dates.length,
+      startEquity: aligned.portfolio[0].equity,
+      endEquity: aligned.portfolio[aligned.portfolio.length - 1].equity,
+      portfolioTwrPct: round(portfolioTwr * 100, 4),
+      benchmarkReturnPct: round(benchmarkReturn * 100, 4),
+      excessReturnPct: round((portfolioTwr - benchmarkReturn) * 100, 4),
+      netCashFlow: round(
+        relevantFlows.reduce((total, flow) => total + flow.amount, 0),
+        2,
+      ),
+      cashFlowCount: relevantFlows.length,
+      benchmarkSymbol: baseline.benchmarkSymbol,
+      series,
+    },
   };
 }
 

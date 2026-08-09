@@ -104,20 +104,33 @@ type Activity = {
 };
 
 const CASH_ACTIVITY_TYPES = ["CSD", "CSW", "JNLC"] as const;
+const ACTIVITY_PAGE_SIZE = 100;
+const MAX_ACTIVITY_PAGES = 50;
+
+export interface CashFlowBackfillResult {
+  readonly written: number;
+  /** True only when every page back to the baseline boundary was read. */
+  readonly complete: boolean;
+  readonly pagesRead: number;
+  readonly refreshedAt: string;
+}
 
 /**
  * Mirror external cash movements (deposits, withdrawals, cash journals) into
  * `cash_flows`.
  *
- * Without these rows a $10k deposit looks like $10k of profit. Time-weighted
- * return needs them, so they are backfilled idempotently on the Alpaca
- * activity id. Read-only against the broker.
+ * Without these rows a $10k deposit looks like $10k of profit, so time-weighted
+ * return depends on them being *complete*. Alpaca caps a page at 100 items and
+ * paginates with `page_token`, so every page back to the epoch boundary is
+ * read; an incomplete walk is reported rather than silently truncated. Rows are
+ * idempotent on the Alpaca activity id. Read-only against the broker.
  */
 export async function backfillCashFlows(
   svc: Service,
   accountId: string,
   mode: Mode,
-): Promise<number> {
+  options: { since?: string } = {},
+): Promise<CashFlowBackfillResult> {
   const { data: cred, error: credErr } = await svc.rpc(
     "get_account_credentials",
     { acct: accountId },
@@ -126,51 +139,86 @@ export async function backfillCashFlows(
     throw new Error("account has no stored credentials");
   }
 
-  const query = new URLSearchParams({
-    activity_types: CASH_ACTIVITY_TYPES.join(","),
-    page_size: "100",
-  });
-  const res = await fetch(`${ALPACA_BASE[mode]}/account/activities?${query}`, {
-    headers: {
-      "APCA-API-KEY-ID": cred[0].api_key,
-      "APCA-API-SECRET-KEY": cred[0].api_secret,
-    },
-    cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`Alpaca activities HTTP ${res.status}`);
-
-  const activities = (await res.json()) as Activity[];
-  if (!Array.isArray(activities)) return 0;
-
   const etDate = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
   });
-  const rows: Database["public"]["Tables"]["cash_flows"]["Insert"][] = [];
-  for (const activity of activities) {
-    const amount = Number(activity.net_amount);
-    if (!activity.id || !Number.isFinite(amount) || amount === 0) continue;
-    const stamp = activity.date ?? activity.transaction_time;
-    if (!stamp) continue;
-    const parsed = Date.parse(
-      /^\d{4}-\d{2}-\d{2}$/.test(stamp) ? `${stamp}T12:00:00Z` : stamp,
-    );
-    if (!Number.isFinite(parsed)) continue;
-    rows.push({
-      account_id: accountId,
-      flow_date: etDate.format(new Date(parsed)),
-      amount: Math.round(amount * 100) / 100,
-      kind: amount > 0 ? "deposit" : "withdrawal",
-      source: "alpaca_activities",
-      external_id: activity.id,
+  const rows = new Map<
+    string,
+    Database["public"]["Tables"]["cash_flows"]["Insert"]
+  >();
+
+  let pageToken: string | null = null;
+  let pagesRead = 0;
+  let complete = false;
+
+  for (let page = 0; page < MAX_ACTIVITY_PAGES; page++) {
+    const query = new URLSearchParams({
+      activity_types: CASH_ACTIVITY_TYPES.join(","),
+      page_size: String(ACTIVITY_PAGE_SIZE),
+      direction: "desc",
     });
+    if (options.since) query.set("after", options.since);
+    if (pageToken) query.set("page_token", pageToken);
+
+    const res = await fetch(`${ALPACA_BASE[mode]}/account/activities?${query}`, {
+      headers: {
+        "APCA-API-KEY-ID": cred[0].api_key,
+        "APCA-API-SECRET-KEY": cred[0].api_secret,
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`Alpaca activities HTTP ${res.status}`);
+
+    const activities = (await res.json()) as Activity[];
+    if (!Array.isArray(activities)) {
+      throw new Error("Alpaca activities returned an unreadable payload");
+    }
+    pagesRead++;
+
+    for (const activity of activities) {
+      const amount = Number(activity.net_amount);
+      if (!activity.id || !Number.isFinite(amount) || amount === 0) continue;
+      const stamp = activity.date ?? activity.transaction_time;
+      if (!stamp) continue;
+      const parsed = Date.parse(
+        /^\d{4}-\d{2}-\d{2}$/.test(stamp) ? `${stamp}T12:00:00Z` : stamp,
+      );
+      if (!Number.isFinite(parsed)) continue;
+      rows.set(activity.id, {
+        account_id: accountId,
+        flow_date: etDate.format(new Date(parsed)),
+        amount: Math.round(amount * 100) / 100,
+        kind: amount > 0 ? "deposit" : "withdrawal",
+        source: "alpaca_activities",
+        external_id: activity.id,
+      });
+    }
+
+    // A short page is the last page; a full page means there may be more.
+    if (activities.length < ACTIVITY_PAGE_SIZE) {
+      complete = true;
+      break;
+    }
+    const last = activities[activities.length - 1];
+    pageToken = last?.id ?? null;
+    if (!pageToken) {
+      complete = true;
+      break;
+    }
   }
 
-  if (rows.length > 0) {
+  const list = [...rows.values()];
+  if (list.length > 0) {
     const { error } = await svc
       .from("cash_flows")
-      .upsert(rows, { onConflict: "account_id,external_id" });
+      .upsert(list, { onConflict: "account_id,external_id" });
     if (error) throw new Error(`cash_flows upsert failed: ${error.message}`);
   }
-  return rows.length;
+  return {
+    written: list.length,
+    complete,
+    pagesRead,
+    refreshedAt: new Date().toISOString(),
+  };
 }
