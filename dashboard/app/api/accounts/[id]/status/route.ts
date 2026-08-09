@@ -33,14 +33,16 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
-  // RLS scopes this to the caller's own accounts.
+  // RLS scopes this to the caller's own accounts. `owner_id` is read here (and
+  // re-checked below) so production authorization can never rest on anything
+  // the browser supplied.
   const { data: account } = await supa
     .from("accounts")
-    .select("id,nickname,mode,alpaca_account_number")
+    .select("id,nickname,mode,owner_id")
     .eq("id", id)
     .is("deleted_at", null)
     .single();
-  if (!account) {
+  if (!account || account.owner_id !== user.id) {
     return NextResponse.json(
       { code: "ACCOUNT_NOT_FOUND", error: "Account not found." },
       { status: 404, headers: { "Cache-Control": "no-store" } },
@@ -62,11 +64,12 @@ export async function GET(_req: Request, { params }: Ctx) {
   }
 
   const payload = await buildStrategyStatus({
+    viewer: { userId: user.id },
     account: {
       id: account.id,
       nickname: account.nickname,
       mode: account.mode,
-      brokerAccountNumber: account.alpaca_account_number,
+      ownerId: account.owner_id,
     },
     broker,
   });

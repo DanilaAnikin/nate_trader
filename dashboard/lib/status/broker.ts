@@ -29,7 +29,17 @@ export type BrokerFailure =
   | "INVALID_RESPONSE";
 
 export type BrokerResult =
-  | { ok: true; snapshot: BrokerInfo; fetchedAt: string }
+  | {
+      ok: true;
+      snapshot: BrokerInfo;
+      fetchedAt: string;
+      /**
+       * Broker account number exactly as Alpaca reported it, for the
+       * server-side production binding check. It is deliberately not part of
+       * `BrokerInfo`, so it cannot reach the browser by accident.
+       */
+      accountNumber: string | null;
+    }
   | { ok: false; code: BrokerFailure; detail: string };
 
 export interface AlpacaCredentials {
@@ -179,7 +189,16 @@ export async function fetchBrokerSnapshot(
       detail: "Alpaca returned account fields the dashboard cannot validate.",
     };
   }
-  return { ok: true, snapshot, fetchedAt: new Date().toISOString() };
+  const accountNumber =
+    typeof account.account_number === "string" && account.account_number.trim()
+      ? account.account_number.trim()
+      : null;
+  return {
+    ok: true,
+    snapshot,
+    fetchedAt: new Date().toISOString(),
+    accountNumber,
+  };
 }
 
 export interface BenchmarkBarRow {

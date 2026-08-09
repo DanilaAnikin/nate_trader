@@ -1,82 +1,58 @@
 import { describe, expect, it } from "vitest";
-import {
-  maskAccountNumber,
-  readBindingConfig,
-  resolveAccountBinding,
-} from "./binding";
+import type { ProductionAuthorization } from "./authz";
+import { maskAccountNumber, resolveAccountBinding } from "./binding";
 
-const NO_CONFIG = {
-  productionAccountId: null,
-  productionBrokerAccountNumber: null,
+const AUTHORIZED: ProductionAuthorization = {
+  authorized: true,
+  reason: null,
+  detail: "Signed-in production owner and configured production account match.",
 };
 
-describe("readBindingConfig", () => {
-  it("reads both binding inputs and treats blanks as absent", () => {
-    expect(
-      readBindingConfig({
-        PRODUCTION_ACCOUNT_ID: "acc-1",
-        PRODUCTION_ALPACA_ACCOUNT_NUMBER: "  PA123456  ",
-      }),
-    ).toEqual({
-      productionAccountId: "acc-1",
-      productionBrokerAccountNumber: "PA123456",
-    });
-    expect(
-      readBindingConfig({ PRODUCTION_ACCOUNT_ID: "   " }),
-    ).toEqual(NO_CONFIG);
-  });
-});
+const DENIED: ProductionAuthorization = {
+  authorized: false,
+  reason: "NOT_PRODUCTION_OWNER",
+  detail: "The signed-in user is not the configured production owner.",
+};
 
 describe("maskAccountNumber", () => {
   it("reveals at most the last four characters", () => {
     expect(maskAccountNumber("PA3ABCDE1234")).toBe("••••1234");
     expect(maskAccountNumber("12")).toBeNull();
     expect(maskAccountNumber(null)).toBeNull();
+    expect(maskAccountNumber(undefined)).toBeNull();
+  });
+
+  it("never returns any part of the number beyond the last four", () => {
+    const masked = maskAccountNumber("PA3ABCDE1234");
+    expect(masked).not.toContain("PA3");
+    expect(masked).not.toContain("ABCDE");
   });
 });
 
 describe("resolveAccountBinding", () => {
-  it("binds a paper account by the configured account id", () => {
+  it("reports a production role only when authorization succeeded", () => {
     const binding = resolveAccountBinding({
       accountId: "acc-1",
       nickname: "Paper prod",
       mode: "paper",
-      brokerAccountNumber: "PA3ABCDE1234",
-      config: { productionAccountId: "acc-1", productionBrokerAccountNumber: null },
+      liveBrokerAccountNumber: "PA3ABCDE1234",
+      authorization: AUTHORIZED,
     });
     expect(binding.role).toBe("PRODUCTION_CONTROLLED_PAPER");
     expect(binding.productionBound).toBe(true);
-    expect(binding.bindingProof).toBe("server-configured-account-id");
+    expect(binding.bindingProof).toBe(
+      "server-authorized-production-owner-and-account",
+    );
     expect(binding.brokerAccountMask).toBe("••••1234");
   });
 
-  it("binds a paper account by the configured broker account number", () => {
-    const binding = resolveAccountBinding({
-      accountId: "acc-2",
-      nickname: "Paper prod",
-      mode: "paper",
-      brokerAccountNumber: "PA3ABCDE1234",
-      config: {
-        productionAccountId: null,
-        productionBrokerAccountNumber: "PA3ABCDE1234",
-      },
-    });
-    expect(binding.productionBound).toBe(true);
-    expect(binding.bindingProof).toBe(
-      "server-configured-broker-account-number",
-    );
-  });
-
-  it("marks a different paper account observer-only", () => {
+  it("reports observer-only when authorization was denied", () => {
     const binding = resolveAccountBinding({
       accountId: "acc-9",
       nickname: "Second paper",
       mode: "paper",
-      brokerAccountNumber: "PA9ZZZZ0000",
-      config: {
-        productionAccountId: "acc-1",
-        productionBrokerAccountNumber: "PA3ABCDE1234",
-      },
+      liveBrokerAccountNumber: "PA9ZZZZ0000",
+      authorization: DENIED,
     });
     expect(binding.role).toBe("OBSERVER_ONLY_PAPER");
     expect(binding.productionBound).toBe(false);
@@ -84,45 +60,27 @@ describe("resolveAccountBinding", () => {
     expect(binding.bindingDetail).toContain("NOT_APPLICABLE");
   });
 
-  it("never binds a live account, even if it matches the configuration", () => {
+  it("never binds a live account, even when authorization somehow succeeded", () => {
     const binding = resolveAccountBinding({
       accountId: "acc-1",
       nickname: "Real money",
       mode: "live",
-      brokerAccountNumber: "PA3ABCDE1234",
-      config: {
-        productionAccountId: "acc-1",
-        productionBrokerAccountNumber: "PA3ABCDE1234",
-      },
+      liveBrokerAccountNumber: "PA3ABCDE1234",
+      authorization: AUTHORIZED,
     });
     expect(binding.role).toBe("READ_ONLY_LIVE");
     expect(binding.productionBound).toBe(false);
     expect(binding.bindingDetail).toContain("never trades a live account");
   });
 
-  it("refuses to guess when nothing is configured", () => {
+  it("only ever exposes a mask, never the number", () => {
     const binding = resolveAccountBinding({
       accountId: "acc-1",
-      nickname: "Only paper account",
+      nickname: "Paper prod",
       mode: "paper",
-      brokerAccountNumber: "PA3ABCDE1234",
-      config: NO_CONFIG,
+      liveBrokerAccountNumber: "PA3ABCDE1234",
+      authorization: AUTHORIZED,
     });
-    expect(binding.role).toBe("OBSERVER_ONLY_PAPER");
-    expect(binding.bindingDetail).toContain("No server-side production-account");
-  });
-
-  it("does not bind on a null broker account number", () => {
-    const binding = resolveAccountBinding({
-      accountId: "acc-2",
-      nickname: "Unverified",
-      mode: "paper",
-      brokerAccountNumber: null,
-      config: {
-        productionAccountId: null,
-        productionBrokerAccountNumber: "PA3ABCDE1234",
-      },
-    });
-    expect(binding.productionBound).toBe(false);
+    expect(JSON.stringify(binding)).not.toContain("PA3ABCDE1234");
   });
 });
