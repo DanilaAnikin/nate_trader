@@ -7,3 +7,6 @@ __pycache__/
 .venv/
 venv/
 .env.local
+
+# Node tooling caches (vitest/vite scratch at the repo root)
+node_modules/

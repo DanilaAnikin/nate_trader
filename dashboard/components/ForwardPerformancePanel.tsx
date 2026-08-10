@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -11,7 +10,6 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { PerformanceResponse } from "@/app/api/accounts/[id]/performance/route";
 import { money, percent, points } from "@/lib/status/client";
 import { Metric, MetricGrid, Panel, UnavailableBlock } from "./status/primitives";
 import { useStrategyStatus } from "./status/StatusProvider";
@@ -26,63 +24,22 @@ import { useStrategyStatus } from "./status/StatusProvider";
  * a deposit is never presented as profit.
  */
 export default function ForwardPerformancePanel() {
-  const { selectedAccount } = useStrategyStatus();
-  const accountId = selectedAccount?.id ?? null;
-  // The result carries the account it belongs to, so a response for the
-  // previously selected account can never be rendered after a switch.
-  const [result, setResult] = useState<{
-    accountId: string;
-    value:
-      | { kind: "error"; message: string }
-      | { kind: "ready"; body: PerformanceResponse };
-  } | null>(null);
-
-  useEffect(() => {
-    if (!accountId) return;
-    const controller = new AbortController();
-    fetch(`/api/accounts/${encodeURIComponent(accountId)}/performance`, {
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const body = (await response.json().catch(() => null)) as
-          | PerformanceResponse
-          | null;
-        if (!response.ok || !body || body.accountId !== accountId) {
-          setResult({
-            accountId,
-            value: {
-              kind: "error",
-              message:
-                "Forward performance could not be loaded for the selected account.",
-            },
-          });
-          return;
-        }
-        setResult({ accountId, value: { kind: "ready", body } });
-      })
-      .catch((caught: unknown) => {
-        if (controller.signal.aborted) return;
-        setResult({
-          accountId,
-          value: {
-            kind: "error",
-            message:
-              caught instanceof Error
-                ? caught.message
-                : "Forward performance request failed.",
-          },
-        });
-      });
-    return () => controller.abort();
-  }, [accountId]);
-
-  const state =
-    !accountId
-      ? ({ kind: "error", message: "No account selected." } as const)
-      : result?.accountId === accountId
-        ? result.value
-        : ({ kind: "loading" } as const);
+  // The panel does not fetch: it reads the performance slice the shared status
+  // provider refreshes in the same cycle, so one Refresh click renews both
+  // without a page reload. Provenance stays separate — this is a different
+  // source with its own freshness contract.
+  const { performance: state, selectedAccount } = useStrategyStatus();
+  if (!selectedAccount) {
+    return (
+      <Panel title="E · Forward paper-validation performance">
+        <UnavailableBlock
+          state="UNAVAILABLE"
+          title="Forward performance unavailable"
+          detail="No account is selected."
+        />
+      </Panel>
+    );
+  }
 
   if (state.kind === "loading") {
     return (
@@ -253,8 +210,9 @@ export default function ForwardPerformancePanel() {
         </p>
       )}
       <p className="mt-2 text-[11px] text-muted">
-        Source: {body.provenance.source} · {body.provenance.scope} · through{" "}
-        {body.provenance.asOf ?? "unknown"}.
+        Source: {body.provenance.source} · {body.provenance.scope} · last shared
+        session {body.provenance.asOf ?? "unknown"} ·{" "}
+        {body.provenance.freshness}.
       </p>
     </Panel>
   );

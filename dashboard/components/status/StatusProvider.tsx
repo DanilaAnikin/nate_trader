@@ -13,6 +13,7 @@ import {
 import { isStrategyStatusPayload, type StatusIdentity } from "@/lib/status/client";
 import {
   parseStatusError,
+  performanceUrl,
   scopeStatusState,
   statusUrl,
   type ScopedStatusState,
@@ -20,6 +21,12 @@ import {
   type StatusFetchStatus,
 } from "@/lib/status/scope";
 import type { StrategyStatusPayload } from "@/lib/status/types";
+import type { PerformanceResponse } from "@/app/api/accounts/[id]/performance/route";
+
+export type PerformanceState =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "ready"; body: PerformanceResponse };
 
 /**
  * Single client-side owner of the account-scoped V11 read model.
@@ -35,6 +42,12 @@ interface StatusContextValue extends ScopedStatusState {
   readonly selectedAccount: StatusIdentity | null;
   readonly refresh: () => Promise<boolean>;
   readonly lastRefreshedAt: string | null;
+  /**
+   * Forward performance shares this refresh cycle but keeps its own
+   * provenance: it is a different source with a different freshness contract,
+   * and the two are never merged client-side.
+   */
+  readonly performance: PerformanceState;
 }
 
 const StatusContext = createContext<StatusContextValue | null>(null);
@@ -57,6 +70,10 @@ export default function StatusProvider({
     selectedAccount?.id ?? null,
   );
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+  const [performance, setPerformance] = useState<{
+    accountId: string;
+    value: PerformanceState;
+  } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const requestRef = useRef(0);
 
@@ -69,6 +86,8 @@ export default function StatusProvider({
     abortRef.current?.abort();
     setData(null);
     setError(null);
+
+    setPerformance(null);
 
     if (!enabled) {
       setRequestAccountId(null);
@@ -96,6 +115,49 @@ export default function StatusProvider({
     const controller = new AbortController();
     abortRef.current = controller;
     setStatus("loading");
+
+    // Same cycle, separate source. Started here so one Refresh click renews
+    // both without a page reload; the result is tagged with the account it
+    // belongs to so a switch cannot leave the previous account's number up.
+    const performanceRequest = (async () => {
+      const url = performanceUrl(expected);
+      if (!url) return;
+      try {
+        const response = await fetch(url, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const body = (await response.json().catch(() => null)) as
+          | PerformanceResponse
+          | null;
+        if (requestRef.current !== requestId) return;
+        if (!response.ok || !body || body.accountId !== expected.id) {
+          setPerformance({
+            accountId: expected.id,
+            value: {
+              kind: "error",
+              message:
+                "Forward performance could not be loaded for the selected account.",
+            },
+          });
+          return;
+        }
+        setPerformance({ accountId: expected.id, value: { kind: "ready", body } });
+      } catch (caught) {
+        if (controller.signal.aborted || requestRef.current !== requestId) return;
+        setPerformance({
+          accountId: expected.id,
+          value: {
+            kind: "error",
+            message:
+              caught instanceof Error
+                ? caught.message
+                : "Forward performance request failed.",
+          },
+        });
+      }
+    })();
+    void performanceRequest;
 
     try {
       const response = await fetch(url, {
@@ -152,12 +214,17 @@ export default function StatusProvider({
       data,
       error,
     });
+    const scopedPerformance: PerformanceState =
+      selectedAccount && performance?.accountId === selectedAccount.id
+        ? performance.value
+        : { kind: "loading" };
     return {
       enabled,
       selectedAccount,
       ...scoped,
       refresh,
       lastRefreshedAt,
+      performance: scopedPerformance,
     };
   }, [
     enabled,
@@ -168,6 +235,7 @@ export default function StatusProvider({
     error,
     refresh,
     lastRefreshedAt,
+    performance,
   ]);
 
   return (

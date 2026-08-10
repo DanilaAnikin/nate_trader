@@ -63,6 +63,12 @@ export function statusUrl(account: StatusIdentity | null): string | null {
     : null;
 }
 
+export function performanceUrl(account: StatusIdentity | null): string | null {
+  return account
+    ? `/api/accounts/${encodeURIComponent(account.id)}/performance`
+    : null;
+}
+
 const KNOWN_CODES = new Set([
   "UNAUTHENTICATED",
   "ACCOUNT_NOT_FOUND",

@@ -345,16 +345,19 @@ snapshots are never used as a fallback.
 
 Three contracts inside the model are worth calling out:
 
-- **Independent source selection.** The latest workflow attempt, the latest
-  valid preflight and the latest valid executor cycle are chosen separately. A
-  newer manual `operation=preflight` run updates only the preflight and never
-  hides an older, still-valid execution; each section carries its own run URL,
-  source and `asOf`.
-- **Lineage mismatch is fail-closed.** If the newest runtime artifact is not
-  named for the approved release, or its recorded release disagrees, or the
-  preflight identity disagrees, the affected plan, preflight, executor record,
-  universe and convergence are `null` with state `MISMATCH`. An older artifact
-  is never silently substituted.
+- **Independent, paged source selection.** The latest workflow attempt, the
+  latest valid preflight and the latest valid executor cycle are chosen
+  separately, scanning *pages* of runs up to an explicit 45-day freshness
+  boundary. An arbitrarily long series of manual `operation=preflight` runs
+  updates only the preflight and never hides an older, still-valid execution;
+  each section carries its own run URL, source and `asOf`.
+- **One shared lineage verdict.** `lib/status/lineage.ts` cross-checks the
+  approved release, strategy identity, strategy version, ranking-universe hash
+  and signal date across the preflight, the frozen plan and the executor
+  record. Any disagreement — or any selector-level refusal — withholds *all* of
+  strategy, universe, preflight, execution and convergence as `null` with state
+  `MISMATCH`, and the effective validation gate cannot be `PASS`. An older
+  artifact is never silently substituted.
 - **One effective validation gate.** `validationGate` separates the historical
   `reportAssessment` from the currently `effective` gate. Effective `PASS`
   requires all of: report PASS, present and non-future generation and bar
@@ -373,11 +376,18 @@ entry list, and returns a sanitized DTO. Broker order IDs, client order IDs,
 Vault identifiers, full broker account numbers and raw artifacts never leave the
 server. Any failure returns `UNAVAILABLE`.
 
-Artifact handling is hardened: the advertised size is checked before any
+`actions/upload-artifact` streams, so every real artifact entry sets
+general-purpose bit 3 and leaves the local header's CRC and sizes zero, with the
+true values in a trailing data descriptor and the central directory. The reader
+supports that layout — with and without the optional `PK\x07\x08` signature —
+and verifies the descriptor against the central directory. Refusing the flag,
+as an earlier build did, made the production runtime artifact unreadable.
+
+Everything else stays hardened: the advertised size is checked before any
 download, the body is streamed and abandoned the moment it exceeds the cap (so
 a chunked response with no `Content-Length` cannot be buffered to exhaustion),
-and the archive itself must pass duplicate-name, path-traversal, encryption
-flag, compression method, declared-versus-actual size, local/central header
+and the archive must pass duplicate-name, path-traversal, encryption flag,
+compression method, declared-versus-actual size, local/central/descriptor
 agreement and CRC-32 checks. The runtime artifact must contain exactly its three
 expected entries; the diagnostics artifact has an explicit
 required/optional/ignored allowlist and rejects anything else.
@@ -402,10 +412,13 @@ Authorization requires all of the following together — an AND, never an OR:
 4. that account is owned by the production owner (read service-side from
    `accounts.owner_id`, never from anything the browser sent).
 
-`PRODUCTION_ALPACA_ACCOUNT_NUMBER` is an optional *additional* AND check. When
-set, the number read fresh from Alpaca `/v2/account` must also match; a value
-stored in Supabase is never accepted as proof, and an unreadable broker fails
-the check closed.
+`PRODUCTION_ALPACA_ACCOUNT_NUMBER` is **required**, as a fifth AND condition.
+Owner, account id and paper mode establish *who is asking about which row*;
+they cannot establish that the row's Vault credentials point at the broker
+account the executor actually trades. The number read fresh from Alpaca
+`/v2/account` must therefore match it. A value stored in Supabase is never
+accepted as proof, an unreadable broker fails the check closed, and an
+unconfigured binding leaves every account observer-only.
 
 An unauthorized viewer receives no plan, pending actions, preflight, executor
 record or production operations, gets `NOT_APPLICABLE` for all of them, and
@@ -417,10 +430,23 @@ Supporting database lockdown: migration `0009_accounts_server_managed.sql`
 reduces `accounts` to a SELECT-only policy for end users, revokes their
 INSERT/UPDATE/DELETE grants, and adds a trigger that rejects any client write to
 `owner_id`, `mode`, `status`, `alpaca_account_number`, the Vault secret UUIDs,
-`last_verified_at`, `last_synced_at`, `created_at` or `deleted_at`. All account
-mutations go through the narrow server routes under the service role.
-`supabase/tests/accounts_server_managed.test.sql` proves it against a database;
-`tests/test_supabase_account_lockdown.py` keeps the migration honest in CI.
+`last_verified_at`, `last_synced_at`, `created_at` or `deleted_at`.
+
+`0010_accounts_guard_authz_fix.sql` corrects that guard. 0009 authorized it with
+a helper that fell back to `current_user`, which inside a `SECURITY DEFINER`
+function is the function *owner*, not the caller — so a session without JWT
+claims was authorized. The guard is now `SECURITY INVOKER` (it needs no
+privileges of its own, and being a definer cost it the only reliable identity
+signal), refuses a client role outright, prefers the request's JWT role claim,
+and pins an explicit `search_path`. 0010 also names the three cosmetic columns
+a client may change directly — `nickname`, `color`, `is_active` — so "what may
+a client write?" is stated rather than implied.
+
+`supabase/tests/run_integration.sh` applies **every real migration to a real
+PostgreSQL server** and then runs the assertions against it; the release gate
+runs it as the `supabase-schema-gate` job with a `postgres:16-alpine` service.
+`tests/test_supabase_account_lockdown.py` additionally keeps the migration text
+honest where no database is available.
 
 #### Registration and the client account DTO
 
@@ -455,6 +481,16 @@ re-anchors to the first later common day, and Alpaca activities are paginated
 past the 100-item page cap back to the epoch boundary with completeness
 recorded.
 
+The baseline is parsed with nothing defaulted: it must *state* strategy version
+`v11-adaptive-momentum` and benchmark `SPY`, both anchors must name the same
+session, `startedAt` must fall on that session in exchange time, and no date may
+be in the future. Cash flows include ACAT transfers (`ACATC`) and any activity
+that is not fully understood — missing id, type or timestamp, an invalid amount,
+an unrequested type, or a full page with no usable pagination id — makes the
+walk incomplete and the whole result `UNAVAILABLE`. Freshness is the market age
+of the last shared session (`STALE` after 5 days, `EXPIRED` after 21), and a
+future-dated activity is `MISMATCH`, never `CURRENT`.
+
 It requires a persisted, auditable V11 epoch baseline
 (`state/v11_epoch_baseline.json`, or the `V11_EPOCH_BASELINE` server variable)
 carrying the release SHA, start time, starting equity and benchmark baseline.
@@ -466,11 +502,17 @@ never be relabelled as V11 alpha.
 
 Documented without values in `.env.example`: `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `BUILD_SHA`,
-`GITHUB_TOKEN` (needs `Actions: read` and `Environments: read`, or set an
-explicit server-only `PRODUCTION_RELEASE_SHA` fallback), `GITHUB_REPO`,
+`GITHUB_TOKEN`, `GITHUB_REPO`,
 `GITHUB_STATE_REF`, **`PRODUCTION_OWNER_USER_ID`**, `PRODUCTION_ACCOUNT_ID`,
 `PRODUCTION_ALPACA_ACCOUNT_NUMBER`, `PRODUCTION_RELEASE_SHA`,
 `V11_EPOCH_BASELINE`, `ALLOW_LEGACY_DASHBOARD`.
+
+`GITHUB_TOKEN` is **always required**: `Actions: read` is the only way to list
+workflow runs and download the private artifacts, and nothing substitutes for
+it. `Environments: read` is additionally needed to read the approved release
+from the `paper-production` environment — and *that scope alone* may instead be
+replaced by an explicit server-only `PRODUCTION_RELEASE_SHA`. Setting
+`PRODUCTION_RELEASE_SHA` does not remove the need for the token.
 
 The dashboard container must **not** receive the executor's `ALPACA_API_KEY`,
 `ALPACA_SECRET_KEY` or `TRADING_MODE`. It reads broker data only through
