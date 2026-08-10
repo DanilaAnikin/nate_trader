@@ -2,11 +2,14 @@
 
 > Snapshot: 2026-08-10 (Europe/Prague)
 >
-> Repository `main` HEAD when this document was written:
-> `5e34ca7f1083ce6fba7fef8442c290598b80247e`
+> Newest dashboard tag: `v11-dashboard-prod-2026-08-10b` →
+> `fc73acaae0b576318544d8afe87f5432906da261`, the code state this document
+> describes. `main` may carry later documentation-only commits.
+> The preceding tag `v11-dashboard-prod-2026-08-10` → `5e34ca7f1`.
 >
-> Newest dashboard tag: `v11-dashboard-prod-2026-08-10` → that same commit.
-> **It is not deployed.** See section 12.
+> **Neither is deployed.** See section 13 for what deployment requires.
+>
+> Approved trading release (unchanged): `0cb02c0765ebf91e60e5efd7f51334e9b538fbcb`
 >
 > Audience: maintainers and coding agents operating this repository
 >
