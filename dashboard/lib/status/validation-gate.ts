@@ -60,7 +60,14 @@ export type ValidationGateReason =
   | "PREFLIGHT_UNAVAILABLE"
   | "PREFLIGHT_GATE_MISSING"
   | "PREFLIGHT_GATE_FAILED"
-  | "PREFLIGHT_CYCLE_MISMATCH";
+  | "PREFLIGHT_GATE_AMBIGUOUS"
+  | "PREFLIGHT_CYCLE_MISMATCH"
+  | "PREFLIGHT_NOT_PASS"
+  | "PREFLIGHT_CHECK_MISSING"
+  | "PREFLIGHT_DUPLICATE_CHECK"
+  | "PREFLIGHT_COUNTS_INCONSISTENT"
+  | "PREFLIGHT_CHECKED_AT_INVALID"
+  | "PREFLIGHT_STALE";
 
 /** SHA-256 as the artifacts record it: 64 lower-case hex characters. */
 const SHA256_RE = /^[0-9a-f]{64}$/;
@@ -77,6 +84,35 @@ export const PAPER_ELIGIBLE_MODE = "paper-validation-eligible";
 
 /** The preflight check that carries the Python gate's own verdict. */
 export const PYTHON_GATE_CHECK = "canonical_validation_gate";
+
+/**
+ * Checks a preflight must contain, exactly once each, before its verdict can
+ * authorize anything.
+ *
+ * These are the ones the dashboard reasons about: the mode it ran in, the
+ * frozen policy, the strategy identity, the ranking universe, and Python's own
+ * gate. A report missing any of them is not the report this gate was designed
+ * against, whatever its summary says.
+ */
+export const MANDATORY_PREFLIGHT_CHECKS = [
+  "trading_mode",
+  "frozen_v11_policy",
+  "strategy_identity",
+  "ranking_universe",
+  PYTHON_GATE_CHECK,
+] as const;
+
+/**
+ * How old a preflight may be and still authorize a buy.
+ *
+ * It describes one cycle's broker and market state — open orders, shorts, the
+ * clock, the risk snapshot. Past the runtime freshness contract it is history,
+ * not authorization.
+ */
+export const PREFLIGHT_MAX_AGE_SECONDS = 36 * 60 * 60;
+
+/** The shared allowance for a timestamp ahead of this server's clock. */
+const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
 
 const REASON_DETAIL: Record<ValidationGateReason, string> = {
   REPORT_UNAVAILABLE: "The canonical validation report could not be read.",
@@ -114,7 +150,91 @@ const REASON_DETAIL: Record<ValidationGateReason, string> = {
     "The executor's own canonical validation gate failed in production, whatever the stored report says.",
   PREFLIGHT_CYCLE_MISMATCH:
     "The available preflight is from a different cycle than the runtime state on screen, so its gate result does not authorize this state.",
+  PREFLIGHT_GATE_AMBIGUOUS: `The preflight report contains more than one ${PYTHON_GATE_CHECK} check, so it does not state a single verdict.`,
+  PREFLIGHT_NOT_PASS:
+    "The production preflight itself did not pass, so nothing it reports authorizes a buy.",
+  PREFLIGHT_CHECK_MISSING:
+    "The preflight report does not contain every check this gate reasons about.",
+  PREFLIGHT_DUPLICATE_CHECK:
+    "The preflight report contains a repeated check name, so its results are ambiguous.",
+  PREFLIGHT_COUNTS_INCONSISTENT:
+    "The preflight's own summary counts disagree with the checks it actually recorded.",
+  PREFLIGHT_CHECKED_AT_INVALID:
+    "The preflight has no usable timestamp, or claims to have run in the future.",
+  PREFLIGHT_STALE:
+    "The preflight is older than its freshness contract; it describes a market and broker state that has moved on.",
 };
+
+/**
+ * Everything the preflight itself must satisfy before its captured Python
+ * verdict counts for anything.
+ *
+ * A summary line is not evidence. `status: PASS` with 17 of 18 checks passing,
+ * a repeated check name, a count that does not match the recorded checks, or
+ * two contradictory `canonical_validation_gate` entries all describe a report
+ * that cannot be reduced to one answer — so none of them may produce one.
+ */
+function preflightReasons(
+  preflight: PreflightInfo,
+  now: Date,
+): ValidationGateReason[] {
+  const reasons: ValidationGateReason[] = [];
+
+  if (preflight.status !== "PASS") reasons.push("PREFLIGHT_NOT_PASS");
+
+  const byName = new Map<string, { passed: boolean }[]>();
+  for (const check of preflight.checks) {
+    const bucket = byName.get(check.name) ?? [];
+    bucket.push({ passed: check.passed });
+    byName.set(check.name, bucket);
+  }
+  if ([...byName.values()].some((entries) => entries.length > 1)) {
+    reasons.push("PREFLIGHT_DUPLICATE_CHECK");
+  }
+
+  for (const required of MANDATORY_PREFLIGHT_CHECKS) {
+    const entries = byName.get(required) ?? [];
+    if (entries.length === 0) {
+      reasons.push("PREFLIGHT_CHECK_MISSING");
+      break;
+    }
+  }
+
+  // The Python verdict specifically must be one entry saying one thing.
+  const gateEntries = byName.get(PYTHON_GATE_CHECK) ?? [];
+  if (gateEntries.length === 0) {
+    reasons.push("PREFLIGHT_GATE_MISSING");
+  } else if (gateEntries.length > 1) {
+    reasons.push("PREFLIGHT_GATE_AMBIGUOUS");
+  } else if (!gateEntries[0].passed) {
+    reasons.push("PREFLIGHT_GATE_FAILED");
+  }
+
+  // The summary must describe the checks that are actually there. A report
+  // claiming 18/18 while carrying one failure is the case this catches.
+  const recorded = preflight.checks.length;
+  const actuallyPassed = preflight.checks.filter((check) => check.passed).length;
+  if (
+    preflight.checksEvaluated <= 0 ||
+    preflight.checksEvaluated !== recorded ||
+    preflight.checksPassed !== actuallyPassed ||
+    preflight.checksPassed !== preflight.checksEvaluated
+  ) {
+    reasons.push("PREFLIGHT_COUNTS_INCONSISTENT");
+  }
+
+  const checkedAtMs = preflight.checkedAt ? Date.parse(preflight.checkedAt) : NaN;
+  if (!Number.isFinite(checkedAtMs)) {
+    reasons.push("PREFLIGHT_CHECKED_AT_INVALID");
+  } else if (checkedAtMs - now.getTime() > CLOCK_SKEW_TOLERANCE_MS) {
+    reasons.push("PREFLIGHT_CHECKED_AT_INVALID");
+  } else {
+    const ageSeconds = (now.getTime() - checkedAtMs) / 1000;
+    if (ageSeconds > PREFLIGHT_MAX_AGE_SECONDS) reasons.push("PREFLIGHT_STALE");
+  }
+
+  return reasons;
+}
 
 /**
  * Compute the effective gate. Every condition is an AND; the first failing
@@ -199,14 +319,7 @@ export function computeEffectiveValidationGate(input: {
   if (!preflight) {
     reasons.push("PREFLIGHT_UNAVAILABLE");
   } else {
-    const pythonGate = preflight.checks.find(
-      (check) => check.name === PYTHON_GATE_CHECK,
-    );
-    if (!pythonGate) {
-      reasons.push("PREFLIGHT_GATE_MISSING");
-    } else if (!pythonGate.passed) {
-      reasons.push("PREFLIGHT_GATE_FAILED");
-    }
+    reasons.push(...preflightReasons(preflight, now));
     // A preflight from a different cycle answered a different question. The
     // read model deliberately lets a newer preflight sit beside an older
     // execution for *display*; it must not silently authorize it.

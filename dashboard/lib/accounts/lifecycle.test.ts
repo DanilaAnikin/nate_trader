@@ -100,7 +100,10 @@ vi.mock("@/lib/supabase/service", () => ({
 
 function defaultFor(name: string): unknown {
   if (name === "rotate_account_credentials") return { ...ROW };
+  if (name === "create_account_atomic") return { ...ROW };
+  if (name === "update_account_metadata") return { ...ROW };
   if (name === "delete_account_atomic") return true;
+  if (name === "vault_create_secret") return "vault-uuid";
   return null;
 }
 
@@ -263,5 +266,130 @@ describe("deleteAccount is one transaction", () => {
     if (result.ok) return;
     expect(result.reason).toBe("not_found");
     expect(result.message).toBe("Account not found.");
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Creation and metadata updates are transactions too.
+ *
+ * Both could previously succeed while their audit entry failed, because the
+ * audit insert was a separate round trip whose result was discarded. An audit
+ * log that is sometimes missing entries is worse than none: its silence gets
+ * read as evidence that nothing happened.
+ * ------------------------------------------------------------------------- */
+
+const { createAccount, updateAccount } = await import("./service");
+
+describe("createAccount is one transaction", () => {
+  beforeEach(() => {
+    rpcResults.vault_create_secret = { data: "vault-uuid", error: null };
+  });
+
+  it("creates the row and its audit entry through one RPC", async () => {
+    const result = await createAccount(OWNER_ID, {
+      nickname: "New paper",
+      mode: "paper",
+      apiKey: "k",
+      apiSecret: "s",
+    });
+    expect(result.ok).toBe(true);
+
+    const names = rpcCalls.map((call) => call.name);
+    expect(names).toContain("create_account_atomic");
+    // No separate audit write, and no direct table insert.
+    expect(tableWrites).toEqual([]);
+    const call = rpcCalls.find((entry) => entry.name === "create_account_atomic")!;
+    expect(call.args).toMatchObject({
+      p_owner: OWNER_ID,
+      p_nickname: "New paper",
+      p_mode: "paper",
+      p_account_number: BROKER_NUMBER,
+    });
+  });
+
+  it("purges the Vault secrets when the transaction rolls back", async () => {
+    rpcResults.create_account_atomic = {
+      data: null,
+      error: { message: "insert audit_log: check constraint" },
+    };
+    const result = await createAccount(OWNER_ID, {
+      nickname: "New paper",
+      mode: "paper",
+      apiKey: "k",
+      apiSecret: "s",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain("check constraint");
+    // The row does not exist, so the orphaned secrets are compensated.
+    expect(rpcCalls.filter((call) => call.name === "vault_delete_secret")).toHaveLength(2);
+  });
+
+  it("reports a failed compensation rather than hiding an orphaned secret", async () => {
+    rpcResults.create_account_atomic = {
+      data: null,
+      error: { message: "deadlock detected" },
+    };
+    rpcResults.vault_delete_secret = {
+      data: null,
+      error: { message: "vault unreachable" },
+    };
+    const result = await createAccount(OWNER_ID, {
+      nickname: "New paper",
+      mode: "paper",
+      apiKey: "k",
+      apiSecret: "s",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain("could not be rolled back");
+  });
+});
+
+describe("updateAccount is one transaction", () => {
+  it("updates the row and its audit entry through one RPC", async () => {
+    const result = await updateAccount(OWNER_ID, ACCOUNT_ID, {
+      nickname: "Renamed",
+      is_active: false,
+    });
+    expect(result.ok).toBe(true);
+    expect(rpcCalls.map((call) => call.name)).toEqual(["update_account_metadata"]);
+    expect(tableWrites).toEqual([]);
+    expect(rpcCalls[0].args).toMatchObject({
+      p_account: ACCOUNT_ID,
+      p_owner: OWNER_ID,
+      p_nickname: "Renamed",
+      p_color: null,
+      p_is_active: false,
+    });
+  });
+
+  it("reports a rollback instead of claiming the change landed", async () => {
+    rpcResults.update_account_metadata = {
+      data: null,
+      error: { message: "insert audit_log: permission denied" },
+    };
+    const result = await updateAccount(OWNER_ID, ACCOUNT_ID, { nickname: "X" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("db_error");
+    expect(result.message).toContain("rolled back");
+  });
+
+  it("maps a missing account to not_found", async () => {
+    rpcResults.update_account_metadata = {
+      data: null,
+      error: { message: "account not found", code: "P0002" },
+    };
+    const result = await updateAccount(OWNER_ID, ACCOUNT_ID, { nickname: "X" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("not_found");
+  });
+
+  it("refuses an empty patch without touching the database", async () => {
+    const result = await updateAccount(OWNER_ID, ACCOUNT_ID, {});
+    expect(result.ok).toBe(false);
+    expect(rpcCalls).toEqual([]);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   computeEffectiveValidationGate,
+  MANDATORY_PREFLIGHT_CHECKS,
   NOT_APPLICABLE_GATE,
 } from "./validation-gate";
 import type { PreflightInfo, ValidationInfo } from "./types";
@@ -9,6 +10,7 @@ import {
   APPROVED_SHA,
   STRATEGY_IDENTITY,
   UNIVERSE_HASH,
+  failedPreflightJson,
   preflightJson,
 } from "@/test/fixtures";
 
@@ -302,5 +304,167 @@ describe("the effective gate matches the Python gate's conditions", () => {
     // Guards against the suite above passing because the base fixture is broken.
     expect(gate().reasons).toEqual([]);
     expect(gate().effective).toBe("PASS");
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * The preflight's own summary is not evidence.
+ *
+ * A `status: PASS` line, a count, and a list of checks can disagree with each
+ * other. When they do, the report does not state one answer, so it must not
+ * produce one.
+ * ------------------------------------------------------------------------- */
+
+describe("the preflight itself must be internally consistent", () => {
+  it("refuses a preflight whose own status is FAIL", () => {
+    // The real shape of run 30747478499: FAIL at 17/18, one refusing check.
+    const failing = parsePreflight(failedPreflightJson(), null) as PreflightInfo;
+    const result = gate({}, { preflight: failing });
+    expect(result.effective).toBe("FAIL");
+    expect(result.reasons).toContain("PREFLIGHT_NOT_PASS");
+    expect(result.reasons).toContain("PREFLIGHT_COUNTS_INCONSISTENT");
+  });
+
+  it("refuses 17/18 even when the summary line still claims PASS", () => {
+    // The dangerous variant: a report that failed a check but kept a green
+    // headline. The recorded checks are what count.
+    const dishonest = parsePreflight(
+      failedPreflightJson({ status: "PASS", allowed_mode: "paper" }),
+      null,
+    ) as PreflightInfo;
+    const result = gate({}, { preflight: dishonest });
+    expect(result.effective).toBe("FAIL");
+    expect(result.reasons).toContain("PREFLIGHT_COUNTS_INCONSISTENT");
+  });
+
+  it("refuses a count that does not match the recorded checks", () => {
+    const inflated = preflight((checks) => {
+      checks.splice(0, 3);
+    });
+    // 15 checks recorded, summary still says 18.
+    expect(gate({}, { preflight: inflated }).reasons).toContain(
+      "PREFLIGHT_COUNTS_INCONSISTENT",
+    );
+  });
+
+  it("refuses zero evaluated checks", () => {
+    const empty = parsePreflight(
+      { ...preflightJson(), checks: [], checks_passed: 0, checks_evaluated: 0 },
+      null,
+    ) as PreflightInfo;
+    const result = gate({}, { preflight: empty });
+    expect(result.effective).toBe("FAIL");
+    expect(result.reasons).toContain("PREFLIGHT_COUNTS_INCONSISTENT");
+    expect(result.reasons).toContain("PREFLIGHT_CHECK_MISSING");
+  });
+
+  it("refuses a duplicated check name", () => {
+    const duplicated = preflight((checks) => {
+      checks.push({ ...checks[0] });
+    });
+    expect(gate({}, { preflight: duplicated }).reasons).toContain(
+      "PREFLIGHT_DUPLICATE_CHECK",
+    );
+  });
+
+  it("refuses two contradictory canonical_validation_gate checks", () => {
+    // Neither entry can be preferred, so the report states no verdict at all.
+    const contradictory = preflight((checks) => {
+      checks.push({
+        name: "canonical_validation_gate",
+        passed: false,
+        detail: "validation refused",
+      });
+    });
+    const result = gate({}, { preflight: contradictory });
+    expect(result.effective).toBe("FAIL");
+    expect(result.reasons).toContain("PREFLIGHT_GATE_AMBIGUOUS");
+    expect(result.reasons).toContain("PREFLIGHT_DUPLICATE_CHECK");
+  });
+
+  it.each(MANDATORY_PREFLIGHT_CHECKS)(
+    "refuses a preflight with no %s check",
+    (name) => {
+      const base = preflight();
+      const stripped: PreflightInfo = {
+        ...base,
+        checks: base.checks.filter((check) => check.name !== name),
+      };
+      const result = gate({}, { preflight: stripped });
+      expect(result.effective).toBe("FAIL");
+      expect(
+        result.reasons.some((reason) =>
+          ["PREFLIGHT_CHECK_MISSING", "PREFLIGHT_GATE_MISSING"].includes(reason),
+        ),
+      ).toBe(true);
+    },
+  );
+});
+
+describe("the preflight must be timestamped and fresh", () => {
+  it("refuses a preflight with no timestamp", () => {
+    const undated = parsePreflight(
+      { ...preflightJson(), checked_at: null },
+      null,
+    ) as PreflightInfo;
+    const result = gate({}, { preflight: undated });
+    expect(result.effective).toBe("FAIL");
+    expect(result.reasons).toContain("PREFLIGHT_CHECKED_AT_INVALID");
+  });
+
+  it.each([
+    ["1 hour", 60 * 60 * 1000],
+    ["7 hours", 7 * 60 * 60 * 1000],
+  ])("refuses a preflight timestamped %s in the future", (_label, aheadMs) => {
+    const future = parsePreflight(
+      {
+        ...preflightJson(),
+        checked_at: new Date(NOW.getTime() + aheadMs).toISOString(),
+      },
+      null,
+    ) as PreflightInfo;
+    const result = gate({}, { preflight: future });
+    expect(result.effective).toBe("FAIL");
+    expect(result.reasons).toContain("PREFLIGHT_CHECKED_AT_INVALID");
+  });
+
+  it("still accepts a timestamp inside the five-minute skew tolerance", () => {
+    const skewed = parsePreflight(
+      {
+        ...preflightJson(),
+        checked_at: new Date(NOW.getTime() + 60_000).toISOString(),
+      },
+      null,
+    ) as PreflightInfo;
+    expect(gate({}, { preflight: skewed }).reasons).not.toContain(
+      "PREFLIGHT_CHECKED_AT_INVALID",
+    );
+  });
+
+  it.each([
+    ["37 hours", 37 * 60 * 60 * 1000],
+    ["9 days", 9 * 24 * 60 * 60 * 1000],
+  ])("refuses a preflight %s old", (_label, ageMs) => {
+    const stale = parsePreflight(
+      {
+        ...preflightJson(),
+        checked_at: new Date(NOW.getTime() - ageMs).toISOString(),
+      },
+      null,
+    ) as PreflightInfo;
+    const result = gate({}, { preflight: stale });
+    expect(result.effective).toBe("FAIL");
+    expect(result.reasons).toContain("PREFLIGHT_STALE");
+  });
+
+  it("accepts a preflight inside the freshness contract", () => {
+    const recent = parsePreflight(
+      {
+        ...preflightJson(),
+        checked_at: new Date(NOW.getTime() - 30 * 60 * 60 * 1000).toISOString(),
+      },
+      null,
+    ) as PreflightInfo;
+    expect(gate({}, { preflight: recent }).reasons).toEqual([]);
   });
 });

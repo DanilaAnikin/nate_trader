@@ -11,6 +11,7 @@ import type { BrokerInfo } from "./types";
 import {
   APPROVED_SHA,
   DASHBOARD_SHA,
+  failedPreflightJson,
   frozenPlanJson,
   lastRunJson,
   OTHER_SHA,
@@ -1520,5 +1521,173 @@ describe("a failing ranking_universe check is fatal", () => {
     });
     expect(payload.validationGate.effective).toBe("FAIL");
     expect(payload.validationGate.reasons).toContain("PREFLIGHT_GATE_FAILED");
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * The preflight comes from the latest COMPLETED run, not the latest successful
+ * one.
+ *
+ * The preflight runs before the executor and writes its report whatever
+ * happens next — a run usually fails *because* the preflight refused. Skipping
+ * failed runs therefore skipped exactly the reports that matter and fell back
+ * to an older green one, so the screen showed a passing preflight while
+ * production had just refused to trade.
+ * ------------------------------------------------------------------------- */
+
+describe("preflight selection follows completion, not conclusion", () => {
+  /** Newer failed run with diagnostics; older successful execution+preflight. */
+  function newerFailureRuns(diagnostics: Buffer): RunSpec[] {
+    return [
+      {
+        // Modelled on run 30747478499: workflow_dispatch, completed, failure,
+        // diagnostics written, no runtime artifact.
+        id: 30747478499,
+        runNumber: 2,
+        conclusion: "failure",
+        event: "workflow_dispatch",
+        updatedAt: "2026-08-07T16:40:00Z",
+        runtimeArtifactName: null,
+        diagnostics,
+      },
+      {
+        id: 900,
+        runNumber: 43,
+        conclusion: "success",
+        event: "schedule",
+        updatedAt: "2026-08-07T16:06:00Z",
+        runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+        runtimeZip: runtimeZipBuffer(),
+        diagnostics: diagnosticsZipBuffer(),
+      },
+    ];
+  }
+
+  it("takes the newer failed run's preflight and refuses to pass the gate", async () => {
+    const refused = failedPreflightJson({
+      checks: (
+        failedPreflightJson().checks as {
+          name: string;
+          passed: boolean;
+          detail: string;
+        }[]
+      ).map((check) =>
+        check.name === "canonical_validation_gate"
+          ? { ...check, passed: false, detail: "validation refused" }
+          : check,
+      ),
+    });
+    stubGithub({ runs: newerFailureRuns(diagnosticsZipBuffer(refused)) });
+
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+
+    // The newer failed run supplied the preflight, not the older green one.
+    expect(payload.preflight.provenance.scope).toContain("#2");
+    expect(payload.preflight.provenance.scope).toContain("failure");
+    // And nothing about it authorizes a buy.
+    expect(payload.validationGate.effective).not.toBe("PASS");
+    expect(payload.validationGate.reasons).toContain("PREFLIGHT_GATE_FAILED");
+    expect(payload.validationGate.reasons).toContain("PREFLIGHT_NOT_PASS");
+  });
+
+  it("does not fall back to an older green preflight for the gate", async () => {
+    stubGithub({ runs: newerFailureRuns(diagnosticsZipBuffer(failedPreflightJson())) });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.preflight.data?.status).toBe("FAIL");
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("still keeps the older execution — only the preflight is superseded", async () => {
+    stubGithub({ runs: newerFailureRuns(diagnosticsZipBuffer(failedPreflightJson())) });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    // The failed run produced no runtime state, so the last successful
+    // executor cycle is still the one on screen.
+    expect(payload.execution.data?.runUrl).toContain("/runs/900");
+  });
+
+  it("skips a newer completed run that produced no preflight at all", async () => {
+    // An infrastructure failure that ended before the preflight step
+    // demonstrably supersedes nothing.
+    stubGithub({
+      runs: [
+        {
+          id: 950,
+          runNumber: 44,
+          conclusion: "failure",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:50:00Z",
+          runtimeArtifactName: null,
+          diagnostics: null,
+        },
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: diagnosticsZipBuffer(),
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.preflight.data).not.toBeNull();
+    expect(payload.preflight.provenance.scope).toContain("#43");
+    expect(payload.validationGate.effective).toBe("PASS");
+  });
+
+  it("fails closed on a corrupt newest diagnostics instead of searching back", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 951,
+          runNumber: 45,
+          conclusion: "failure",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:50:00Z",
+          runtimeArtifactName: null,
+          diagnostics: Buffer.from("this is not a zip archive at all"),
+        },
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: diagnosticsZipBuffer(),
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.preflight.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
   });
 });

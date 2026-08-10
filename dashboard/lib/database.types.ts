@@ -635,6 +635,46 @@ export type Database = {
         }[]
       }
       owns_account: { Args: { acct: string }; Returns: boolean }
+      account_history_row_limit: { Args: Record<string, never>; Returns: number }
+      account_history_snapshot: {
+        Args: { p_account: string; p_owner: string; p_from?: string | null }
+        Returns: Json
+      }
+      reconcile_cash_flow_mirror: {
+        Args: {
+          p_account: string
+          p_owner: string
+          p_from: string
+          p_rows: Json
+        }
+        Returns: Json
+      }
+      replace_equity_snapshots: {
+        Args: { p_account: string; p_owner: string; p_rows: Json }
+        Returns: Json
+      }
+      create_account_atomic: {
+        Args: {
+          p_owner: string
+          p_nickname: string
+          p_mode: Database["public"]["Enums"]["account_mode"]
+          p_color: string
+          p_key_secret: string
+          p_secret_secret: string
+          p_account_number: string
+        }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
+      }
+      update_account_metadata: {
+        Args: {
+          p_account: string
+          p_owner: string
+          p_nickname?: string | null
+          p_color?: string | null
+          p_is_active?: boolean | null
+        }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
+      }
       delete_account_atomic: {
         Args: { p_account: string; p_owner: string; p_purge_history?: boolean }
         Returns: boolean

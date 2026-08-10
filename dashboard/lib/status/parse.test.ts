@@ -91,7 +91,8 @@ describe("parseFrozenPlan", () => {
       targetWeightPct: 4.5,
       status: "submitted",
       attempt: 1,
-      submittedAt: "2026-08-07T12:05:03.000Z",
+      // 12:05:03 in the runner's America/New_York wall clock is 16:05:03Z.
+      submittedAt: "2026-08-07T16:05:03.000Z",
     });
   });
 

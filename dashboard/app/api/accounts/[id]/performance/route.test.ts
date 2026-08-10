@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clearGithubCache } from "@/lib/status/github-api";
 import { APPROVED_SHA, OTHER_SHA } from "@/test/fixtures";
-import { fakeTable } from "@/test/supabase-fake";
 
 /**
  * Forward performance is the one place a wrong number would be published as
@@ -22,13 +21,14 @@ let accountOwner = OWNER_ID;
 
 let equityRows: { snapshot_date: string; equity: number }[] = [];
 let flowRows: { flow_date: string; amount: number }[] = [];
-let equityError: { message: string } | null = null;
-let flowError: { message: string } | null = null;
-/** Every keyset cursor the route asked for, so paging can be asserted. */
-let equityCursors: (string | number | null)[] = [];
-let flowCursors: (string | number | null)[] = [];
-/** The fake server's own per-response cap, like `db-max-rows`. */
-let serverCap: number | undefined;
+/** Set to make the snapshot RPC fail, exactly as PostgREST would report it. */
+let snapshotError: { message: string; code?: string } | null = null;
+/** Every snapshot request the route made, so its arguments can be asserted. */
+let snapshotCalls: Record<string, unknown>[] = [];
+/** Make the snapshot claim more rows than it carries. */
+let inflateSnapshotCounts = false;
+/** Make the snapshot arrive without its audit token. */
+let dropSnapshotToken = false;
 
 vi.mock("@/lib/supabase/server", () => ({
   getSupabaseServer: async () => ({
@@ -58,52 +58,71 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/supabase/service", () => ({
   getSupabaseService: () => ({
-    rpc: async () => ({ data: [{ api_key: "k", api_secret: "s" }], error: null }),
-    from: (table: string) => {
-      const builder = {
-        select: () => builder,
-        eq: () => builder,
-        gte: () => builder,
-        order: async () => ({ data: equityRows, error: equityError }),
-        then: undefined,
-      };
-      if (table === "accounts") {
-        // Since 0011 the account row is read with the service role and the
-        // ownership check happens in `loadOwnedAccount`.
-        const account = {
-          select: () => account,
-          eq: () => account,
-          is: () => account,
-          maybeSingle: async () => ({
-            data: {
-              id: ACCOUNT_ID,
-              mode: "paper" as const,
-              nickname: "Paper production",
-              owner_id: accountOwner,
-              deleted_at: null,
-            },
-            error: null,
-          }),
+    // The route reads both datasets through one snapshot RPC, so the double
+    // answers that rather than emulating two paged table walks.
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === "get_account_credentials") {
+        return { data: [{ api_key: "k", api_secret: "s" }], error: null };
+      }
+      if (name === "account_history_snapshot") {
+        snapshotCalls.push(args);
+        if (snapshotError) return { data: null, error: snapshotError };
+        const from = (args.p_from as string | null) ?? null;
+        const equity = equityRows
+          .filter((row) => from === null || row.snapshot_date >= from)
+          .map((row) => ({
+            date: row.snapshot_date,
+            equity: row.equity,
+            cash: 0,
+            profit_loss: null,
+            profit_loss_pct: null,
+            num_positions: null,
+          }));
+        const flows = flowRows
+          .filter((row) => from === null || row.flow_date >= from)
+          .map((row, index) => ({
+            id: String(index + 1),
+            date: row.flow_date,
+            amount: row.amount,
+            kind: row.amount >= 0 ? "deposit" : "withdrawal",
+            source: "alpaca_activities",
+          }));
+        return {
+          data: {
+            schema_version: 1,
+            account_id: args.p_account,
+            from_date: from,
+            snapshot: dropSnapshotToken ? "" : "10:10:",
+            captured_at: new Date().toISOString(),
+            equity_count: equity.length + (inflateSnapshotCounts ? 1 : 0),
+            cash_flow_count: flows.length,
+            equity,
+            cash_flows: flows,
+          },
+          error: null,
         };
-        return account;
       }
-      if (table === "cash_flows") {
-        return fakeTable({
-          rows: flowRows.map((row, index) => ({ id: index + 1, ...row })),
-          error: flowError,
-          cursors: flowCursors,
-          cap: serverCap,
-        });
-      }
-      if (table === "equity_snapshots") {
-        return fakeTable({
-          rows: equityRows,
-          error: equityError,
-          cursors: equityCursors,
-          cap: serverCap,
-        });
-      }
-      return builder;
+      return { data: null, error: null };
+    },
+    from: (table: string) => {
+      const account = {
+        select: () => account,
+        eq: () => account,
+        is: () => account,
+        maybeSingle: async () => ({
+          data: {
+            id: ACCOUNT_ID,
+            mode: "paper" as const,
+            nickname: "Paper production",
+            owner_id: accountOwner,
+            deleted_at: null,
+          },
+          error: null,
+        }),
+        update: () => ({ eq: async () => ({ error: null }) }),
+      };
+      if (table === "accounts") return account;
+      return account;
     },
   }),
 }));
@@ -207,11 +226,10 @@ beforeEach(() => {
   clearGithubCache();
   currentUserId = OWNER_ID;
   accountOwner = OWNER_ID;
-  equityError = null;
-  flowError = null;
-  equityCursors = [];
-  flowCursors = [];
-  serverCap = undefined;
+  snapshotError = null;
+  snapshotCalls = [];
+  inflateSnapshotCounts = false;
+  dropSnapshotToken = false;
   equityBackfillError = null;
   cashFlowError = null;
   cashFlowResult = {
@@ -294,10 +312,12 @@ describe("GET /api/accounts/[id]/performance", () => {
   });
 
   it("refuses a ledger row with an unusable date or amount", async () => {
+    // Caught while reading the snapshot rather than while computing: a row the
+    // reader cannot parse means the snapshot is not usable, full stop.
     flowRows = [{ flow_date: "not-a-date", amount: 1 }];
     const { body } = await request();
     expect(body.status).toBe("UNAVAILABLE");
-    expect(body.reason).toBe("CASH_FLOW_UNUSABLE");
+    expect(body.reason).toBe("HISTORY_UNUSABLE");
   });
 
   it("reports an exact return when the window is genuinely flow-free", async () => {
@@ -398,24 +418,33 @@ describe("GET /api/accounts/[id]/performance", () => {
     expect(body.detail).toContain("pagination id");
   });
 
-  it("refuses a database error on the equity query", async () => {
-    equityError = { message: "connection reset" };
+  it("refuses a database error on the history snapshot", async () => {
+    snapshotError = { message: "connection reset" };
     const { body } = await request();
     expect(body.reason).toBe("EQUITY_QUERY_FAILED");
+    expect(body.detail).toContain("connection reset");
   });
 
-  it("refuses a database error on the cash-flow query", async () => {
-    flowError = { message: "connection reset" };
+  it("refuses a history too large to read in one snapshot", async () => {
+    // Materialising an unbounded history is its own failure mode; the RPC
+    // raises rather than returning a partial answer.
+    snapshotError = {
+      message: "account history is 30000 rows, above the 20000 row snapshot limit",
+    };
     const { body } = await request();
-    expect(body.reason).toBe("CASH_FLOW_QUERY_FAILED");
+    expect(body.status).toBe("UNAVAILABLE");
+    expect(body.reason).toBe("HISTORY_TOO_LARGE");
   });
 
-  it("refuses a future-dated broker activity", async () => {
+  it.each([
+    ["seven hours", 7 * 60 * 60 * 1000],
+    ["a year", 365 * 24 * 60 * 60 * 1000],
+  ])("refuses a broker activity %s in the future", async (_label, aheadMs) => {
     cashFlowResult = {
       complete: true,
       incompleteReason: null,
       detail: null,
-      latestActivityAt: "2027-01-04T20:00:00.000Z",
+      latestActivityAt: new Date(Date.now() + aheadMs).toISOString(),
     };
     const { body } = await request();
     expect(body.reason).toBe("FUTURE_DATED");
@@ -460,7 +489,13 @@ describe("GET /api/accounts/[id]/performance", () => {
   });
 
   it("still accepts today's own session under the clock-skew tolerance", async () => {
-    // 16:00Z is midday in New York on the same date, the ordinary case.
+    // 16:00Z is midday in New York on the same date, the ordinary case. The
+    // activity timestamp has to be in the past too, now that a future one is
+    // held to five minutes rather than a day.
+    cashFlowResult = {
+      ...cashFlowResult,
+      latestActivityAt: "2026-08-05T13:45:00.000Z",
+    };
     vi.setSystemTime(new Date("2026-08-05T16:00:00Z"));
     const { body } = await request();
     expect(body.status).toBe("CURRENT");
@@ -490,12 +525,17 @@ describe("GET /api/accounts/[id]/performance", () => {
 });
 
 /* ---------------------------------------------------------------------------
- * A server truncates a response *without* an error, and its cap is
- * configuration rather than a constant. An unpaged read — or one that assumes
- * the cap is 1000 — returns a shorter and wrong history that still looks valid.
+ * Both datasets come from ONE database snapshot.
+ *
+ * A page walk cannot give that: several requests are several MVCC snapshots,
+ * and an UPDATE to a row already read leaves the count unchanged, repeats no
+ * key and skips nothing — so a torn read passes every client-side consistency
+ * check there is. The real-PostgREST gate in `supabase/tests/run_postgrest.sh`
+ * demonstrates the tear against a live server; this asserts the route asks for
+ * the snapshot and uses all of it.
  * ------------------------------------------------------------------------- */
 
-describe("history is read completely, not to the first Supabase page", () => {
+describe("history comes from one snapshot, not a page walk", () => {
   function tradingDays(count: number, from: string): string[] {
     const dates: string[] = [];
     const cursor = new Date(`${from}T00:00:00Z`);
@@ -507,7 +547,17 @@ describe("history is read completely, not to the first Supabase page", () => {
     return dates;
   }
 
-  it("pages past 1000 equity rows and keeps the oldest and newest", async () => {
+  it("makes exactly one history request, bounded at the baseline", async () => {
+    await request();
+    expect(snapshotCalls).toHaveLength(1);
+    expect(snapshotCalls[0]).toMatchObject({
+      p_account: ACCOUNT_ID,
+      p_owner: OWNER_ID,
+      p_from: START_SESSION,
+    });
+  });
+
+  it("uses every row of a history far past any server page cap", async () => {
     const dates = tradingDays(1_250, START_SESSION);
     const end = dates[dates.length - 1];
     equityRows = dates.map((date, index) => ({
@@ -523,60 +573,45 @@ describe("history is read completely, not to the first Supabase page", () => {
 
     const { body } = await request();
 
-    // The first page came back exactly full, which proves nothing about what
-    // remains, so the walk continued from the last key it actually received.
-    expect(equityCursors).toEqual(["2030-05-31"]);
+    expect(snapshotCalls).toHaveLength(1);
     expect(body.performance.sessions).toBe(1_250);
     expect(body.performance.startDate).toBe(START_SESSION);
     expect(body.performance.endDate).toBe(end);
-    // 1_000_000 → 2_249_000 is +124.9%. Truncating at the first 1000 rows
-    // would report +99.9% — plausible, and wrong by 25 points.
+    // 1_000_000 → 2_249_000 is +124.9%. Truncating at 1000 rows would report
+    // +99.9% — plausible, and wrong by 25 points.
     expect(body.performance.portfolioTwrPct).toBeCloseTo(124.9, 4);
   });
 
-  it("pages past 1000 cash-flow rows so no deposit is dropped", async () => {
+  it("reads the whole ledger, then still withholds the number", async () => {
     const dates = tradingDays(1_100, START_SESSION);
     const end = dates[dates.length - 1];
-    equityRows = dates.map((date) => ({
-      snapshot_date: date,
-      equity: 1_000_000,
-    }));
+    equityRows = dates.map((date) => ({ snapshot_date: date, equity: 1_000_000 }));
     benchmarkBars = dates.map((date) => ({ date, close: 700 }));
-    // One $1 deposit per session: the last 100 live on the second page.
     flowRows = dates.map((date) => ({ flow_date: date, amount: 1 }));
     vi.setSystemTime(new Date(`${end}T20:00:00Z`));
 
     const { body } = await request();
 
-    // The walk resumed from the last id it received, not from an offset.
-    expect(flowCursors).toHaveLength(1);
-    // Every one of the 1_100 flows was read, including the 100 on page two.
-    // The number itself is still withheld: an external movement inside the
-    // window cannot be corrected exactly without an intraday valuation.
+    expect(snapshotCalls).toHaveLength(1);
+    // An external movement inside the window cannot be corrected exactly
+    // without an intraday valuation, so no return is published.
     expect(body.status).toBe("UNAVAILABLE");
     expect(body.reason).toBe("BASELINE_SESSION_HAS_CASH_FLOW");
   });
 
-  it("keeps reading when the server caps a page far below the request", async () => {
-    // `db-max-rows` is server configuration. A reader that assumes 1000 would
-    // stop after the first 100 rows here and report a confidently wrong return.
-    serverCap = 100;
-    const dates = tradingDays(250, START_SESSION);
-    const end = dates[dates.length - 1];
-    equityRows = dates.map((date, index) => ({
-      snapshot_date: date,
-      equity: 1_000_000 + index * 1_000,
-    }));
-    benchmarkBars = dates.map((date, index) => ({
-      date,
-      close: 700 + index * 0.7,
-    }));
-    vi.setSystemTime(new Date(`${end}T20:00:00Z`));
-
+  it("refuses a snapshot whose payload disagrees with its own counts", async () => {
+    // A snapshot claiming more rows than it carries is not the consistent read
+    // it says it is, whatever produced it.
+    inflateSnapshotCounts = true;
     const { body } = await request();
+    expect(body.status).toBe("UNAVAILABLE");
+    expect(body.reason).toBe("HISTORY_UNUSABLE");
+  });
 
-    expect(equityCursors).toHaveLength(2);
-    expect(body.performance.sessions).toBe(250);
-    expect(body.performance.portfolioTwrPct).toBeCloseTo(24.9, 4);
+  it("refuses a snapshot with no snapshot identity", async () => {
+    dropSnapshotToken = true;
+    const { body } = await request();
+    expect(body.status).toBe("UNAVAILABLE");
+    expect(body.reason).toBe("HISTORY_UNUSABLE");
   });
 });

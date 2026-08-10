@@ -69,6 +69,7 @@ import {
 } from "./validation-gate";
 import {
   classifyAge,
+  CLOCK_SKEW_TOLERANCE_SECONDS,
   DAY,
   HOUR,
   isFullSha,
@@ -476,26 +477,42 @@ function validationSection(
   const mismatch =
     identityMatchesRuntime === "FAIL" || universeMatchesRuntime === "FAIL";
 
+  // The report must be able to say when it was produced, and that must not be
+  // in the future. Without a usable `generated_at` the whole freshness
+  // calculation — including the 35-day deadline — rests on nothing, so the
+  // section cannot be CURRENT however green its contents look.
+  const generatedAtMs = report.generatedAt ? Date.parse(report.generatedAt) : NaN;
+  const generatedAtMissing = !Number.isFinite(generatedAtMs);
+  const generatedAtFuture =
+    Number.isFinite(generatedAtMs) &&
+    generatedAtMs - now.getTime() > CLOCK_SKEW_TOLERANCE_SECONDS * 1000;
+
   return section(
     provenance({
       source,
       scope,
       asOf: report.generatedAt,
       now,
-      freshness: mismatch
+      freshness: mismatch || generatedAtFuture
         ? "MISMATCH"
-        : expired
-          ? "EXPIRED"
-          : nearExpiry
-            ? "STALE"
-            : "CURRENT",
+        : generatedAtMissing
+          ? "UNAVAILABLE"
+          : expired
+            ? "EXPIRED"
+            : nearExpiry
+              ? "STALE"
+              : "CURRENT",
       detail: mismatch
         ? "the promotion evidence does not match the running strategy or ranking universe"
-        : expired
-          ? "the promotion evidence is past its 35-day freshness deadline and can no longer authorize a paper buy"
-          : nearExpiry
-            ? "the promotion evidence expires within seven days"
-            : null,
+        : generatedAtFuture
+          ? "the promotion evidence claims to have been generated in the future"
+          : generatedAtMissing
+            ? "the promotion evidence has no usable generation timestamp, so its freshness cannot be established"
+            : expired
+              ? "the promotion evidence is past its 35-day freshness deadline and can no longer authorize a paper buy"
+              : nearExpiry
+                ? "the promotion evidence expires within seven days"
+                : null,
     }),
     { ...report, identityMatchesRuntime, universeMatchesRuntime },
   );
@@ -810,12 +827,12 @@ export async function buildStrategyStatus(input: {
   const preflight: Section<PreflightInfo> = !authorized
     ? withheld<PreflightInfo>(
         DIAGNOSTICS_SOURCE,
-        "last successful production preflight",
+        "latest completed production preflight",
       )
     : lineageBroken
       ? unavailable<PreflightInfo>(
           DIAGNOSTICS_SOURCE,
-          "last successful production preflight",
+          "latest completed production preflight",
           lineage.detail ??
             preflightSelection.errors[0] ??
             "the preflight report does not match the running strategy identity",
@@ -826,8 +843,8 @@ export async function buildStrategyStatus(input: {
             provenance({
               source: DIAGNOSTICS_SOURCE,
               scope: preflightSelection.run
-                ? `last successful preflight · run #${preflightSelection.run.runNumber} (${preflightSelection.run.event})`
-                : "last successful production preflight",
+                ? `latest completed preflight · run #${preflightSelection.run.runNumber} (${preflightSelection.run.event}, ${preflightSelection.run.conclusion ?? "unknown"})`
+                : "latest completed production preflight",
               asOf: preflightSelection.preflight.checkedAt,
               now,
               freshness: classifyAge(
@@ -840,7 +857,7 @@ export async function buildStrategyStatus(input: {
           )
         : unavailable<PreflightInfo>(
             DIAGNOSTICS_SOURCE,
-            "last successful production preflight",
+            "latest completed production preflight",
             preflightSelection.errors[0] ?? "no preflight report is available",
           );
 

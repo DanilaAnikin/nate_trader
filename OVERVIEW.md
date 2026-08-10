@@ -3,17 +3,18 @@
 > Snapshot: 2026-08-10 (Europe/Prague)
 >
 > This document describes the commit tagged
-> **`v11-dashboard-prod-2026-08-10c`** — the tag and the documentation are
-> published together, so `git show v11-dashboard-prod-2026-08-10c:OVERVIEW.md`
+> **`v11-dashboard-prod-2026-08-10d`** — the tag and the documentation are
+> published together, so `git show v11-dashboard-prod-2026-08-10d:OVERVIEW.md`
 > is always the description of that exact code.
 >
-> Preceding tags: `v11-dashboard-prod-2026-08-10b` → `fc73acaae`,
+> Preceding tags: `v11-dashboard-prod-2026-08-10c` → `ab7145b48`,
+> `v11-dashboard-prod-2026-08-10b` → `fc73acaae` (**the bridge**, section 13.2),
 > `v11-dashboard-prod-2026-08-10` → `5e34ca7f1`,
-> `v11-dashboard-prod-2026-08-03` → `d11bbad8a`.
+> `v11-dashboard-prod-2026-08-03` → `d11bbad8a` (**currently in production**).
 >
-> **None of them is deployed.** Section 13 states what deployment requires;
-> 13.4 states why `d11bbad8a` stops being a valid rollback target once the
-> migrations are applied.
+> **Production currently runs `d11bbad8a`** (`v11-dashboard-prod-2026-08-03`).
+> None of the later tags has been deployed. Section 13 states what deployment
+> requires and how `fc73acaae` bridges the schema change.
 >
 > Approved trading release (unchanged): `0cb02c0765ebf91e60e5efd7f51334e9b538fbcb`
 >
@@ -98,7 +99,7 @@ Rules the read model enforces:
   canonical V11 validator ------> state/backtest/v11_validation.json
                          |
                          v
-  V11 Release Gate for an exact commit SHA  (3 jobs, section 11.1)
+  V11 Release Gate for an exact commit SHA  (4 jobs, section 11.1)
                          |
                          v
   human approval: paper-production PRODUCTION_RELEASE_SHA
@@ -631,15 +632,45 @@ about whether production is coherent.
 Freshness follows the same rule everywhere: `classifyAge` treats a timestamp
 more than five minutes ahead of this server as `MISMATCH` rather than letting a
 negative age fall through to `CURRENT`, and every non-`CURRENT` provenance
-carries an explanatory `detail`.
+carries an explanatory `detail`. The validation report must also carry a
+`generated_at` that is present and not in the future — without one its whole
+35-day freshness calculation rests on nothing, so the section is `UNAVAILABLE`
+rather than `CURRENT`.
+
+**Timestamps from the runner are New York time.** `scripts/utils.py` writes
+`performance.json`, `positions.json` and the frozen plan with
+`datetime.now(ZoneInfo("America/New_York"))` and **no offset**. The dashboard
+read those as UTC, which was wrong by four or five hours depending on the
+season — enough to move a value across a session boundary and change which day
+it belongs to. `normalizeInstant` now interprets a naive
+`YYYY-MM-DD HH:MM:SS` in that zone, and returns null for the two wall times
+that denote no single instant: the hour skipped at the spring transition, and
+the hour repeated at the autumn one. Those surface as `UNAVAILABLE` rather than
+as an instant that may be an hour wrong. `scripts/utils.py` itself is a
+strategy-identity source and was not touched.
 
 ### 10.5 Reading the private artifacts
 
 `dashboard/lib/status/runtime.ts` selects the executor result and the preflight
-**independently**, because a manual `operation=preflight` run produces
-diagnostics but no runtime state and must not hide an older valid execution.
-The scan walks successful runs newest-first across pages (100 per page, up to
-10 pages) and stops at an explicit 45-day freshness boundary.
+**independently**, and by different rules:
+
+* the **executor result** comes from the newest run that actually *succeeded* —
+  a failed run produced no trustworthy runtime state;
+* the **preflight** comes from the newest **completed** run that carries a
+  diagnostics artifact, whatever that run concluded.
+
+The second is the important one. The preflight runs before the executor and
+writes its report whatever happens next — indeed a run usually fails *because*
+the preflight refused. Filtering it on `conclusion === "success"` therefore
+skipped exactly the reports that matter and fell back to an older green one, so
+the screen could show a passing preflight while production had just refused to
+trade. A newer completed run with **no** diagnostics is skipped: it ended
+before a preflight existed, so it supersedes nothing. A newest diagnostics that
+is corrupt, schema-invalid or lineage-mismatched fails closed — the selector
+does not search backwards for a greener report.
+
+Both scans walk newest-first across pages (100 per page, up to 10 pages) and
+stop at an explicit 45-day freshness boundary.
 
 Before anything is parsed, the reader checks the artifact name, its advertised
 size, and the exact expected entry list. The ZIP reader handles the streaming
@@ -703,20 +734,37 @@ What it does when it *can* answer:
   mirrored row deleted; an amended activity keeps its id and is overwritten.
   Without this, a withdrawn deposit would keep subtracting from the return
   forever.
-- An activity dated after today's New York session, beyond a five-minute
-  clock-skew tolerance, is refused. So is a date the calendar does not contain
-  (`2026-02-30` parses in JavaScript and silently becomes 2 March).
+- A **real** activity timestamp is held to the clock: more than five minutes
+  ahead of this server is a broken feed, not a scheduled transfer. A date-only
+  activity has no time of day, so it is held to the calendar instead — it may
+  not be dated after today's New York session — and its fabricated midday
+  instant is never reported as an observation, because a caller would
+  clock-check it and reject a perfectly ordinary same-day entry. A date the
+  calendar does not contain (`2026-02-30` parses in JavaScript and silently
+  becomes 2 March) is refused either way.
 - The portfolio-history payload is validated as the column-oriented structure
   it is: an empty payload, mismatched column lengths or a non-numeric timestamp
   are errors, because positional arrays of different lengths pair one day's
   timestamp with another day's equity.
-- Both the equity curve and the cash-flow ledger are read with **keyset**
-  paging against the server's own `count: "exact"`. A server truncates silently
-  and its cap is configuration (`db-max-rows`), so "a short page means the end"
-  is not proof; and offsets shift under a concurrent write, so a row can be
-  read twice or skipped. Paging by key cannot skip, and any mid-walk change in
-  the count, a repeated key, or a total that disagrees with the count fails the
-  read rather than returning a torn snapshot.
+- Both the equity curve and the cash-flow ledger come from **one database
+  snapshot**, via the `account_history_snapshot` RPC. A client-side page walk —
+  even a careful one with a keyset cursor, an exact count and duplicate
+  detection — cannot deliver this, because several HTTP requests are several
+  MVCC snapshots. The change no client-side check can see is an **UPDATE to a
+  row already read**: the count is unchanged, no key repeats, nothing is
+  skipped, and the walk returns a value that no longer exists while reporting
+  success. The RPC is `STABLE`, so every query in its body observes the calling
+  statement's snapshot; it returns both datasets plus the snapshot token they
+  came from, and refuses with `UNAVAILABLE` past an explicit 20 000-row ceiling
+  rather than materialising an unbounded history. The real-PostgREST gate
+  demonstrates the tear against a live server.
+- The mirrors are reconciled **in the database** too. Computing the set
+  difference in the application needed an unpaged `select` of the mirrored
+  ledger — truncated silently past the server's row cap, and reconciling
+  against a truncated list is worse than not reconciling. `reconcile_cash_flow_mirror`
+  and `replace_equity_snapshots` upsert and delete in one transaction, so a
+  withdrawn activity and a retracted Alpaca equity day both disappear instead
+  of outliving the authoritative history.
 - A cash movement dated **on the baseline session** is refused. The recorded
   starting equity may be the value before it or after it and nothing says
   which, so the safe contract is a flow-free baseline session; otherwise the
@@ -756,8 +804,19 @@ So the split is explicit. Effective `PASS` requires **all** of:
 6. non-zero evaluated checks, all of them passed;
 7. current identity and universe bindings against the running runtime, and the
    report inside its 35-day freshness deadline; and
-8. the preflight's own **`canonical_validation_gate` check present, passing,
-   and from the same runtime cycle** as the state on screen.
+8. the preflight itself internally consistent — `status: PASS`, a non-zero
+   check count that matches the checks actually recorded, `checksPassed`
+   equal to the number that actually passed and to `checksEvaluated`, no
+   repeated check name, each mandatory check present exactly once, and a
+   `checked_at` that is valid, not more than five minutes ahead of this server,
+   and inside the 36-hour freshness contract; and
+9. the preflight's own **`canonical_validation_gate` check present exactly
+   once, passing, and from the same runtime cycle** as the state on screen.
+
+Condition 8 exists because a summary line is not evidence. `status: PASS` with
+17 of 18 checks passing, a count that does not match the recorded checks, or
+two contradictory `canonical_validation_gate` entries all describe a report
+that cannot be reduced to one answer — so none of them produces one.
 
 Condition 8 is where everything TypeScript cannot recompute is answered: that
 check *is* the Python gate's verdict, captured for a specific cycle. Requiring
@@ -789,7 +848,7 @@ multi-account workflows must not be restored.
 
 ### 11.1 `V11 Release Gate` — `.github/workflows/v11-release.yml`
 
-Non-trading. Runs on `main` pushes, pull requests and manual dispatch. Three
+Non-trading. Runs on `main` pushes, pull requests and manual dispatch. Four
 independent jobs:
 
 | Job | What it proves |
@@ -797,6 +856,7 @@ independent jobs:
 | `dashboard-gate` | Node 22, `npm ci` from the lockfile, `npm audit --audit-level=high`, dashboard tests, ESLint, `tsc --noEmit`, production `next build` |
 | `release-gate` | Python 3.12.11, `pip install --require-hashes -r requirements.lock`, `pip check`, the complete pytest suite, `compileall`, critical Ruff checks (E9,F63,F7,F82), and `scripts/sanity_check.py` |
 | `supabase-schema-gate` | Applies **every** migration to a real `postgres:16-alpine` service and runs the SQL assertions against it — a database test, not a grep over SQL text |
+| `postgrest-gate` | Starts a real PostgREST against that database with `db-max-rows=100` and asserts the API surface: which `/rpc/` functions are reachable, that the history snapshot returns everything past the cap, that a page walk demonstrably tears where the snapshot does not, and that a function created *after* the migrations is not anonymously callable |
 
 A green gate makes a commit *approvable*. It does not place an order and it
 does not deploy anything.
@@ -983,7 +1043,55 @@ service-role only, both verify ownership themselves, and both lock the row
 proves the rollback property against a real server — including that a failed
 rotation leaves the previous key value intact.
 
-### 12.5 Application security invariants
+### 12.5 What 0014 and 0015 changed and why
+
+**0014 — one snapshot, and the last two write flows.** The history snapshot is
+described in section 10.7. Alongside it, `create_account_atomic` and
+`update_account_metadata` close the last gap in the claim that every account
+write is audited: both flows previously wrote the row and then inserted the
+audit entry as a separate round trip whose result was discarded, so either
+could succeed with no record that it happened. An audit log that is sometimes
+missing entries is worse than none, because its silence is read as evidence.
+
+Creation keeps a two-phase shape by necessity — the Vault secrets must exist
+before the row can reference them, and validating the key pair means calling
+Alpaca, which cannot happen inside a transaction. The caller stores the secrets
+first; if the transaction then fails, it purges them and reports it when that
+purge also fails.
+
+**0015 — sequences and functions.** 0012 fixed tables and views, but Supabase's
+defaults cover three object classes. Two holes remained:
+
+* every identity column's **sequence** arrived with USAGE, SELECT and UPDATE
+  for `anon` and `authenticated` — that is `nextval()` and `setval()`, so a
+  client could burn identifiers or rewind a sequence until the next server
+  insert collides. RLS does not apply to sequences at all;
+* **functions** are granted EXECUTE to `PUBLIC` by PostgreSQL itself, and to
+  `anon`/`authenticated` by Supabase's defaults, so the next RPC added in
+  `public` would be published on `/rpc/` to unauthenticated callers.
+
+0015 sweeps both classes, restores an audited whitelist (only `owns_account`,
+`is_service_role` and `jwt_role` stay client-executable, because RLS policies
+and the guard trigger evaluate them in the caller's context), and narrows the
+defaults.
+
+One thing `ALTER DEFAULT PRIVILEGES` cannot do, verified directly against
+PostgreSQL 16: it cannot remove PUBLIC's built-in EXECUTE default. Revoking it
+stores no row at all (an empty ACL is not stored), and with a non-empty stored
+default the built-in survives the merge — the new function still gets
+`=X/postgres`. A stored default is merged *over* the built-in one, so it can
+add grantees but never remove PUBLIC. The only mechanism that closes this for
+objects that do not exist yet is an **event trigger**, so 0015 installs one that
+revokes client privileges from every function created in `public`. Creating an
+event trigger needs superuser; if the migration runs without it, the migration
+raises a warning saying so rather than pretending the control is in place.
+
+Consequence for future migrations: a new function in `public` arrives with no
+client privileges, so every new RPC must grant explicitly — and `create or
+replace` strips grants, which is why each function here is granted after it is
+defined.
+
+### 12.6 Application security invariants
 
 - The application stays behind Supabase authentication; RLS account isolation
   and exact account scoping are preserved.
@@ -1008,88 +1116,105 @@ The dashboard is a container built from `dashboard/Dockerfile` and served at
 deployment has happened only when the origin host runs the new image and
 `GET /api/health` reports the expected new build SHA.
 
-### 13.2 Ordering — the schema and the image are not independent
+### 13.2 The three images and what each schema they run on
 
-Two facts decide the order, and getting them the wrong way round breaks the
-site rather than the deployment:
+Deployment is a schema change and an image change together, and the two are not
+independent. Three builds matter:
 
-* **The candidate image runs on the *current* schema.** Its account reads use
-  the service role, which has full privileges before and after `0011`, and it
-  reads none of the `*_safe` views. So the new image can be validated against
-  today's database.
-* **The previously deployed image does *not* run on the new schema.** The
-  build at `d11bbad8a` reads `accounts` through the cookie-bound
-  (`authenticated`) client. `0011` revokes exactly that, and `0012` removes the
-  `update own account metadata` grant it relies on. Once the migrations are
-  applied, that image is broken.
+| Build | Runs on the **pre-0011** schema | Runs on the **0011–0015** schema |
+|---|---|---|
+| `d11bbad8a` — what production runs today | yes | **no** — reads `accounts` as `authenticated`, which `0011` revokes |
+| `fc73acaae` — the **bridge** | yes | yes |
+| the new candidate | yes | yes |
 
-Therefore the image moves first and the schema second, so that at every instant
-the running image works against the schema that is actually in place.
+`fc73acaae` is the pivot: it was the first build to move every account read to
+the service role, so it is the only existing image that works on *both* sides
+of the migration. That makes it both the safe intermediate step and the real
+rollback target, which is why this section is built around it.
 
-1. Access to the origin host that actually serves the site.
-2. Read the Supabase migration ledger and record exactly which migrations are
-   applied **today**. Do not assume; this document does not know either.
-3. Build the candidate image with `BUILD_SHA` set to the commit being deployed,
-   and confirm every runtime variable in section 13.5.
-4. Run the candidate **side by side** against the current, unmigrated schema
-   and smoke-test it authenticated: login, account switch, every strategy
-   section, the `UNAVAILABLE` states, `/api/health`.
-5. Cut traffic over to the candidate.
-6. **Only now** apply the pending migrations in order — `0011`, then `0012`,
-   then `0013`.
-7. Run the authenticated smoke test a second time, against the migrated
-   schema, and include the paths the migrations change: account metadata
-   editing, key rotation, account deletion.
+### 13.3 Order of operations
+
+1. Access the origin host, and read the Supabase migration ledger to record
+   exactly which migrations are applied **today**. Do not assume; this document
+   does not know either.
+2. Deploy **`fc73acaae`** (`BUILD_SHA` set to it) against the current,
+   unmigrated schema. Smoke-test it authenticated: login, account switch, every
+   strategy section, the `UNAVAILABLE` states, `/api/health`.
+3. Enter a **maintenance / write freeze** for account lifecycle operations —
+   see 13.4 for why this matters specifically for `fc73acaae`.
+4. Apply the pending migrations in order: `0011`, `0012`, `0013`, `0014`,
+   `0015`.
+5. Verify `fc73acaae` again, now on the migrated schema. It should keep working
+   throughout; if it does not, roll the migrations back (13.5) before going
+   further.
+6. Deploy the new candidate image.
+7. Lift the write freeze and run the full authenticated smoke test, including
+   the paths the migrations change.
 8. Confirm Supabase signup is disabled.
 
 Do not change `PRODUCTION_RELEASE_SHA` in order to deploy the UI. Do not run a
 mutating paper cycle as a smoke test.
 
-### 13.3 The window between step 5 and step 6
+### 13.4 The bridge is read-safe, not write-safe
 
-Between the cutover and the migrations, key rotation and account deletion call
-`rotate_account_credentials` and `delete_account_atomic`, which `0013` creates.
-Until it is applied both return a database error and **write nothing** — the
-failure is safe, but the features are unavailable. Nothing else is affected:
-every read path, the strategy screens and the performance endpoint work on
-either schema.
+`fc73acaae` reads correctly on both schemas, but its **account lifecycle
+operations are not atomic**: key rotation is a sequence of separate Vault and
+row writes, and a failure between them leaves a new key beside the old secret
+with the previous key value already overwritten — unrecoverable. Deletion has
+the same shape, and a failed Vault purge is discarded silently.
 
-Keep the window short, and do not start a key rotation inside it.
+`0013` and `0014` are what make those flows transactional, and only the
+candidate image calls them.
 
-### 13.4 Rollback
+So for the whole time `fc73acaae` is serving — steps 2 to 6 — **disable key
+rotation and account deletion**. Between step 4 and step 6 they would fail
+anyway, because `fc73acaae` does not know the RPCs and the old code paths still
+run non-atomically. Announce the freeze, and do not start a rotation inside it.
 
-Rolling back is *not* symmetric with rolling forward, and the honest position
-is worth stating plainly:
+Everything else is unaffected: reads, the strategy screens and the performance
+endpoint work on either schema with either image.
 
-* **Before the migrations** (step 5 has happened, step 6 has not): roll the web
-  image back to `d11bbad8a`. It is compatible with the unmigrated schema, which
-  is still what is running. This is a clean rollback.
-* **After the migrations**: `d11bbad8a` is **not** a valid target. It reads
-  `accounts` as `authenticated`, which no longer has that privilege, so it
-  would fail on every account screen.
+### 13.5 Rollback
 
-  Re-granting `select` on `accounts` to get it working again is not a rollback.
-  It re-opens the exact exposure `0011` closed — the full broker account
-  number, both Vault secret UUIDs, `owner_id` and `deleted_at`, readable by any
-  signed-in browser through PostgREST — and it must not be done.
+Two independent axes, and they roll back separately.
 
-  The supported recovery is therefore a **database** recovery, not a grant:
-  restore the project to a point in time before the migrations were applied
-  (Supabase PITR), and put `d11bbad8a` back. Everything written after that
-  point is lost, which is why step 4's smoke test exists.
+**Image rollback.** `fc73acaae` is a valid image rollback target on either
+schema. That is the point of the bridge: if the candidate misbehaves after step
+6, go back to `fc73acaae` without touching the database.
 
-**Known gap, first deployment only.** There is no earlier image that is
-compatible with the `0011`–`0013` schema, because this is the release that
-introduces server-side account reads. Until this release is deployed and
-becomes the baseline, the post-migration rollback path is database recovery
-alone. From the *next* release onward, the previous release is a proper
-schema-compatible rollback image, and this gap closes.
+`d11bbad8a` is a valid target only *before* the migrations. Afterwards it reads
+`accounts` as `authenticated`, which no longer has that privilege, so it fails
+on every account screen.
+
+Re-granting `select` on `accounts` to make it work again is **not** a rollback.
+It re-opens the exact exposure `0011` closed — the full broker account number,
+both Vault secret UUIDs, `owner_id` and `deleted_at`, readable by any signed-in
+browser through PostgREST — and it must not be done.
+
+**Database rollback.** The migrations have no down-scripts, so reverting the
+*schema* is a point-in-time restore (Supabase PITR) to before step 4. That is
+the only supported database rollback, and it loses everything written since.
+It is not, however, the only image rollback — that distinction was previously
+stated wrongly here.
 
 Before deploying, confirm the PITR window covers the planned maintenance and
 that a restore has actually been rehearsed. A rollback plan that has never been
 executed is not a rollback plan.
 
-### 13.5 Runtime environment
+### 13.6 Smoke tests never mutate the production account
+
+The production-controlled account is bound to the paper executor by
+`PRODUCTION_ALPACA_ACCOUNT_NUMBER`. Rotating its keys or deleting it during a
+smoke test would break that binding, and deletion cascades its history.
+
+Test the mutating paths — create, metadata update, key rotation, deletion — on
+a **disposable observer account** created for the purpose: a second paper
+account, owned by the same user, that is not the production account and holds
+no history worth keeping. Delete it when finished.
+
+On the production account, smoke-test reads only.
+
+### 13.7 Runtime environment
 
 Every value the running container needs. Nothing here is optional unless it
 says so.
@@ -1110,7 +1235,7 @@ says so.
 | `V11_EPOCH_BASELINE` | Optional inline epoch baseline JSON, when it is not committed to `state/v11_epoch_baseline.json`. |
 | `ALLOW_LEGACY_DASHBOARD` | Optional, non-production only. Explicit opt-in to the repository-only legacy shell. |
 
-### 13.6 Release commands
+### 13.8 Release commands
 
 ```bash
 cd dashboard
@@ -1130,6 +1255,9 @@ git diff --check
 
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
   supabase/tests/run_integration.sh
+
+# Real PostgREST, with a 100-row server cap. Needs docker.
+supabase/tests/run_postgrest.sh
 ```
 
 Use the pinned Python 3.12.11 environment for promotion checks. A local
@@ -1176,9 +1304,11 @@ Rendered as `UNAVAILABLE` rather than estimated, and not solvable by UI work:
   correcting for it exactly needs a portfolio valuation at the moment of the
   flow and only daily equity exists. Closing this needs intraday valuation
   around each flow, not a different formula. See section 10.7.
-- **No schema-compatible rollback image exists yet** for the `0011`–`0013`
-  schema; the first deployment's post-migration recovery path is database
-  point-in-time restore. See section 13.4.
+- **The migrations have no down-scripts.** Reverting the *schema* is a
+  point-in-time restore, and it loses everything written since. Reverting the
+  *image* is separate and does have a target: `fc73acaae` runs on both schemas
+  (section 13.2). Its lifecycle operations are not atomic, so they stay
+  disabled while it serves.
 
 The correct answer to a missing backend fact is a small, sanitized, well-tested
 observability contract — never frontend inference.

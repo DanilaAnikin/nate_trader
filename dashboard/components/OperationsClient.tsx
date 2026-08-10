@@ -256,7 +256,7 @@ function PreflightPanel({ payload }: { payload: StrategyStatusPayload }) {
   const preflight = payload.preflight.data;
   return (
     <Panel
-      title="Last successful preflight"
+      title="Latest completed preflight"
       subtitle="Read-only broker and release safety checks"
       provenance={payload.preflight.provenance}
     >

@@ -164,12 +164,26 @@ export function preflightJson(
     allowed_mode: "paper",
     checks_passed: 18,
     checks_evaluated: 18,
+    // The real report carries all 18 checks; the summary counts below must
+    // describe exactly these, because the gate now verifies that they do.
     checks: [
       { name: "trading_mode", passed: true, detail: "paper" },
+      { name: "alpaca_api_key", passed: true, detail: "present" },
+      { name: "alpaca_secret_key", passed: true, detail: "present" },
+      { name: "python_runtime", passed: true, detail: "3.12.11" },
+      { name: "dependency_lock", passed: true, detail: "requirements.lock" },
+      { name: "runtime_alpaca-py", passed: true, detail: "0.43.5" },
+      { name: "runtime_numpy", passed: true, detail: "2.5.1" },
+      { name: "runtime_pandas", passed: true, detail: "3.0.5" },
       {
         name: "frozen_v11_policy",
         passed: true,
         detail: "breadth-scaled top-10 policy",
+      },
+      {
+        name: "canonical_validation_gate",
+        passed: true,
+        detail: "v11 fixed-strategy validation passed for paper testing",
       },
       {
         name: "strategy_identity",
@@ -181,10 +195,15 @@ export function preflightJson(
         passed: true,
         detail: `540 symbols; hash=${UNIVERSE_HASH}`,
       },
+      { name: "paper_endpoint", passed: true, detail: "paper-api.alpaca.markets" },
+      { name: "paper_account", passed: true, detail: "ACTIVE" },
+      { name: "broker_clock", passed: true, detail: "open" },
+      { name: "no_short_positions", passed: true, detail: "0 shorts" },
+      { name: "open_order_snapshot", passed: true, detail: "0 open orders" },
       {
-        name: "canonical_validation_gate",
+        name: "fresh_risk_snapshot",
         passed: true,
-        detail: "v11 fixed-strategy validation passed for paper testing",
+        detail: "fresh broker account and rolling-history snapshot",
       },
     ],
     details: {
@@ -209,6 +228,44 @@ export function preflightJson(
       universe_source: "validated-watchlist-fallback",
       validation_status: "PASS",
     },
+    ...overrides,
+  };
+}
+
+/**
+ * A preflight from a run that **failed**, modelled on the real
+ * `paper-diagnostics` of run 30747478499 (`workflow_dispatch`, run #2,
+ * `conclusion: failure`, 2026-08-02).
+ *
+ * The shape is the point: the preflight ran, wrote its report, and reported
+ * `FAIL` with 17 of 18 checks passing — `fresh_risk_snapshot` refused. That
+ * run produced diagnostics and no runtime artifact, which is precisely the
+ * case a selector filtered on `conclusion === "success"` used to skip in
+ * favour of an older green report.
+ */
+export function failedPreflightJson(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const base = preflightJson();
+  const checks = (base.checks as { name: string; passed: boolean; detail: string }[]).map(
+    (check) =>
+      check.name === "fresh_risk_snapshot"
+        ? {
+            ...check,
+            passed: false,
+            detail:
+              "available=False, tier=NORMAL, reason=rolling broker history unavailable",
+          }
+        : check,
+  );
+  return {
+    ...base,
+    checked_at: "2026-08-07T16:30:00.000000+00:00",
+    status: "FAIL",
+    allowed_mode: "no-execution",
+    checks_passed: 17,
+    checks_evaluated: 18,
+    checks,
     ...overrides,
   };
 }

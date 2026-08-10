@@ -368,7 +368,7 @@ function OperationsPanel({ payload }: { payload: StrategyStatusPayload }) {
               execution happened in that attempt.
             </Fact>
           )}
-          <Fact label="Last successful preflight">
+          <Fact label="Latest completed preflight">
             {preflight ? (
               <span className="inline-flex items-center gap-2">
                 <StatePill size="xs" state={preflight.status} />

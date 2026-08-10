@@ -10,70 +10,70 @@ import type { Database } from "@/lib/database.types";
 
 type Row = Database["public"]["Tables"]["cash_flows"]["Insert"];
 
+const OWNER_ID = "99999999-9999-9999-9999-999999999999";
+
 /**
- * A service double that answers all three calls the walk now makes: the
- * reconciliation read of the mirrored ledger, the removal of rows the broker no
- * longer has, and the upsert.
+ * A service double for the two atomic RPCs the walk now calls.
+ *
+ * The mirror is no longer read and rewritten from here: `reconcile_cash_flow_mirror`
+ * and `replace_equity_snapshots` do the upsert *and* the set difference inside
+ * one transaction, so this double records what was handed to them.
  */
 function service(
   options: {
-    upsertError?: string;
-    /** Rows already mirrored into `cash_flows` before this walk. */
-    mirrored?: { external_id: string; flow_date: string }[];
-    selectError?: string;
-    deleteError?: string;
+    /** Fail the cash-flow reconciliation RPC. */
+    reconcileError?: string;
+    /** Fail the equity reconciliation RPC. */
+    equityError?: string;
+    /** What the RPC reports it removed, so the caller's handling is testable. */
+    removed?: number;
   } = {},
 ) {
   const upserted: Row[] = [];
-  const deleted: string[] = [];
+  const equityRows: Record<string, unknown>[] = [];
+  let reconcileCalls = 0;
   const svc = {
-    rpc: async () => ({
-      data: [{ api_key: "k", api_secret: "s" }],
-      error: null,
-    }),
-    from: () => {
-      const builder = {
-        upsert: async (rows: Row[]) => {
-          upserted.push(...rows);
-          return options.upsertError
-            ? { error: { message: options.upsertError } }
-            : { error: null };
-        },
-        // `select(...).eq(...).eq(...)` resolves to the mirrored ledger.
-        select: () => {
-          const query = {
-            eq: () => query,
-            then: <R>(
-              onFulfilled: (value: {
-                data: { external_id: string; flow_date: string }[] | null;
-                error: { message: string } | null;
-              }) => R,
-            ) =>
-              Promise.resolve(
-                options.selectError
-                  ? { data: null, error: { message: options.selectError } }
-                  : { data: options.mirrored ?? [], error: null },
-              ).then(onFulfilled),
-          };
-          return query;
-        },
-        delete: () => {
-          const query = {
-            eq: () => query,
-            in: async (_column: string, ids: string[]) => {
-              deleted.push(...ids);
-              return options.deleteError
-                ? { error: { message: options.deleteError } }
-                : { error: null };
-            },
-          };
-          return query;
-        },
-      };
-      return builder;
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === "get_account_credentials") {
+        return { data: [{ api_key: "k", api_secret: "s" }], error: null };
+      }
+      if (name === "reconcile_cash_flow_mirror") {
+        reconcileCalls++;
+        if (options.reconcileError) {
+          return { data: null, error: { message: options.reconcileError } };
+        }
+        const rows = (args.p_rows ?? []) as Record<string, unknown>[];
+        upserted.push(
+          ...rows.map((row) => ({
+            account_id: args.p_account as string,
+            external_id: row.external_id as string,
+            flow_date: row.flow_date as string,
+            amount: row.amount as number,
+            kind: row.kind as string,
+            source: "alpaca_activities",
+          })),
+        );
+        return {
+          data: { written: rows.length, removed: options.removed ?? 0 },
+          error: null,
+        };
+      }
+      if (name === "replace_equity_snapshots") {
+        if (options.equityError) {
+          return { data: null, error: { message: options.equityError } };
+        }
+        equityRows.push(...((args.p_rows ?? []) as Record<string, unknown>[]));
+        return { data: { written: equityRows.length, removed: 0 }, error: null };
+      }
+      return { data: null, error: null };
     },
   } as unknown as SupabaseClient<Database>;
-  return { svc, upserted, deleted };
+  return {
+    svc,
+    upserted,
+    equityRows,
+    reconcileCalls: () => reconcileCalls,
+  };
 }
 
 function activity(overrides: Record<string, unknown> = {}) {
@@ -115,7 +115,7 @@ describe("backfillCashFlows", () => {
       ],
     });
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
 
     expect(result.complete).toBe(true);
     expect(result.written).toBe(2);
@@ -132,7 +132,7 @@ describe("backfillCashFlows", () => {
       "": [activity({ id: "acat", activity_type: "ACATC", net_amount: "5000" })],
     });
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     expect(result.complete).toBe(true);
     expect(upserted[0]).toMatchObject({ external_id: "acat", amount: 5000 });
   });
@@ -140,7 +140,7 @@ describe("backfillCashFlows", () => {
   it("requests every cash type and every non-cash transfer type", async () => {
     const calls = stubPages({ "": [] });
     const { svc } = service();
-    await backfillCashFlows(svc, "acc-1", "paper");
+    await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     const types = new URL(calls[0]).searchParams.get("activity_types");
     // The securities transfers are requested so they can be *detected*: they
     // move equity with no cash leg and must block any reported return.
@@ -165,7 +165,7 @@ describe("backfillCashFlows", () => {
     stubPages({ "": first, "p1-99": second });
 
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
 
     expect(result.complete).toBe(true);
     expect(result.pagesRead).toBe(2);
@@ -181,7 +181,7 @@ describe("backfillCashFlows", () => {
     stubPages({ "": page });
 
     const { svc } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     // The blank id is itself malformed, which is caught first and is equally
     // fatal: either way the walk is not complete.
     expect(result.complete).toBe(false);
@@ -198,7 +198,7 @@ describe("backfillCashFlows", () => {
     ]) {
       stubPages({ "": [activity(broken)] });
       const { svc, upserted } = service();
-      const result = await backfillCashFlows(svc, "acc-1", "paper");
+      const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
       expect(result.complete, JSON.stringify(broken)).toBe(false);
       expect(result.incompleteReason).toBe("MALFORMED_ACTIVITY");
       expect(upserted).toHaveLength(0);
@@ -208,7 +208,7 @@ describe("backfillCashFlows", () => {
   it("is incomplete when Alpaca returns a type that was not requested", async () => {
     stubPages({ "": [activity({ id: "fill", activity_type: "FILL" })] });
     const { svc } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     expect(result.complete).toBe(false);
     expect(result.incompleteReason).toBe("UNEXPECTED_ACTIVITY_TYPE");
   });
@@ -219,35 +219,55 @@ describe("backfillCashFlows", () => {
       vi.fn(async () => new Response("upstream down", { status: 503 })),
     );
     const { svc } = service();
-    await expect(backfillCashFlows(svc, "acc-1", "paper")).rejects.toThrow(
+    await expect(backfillCashFlows(svc, "acc-1", OWNER_ID, "paper")).rejects.toThrow(
       /HTTP 503/,
     );
   });
 
-  it("throws when the upsert fails", async () => {
+  it("is incomplete when the reconciliation transaction fails", async () => {
     stubPages({ "": [activity({ id: "dep" })] });
-    const { svc } = service({ upsertError: "db exploded" });
-    await expect(backfillCashFlows(svc, "acc-1", "paper")).rejects.toThrow(
-      /db exploded/,
-    );
+    const { svc } = service({ reconcileError: "db exploded" });
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
+    expect(result.complete).toBe(false);
+    expect(result.incompleteReason).toBe("LEDGER_RECONCILE_FAILED");
+    expect(result.detail).toContain("db exploded");
   });
 
-  it("reports the newest activity timestamp for freshness", async () => {
+  it("reports the newest *real* timestamp for freshness", async () => {
+    // A date-only activity has no time of day. Reporting a fabricated midday
+    // instant would make it look hours into the future to any clock check.
     stubPages({
       "": [
-        activity({ id: "old", date: "2026-08-01" }),
-        activity({ id: "new", date: "2026-08-06" }),
+        activity({
+          id: "old",
+          date: "2026-08-01",
+          transaction_time: "2026-08-01T14:00:00Z",
+        }),
+        activity({
+          id: "new",
+          date: "2026-08-06",
+          transaction_time: "2026-08-06T14:00:00Z",
+        }),
       ],
     });
     const { svc } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
-    expect(result.latestActivityAt?.slice(0, 10)).toBe("2026-08-06");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
+    expect(result.latestActivityAt).toBe("2026-08-06T14:00:00.000Z");
+  });
+
+  it("reports no timestamp at all when every activity is date-only", async () => {
+    stubPages({ "": [activity({ id: "dated", date: "2026-08-04" })] });
+    const { svc } = service();
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
+    expect(result.complete).toBe(true);
+    // Better honestly absent than a midday instant a caller would clock-check.
+    expect(result.latestActivityAt).toBeNull();
   });
 
   it("reads the whole history rather than a finite window", async () => {
     const calls = stubPages({ "": [] });
     const { svc } = service();
-    await backfillCashFlows(svc, "acc-1", "paper", {
+    await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper", {
       since: "2026-08-03T13:30:00.000Z",
     });
     // No server-side date filter at all. Alpaca's `after` applies to the
@@ -278,7 +298,7 @@ describe("non-cash external transfers", () => {
         ],
       });
       const { svc, upserted } = service();
-      const result = await backfillCashFlows(svc, "acc-1", "paper", {
+      const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper", {
         since: "2026-08-01T00:00:00.000Z",
       });
 
@@ -301,7 +321,7 @@ describe("non-cash external transfers", () => {
       ],
     });
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper", {
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper", {
       since: "2026-08-01T00:00:00.000Z",
     });
     expect(result.complete).toBe(true);
@@ -334,7 +354,7 @@ describe("net_amount is accepted only in the expected shape", () => {
     // each of these once looked like "understood, moved no money".
     stubPages({ "": [activity({ id: "bad", net_amount: value })] });
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     expect(result.complete).toBe(false);
     expect(result.incompleteReason).toBe("MALFORMED_ACTIVITY");
     expect(result.detail).toContain("net_amount");
@@ -353,7 +373,7 @@ describe("net_amount is accepted only in the expected shape", () => {
       "": [activity({ id: "ok", net_amount: value, activity_type: type })],
     });
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     expect(result.complete).toBe(true);
     expect(upserted[0]).toMatchObject({ amount: expected });
   });
@@ -361,7 +381,7 @@ describe("net_amount is accepted only in the expected shape", () => {
   it("treats an exact zero as understood but writes no flow", async () => {
     stubPages({ "": [activity({ id: "zero", net_amount: "0.00" })] });
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     expect(result.complete).toBe(true);
     expect(upserted).toHaveLength(0);
   });
@@ -380,7 +400,7 @@ describe("occurrence date, not record-creation time", () => {
       ],
     });
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     expect(result.complete).toBe(true);
     expect(upserted[0]).toMatchObject({ flow_date: "2026-08-04" });
   });
@@ -397,7 +417,7 @@ describe("occurrence date, not record-creation time", () => {
       ],
     });
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     expect(result.complete).toBe(true);
     expect(upserted[0]).toMatchObject({ flow_date: "2026-08-04" });
   });
@@ -411,7 +431,7 @@ describe("occurrence date, not record-creation time", () => {
       ],
     });
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper", {
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper", {
       since: "2026-08-01T13:30:00.000Z",
     });
     expect(result.complete).toBe(true);
@@ -432,7 +452,7 @@ describe("occurrence date, not record-creation time", () => {
       ],
     });
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     expect(result.complete).toBe(true);
     expect(upserted).toHaveLength(101);
     expect(new Set(upserted.map((row) => row.external_id)).size).toBe(101);
@@ -441,7 +461,7 @@ describe("occurrence date, not record-creation time", () => {
   it("is incomplete when the baseline boundary itself is unusable", async () => {
     stubPages({ "": [] });
     const { svc } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper", {
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper", {
       since: "not-a-timestamp",
     });
     expect(result.complete).toBe(false);
@@ -456,35 +476,30 @@ describe("occurrence date, not record-creation time", () => {
  * ------------------------------------------------------------------------- */
 
 describe("reconciling corrected and withdrawn activities", () => {
-  it("removes a mirrored flow the broker no longer reports", async () => {
+  it("hands the whole current activity set to one atomic RPC", async () => {
+    // The set difference happens in the database. Computing it here would need
+    // an unpaged `select` of the mirrored ledger, which a server truncates
+    // silently — and reconciling against a truncated list is worse than not
+    // reconciling at all.
     stubPages({ "": [activity({ id: "still-there", net_amount: "100" })] });
-    const { svc, upserted, deleted } = service({
-      mirrored: [
-        { external_id: "still-there", flow_date: "2026-08-04" },
-        { external_id: "withdrawn", flow_date: "2026-08-04" },
-      ],
-    });
-    const result = await backfillCashFlows(svc, "acc-1", "paper", {
+    const { svc, upserted, reconcileCalls } = service({ removed: 1 });
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper", {
       since: "2026-08-01T00:00:00.000Z",
     });
     expect(result.complete).toBe(true);
-    expect(deleted).toEqual(["withdrawn"]);
+    expect(reconcileCalls()).toBe(1);
     expect(upserted.map((row) => row.external_id)).toEqual(["still-there"]);
   });
 
-  it("overwrites an amended activity rather than keeping both versions", async () => {
-    // Same id, corrected amount and date.
+  it("passes an amended activity through under its own id", async () => {
     stubPages({
       "": [activity({ id: "amended", net_amount: "250", date: "2026-08-05" })],
     });
-    const { svc, upserted, deleted } = service({
-      mirrored: [{ external_id: "amended", flow_date: "2026-08-04" }],
-    });
-    const result = await backfillCashFlows(svc, "acc-1", "paper", {
+    const { svc, upserted } = service();
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper", {
       since: "2026-08-01T00:00:00.000Z",
     });
     expect(result.complete).toBe(true);
-    expect(deleted).toEqual([]);
     expect(upserted).toEqual([
       expect.objectContaining({
         external_id: "amended",
@@ -494,39 +509,42 @@ describe("reconciling corrected and withdrawn activities", () => {
     ]);
   });
 
-  it("leaves pre-baseline rows alone — the walk makes no claim about them", async () => {
+  it("bounds the reconciliation window at the baseline", async () => {
+    // Rows before the baseline are not the walk's to claim anything about, so
+    // the RPC is told where the caller's authority starts.
     stubPages({ "": [] });
-    const { svc, deleted } = service({
-      mirrored: [{ external_id: "ancient", flow_date: "2026-07-01" }],
-    });
-    const result = await backfillCashFlows(svc, "acc-1", "paper", {
-      since: "2026-08-01T00:00:00.000Z",
+    const calls: Record<string, unknown>[] = [];
+    const svc = {
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        if (name === "get_account_credentials") {
+          return { data: [{ api_key: "k", api_secret: "s" }], error: null };
+        }
+        calls.push({ name, ...args });
+        return { data: { written: 0, removed: 0 }, error: null };
+      },
+    } as unknown as SupabaseClient<Database>;
+    // A real baseline instant is market open, 13:30Z. The boundary is its
+    // *market-time* date, because that is how activities are dated.
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper", {
+      since: "2026-08-03T13:30:00.000Z",
     });
     expect(result.complete).toBe(true);
-    expect(deleted).toEqual([]);
-  });
-
-  it("is incomplete when the mirror cannot be read for reconciliation", async () => {
-    stubPages({ "": [activity({ id: "dep" })] });
-    const { svc, upserted } = service({ selectError: "ledger unreadable" });
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
-    expect(result.complete).toBe(false);
-    expect(result.incompleteReason).toBe("LEDGER_RECONCILE_FAILED");
-    expect(upserted).toHaveLength(0);
-  });
-
-  it("is incomplete when a withdrawn row cannot be removed", async () => {
-    stubPages({ "": [] });
-    const { svc, upserted } = service({
-      mirrored: [{ external_id: "withdrawn", flow_date: "2026-08-04" }],
-      deleteError: "delete refused",
+    expect(calls[0]).toMatchObject({
+      name: "reconcile_cash_flow_mirror",
+      p_account: "acc-1",
+      p_owner: OWNER_ID,
+      p_from: "2026-08-03",
     });
-    const result = await backfillCashFlows(svc, "acc-1", "paper", {
+  });
+
+  it("is incomplete when the reconciliation is refused", async () => {
+    stubPages({ "": [activity({ id: "dep" })] });
+    const { svc, upserted } = service({ reconcileError: "delete refused" });
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper", {
       since: "2026-08-01T00:00:00.000Z",
     });
     expect(result.complete).toBe(false);
     expect(result.incompleteReason).toBe("LEDGER_RECONCILE_FAILED");
-    // Nothing is written while a stale row survives.
     expect(upserted).toHaveLength(0);
   });
 });
@@ -540,7 +558,7 @@ describe("an activity must agree with its own direction and the calendar", () =>
       "": [activity({ id: "wrong", activity_type: type, net_amount: amount })],
     });
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     expect(result.complete).toBe(false);
     expect(result.incompleteReason).toBe("MALFORMED_ACTIVITY");
     expect(result.detail).toContain("contradicts its own direction");
@@ -556,7 +574,7 @@ describe("an activity must agree with its own direction and the calendar", () =>
       ],
     });
     const { svc, upserted } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     expect(result.complete).toBe(true);
     expect(upserted).toHaveLength(3);
   });
@@ -567,7 +585,7 @@ describe("an activity must agree with its own direction and the calendar", () =>
     try {
       stubPages({ "": [activity({ id: "future", date: "2026-08-07" })] });
       const { svc } = service();
-      const result = await backfillCashFlows(svc, "acc-1", "paper");
+      const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
       expect(result.complete).toBe(false);
       expect(result.incompleteReason).toBe("FUTURE_DATED_ACTIVITY");
     } finally {
@@ -578,12 +596,63 @@ describe("an activity must agree with its own direction and the calendar", () =>
   it("accepts today's own session under the clock-skew tolerance", async () => {
     vi.useFakeTimers();
     // 01:00Z on the 7th is still the 6th in New York, so an activity dated the
-    // 6th is today's, not tomorrow's.
+    // 6th is today's, not tomorrow's — even though its fabricated midday
+    // instant is eleven hours ahead of this clock.
     vi.setSystemTime(new Date("2026-08-07T01:00:00Z"));
     try {
       stubPages({ "": [activity({ id: "today", date: "2026-08-06" })] });
       const { svc } = service();
-      const result = await backfillCashFlows(svc, "acc-1", "paper");
+      const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
+      expect(result.complete).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["7 hours", 7 * 60 * 60 * 1000],
+    ["1 hour", 60 * 60 * 1000],
+    ["6 minutes", 6 * 60 * 1000],
+  ])("refuses a real timestamp %s in the future", async (_label, aheadMs) => {
+    vi.useFakeTimers();
+    const now = new Date("2026-08-06T16:00:00Z");
+    vi.setSystemTime(now);
+    try {
+      stubPages({
+        "": [
+          activity({
+            id: "ahead",
+            date: "2026-08-06",
+            transaction_time: new Date(now.getTime() + aheadMs).toISOString(),
+          }),
+        ],
+      });
+      const { svc } = service();
+      const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
+      expect(result.complete).toBe(false);
+      expect(result.incompleteReason).toBe("FUTURE_DATED_ACTIVITY");
+      expect(result.detail).toContain("five minutes");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts a real timestamp inside the five-minute tolerance", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-08-06T16:00:00Z");
+    vi.setSystemTime(now);
+    try {
+      stubPages({
+        "": [
+          activity({
+            id: "skewed",
+            date: "2026-08-06",
+            transaction_time: new Date(now.getTime() + 60_000).toISOString(),
+          }),
+        ],
+      });
+      const { svc } = service();
+      const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
       expect(result.complete).toBe(true);
     } finally {
       vi.useRealTimers();
@@ -596,7 +665,7 @@ describe("an activity must agree with its own direction and the calendar", () =>
   ])("refuses %s (%s)", async (date) => {
     stubPages({ "": [activity({ id: "bad-date", date })] });
     const { svc } = service();
-    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    const result = await backfillCashFlows(svc, "acc-1", OWNER_ID, "paper");
     expect(result.complete).toBe(false);
     expect(result.incompleteReason).toBe("MALFORMED_ACTIVITY");
   });
@@ -613,7 +682,7 @@ describe("backfillEquity rejects an unusable portfolio-history payload", () => {
   it("refuses an empty payload instead of reporting zero days written", async () => {
     stubHistory({ timestamp: [], equity: [] });
     const { svc } = service();
-    await expect(backfillEquity(svc, "acc-1", "paper")).rejects.toThrow(
+    await expect(backfillEquity(svc, "acc-1", OWNER_ID, "paper")).rejects.toThrow(
       /no observations/,
     );
   });
@@ -626,7 +695,7 @@ describe("backfillEquity rejects an unusable portfolio-history payload", () => {
       equity: [1000, 1010],
     });
     const { svc } = service();
-    await expect(backfillEquity(svc, "acc-1", "paper")).rejects.toThrow(
+    await expect(backfillEquity(svc, "acc-1", OWNER_ID, "paper")).rejects.toThrow(
       /inconsistent/,
     );
   });
@@ -638,7 +707,7 @@ describe("backfillEquity rejects an unusable portfolio-history payload", () => {
       profit_loss: [10],
     });
     const { svc } = service();
-    await expect(backfillEquity(svc, "acc-1", "paper")).rejects.toThrow(
+    await expect(backfillEquity(svc, "acc-1", OWNER_ID, "paper")).rejects.toThrow(
       /profit_loss/,
     );
   });
@@ -646,7 +715,7 @@ describe("backfillEquity rejects an unusable portfolio-history payload", () => {
   it("refuses a non-numeric timestamp", async () => {
     stubHistory({ timestamp: ["yesterday"], equity: [1000] });
     const { svc } = service();
-    await expect(backfillEquity(svc, "acc-1", "paper")).rejects.toThrow(
+    await expect(backfillEquity(svc, "acc-1", OWNER_ID, "paper")).rejects.toThrow(
       /non-numeric timestamp/,
     );
   });
@@ -659,6 +728,6 @@ describe("backfillEquity rejects an unusable portfolio-history payload", () => {
       profit_loss_pct: [0, 0.01],
     });
     const { svc } = service();
-    await expect(backfillEquity(svc, "acc-1", "paper")).resolves.toBe(2);
+    await expect(backfillEquity(svc, "acc-1", OWNER_ID, "paper")).resolves.toBe(2);
   });
 });

@@ -144,22 +144,90 @@ export function section<T>(prov: Provenance, data: T | null): Section<T> {
   return { provenance: prov, data };
 }
 
+/** The zone the runner's naive timestamps are written in. */
+const RUNNER_ZONE = "America/New_York";
+
+const RUNNER_ZONE_FORMAT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: RUNNER_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
+/** Render an instant as `YYYY-MM-DD HH:MM:SS` in the runner's zone. */
+function inRunnerZone(instantMs: number): string {
+  const parts = RUNNER_ZONE_FORMAT.formatToParts(new Date(instantMs));
+  const get = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  // `en-CA` renders midnight as 24 in some ICU versions.
+  const hour = get("hour") === "24" ? "00" : get("hour");
+  return `${get("year")}-${get("month")}-${get("day")} ${hour}:${get("minute")}:${get("second")}`;
+}
+
 /**
- * Normalize an instant to ISO-8601 UTC. Python's `datetime.isoformat()` and
- * the runner's `"YYYY-MM-DD HH:MM:SS"` local-naive stamps both appear in the
- * runtime artifact; a naive stamp is interpreted as UTC because the production
- * runner executes on a UTC GitHub runner.
+ * Interpret a naive `YYYY-MM-DD HH:MM:SS` as a wall-clock time in the runner's
+ * zone, returning the UTC instant it denotes — or null when it denotes none.
+ *
+ * The runner writes these with `datetime.now(ZoneInfo("America/New_York"))`
+ * and no offset, so reading them as UTC was wrong by four or five hours
+ * depending on the season. That is not a rounding error: it moves a timestamp
+ * across a session boundary and silently changes which day a value belongs to.
+ *
+ * Two wall times have no single instant, and both return null rather than a
+ * guess:
+ *
+ *   * the hour skipped at the spring-forward transition denotes nothing; and
+ *   * the hour repeated at the autumn transition denotes two instants an hour
+ *     apart, and nothing in the stamp says which.
+ *
+ * Both are found by round-tripping: a candidate instant is accepted only if
+ * rendering it back in the runner's zone reproduces the original text, and
+ * exactly one candidate may do so.
+ */
+export function parseRunnerNaiveInstant(text: string): string | null {
+  const normalized = text.replace("T", " ");
+  const asUtc = Date.parse(`${normalized.replace(" ", "T")}Z`);
+  if (!Number.isFinite(asUtc)) return null;
+
+  // North American offsets are whole hours; -4 (EDT) and -5 (EST) are the only
+  // two this zone uses. Both are tried and the round trip decides.
+  const matches: number[] = [];
+  for (const offsetHours of [4, 5]) {
+    const candidate = asUtc + offsetHours * 60 * 60 * 1000;
+    if (inRunnerZone(candidate) === normalized) matches.push(candidate);
+  }
+  if (matches.length !== 1) return null;
+  return new Date(matches[0]).toISOString();
+}
+
+/**
+ * Normalize an instant to ISO-8601 UTC.
+ *
+ * Two shapes appear in the runtime artifact: Python's `datetime.isoformat()`,
+ * which carries an explicit offset, and the runner's naive
+ * `"YYYY-MM-DD HH:MM:SS"`, which does not. The naive form is written in
+ * America/New_York (see `parseRunnerNaiveInstant`), and an ambiguous or
+ * nonexistent wall time returns null so the caller reports it as unavailable
+ * rather than displaying an instant that may be an hour wrong.
  */
 export function normalizeInstant(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const candidate = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/.test(trimmed)
-    ? /[zZ]$|[+-]\d{2}:?\d{2}$/.test(trimmed)
-      ? trimmed.replace(" ", "T")
-      : `${trimmed.replace(" ", "T")}Z`
-    : trimmed;
-  const parsed = Date.parse(candidate);
+  const looksLikeTimestamp = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/.test(trimmed);
+  const hasOffset = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(trimmed);
+  if (looksLikeTimestamp && !hasOffset) {
+    // Sub-second precision is not part of the runner's naive format; anything
+    // after the seconds field means this is not that format.
+    const seconds = trimmed.slice(0, 19);
+    if (trimmed.length !== 19) return null;
+    return parseRunnerNaiveInstant(seconds);
+  }
+  const parsed = Date.parse(looksLikeTimestamp ? trimmed.replace(" ", "T") : trimmed);
   if (!Number.isFinite(parsed)) return null;
   return new Date(parsed).toISOString();
 }

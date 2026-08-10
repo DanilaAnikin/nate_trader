@@ -20,9 +20,41 @@ describe("normalizeInstant", () => {
     );
   });
 
-  it("treats the runner's naive stamp as UTC (the runner executes on a UTC runner)", () => {
+  // The runner writes `datetime.now(ZoneInfo("America/New_York"))` with no
+  // offset. Reading that as UTC was wrong by four or five hours — enough to
+  // move a timestamp across a session boundary and change which day it
+  // belongs to.
+  it("treats the runner's naive stamp as America/New_York, not UTC", () => {
+    // 12:05:05 EDT (UTC-4) in August.
     expect(normalizeInstant("2026-08-07 12:05:05")).toBe(
-      "2026-08-07T12:05:05.000Z",
+      "2026-08-07T16:05:05.000Z",
+    );
+    // 12:05:05 EST (UTC-5) in January — the offset is not a constant.
+    expect(normalizeInstant("2026-01-07 12:05:05")).toBe(
+      "2026-01-07T17:05:05.000Z",
+    );
+  });
+
+  it("keeps an explicit offset exactly as given", () => {
+    expect(normalizeInstant("2026-08-07T16:05:05+00:00")).toBe(
+      "2026-08-07T16:05:05.000Z",
+    );
+    expect(normalizeInstant("2026-08-07T12:05:05-04:00")).toBe(
+      "2026-08-07T16:05:05.000Z",
+    );
+  });
+
+  it("refuses a wall time that denotes no instant or two", () => {
+    // Spring forward 2026: 02:00–03:00 EST never happens in New York.
+    expect(normalizeInstant("2026-03-08 02:30:00")).toBeNull();
+    // Fall back 2026: 01:30 happens twice, and nothing says which one.
+    expect(normalizeInstant("2026-11-01 01:30:00")).toBeNull();
+    // The hours either side of each transition are unambiguous.
+    expect(normalizeInstant("2026-03-08 01:30:00")).toBe(
+      "2026-03-08T06:30:00.000Z",
+    );
+    expect(normalizeInstant("2026-11-01 03:30:00")).toBe(
+      "2026-11-01T08:30:00.000Z",
     );
   });
 

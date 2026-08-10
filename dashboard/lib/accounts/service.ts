@@ -96,21 +96,20 @@ export async function createAccount(
   const svc = getSupabaseService();
   const { keyId, secretId } = await storeCredentials(svc, input.apiKey, input.apiSecret);
 
-  const { data, error } = await svc
-    .from("accounts")
-    .insert({
-      owner_id: userId,
-      nickname,
-      mode: input.mode,
-      status: "connected",
-      color: input.color ?? "#007aff",
-      alpaca_key_secret_id: keyId,
-      alpaca_secret_secret_id: secretId,
-      alpaca_account_number: validation.accountNumber,
-      last_verified_at: new Date().toISOString(),
-    })
-    .select("*")
-    .single();
+  // The row and its audit entry commit together. Previously the audit was a
+  // separate round trip whose result was discarded, so an account could exist
+  // with no record that it was ever created — and an audit log that is
+  // sometimes missing entries is worse than none, because its silence is read
+  // as evidence that nothing happened.
+  const { data, error } = await svc.rpc("create_account_atomic", {
+    p_owner: userId,
+    p_nickname: nickname,
+    p_mode: input.mode,
+    p_color: input.color ?? "#007aff",
+    p_key_secret: keyId,
+    p_secret_secret: secretId,
+    p_account_number: validation.accountNumber,
+  });
 
   if (error || !data) {
     // The row does not exist, so there is nothing to be atomic with; the two
@@ -131,14 +130,7 @@ export async function createAccount(
     return { ok: false, reason: "db_error", message: created };
   }
 
-  await svc.from("audit_log").insert({
-    actor_id: userId,
-    account_id: data.id,
-    action: "account.created",
-    detail: { mode: input.mode, nickname },
-  });
-
-  return { ok: true, account: toSafe(data) };
+  return { ok: true, account: toSafe(data as AccountRow) };
 }
 
 export type UpdateAccountPatch = {
@@ -153,39 +145,42 @@ export async function updateAccount(
   accountId: string,
   patch: UpdateAccountPatch,
 ): Promise<AccountResult> {
-  const update: Database["public"]["Tables"]["accounts"]["Update"] = {};
-  if (typeof patch.nickname === "string") {
-    const n = patch.nickname.trim();
-    if (!n) return { ok: false, reason: "invalid_input", message: "Nickname cannot be empty." };
-    update.nickname = n;
+  if (typeof patch.nickname === "string" && !patch.nickname.trim()) {
+    return { ok: false, reason: "invalid_input", message: "Nickname cannot be empty." };
   }
-  if (typeof patch.color === "string") update.color = patch.color;
-  if (typeof patch.is_active === "boolean") update.is_active = patch.is_active;
-
-  if (Object.keys(update).length === 0) {
+  if (
+    typeof patch.nickname !== "string" &&
+    typeof patch.color !== "string" &&
+    typeof patch.is_active !== "boolean"
+  ) {
     return { ok: false, reason: "invalid_input", message: "Nothing to update." };
   }
 
   const svc = getSupabaseService();
-  const { data, error } = await svc
-    .from("accounts")
-    .update(update)
-    .eq("id", accountId)
-    .eq("owner_id", userId)
-    .is("deleted_at", null)
-    .select("*")
-    .single();
+  // Row and audit entry in one transaction, for the same reason as creation:
+  // a metadata change with no audit record makes the log's silence misleading.
+  const { data, error } = await svc.rpc("update_account_metadata", {
+    p_account: accountId,
+    p_owner: userId,
+    p_nickname: typeof patch.nickname === "string" ? patch.nickname : null,
+    p_color: typeof patch.color === "string" ? patch.color : null,
+    p_is_active: typeof patch.is_active === "boolean" ? patch.is_active : null,
+  });
 
-  if (error || !data) {
+  if (error) {
+    return {
+      ok: false,
+      reason: error.code === "P0002" ? "not_found" : "db_error",
+      message:
+        error.code === "P0002"
+          ? "Account not found."
+          : `The update was rolled back: ${error.message}`,
+    };
+  }
+  if (!data) {
     return { ok: false, reason: "not_found", message: "Account not found." };
   }
-  await svc.from("audit_log").insert({
-    actor_id: userId,
-    account_id: accountId,
-    action: "account.updated",
-    detail: update as unknown as Database["public"]["Tables"]["audit_log"]["Insert"]["detail"],
-  });
-  return { ok: true, account: toSafe(data) };
+  return { ok: true, account: toSafe(data as AccountRow) };
 }
 
 /**

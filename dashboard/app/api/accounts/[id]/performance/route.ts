@@ -5,7 +5,7 @@ import {
   loadOwnedAccount,
 } from "@/lib/accounts/session";
 import { backfillCashFlows, backfillEquity } from "@/lib/accounts/equity-backfill";
-import { cashFlowKey, readAllRows } from "@/lib/accounts/paged";
+import { readAccountHistory } from "@/lib/accounts/history";
 import {
   authorizeProductionRuntime,
   readProductionAuthzConfig,
@@ -42,6 +42,8 @@ export type PerformanceUnavailableReason =
   | "EQUITY_QUERY_FAILED"
   | "CASH_FLOW_REFRESH_FAILED"
   | "CASH_FLOW_QUERY_FAILED"
+  | "HISTORY_TOO_LARGE"
+  | "HISTORY_UNUSABLE"
   | "CASH_FLOW_INCOMPLETE"
   | "CASH_FLOW_UNUSABLE"
   | "CASH_FLOW_TIMING_UNVERIFIABLE"
@@ -282,7 +284,7 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   // Any refresh or query error is UNAVAILABLE — never a number with a warning.
   try {
-    await backfillEquity(svc, id, account.mode);
+    await backfillEquity(svc, id, account.owner_id, account.mode);
   } catch (caught) {
     return respond(
       id,
@@ -296,7 +298,7 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   let latestActivityAt: string | null = null;
   try {
-    const result = await backfillCashFlows(svc, id, account.mode, {
+    const result = await backfillCashFlows(svc, id, account.owner_id, account.mode, {
       since: baseline.startedAt,
     });
     if (!result.complete) {
@@ -331,10 +333,12 @@ export async function GET(_req: Request, { params }: Ctx) {
   }
 
   // A broker activity stamped in the future means the feed disagrees with
-  // reality; that is a mismatch, not fresh data.
+  // reality; that is a mismatch, not fresh data. The allowance is the same
+  // five minutes of clock skew used everywhere else — a whole day of slack
+  // let a feed seven hours ahead pass as ordinary.
   if (latestActivityAt !== null) {
     const stamp = Date.parse(latestActivityAt);
-    if (Number.isFinite(stamp) && stamp - Date.now() > 24 * 60 * 60 * 1000) {
+    if (Number.isFinite(stamp) && stamp - Date.now() > CLOCK_SKEW_TOLERANCE_MS) {
       return respond(
         id,
         "FUTURE_DATED",
@@ -345,62 +349,33 @@ export async function GET(_req: Request, { params }: Ctx) {
     }
   }
 
-  // Both histories are read page by page. A silently truncated equity curve or
-  // ledger would produce a plausible, wrong number: PostgREST caps a response
-  // at 1000 rows without reporting an error, and `snapshot_date` / `id` give
-  // each query the total ordering range pagination needs.
-  const [snapshotResult, flowResult] = await Promise.all([
-    // Keyset paging on a unique column: `snapshot_date` is unique per account
-    // and `id` is the ledger's primary key, so neither walk can skip a row when
-    // something changes underneath it.
-    readAllRows(
-      "equity snapshot",
-      (after, limit) => {
-        let query = svc
-          .from("equity_snapshots")
-          .select("snapshot_date,equity", { count: "exact" })
-          .eq("account_id", id)
-          .gte("snapshot_date", baseline.startSessionDate);
-        if (after !== null) query = query.gt("snapshot_date", after);
-        return query.order("snapshot_date", { ascending: true }).limit(limit);
-      },
-      (row) => row.snapshot_date,
-    ),
-    readAllRows(
-      "cash-flow",
-      (after, limit) => {
-        let query = svc
-          .from("cash_flows")
-          .select("id,flow_date,amount", { count: "exact" })
-          .eq("account_id", id)
-          .gte("flow_date", baseline.startSessionDate);
-        if (after !== null) query = query.gt("id", Number(after));
-        return query.order("id", { ascending: true }).limit(limit);
-      },
-      (row) => cashFlowKey(row.id),
-    ),
-  ]);
-
-  if (!snapshotResult.ok) {
+  // One request, one database snapshot, both datasets. A page walk cannot give
+  // this: several requests are several MVCC snapshots, and an UPDATE to a row
+  // already read leaves the count unchanged, repeats no key and skips nothing
+  // — so a torn read passes every client-side consistency check there is.
+  const historyResult = await readAccountHistory(
+    svc,
+    id,
+    account.owner_id,
+    baseline.startSessionDate,
+  );
+  if (!historyResult.ok) {
     return respond(
       id,
-      "EQUITY_QUERY_FAILED",
-      `${snapshotResult.detail} No return can be reported.`,
+      historyResult.reason === "HISTORY_TOO_LARGE"
+        ? "HISTORY_TOO_LARGE"
+        : historyResult.reason === "MALFORMED_SNAPSHOT"
+          ? "HISTORY_UNUSABLE"
+          : "EQUITY_QUERY_FAILED",
+      `${historyResult.detail} No return can be reported.`,
       baselineDto,
     );
   }
-  if (!flowResult.ok) {
-    return respond(
-      id,
-      "CASH_FLOW_QUERY_FAILED",
-      `${flowResult.detail} A deposit could not be excluded from the return.`,
-      baselineDto,
-    );
-  }
+  const history = historyResult.history;
 
-  const equity: EquityPoint[] = snapshotResult.rows.map((row) => ({
-    date: row.snapshot_date,
-    equity: Number(row.equity),
+  const equity: EquityPoint[] = history.equity.map((row) => ({
+    date: row.date,
+    equity: row.equity,
   }));
   if (equity.length < 2) {
     return respond(
@@ -411,9 +386,9 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
-  const cashFlows: CashFlow[] = flowResult.rows.map((row) => ({
-    date: row.flow_date,
-    amount: Number(row.amount),
+  const cashFlows: CashFlow[] = history.cashFlows.map((row) => ({
+    date: row.date,
+    amount: row.amount,
   }));
 
   const bars = await fetchBenchmarkBars(

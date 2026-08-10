@@ -81,12 +81,14 @@ function olderThanLookback(run: WorkflowRunSummary, now: Date): boolean {
 }
 
 /**
- * Walk successful runs newest-first across pages, calling `visit` until it
- * returns a result, the freshness boundary is crossed, or pages run out.
+ * Walk runs newest-first across pages, calling `visit` on each run `accept`
+ * admits, until `visit` returns a result, the freshness boundary is crossed,
+ * or pages run out.
  */
-async function scanSuccessfulRuns<T>(
+async function scanRuns<T>(
   source: RunPageSource,
   now: Date,
+  accept: (run: WorkflowRunSummary) => boolean,
   visit: (run: WorkflowRunSummary) => Promise<T | null>,
 ): Promise<{ result: T | null; listFailed: boolean; exhausted: boolean }> {
   for (let page = 1; page <= RUN_SCAN_MAX_PAGES; page++) {
@@ -98,7 +100,7 @@ async function scanSuccessfulRuns<T>(
       if (olderThanLookback(run, now)) {
         return { result: null, listFailed: false, exhausted: true };
       }
-      if (run.status !== "completed" || run.conclusion !== "success") continue;
+      if (!accept(run)) continue;
       const found = await visit(run);
       if (found !== null) return { result: found, listFailed: false, exhausted: false };
     }
@@ -108,6 +110,21 @@ async function scanSuccessfulRuns<T>(
   }
   return { result: null, listFailed: false, exhausted: false };
 }
+
+/** The executor result is only meaningful from a run that actually succeeded. */
+const SUCCEEDED = (run: WorkflowRunSummary) =>
+  run.status === "completed" && run.conclusion === "success";
+
+/**
+ * A preflight is meaningful from *any* completed run.
+ *
+ * The preflight runs before the executor and writes its report whatever
+ * happens afterwards — indeed a run usually fails *because* the preflight
+ * refused. Filtering on `conclusion === "success"` therefore skipped exactly
+ * the reports that matter and fell back to an older green one, so the screen
+ * showed a passing preflight while production had just refused to trade.
+ */
+const COMPLETED = (run: WorkflowRunSummary) => run.status === "completed";
 
 export interface ExecutionSelection {
   readonly performance: PerformanceRuntimeSnapshot | null;
@@ -175,9 +192,10 @@ export async function selectLatestExecution(
 
   const expectedName = `${RUNTIME_ARTIFACT_PREFIX}${approvedReleaseSha}`;
 
-  const scan = await scanSuccessfulRuns<ExecutionSelection>(
+  const scan = await scanRuns<ExecutionSelection>(
     source,
     now,
+    SUCCEEDED,
     async (run) => {
     const artifacts = await fetchRunArtifacts(run.id);
     if (!artifacts) {
@@ -297,17 +315,29 @@ export async function selectLatestExecution(
 }
 
 /**
- * Latest successful preflight report. Independent of the executor selection —
- * a newer manual preflight run legitimately supersedes only the preflight.
+ * The **latest completed** preflight report, whatever its run concluded.
+ *
+ * Independent of the executor selection: a newer manual preflight run
+ * legitimately supersedes only the preflight, and a newer *failed* run's
+ * preflight supersedes an older passing one. The first completed run that
+ * carries a diagnostics artifact is the answer — if that report is corrupt,
+ * schema-invalid or lineage-mismatched, the selection fails closed rather
+ * than searching backwards for a greener one.
+ *
+ * A newer completed run with **no** diagnostics artifact is skipped: it
+ * demonstrably ended before a preflight report existed (an infrastructure
+ * failure, or a job that never reached the preflight step), so it supersedes
+ * nothing.
  */
 export async function selectLatestPreflight(
   source: RunPageSource,
   expectedStrategyIdentity: string | null,
   now: Date = new Date(),
 ): Promise<PreflightSelection> {
-  const scan = await scanSuccessfulRuns<PreflightSelection>(
+  const scan = await scanRuns<PreflightSelection>(
     source,
     now,
+    COMPLETED,
     async (run) => {
     const artifacts = await fetchRunArtifacts(run.id);
     if (!artifacts) {
@@ -396,7 +426,7 @@ export async function selectLatestPreflight(
     errors: [
       scan.listFailed
         ? "GitHub Actions artifacts could not be listed"
-        : `no successful run with a preflight report was found within the last ${RUN_SCAN_LOOKBACK_DAYS} days`,
+        : `no completed run with a preflight report was found within the last ${RUN_SCAN_LOOKBACK_DAYS} days`,
     ],
   };
 }

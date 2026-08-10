@@ -29,6 +29,7 @@ type PortfolioHistory = {
 export async function backfillEquity(
   svc: Service,
   accountId: string,
+  ownerId: string,
   mode: Mode,
 ): Promise<number> {
   const { data: cred, error: credErr } = await svc.rpc(
@@ -124,10 +125,25 @@ export async function backfillEquity(
 
   const rows = [...byDate.values()];
   if (rows.length > 0) {
-    const { error } = await svc
-      .from("equity_snapshots")
-      .upsert(rows, { onConflict: "account_id,snapshot_date" });
-    if (error) throw new Error(`equity_snapshots upsert failed: ${error.message}`);
+    // Alpaca's portfolio history is authoritative *and* retroactive: it revises
+    // past days and can drop them entirely. An upsert-only mirror keeps a day
+    // the broker has since withdrawn, and that stale day stays in the curve and
+    // in every return computed from it. `replace_equity_snapshots` upserts and
+    // removes withdrawn days in one transaction.
+    const { error } = await svc.rpc("replace_equity_snapshots", {
+      p_account: accountId,
+      p_owner: ownerId,
+      p_rows: rows.map((row) => ({
+        snapshot_date: row.snapshot_date,
+        equity: row.equity,
+        cash: row.cash,
+        profit_loss: row.profit_loss,
+        profit_loss_pct: row.profit_loss_pct,
+      })) as unknown as Database["public"]["Functions"]["replace_equity_snapshots"]["Args"]["p_rows"],
+    });
+    if (error) {
+      throw new Error(`equity_snapshots reconciliation failed: ${error.message}`);
+    }
   }
   return rows.length;
 }
@@ -187,6 +203,13 @@ const ACTIVITY_PAGE_SIZE = 100;
  * a paper account that exceeds that gets UNAVAILABLE, not a partial ledger.
  */
 const MAX_ACTIVITY_PAGES = 500;
+
+/**
+ * The window the walk is authoritative for when no baseline bounds it.
+ *
+ * Alpaca accounts cannot predate the broker, so this is "everything".
+ */
+const EPOCH_START = "1970-01-01";
 
 /** Same tolerance the read model uses for a timestamp ahead of our clock. */
 const ACTIVITY_CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
@@ -258,33 +281,62 @@ export function parseNetAmount(value: unknown): number | null {
 export function resolveActivityDate(
   activity: Activity,
   etDate: Intl.DateTimeFormat,
-): { readonly date: string; readonly instant: string } | null {
+): {
+  readonly date: string;
+  readonly instant: string;
+  /**
+   * True only when `instant` came from a real `transaction_time`.
+   *
+   * A date-only activity has no time of day, so its instant below is a
+   * *fabricated* midday UTC. Treating that as an observed timestamp would make
+   * every same-day activity look hours into the future when read early in the
+   * morning — so freshness rules must apply the calendar-date test to these
+   * and the clock test only to real ones.
+   */
+  readonly instantIsReal: boolean;
+} | null {
+  // A real instant, when the record carries one.
+  const transactionTime =
+    typeof activity.transaction_time === "string" ? activity.transaction_time : "";
+  const parsedTime = transactionTime.trim() ? Date.parse(transactionTime) : NaN;
+  const hasRealInstant = Number.isFinite(parsedTime);
+
+  // The occurrence date. `date` wins when present and a real calendar day: it
+  // is the settlement day the ledger books against, and it can differ from the
+  // record's creation time across a boundary.
+  let date: string | null = null;
   if (typeof activity.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(activity.date)) {
     const noon = Date.parse(`${activity.date}T12:00:00Z`);
     // The shape is not enough: `2026-02-30` parses in V8 and silently rolls
     // over to 2 March, which would book a flow on a session that never was.
-    // Round-tripping rejects any day the calendar does not contain.
     if (
       Number.isFinite(noon) &&
       new Date(noon).toISOString().slice(0, 10) === activity.date
     ) {
-      // Midday UTC is inside the ET day for every US offset, so formatting
-      // cannot roll the date backwards.
-      return { date: activity.date, instant: new Date(noon).toISOString() };
+      date = activity.date;
+    } else {
+      return null;
     }
-    return null;
+  } else if (hasRealInstant) {
+    date = etDate.format(new Date(parsedTime));
   }
-  const raw =
-    typeof activity.date === "string" && activity.date.trim()
-      ? activity.date
-      : typeof activity.transaction_time === "string"
-        ? activity.transaction_time
-        : "";
-  if (!raw.trim()) return null;
-  const parsed = Date.parse(raw);
-  if (!Number.isFinite(parsed)) return null;
-  const at = new Date(parsed);
-  return { date: etDate.format(at), instant: at.toISOString() };
+  if (!date) return null;
+
+  if (hasRealInstant) {
+    return {
+      date,
+      instant: new Date(parsedTime).toISOString(),
+      instantIsReal: true,
+    };
+  }
+  // No time of day exists. Midday UTC is inside the ET day for every US
+  // offset, so formatting it cannot roll the date backwards — but it is a
+  // stand-in, never an observation.
+  return {
+    date,
+    instant: new Date(Date.parse(`${date}T12:00:00Z`)).toISOString(),
+    instantIsReal: false,
+  };
 }
 
 /** The market-time calendar day an ISO instant (or plain date) falls on. */
@@ -328,6 +380,7 @@ function incomplete(
 export async function backfillCashFlows(
   svc: Service,
   accountId: string,
+  ownerId: string,
   mode: Mode,
   options: { since?: string } = {},
 ): Promise<CashFlowBackfillResult> {
@@ -443,10 +496,21 @@ export async function backfillCashFlows(
         );
       }
 
-      // An activity dated after today's market date is broken data, not a
-      // future-scheduled transfer: the same five-minute clock-skew tolerance
-      // used everywhere else applies.
-      if (occurred.date > latestAllowedDate) {
+      // A real timestamp is held to the clock: five minutes of skew, no more.
+      // Seven hours ahead is not a scheduled transfer, it is a broken feed.
+      if (
+        occurred.instantIsReal &&
+        Date.parse(occurred.instant) - nowMs > ACTIVITY_CLOCK_SKEW_TOLERANCE_MS
+      ) {
+        return incomplete(
+          "FUTURE_DATED_ACTIVITY",
+          `Alpaca activity ${id} is timestamped ${occurred.instant}, more than five minutes ahead of this server, so the activity feed cannot be trusted.`,
+          pagesRead,
+        );
+      }
+      // A date-only activity has no time of day to compare, so it is held to
+      // the calendar instead: it may not be dated after today's ET session.
+      if (!occurred.instantIsReal && occurred.date > latestAllowedDate) {
         return incomplete(
           "FUTURE_DATED_ACTIVITY",
           `Alpaca activity ${id} is dated ${occurred.date}, after the current New York session date, so the activity feed cannot be trusted.`,
@@ -465,7 +529,12 @@ export async function backfillCashFlows(
       if (baselineDate !== null && occurred.date < baselineDate) continue;
       inWindow.add(id);
 
-      if (latestActivityAt === null || occurred.instant > latestActivityAt) {
+      // Only a genuine timestamp is reported as one; a fabricated midday
+      // instant must never be handed to a caller that will clock-check it.
+      if (
+        occurred.instantIsReal &&
+        (latestActivityAt === null || occurred.instant > latestActivityAt)
+      ) {
         latestActivityAt = occurred.instant;
       }
 
@@ -536,64 +605,36 @@ export async function backfillCashFlows(
   // --- reconcile the mirror against the broker's current truth --------------
   //
   // An upsert alone only ever adds and amends. Alpaca can *withdraw* an
-  // activity — a reversed transfer, a correction that re-issues under a new id,
-  // a duplicate that gets removed — and the row this mirror wrote for it would
+  // activity — a reversed transfer, a correction re-issued under a new id, a
+  // duplicate that gets removed — and the row this mirror wrote for it would
   // otherwise stay in the ledger forever, permanently subtracting a deposit
   // that no longer exists from the reported return.
   //
-  // The walk above read the account's entire history, so `seen` is the complete
-  // set of activity ids that currently exist. Any mirrored row inside the
-  // measured window whose id is absent from it has been withdrawn upstream and
-  // must go. Rows outside the window are left alone: this walk makes no claim
-  // about them.
-  const existing = await svc
-    .from("cash_flows")
-    .select("external_id,flow_date")
-    .eq("account_id", accountId)
-    .eq("source", "alpaca_activities");
-  if (existing.error) {
+  // Both halves happen inside `reconcile_cash_flow_mirror`: the upsert and the
+  // set difference against what the broker currently reports. Doing it here
+  // instead would need an unpaged `select` of the mirrored ledger, which is
+  // truncated silently past the server's row cap — and reconciling against a
+  // truncated list is worse than not reconciling at all.
+  const list = [...rows.values()];
+  const reconciled = await svc.rpc("reconcile_cash_flow_mirror", {
+    p_account: accountId,
+    p_owner: ownerId,
+    p_from: baselineDate ?? EPOCH_START,
+    p_rows: list.map((row) => ({
+      external_id: row.external_id,
+      flow_date: row.flow_date,
+      amount: row.amount,
+      kind: row.kind,
+    })) as unknown as Database["public"]["Functions"]["reconcile_cash_flow_mirror"]["Args"]["p_rows"],
+  });
+  if (reconciled.error) {
     return incomplete(
       "LEDGER_RECONCILE_FAILED",
-      `The mirrored cash-flow ledger could not be read for reconciliation: ${existing.error.message}`,
+      `The mirrored cash-flow ledger could not be reconciled: ${reconciled.error.message}`,
       pagesRead,
     );
   }
 
-  const stale = (existing.data ?? [])
-    .filter((row) => {
-      const externalId = row.external_id;
-      if (typeof externalId !== "string" || !externalId) return false;
-      // Only rows the walk was authoritative about.
-      if (baselineDate !== null && (row.flow_date ?? "") < baselineDate) return false;
-      return !seen.has(externalId);
-    })
-    .map((row) => row.external_id as string);
-
-  if (stale.length > 0) {
-    const removal = await svc
-      .from("cash_flows")
-      .delete()
-      .eq("account_id", accountId)
-      .eq("source", "alpaca_activities")
-      .in("external_id", stale);
-    if (removal.error) {
-      return incomplete(
-        "LEDGER_RECONCILE_FAILED",
-        `${stale.length} mirrored cash flow(s) no longer exist at the broker but could not be removed: ${removal.error.message}`,
-        pagesRead,
-      );
-    }
-  }
-
-  const list = [...rows.values()];
-  if (list.length > 0) {
-    // An amended activity keeps its id, so the upsert overwrites the old
-    // amount and date rather than leaving both versions in place.
-    const { error } = await svc
-      .from("cash_flows")
-      .upsert(list, { onConflict: "account_id,external_id" });
-    if (error) throw new Error(`cash_flows upsert failed: ${error.message}`);
-  }
   return {
     written: list.length,
     complete: true,
