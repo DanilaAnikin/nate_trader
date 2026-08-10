@@ -58,8 +58,22 @@ export function nySessionDate(instant: Date | string | number): string {
   }).format(date);
 }
 
-/** Parse and validate a persisted epoch baseline document. */
-export function parseEpochBaseline(value: unknown): V11EpochBaseline | null {
+export const BASELINE_STRATEGY_VERSION = "v11-adaptive-momentum";
+export const BASELINE_BENCHMARK_SYMBOL = "SPY";
+
+/**
+ * Parse and validate a persisted epoch baseline document.
+ *
+ * Nothing is defaulted. A baseline that does not *state* its strategy version
+ * or its benchmark is not an auditable baseline, and silently assuming V11 and
+ * SPY would let an unrelated document anchor a published return. Every field
+ * is required, the benchmark must be SPY, both dates must describe the same
+ * session, and no date may lie in the future.
+ */
+export function parseEpochBaseline(
+  value: unknown,
+  now: Date = new Date(),
+): V11EpochBaseline | null {
   if (typeof value !== "object" || value === null) return null;
   const raw = value as Record<string, unknown>;
   const text = (key: string): string | null =>
@@ -76,14 +90,20 @@ export function parseEpochBaseline(value: unknown): V11EpochBaseline | null {
   const startedAt = text("startedAt");
   const startSessionDate = text("startSessionDate");
   const startingEquity = number("startingEquity");
+  const benchmarkSymbol = text("benchmarkSymbol");
   const benchmarkBaselineDate = text("benchmarkBaselineDate");
   const benchmarkBaselineClose = number("benchmarkBaselineClose");
+  const strategyVersion = text("strategyVersion");
 
   if (
     raw.schemaVersion !== 1 ||
     !releaseSha ||
     !/^[0-9a-f]{40}$/.test(releaseSha) ||
     !accountId ||
+    // The strategy version must be stated explicitly, never assumed.
+    strategyVersion !== BASELINE_STRATEGY_VERSION ||
+    // The benchmark must be stated explicitly and must be SPY.
+    benchmarkSymbol !== BASELINE_BENCHMARK_SYMBOL ||
     !startedAt ||
     !Number.isFinite(Date.parse(startedAt)) ||
     !startSessionDate ||
@@ -98,15 +118,28 @@ export function parseEpochBaseline(value: unknown): V11EpochBaseline | null {
     return null;
   }
 
+  // The portfolio anchor and the benchmark anchor must be the same session,
+  // otherwise the two series are anchored a day apart.
+  if (benchmarkBaselineDate !== startSessionDate) return null;
+
+  // `startedAt` must fall on the session it claims, in exchange time.
+  if (nySessionDate(startedAt) !== startSessionDate) return null;
+
+  // Nothing may be dated in the future.
+  const nowMs = now.getTime();
+  if (Date.parse(startedAt) > nowMs) return null;
+  const sessionMs = Date.parse(`${startSessionDate}T00:00:00Z`);
+  if (!Number.isFinite(sessionMs) || sessionMs > nowMs) return null;
+
   return {
     schemaVersion: 1,
-    strategyVersion: text("strategyVersion") ?? "v11-adaptive-momentum",
+    strategyVersion,
     releaseSha,
     accountId,
     startedAt: new Date(Date.parse(startedAt)).toISOString(),
     startSessionDate,
     startingEquity,
-    benchmarkSymbol: text("benchmarkSymbol") ?? "SPY",
+    benchmarkSymbol,
     benchmarkBaselineDate,
     benchmarkBaselineClose,
     note: text("note"),

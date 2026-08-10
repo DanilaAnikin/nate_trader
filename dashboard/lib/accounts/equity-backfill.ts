@@ -96,33 +96,69 @@ export async function backfillEquity(
 }
 
 type Activity = {
-  id?: string;
-  activity_type?: string;
-  date?: string;
-  transaction_time?: string;
-  net_amount?: string | number;
+  id?: unknown;
+  activity_type?: unknown;
+  date?: unknown;
+  transaction_time?: unknown;
+  net_amount?: unknown;
 };
 
-const CASH_ACTIVITY_TYPES = ["CSD", "CSW", "JNLC"] as const;
+/**
+ * External cash movements. `ACATC` is an ACAT cash transfer — a real deposit
+ * or withdrawal that would otherwise be read as investment return.
+ */
+const CASH_ACTIVITY_TYPES = ["CSD", "CSW", "JNLC", "ACATC"] as const;
+const CASH_ACTIVITY_TYPE_SET: ReadonlySet<string> = new Set(CASH_ACTIVITY_TYPES);
+
 const ACTIVITY_PAGE_SIZE = 100;
 const MAX_ACTIVITY_PAGES = 50;
+
+export type CashFlowIncompleteReason =
+  | "MALFORMED_ACTIVITY"
+  | "UNEXPECTED_ACTIVITY_TYPE"
+  | "NO_PAGINATION_TOKEN"
+  | "PAGE_LIMIT_REACHED";
 
 export interface CashFlowBackfillResult {
   readonly written: number;
   /** True only when every page back to the baseline boundary was read. */
   readonly complete: boolean;
+  readonly incompleteReason: CashFlowIncompleteReason | null;
+  readonly detail: string | null;
   readonly pagesRead: number;
   readonly refreshedAt: string;
+  /** Newest activity timestamp seen, for freshness reporting. */
+  readonly latestActivityAt: string | null;
+}
+
+function incomplete(
+  reason: CashFlowIncompleteReason,
+  detail: string,
+  pagesRead: number,
+): CashFlowBackfillResult {
+  return {
+    written: 0,
+    complete: false,
+    incompleteReason: reason,
+    detail,
+    pagesRead,
+    refreshedAt: new Date().toISOString(),
+    latestActivityAt: null,
+  };
 }
 
 /**
- * Mirror external cash movements (deposits, withdrawals, cash journals) into
- * `cash_flows`.
+ * Mirror external cash movements (deposits, withdrawals, cash journals, ACAT
+ * cash transfers) into `cash_flows`.
  *
  * Without these rows a $10k deposit looks like $10k of profit, so time-weighted
- * return depends on them being *complete*. Alpaca caps a page at 100 items and
- * paginates with `page_token`, so every page back to the epoch boundary is
- * read; an incomplete walk is reported rather than silently truncated. Rows are
+ * return depends on them being *complete*. Every activity must be fully usable:
+ * a missing id, timestamp or type, an unparseable amount, or a type outside the
+ * requested set makes the whole walk incomplete rather than being skipped —
+ * a silently dropped deposit is exactly the failure this guards.
+ *
+ * Alpaca caps a page at 100 items and paginates by passing the last id as
+ * `page_token`; a full page without a usable token is also incomplete. Rows are
  * idempotent on the Alpaca activity id. Read-only against the broker.
  */
 export async function backfillCashFlows(
@@ -150,6 +186,7 @@ export async function backfillCashFlows(
   let pageToken: string | null = null;
   let pagesRead = 0;
   let complete = false;
+  let latestActivityAt: string | null = null;
 
   for (let page = 0; page < MAX_ACTIVITY_PAGES; page++) {
     const query = new URLSearchParams({
@@ -176,22 +213,84 @@ export async function backfillCashFlows(
     }
     pagesRead++;
 
+    let lastId: string | null = null;
     for (const activity of activities) {
+      const id = typeof activity.id === "string" ? activity.id.trim() : "";
+      const type =
+        typeof activity.activity_type === "string"
+          ? activity.activity_type.trim()
+          : "";
+      const stamp =
+        typeof activity.date === "string"
+          ? activity.date
+          : typeof activity.transaction_time === "string"
+            ? activity.transaction_time
+            : "";
       const amount = Number(activity.net_amount);
-      if (!activity.id || !Number.isFinite(amount) || amount === 0) continue;
-      const stamp = activity.date ?? activity.transaction_time;
-      if (!stamp) continue;
+
+      if (!id) {
+        return incomplete(
+          "MALFORMED_ACTIVITY",
+          "An Alpaca activity has no id, so cash-flow completeness cannot be proven.",
+          pagesRead,
+        );
+      }
+      if (!type) {
+        return incomplete(
+          "MALFORMED_ACTIVITY",
+          `Alpaca activity ${id} has no activity_type.`,
+          pagesRead,
+        );
+      }
+      if (!CASH_ACTIVITY_TYPE_SET.has(type)) {
+        return incomplete(
+          "UNEXPECTED_ACTIVITY_TYPE",
+          `Alpaca returned activity type ${type}, which was not requested.`,
+          pagesRead,
+        );
+      }
+      if (!stamp) {
+        return incomplete(
+          "MALFORMED_ACTIVITY",
+          `Alpaca activity ${id} has no timestamp.`,
+          pagesRead,
+        );
+      }
       const parsed = Date.parse(
         /^\d{4}-\d{2}-\d{2}$/.test(stamp) ? `${stamp}T12:00:00Z` : stamp,
       );
-      if (!Number.isFinite(parsed)) continue;
-      rows.set(activity.id, {
+      if (!Number.isFinite(parsed)) {
+        return incomplete(
+          "MALFORMED_ACTIVITY",
+          `Alpaca activity ${id} has an unparseable timestamp.`,
+          pagesRead,
+        );
+      }
+      if (!Number.isFinite(amount)) {
+        return incomplete(
+          "MALFORMED_ACTIVITY",
+          `Alpaca activity ${id} has an invalid net_amount.`,
+          pagesRead,
+        );
+      }
+
+      const iso = new Date(parsed).toISOString();
+      if (latestActivityAt === null || iso > latestActivityAt) {
+        latestActivityAt = iso;
+      }
+      lastId = id;
+
+      // A zero-amount cash activity moves no money and is not a flow, but it
+      // was still fully understood, so it does not break completeness.
+      if (amount === 0) continue;
+
+      rows.set(id, {
         account_id: accountId,
         flow_date: etDate.format(new Date(parsed)),
         amount: Math.round(amount * 100) / 100,
         kind: amount > 0 ? "deposit" : "withdrawal",
         source: "alpaca_activities",
-        external_id: activity.id,
+        external_id: id,
       });
     }
 
@@ -200,12 +299,22 @@ export async function backfillCashFlows(
       complete = true;
       break;
     }
-    const last = activities[activities.length - 1];
-    pageToken = last?.id ?? null;
-    if (!pageToken) {
-      complete = true;
-      break;
+    if (!lastId) {
+      return incomplete(
+        "NO_PAGINATION_TOKEN",
+        "A full page of activities produced no usable pagination id, so older activities cannot be reached.",
+        pagesRead,
+      );
     }
+    pageToken = lastId;
+  }
+
+  if (!complete) {
+    return incomplete(
+      "PAGE_LIMIT_REACHED",
+      `More than ${MAX_ACTIVITY_PAGES} pages of activities exist; the walk back to the epoch baseline did not finish.`,
+      pagesRead,
+    );
   }
 
   const list = [...rows.values()];
@@ -217,8 +326,11 @@ export async function backfillCashFlows(
   }
   return {
     written: list.length,
-    complete,
+    complete: true,
+    incompleteReason: null,
+    detail: null,
     pagesRead,
     refreshedAt: new Date().toISOString(),
+    latestActivityAt,
   };
 }

@@ -39,6 +39,7 @@ export type PerformanceUnavailableReason =
   | "CASH_FLOW_REFRESH_FAILED"
   | "CASH_FLOW_QUERY_FAILED"
   | "CASH_FLOW_INCOMPLETE"
+  | "FUTURE_DATED"
   | "NO_EQUITY_HISTORY"
   | "NO_BENCHMARK_HISTORY"
   | "NO_COMMON_SESSIONS"
@@ -47,8 +48,36 @@ export type PerformanceUnavailableReason =
 export interface PerformanceProvenance {
   readonly source: string;
   readonly scope: string;
+  /** Last session both series actually share — the age of the number shown. */
   readonly asOf: string | null;
-  readonly freshness: "CURRENT" | "UNAVAILABLE" | "NOT_APPLICABLE";
+  readonly freshness:
+    | "CURRENT"
+    | "STALE"
+    | "EXPIRED"
+    | "MISMATCH"
+    | "UNAVAILABLE"
+    | "NOT_APPLICABLE";
+}
+
+/**
+ * Performance ages with the market, not with the request. A result whose last
+ * shared session is old is STALE, and well past that it is EXPIRED.
+ */
+const STALE_AFTER_DAYS = 5;
+const EXPIRED_AFTER_DAYS = 21;
+
+function classifyPerformanceAge(
+  endSessionDate: string,
+  now: Date,
+): "CURRENT" | "STALE" | "EXPIRED" | "MISMATCH" {
+  const end = Date.parse(`${endSessionDate}T00:00:00Z`);
+  if (!Number.isFinite(end)) return "MISMATCH";
+  const ageDays = (now.getTime() - end) / (24 * 60 * 60 * 1000);
+  // A session dated in the future is not fresh data, it is broken data.
+  if (ageDays < -1) return "MISMATCH";
+  if (ageDays > EXPIRED_AFTER_DAYS) return "EXPIRED";
+  if (ageDays > STALE_AFTER_DAYS) return "STALE";
+  return "CURRENT";
 }
 
 export interface PerformanceResponse {
@@ -78,6 +107,7 @@ function respond(
   baseline: PerformanceResponse["baseline"] = null,
   freshness: PerformanceProvenance["freshness"] = "UNAVAILABLE",
 ): NextResponse {
+
   const body: PerformanceResponse = {
     accountId,
     refreshedAt: new Date().toISOString(),
@@ -233,12 +263,20 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
-  let cashFlowsComplete = false;
+  let latestActivityAt: string | null = null;
   try {
     const result = await backfillCashFlows(svc, id, account.mode, {
       since: baseline.startedAt,
     });
-    cashFlowsComplete = result.complete;
+    if (!result.complete) {
+      return respond(
+        id,
+        "CASH_FLOW_INCOMPLETE",
+        `${result.detail ?? "The Alpaca activity history could not be walked back to the epoch baseline."} A deposit or withdrawal may be missing from the return.`,
+        baselineDto,
+      );
+    }
+    latestActivityAt = result.latestActivityAt;
   } catch (caught) {
     return respond(
       id,
@@ -249,13 +287,20 @@ export async function GET(_req: Request, { params }: Ctx) {
       baselineDto,
     );
   }
-  if (!cashFlowsComplete) {
-    return respond(
-      id,
-      "CASH_FLOW_INCOMPLETE",
-      "The Alpaca activity history could not be walked back to the epoch baseline, so a deposit or withdrawal may be missing from the return.",
-      baselineDto,
-    );
+
+  // A broker activity stamped in the future means the feed disagrees with
+  // reality; that is a mismatch, not fresh data.
+  if (latestActivityAt !== null) {
+    const stamp = Date.parse(latestActivityAt);
+    if (Number.isFinite(stamp) && stamp - Date.now() > 24 * 60 * 60 * 1000) {
+      return respond(
+        id,
+        "FUTURE_DATED",
+        "An Alpaca cash activity is dated in the future, so the cash-flow history cannot be trusted.",
+        baselineDto,
+        "MISMATCH",
+      );
+    }
   }
 
   const [snapshotResult, flowResult] = await Promise.all([
@@ -332,9 +377,21 @@ export async function GET(_req: Request, { params }: Ctx) {
     return respond(id, result.reason, result.detail, baselineDto);
   }
 
+  const now = new Date();
+  const freshness = classifyPerformanceAge(result.performance.endDate, now);
+  if (freshness === "MISMATCH") {
+    return respond(
+      id,
+      "FUTURE_DATED",
+      `The last shared session (${result.performance.endDate}) is not a usable past session.`,
+      baselineDto,
+      "MISMATCH",
+    );
+  }
+
   const body: PerformanceResponse = {
     accountId: id,
-    refreshedAt: new Date().toISOString(),
+    refreshedAt: now.toISOString(),
     status: "CURRENT",
     reason: null,
     detail: null,
@@ -343,8 +400,9 @@ export async function GET(_req: Request, { params }: Ctx) {
     provenance: {
       source: "Supabase equity mirror + Alpaca activities + Alpaca daily bars",
       scope: `account ${id} · V11 epoch from ${baseline.startSessionDate}`,
+      // Age is the market age of the last shared session, not request time.
       asOf: result.performance.endDate,
-      freshness: "CURRENT",
+      freshness,
     },
   };
   return NextResponse.json(body, { headers: { "Cache-Control": "no-store" } });
