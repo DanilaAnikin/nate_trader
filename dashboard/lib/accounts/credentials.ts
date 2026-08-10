@@ -85,37 +85,45 @@ export async function storeCredentials(
   }
   const secretRes = await svc.rpc("vault_create_secret", { p_secret: apiSecret });
   if (secretRes.error || !secretRes.data) {
-    await svc.rpc("vault_delete_secret", { p_id: keyRes.data });
+    // Compensate the first write. If that also fails, say so — an orphaned
+    // Vault secret is worth reporting, not swallowing.
+    const rollback = await svc.rpc("vault_delete_secret", { p_id: keyRes.data });
+    const orphan = rollback.error
+      ? ` (and the first secret could not be rolled back: ${rollback.error.message})`
+      : "";
     throw new Error(
-      `Vault store (secret) failed: ${secretRes.error?.message ?? "no id"}`,
+      `Vault store (secret) failed: ${secretRes.error?.message ?? "no id"}${orphan}`,
     );
   }
   return { keyId: keyRes.data, secretId: secretRes.data };
 }
 
-/** Overwrite the two Vault secrets in place, keeping the same UUIDs. */
-export async function rotateCredentials(
-  svc: Service,
-  keyId: string,
-  secretId: string,
-  apiKey: string,
-  apiSecret: string,
-): Promise<void> {
-  const k = await svc.rpc("vault_update_secret", { p_id: keyId, p_secret: apiKey });
-  if (k.error) throw new Error(`Vault rotate (key) failed: ${k.error.message}`);
-  const s = await svc.rpc("vault_update_secret", {
-    p_id: secretId,
-    p_secret: apiSecret,
-  });
-  if (s.error) throw new Error(`Vault rotate (secret) failed: ${s.error.message}`);
-}
-
-/** Permanently delete the Vault secrets backing an account. */
+/**
+ * Permanently delete the Vault secrets backing an account.
+ *
+ * Used only to compensate a failed account *creation*, where the row does not
+ * exist yet and there is nothing to make atomic. Rotation and deletion of a
+ * real account go through the `rotate_account_credentials` and
+ * `delete_account_atomic` transactions instead.
+ *
+ * Every RPC result is checked. Discarding them, as this once did, turned a
+ * failed purge into a silent credential leak.
+ */
 export async function purgeCredentials(
   svc: Service,
   keyId: string | null,
   secretId: string | null,
 ): Promise<void> {
-  if (keyId) await svc.rpc("vault_delete_secret", { p_id: keyId });
-  if (secretId) await svc.rpc("vault_delete_secret", { p_id: secretId });
+  const failures: string[] = [];
+  if (keyId) {
+    const { error } = await svc.rpc("vault_delete_secret", { p_id: keyId });
+    if (error) failures.push(`key: ${error.message}`);
+  }
+  if (secretId) {
+    const { error } = await svc.rpc("vault_delete_secret", { p_id: secretId });
+    if (error) failures.push(`secret: ${error.message}`);
+  }
+  if (failures.length > 0) {
+    throw new Error(`Vault purge failed (${failures.join("; ")})`);
+  }
 }

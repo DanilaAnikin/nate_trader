@@ -523,6 +523,7 @@ describe("healthy production viewer", () => {
     expect(payload.universe.data?.rankingUniverseSha256).toBe(UNIVERSE_HASH);
     expect(payload.convergence.data?.targetCount).toBe(10);
     expect(payload.validation.data?.identityMatchesRuntime).toBe("PASS");
+    expect(payload.validationGate.reasons).toEqual([]);
     expect(payload.validationGate.effective).toBe("PASS");
     expect(payload.validationGate.reportAssessment).toBe("PASS");
   });
@@ -1328,5 +1329,196 @@ describe("operations and risk states", () => {
       now: NOW,
     });
     expect(payload.warnings.join(" ")).toContain("GITHUB_TOKEN");
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * A future timestamp is broken data, not fresh data. Every independently-aging
+ * source is exercised, because each is classified by its own contract.
+ * ------------------------------------------------------------------------- */
+
+describe("future-dated sources are never CURRENT", () => {
+  function futureRuns(offsetMs: number): RunSpec[] {
+    const at = new Date(NOW.getTime() + offsetMs).toISOString();
+    return [
+      {
+        id: 900,
+        runNumber: 43,
+        conclusion: "success",
+        event: "schedule",
+        updatedAt: at,
+        runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+        runtimeZip: runtimeZipBuffer(
+          performanceJson({ updated_at: at }),
+          lastRunJson({ completed_at: at }),
+        ),
+        diagnostics: diagnosticsZipBuffer(preflightJson({ checked_at: at })),
+      },
+    ];
+  }
+
+  it.each([
+    ["1 hour", 60 * 60 * 1000],
+    ["23 hours", 23 * 60 * 60 * 1000],
+  ])(
+    "marks runtime, preflight, execution and workflow MISMATCH %s ahead",
+    async (_label, offsetMs) => {
+      stubGithub({ runs: futureRuns(offsetMs) });
+      const payload = await buildStrategyStatus({
+        viewer: OWNER,
+        account: PRODUCTION_ACCOUNT,
+        broker: OK_BROKER,
+        now: NOW,
+      });
+
+      for (const key of ["strategy", "preflight", "execution", "operations"] as const) {
+        expect(
+          payload[key].provenance.freshness,
+          `${key} must not be CURRENT`,
+        ).not.toBe("CURRENT");
+      }
+      // The run record claiming to finish in the future is itself a lineage
+      // conflict, so the dependent sections are withheld outright.
+      expect(payload.strategy.data).toBeNull();
+      expect(payload.execution.data).toBeNull();
+      expect(payload.convergence.data).toBeNull();
+      expect(payload.validationGate.effective).not.toBe("PASS");
+    },
+  );
+
+  it("still accepts a timestamp inside the clock-skew tolerance", async () => {
+    stubGithub({ runs: futureRuns(60 * 1000) });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).not.toBeNull();
+    expect(payload.execution.provenance.freshness).toBe("CURRENT");
+  });
+
+  it("withholds when the run record has no completion timestamp at all", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(
+            performanceJson(),
+            lastRunJson({ completed_at: null }),
+          ),
+          diagnostics: diagnosticsZipBuffer(),
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("gives every non-CURRENT section a usable explanation", async () => {
+    stubGithub({ runs: futureRuns(23 * 60 * 60 * 1000) });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    for (const [key, value] of Object.entries(payload)) {
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        !("provenance" in value)
+      ) {
+        continue;
+      }
+      const section = value as { provenance: { freshness: string; detail: string | null } };
+      if (section.provenance.freshness === "CURRENT") continue;
+      expect(section.provenance.detail, `${key} has no detail`).toBeTruthy();
+    }
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * A failing preflight check must break the gate even when the check's own
+ * detail text still parses into a syntactically valid hash.
+ * ------------------------------------------------------------------------- */
+
+describe("a failing ranking_universe check is fatal", () => {
+  it("breaks lineage even though its detail still contains a valid hash", async () => {
+    const base = preflightJson();
+    const checks = (base.checks as { name: string; passed: boolean; detail: string }[]).map(
+      (check) =>
+        check.name === "ranking_universe" ? { ...check, passed: false } : check,
+    );
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: diagnosticsZipBuffer({ ...base, checks }),
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    // The hash still matches the plan's, so a hash-only comparison agrees.
+    expect(payload.universe.data).toBeNull();
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.execution.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+    expect(payload.warnings.join(" ")).toContain("ranking universe");
+  });
+
+  it("also fails the gate when the executor's own validation check failed", async () => {
+    const base = preflightJson();
+    const checks = (base.checks as { name: string; passed: boolean; detail: string }[]).map(
+      (check) =>
+        check.name === "canonical_validation_gate"
+          ? { ...check, passed: false }
+          : check,
+    );
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: diagnosticsZipBuffer({ ...base, checks }),
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.reasons).toContain("PREFLIGHT_GATE_FAILED");
   });
 });

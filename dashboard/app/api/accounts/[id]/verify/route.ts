@@ -61,8 +61,24 @@ export async function POST(_req: Request, { params }: Ctx) {
   }
 
   if (res.status === 401 || res.status === 403) {
-    await svc.from("accounts").update({ status: "auth_failed" }).eq("id", id);
-    return NextResponse.json({ ok: false, status: "auth_failed" });
+    const { error } = await svc
+      .from("accounts")
+      .update({ status: "auth_failed" })
+      .eq("id", id);
+    if (error) {
+      // The credentials really are rejected, and the row still says otherwise.
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Alpaca rejected these credentials, but the account status could not be recorded: ${error.message}`,
+        },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    return NextResponse.json(
+      { ok: false, status: "auth_failed" },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
   if (!res.ok) {
     return NextResponse.json(
@@ -75,10 +91,17 @@ export async function POST(_req: Request, { params }: Ctx) {
     account_number?: string;
   } | null;
   const accountNumber = body?.account_number ?? null;
+  if (!accountNumber) {
+    // The binding compares this number; verifying without one proves nothing.
+    return NextResponse.json(
+      { ok: false, error: "Alpaca returned no account number" },
+      { status: 502, headers: { "Cache-Control": "no-store" } },
+    );
+  }
 
   // The full number is stored server-side (the production binding compares it
   // against a freshly read one) but must never be returned to the browser.
-  await svc
+  const { error: updateError } = await svc
     .from("accounts")
     .update({
       status: "connected",
@@ -86,6 +109,17 @@ export async function POST(_req: Request, { params }: Ctx) {
       alpaca_account_number: accountNumber,
     })
     .eq("id", id);
+  if (updateError) {
+    // Reporting "connected" here would claim a binding that was never stored:
+    // the next production authorization compares against the *old* number.
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `The credentials are valid, but the verification could not be recorded: ${updateError.message}`,
+      },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
 
   return NextResponse.json(
     {

@@ -129,3 +129,46 @@ describe("purgeCredentials", () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 });
+
+describe("a discarded Vault error is a silent credential leak", () => {
+  it("throws when the key purge fails", async () => {
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({ data: null, error: { message: "vault down" } })
+      .mockResolvedValueOnce({ data: null, error: null });
+    await expect(
+      purgeCredentials(fakeService(rpc), "key-uuid", "secret-uuid"),
+    ).rejects.toThrow(/key: vault down/);
+  });
+
+  it("throws when the secret purge fails", async () => {
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: "no such id" } });
+    await expect(
+      purgeCredentials(fakeService(rpc), "key-uuid", "secret-uuid"),
+    ).rejects.toThrow(/secret: no such id/);
+  });
+
+  it("reports both failures together, and still attempts both", async () => {
+    const rpc = vi
+      .fn()
+      .mockResolvedValue({ data: null, error: { message: "vault down" } });
+    await expect(
+      purgeCredentials(fakeService(rpc), "key-uuid", "secret-uuid"),
+    ).rejects.toThrow(/key: vault down; secret: vault down/);
+    expect(rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it("says so when the creation rollback itself fails", async () => {
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({ data: "key-uuid", error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: "vault down" } })
+      .mockResolvedValueOnce({ data: null, error: { message: "delete refused" } });
+    await expect(
+      storeCredentials(fakeService(rpc), KEY, SECRET),
+    ).rejects.toThrow(/could not be rolled back: delete refused/);
+  });
+});

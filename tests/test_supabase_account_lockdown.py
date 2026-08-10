@@ -20,6 +20,10 @@ GUARD_FIX = (
     REPO_ROOT / "supabase" / "migrations" / "0010_accounts_guard_authz_fix.sql"
 )
 READ_LOCKDOWN = REPO_ROOT / "supabase" / "migrations" / "0011_revoke_client_reads.sql"
+VIEW_ACL = REPO_ROOT / "supabase" / "migrations" / "0012_view_and_write_acl.sql"
+LIFECYCLE = REPO_ROOT / "supabase" / "migrations" / "0013_account_lifecycle_rpc.sql"
+LIFECYCLE_TEST = REPO_ROOT / "supabase" / "tests" / "account_lifecycle.test.sql"
+BOOTSTRAP = REPO_ROOT / "supabase" / "tests" / "bootstrap_local.sql"
 RLS_TEST = REPO_ROOT / "supabase" / "tests" / "accounts_server_managed.test.sql"
 READ_TEST = REPO_ROOT / "supabase" / "tests" / "client_read_exposure.test.sql"
 INTEGRATION_RUNNER = REPO_ROOT / "supabase" / "tests" / "run_integration.sh"
@@ -54,6 +58,18 @@ def guard_fix_sql() -> str:
 def read_lockdown_sql() -> str:
     assert READ_LOCKDOWN.is_file(), f"missing migration: {READ_LOCKDOWN}"
     return READ_LOCKDOWN.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def view_acl_sql() -> str:
+    assert VIEW_ACL.is_file(), f"missing migration: {VIEW_ACL}"
+    return VIEW_ACL.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def lifecycle_sql() -> str:
+    assert LIFECYCLE.is_file(), f"missing migration: {LIFECYCLE}"
+    return LIFECYCLE.read_text(encoding="utf-8")
 
 
 def test_permissive_for_all_policy_is_removed(migration_sql: str) -> None:
@@ -215,11 +231,186 @@ def test_owns_account_excludes_soft_deleted_accounts(read_lockdown_sql: str) -> 
 
 @pytest.mark.parametrize("earlier", [MIGRATION, GUARD_FIX])
 def test_the_applied_migrations_are_not_edited(earlier: Path) -> None:
-    """0009 and 0010 are already applied in production; 0011 is the fix."""
+    """0009 and 0010 are historical; corrections belong in a new migration."""
     text = earlier.read_text(encoding="utf-8")
     assert "revoke all on accounts from authenticated" not in text, (
         f"{earlier.name} must be left as applied; the read revoke belongs in 0011"
     )
+
+
+def test_0011_is_not_edited_either(read_lockdown_sql: str) -> None:
+    """0012 corrects 0011's view grants; 0011 itself stays as written."""
+    assert "revoke all on accounts_safe from public, anon, authenticated" not in (
+        read_lockdown_sql
+    ), "the view ACL correction belongs in 0012, not in an edit to 0011"
+
+
+# --------------------------------------------------------------------------
+# 0012 — the ACL that Supabase's own defaults hand out.
+#
+# `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon, authenticated`
+# means every new table and view arrives DML-capable for both client roles.
+# Revoking from `public` does not touch a direct role grant, so 0011's views
+# shipped with INSERT/UPDATE/DELETE for anon and authenticated.
+# --------------------------------------------------------------------------
+
+SAFE_VIEWS = ("accounts_safe", "trades_safe", "cash_flows_safe")
+
+
+@pytest.mark.parametrize("view", SAFE_VIEWS)
+def test_view_privileges_are_revoked_from_every_client_role(
+    view_acl_sql: str, view: str
+) -> None:
+    pattern = re.compile(
+        rf"revoke all on {view}\s+from public, anon, authenticated;"
+    )
+    assert pattern.search(view_acl_sql), (
+        f"{view} must be revoked from public AND anon AND authenticated by name"
+    )
+    assert f"grant select on {view}" in view_acl_sql
+
+
+@pytest.mark.parametrize("view", SAFE_VIEWS)
+def test_views_are_security_barriers(view_acl_sql: str, view: str) -> None:
+    assert f"alter view {view}" in view_acl_sql
+    assert "security_barrier = true" in view_acl_sql
+
+
+def test_the_migration_verifies_its_own_result(view_acl_sql: str) -> None:
+    """The catalogue is the authority, not the text of the revokes."""
+    assert "has_table_privilege" in view_acl_sql
+    for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"):
+        assert f"'{privilege}'" in view_acl_sql
+    assert "raise exception 'privilege lockdown failed" in view_acl_sql
+    # The service role must keep working.
+    assert "service_role lost" in view_acl_sql
+
+
+def test_client_writes_are_revoked_on_account_scoped_tables(
+    view_acl_sql: str,
+) -> None:
+    for table in (
+        "equity_snapshots",
+        "performance",
+        "positions",
+        "routine_runs",
+        "audit_log",
+    ):
+        assert f"'{table}'" in view_acl_sql
+    # The settings screen still edits the caller's own profile row.
+    assert "grant select, update on profiles to authenticated;" in view_acl_sql
+
+
+def test_future_objects_do_not_inherit_client_privileges(
+    view_acl_sql: str,
+) -> None:
+    assert "alter default privileges in schema public" in view_acl_sql
+    assert "revoke all on tables from anon, authenticated;" in view_acl_sql
+
+
+def test_the_harness_reproduces_supabase_default_privileges() -> None:
+    """A weaker local default would test a database that is not production."""
+    bootstrap = BOOTSTRAP.read_text(encoding="utf-8")
+    assert "grant all on tables to anon, authenticated, service_role;" in bootstrap
+    assert "grant all on sequences to anon, authenticated, service_role;" in bootstrap
+    assert "grant all on functions to anon, authenticated, service_role;" in bootstrap
+
+
+def test_the_dml_negative_test_runs_real_statements() -> None:
+    sql = READ_TEST.read_text(encoding="utf-8")
+    assert "update accounts_safe set nickname = ''pwned''" in sql
+    assert "delete from accounts_safe" in sql
+    assert "insert into accounts_safe" in sql
+    # `accounts_safe` is auto-updatable, so only the missing privilege stops it.
+    assert "42501" in sql
+    # The join views are refused earlier as non-updatable; both are acceptable.
+    assert "55000" in sql
+
+
+# --------------------------------------------------------------------------
+# 0013 — one transaction per lifecycle flow.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "function_name",
+    ["rotate_account_credentials", "delete_account_atomic"],
+)
+def test_lifecycle_functions_are_service_role_only(
+    lifecycle_sql: str, function_name: str
+) -> None:
+    assert f"create or replace function {function_name}(" in lifecycle_sql
+    assert f"revoke all on function {function_name}(" in lifecycle_sql
+    assert "from public, anon, authenticated;" in lifecycle_sql
+    assert f"grant execute on function {function_name}(" in lifecycle_sql
+    assert "to service_role;" in lifecycle_sql
+
+
+@pytest.mark.parametrize(
+    "function_name",
+    ["rotate_account_credentials", "delete_account_atomic"],
+)
+def test_lifecycle_functions_pin_search_path_and_check_ownership(
+    lifecycle_sql: str, function_name: str
+) -> None:
+    start = lifecycle_sql.index(f"create or replace function {function_name}(")
+    body = lifecycle_sql[start : lifecycle_sql.index("$$;", start)]
+    assert "security definer" in body
+    assert "set search_path = pg_catalog, public, vault" in body
+    assert "and owner_id = p_owner" in body
+    assert "and deleted_at is null" in body
+    # The row is locked so two concurrent calls serialise.
+    assert "for update" in body
+
+
+def test_rotation_does_everything_in_one_body(lifecycle_sql: str) -> None:
+    start = lifecycle_sql.index("create or replace function rotate_account_credentials(")
+    body = lifecycle_sql[start : lifecycle_sql.index("$$;", start)]
+    # Both Vault writes, the row rebinding and the audit entry.
+    assert body.count("perform vault.update_secret") == 2
+    assert "alpaca_account_number = p_account_number" in body
+    assert "account.keys_rotated" in body
+    # An id that no longer exists updates zero rows and reports success.
+    assert "is missing from the vault" in body
+
+
+def test_deletion_does_everything_in_one_body(lifecycle_sql: str) -> None:
+    start = lifecycle_sql.index("create or replace function delete_account_atomic(")
+    body = lifecycle_sql[start : lifecycle_sql.index("$$;", start)]
+    assert "delete from vault.secrets" in body
+    assert "alpaca_account_number   = null" in body
+    assert "account.deleted_purged" in body
+    assert "account.deleted'" in body
+
+
+def test_the_lifecycle_transactions_are_tested_against_a_real_server() -> None:
+    assert LIFECYCLE_TEST.is_file(), f"missing test: {LIFECYCLE_TEST}"
+    sql = LIFECYCLE_TEST.read_text(encoding="utf-8")
+    for expectation in (
+        "rotation did not replace both secrets",
+        "rotation succeeded against a missing Vault secret",
+        "a failed rotation left the key overwritten",
+        "another user could rotate this account",
+        "a soft-deleted account still carries the broker account number",
+        "the Vault secrets survived the deletion",
+        "the hard delete left the Vault secret",
+        "authenticated can call rotate_account_credentials",
+        "authenticated can call delete_account_atomic",
+    ):
+        assert expectation in sql, f"lifecycle test must assert: {expectation}"
+
+    runner = INTEGRATION_RUNNER.read_text(encoding="utf-8")
+    assert "account_lifecycle.test.sql" in runner
+
+
+def test_the_server_uses_the_transactions_rather_than_a_sequence() -> None:
+    service = (REPO_ROOT / "dashboard" / "lib" / "accounts" / "service.ts").read_text(
+        encoding="utf-8"
+    )
+    assert 'svc.rpc("rotate_account_credentials"' in service
+    assert 'svc.rpc("delete_account_atomic"' in service
+    # The step-by-step rotation is gone.
+    assert "rotateCredentials(" not in service
 
 
 def test_the_real_select_test_proves_the_read_side() -> None:
@@ -257,13 +448,15 @@ def test_the_real_select_test_proves_the_read_side() -> None:
 
 
 def test_soft_delete_clears_the_broker_identifier() -> None:
-    """A deleted row must stop carrying the number the binding compares."""
-    service = (REPO_ROOT / "dashboard" / "lib" / "accounts" / "service.ts").read_text(
-        encoding="utf-8"
-    )
-    start = service.index("export async function deleteAccount")
-    body = service[start:]
-    assert "alpaca_account_number: null," in body
+    """A deleted row must stop carrying the number the binding compares.
+
+    This now happens inside `delete_account_atomic`, so the guarantee lives in
+    the migration rather than in a sequence of writes from Node.
+    """
+    sql = LIFECYCLE.read_text(encoding="utf-8")
+    start = sql.index("create or replace function delete_account_atomic(")
+    body = sql[start : sql.index("$$;", start)]
+    assert "alpaca_account_number   = null" in body
 
 
 def test_routes_read_accounts_through_the_server_session_helper() -> None:

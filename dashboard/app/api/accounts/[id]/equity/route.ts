@@ -5,7 +5,7 @@ import {
   loadOwnedAccount,
 } from "@/lib/accounts/session";
 import { backfillEquity } from "@/lib/accounts/equity-backfill";
-import { readAllRows } from "@/lib/accounts/paged";
+import { cashFlowKey, readAllRows } from "@/lib/accounts/paged";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -45,15 +45,20 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   // Paged: PostgREST caps a response at 1000 rows silently, which would clip
   // the oldest end of a multi-year curve rather than report an error.
-  const snapshotResult = await readAllRows("equity snapshot", (from, to) =>
-    svc
-      .from("equity_snapshots")
-      .select(
-        "snapshot_date,equity,cash,profit_loss,profit_loss_pct,num_positions",
-      )
-      .eq("account_id", id)
-      .order("snapshot_date", { ascending: true })
-      .range(from, to),
+  const snapshotResult = await readAllRows(
+    "equity snapshot",
+    (after, limit) => {
+      let query = svc
+        .from("equity_snapshots")
+        .select(
+          "snapshot_date,equity,cash,profit_loss,profit_loss_pct,num_positions",
+          { count: "exact" },
+        )
+        .eq("account_id", id);
+      if (after !== null) query = query.gt("snapshot_date", after);
+      return query.order("snapshot_date", { ascending: true }).limit(limit);
+    },
+    (row) => row.snapshot_date,
   );
   if (!snapshotResult.ok) {
     return NextResponse.json(
@@ -70,14 +75,17 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
-  const flowResult = await readAllRows("cash-flow", (from, to) =>
-    svc
-      .from("cash_flows")
-      .select("flow_date,amount")
-      .eq("account_id", id)
-      .order("flow_date", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, to),
+  const flowResult = await readAllRows(
+    "cash-flow",
+    (after, limit) => {
+      let query = svc
+        .from("cash_flows")
+        .select("id,flow_date,amount", { count: "exact" })
+        .eq("account_id", id);
+      if (after !== null) query = query.gt("id", Number(after));
+      return query.order("id", { ascending: true }).limit(limit);
+    },
+    (row) => cashFlowKey(row.id),
   );
   if (!flowResult.ok) {
     // The chart annotates deposits and withdrawals; a partial ledger would

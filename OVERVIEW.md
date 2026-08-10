@@ -2,12 +2,18 @@
 
 > Snapshot: 2026-08-10 (Europe/Prague)
 >
-> Newest dashboard tag: `v11-dashboard-prod-2026-08-10b` →
-> `fc73acaae0b576318544d8afe87f5432906da261`, the code state this document
-> describes. `main` may carry later documentation-only commits.
-> The preceding tag `v11-dashboard-prod-2026-08-10` → `5e34ca7f1`.
+> This document describes the commit tagged
+> **`v11-dashboard-prod-2026-08-10c`** — the tag and the documentation are
+> published together, so `git show v11-dashboard-prod-2026-08-10c:OVERVIEW.md`
+> is always the description of that exact code.
 >
-> **Neither is deployed.** See section 13 for what deployment requires.
+> Preceding tags: `v11-dashboard-prod-2026-08-10b` → `fc73acaae`,
+> `v11-dashboard-prod-2026-08-10` → `5e34ca7f1`,
+> `v11-dashboard-prod-2026-08-03` → `d11bbad8a`.
+>
+> **None of them is deployed.** Section 13 states what deployment requires;
+> 13.4 states why `d11bbad8a` stops being a valid rollback target once the
+> migrations are applied.
 >
 > Approved trading release (unchanged): `0cb02c0765ebf91e60e5efd7f51334e9b538fbcb`
 >
@@ -512,10 +518,16 @@ must keep their names, methodology and metrics separate.
 
 ### 10.1 One server-side read model
 
-Everything the strategy screens display comes from a single endpoint,
-`GET /api/accounts/[id]/status`, assembled by `dashboard/lib/status/`. The
-browser never talks to GitHub, never sees an artifact, and never receives a
-credential, a Vault UUID, a broker order id or a full broker account number.
+Everything the strategy screens display comes from `GET /api/accounts/[id]/status`,
+assembled by `dashboard/lib/status/`. The browser never talks to GitHub, never
+sees an artifact, and never receives a credential, a Vault UUID, a broker order
+id or a full broker account number.
+
+Forward performance is **not** part of that payload. It is a separate request
+to `GET /api/accounts/[id]/performance`, refreshed by the same shared status
+provider in the same cycle — so one Refresh renews both — but it keeps its own
+response, its own reason codes and its own freshness contract, because it ages
+with the market rather than with the runtime artifact. Section 10.7 covers it.
 
 The payload (`StrategyStatusPayload`, schema-versioned) carries these sections,
 each an independently-provenanced `Section<T>`:
@@ -535,7 +547,7 @@ each an independently-provenanced `Section<T>`:
 | `operations` | Workflow run and job metadata |
 | `tournament` | Frozen epoch-1 research evidence |
 | `convergence` | Frozen plan vs the fresh broker snapshot |
-| `validationGate` | The one derived "may V11 buy right now" verdict |
+| `validationGate` | The one derived "may V11 buy right now" verdict (section 10.8) |
 
 Every section states its `source`, `scope`, absolute `asOf`, relative age and
 freshness. There is no global "online" dot: `web`, `broker`, `runtime`,
@@ -601,11 +613,25 @@ about whether production is coherent.
 - The preflight carries no strategy-version string, so the version evidence
   used is the one it does persist: its `frozen_v11_policy` and
   `strategy_identity` checks must both be present and passing.
+- A present run record must carry a valid `completed_at`. Missing, unparseable
+  or more than five minutes in the future is a conflict — it is the anchor for
+  the execution section's freshness and the only thing the plan's signal date
+  can be checked against.
+- The preflight's `ranking_universe` check must be **present and passing** in
+  its own right. Its hash is scraped out of the check's detail text, which
+  stays syntactically valid when the check *fails* — precisely the case where
+  the running universe does not match the validated one — so comparing hashes
+  alone would agree and hide it.
 - Any conflict — including a selector-level refusal such as a wrongly named
   artifact — withholds **all** of `strategy`, `universe`, `preflight`,
   `execution` and `convergence`, and the effective validation gate cannot be
   `PASS`. Two documents that contradict each other give `MISMATCH`; evidence
   that was never there gives `UNAVAILABLE`. Neither is ever `CURRENT`.
+
+Freshness follows the same rule everywhere: `classifyAge` treats a timestamp
+more than five minutes ahead of this server as `MISMATCH` rather than letting a
+negative age fall through to `CURRENT`, and every non-`CURRENT` provenance
+carries an explanatory `detail`.
 
 ### 10.5 Reading the private artifacts
 
@@ -663,19 +689,84 @@ What it does when it *can* answer:
 - Cash flows are mirrored from Alpaca activities with strict typing:
   `net_amount` is accepted only as a finite JSON number or a plain decimal
   string. Null, boolean, empty, whitespace, `NaN` and `Infinity` make the walk
-  incomplete rather than silently reading as zero.
-- The activity window starts ten days **before** the baseline, because Alpaca
-  filters on the activity's own date, which a late settlement or correction can
-  move. Rows are deduplicated by activity id and filtered on the real
-  occurrence date, so the overlap can only add evidence.
-- Both the equity curve and the cash-flow ledger are read **page by page**.
-  Supabase caps a response at 1000 rows without an error, so an unpaged read
-  would return a shorter — and wrong — history that still looks valid.
+  incomplete rather than silently reading as zero. A `CSD` booked negative or a
+  `CSW` booked positive contradicts its own direction and is refused.
+- The walk reads the account's **entire** activity history rather than a
+  window. Alpaca's `after` filter applies to the activity record, not to the
+  settlement date the ledger books against, and a correction can re-date or
+  withdraw a record afterwards — so any finite lookback has an edge a late or
+  amended activity can cross unseen. The baseline is applied afterwards, to
+  each activity's real occurrence date. Exceeding the page budget is
+  `UNAVAILABLE`, never a partial ledger.
+- The mirror is **reconciled**, not just upserted. An activity Alpaca no longer
+  reports — a reversal, a correction re-issued under a new id — has its
+  mirrored row deleted; an amended activity keeps its id and is overwritten.
+  Without this, a withdrawn deposit would keep subtracting from the return
+  forever.
+- An activity dated after today's New York session, beyond a five-minute
+  clock-skew tolerance, is refused. So is a date the calendar does not contain
+  (`2026-02-30` parses in JavaScript and silently becomes 2 March).
+- The portfolio-history payload is validated as the column-oriented structure
+  it is: an empty payload, mismatched column lengths or a non-numeric timestamp
+  are errors, because positional arrays of different lengths pair one day's
+  timestamp with another day's equity.
+- Both the equity curve and the cash-flow ledger are read with **keyset**
+  paging against the server's own `count: "exact"`. A server truncates silently
+  and its cap is configuration (`db-max-rows`), so "a short page means the end"
+  is not proof; and offsets shift under a concurrent write, so a row can be
+  read twice or skipped. Paging by key cannot skip, and any mid-walk change in
+  the count, a repeated key, or a total that disagrees with the count fails the
+  read rather than returning a torn snapshot.
+- A cash movement dated **on the baseline session** is refused. The recorded
+  starting equity may be the value before it or after it and nothing says
+  which, so the safe contract is a flow-free baseline session; otherwise the
+  epoch must be re-anchored.
+- A cash movement **inside the measured window** is also refused, and this is
+  the strictest rule here. Daily equity is the only valuation available, so
+  `(E_t − flow) / E_{t−1}` books every movement at the close; a morning deposit
+  would need `E_{t−1} + flow` instead, and the difference is real money.
+  Without a valuation at the moment of the flow, an end-of-day approximation
+  must not be published as exact time-weighted return. With no flow in the
+  window, chaining daily returns *is* exact TWR, and the number is reported.
 - The root `status` mirrors the provenance freshness exactly. A `STALE` or
   `EXPIRED` result is labelled as such at the top of the response *and* carries
   a banner in the UI. It is never presented as current.
 
-### 10.8 Pages
+### 10.8 The effective validation gate defers to Python
+
+`scripts/execute_trades.py::_v11_validation_gate` is the real gate. It
+recomputes things the dashboard structurally cannot: the whole-report SHA-256
+over a canonical serialization, the adjusted-bar prefix digest for the recorded
+boundary, the canonical period payload resolved from local history, and the
+current ranking-universe hash. Re-deriving any of that in TypeScript would
+produce a *second, weaker* gate that could show `PASS` while the executor
+refuses to buy.
+
+So the split is explicit. Effective `PASS` requires **all** of:
+
+1. an **authoritative** approved release SHA (a value derived from an artifact
+   name never counts);
+2. the shared lineage verdict OK;
+3. the canonical report's stored assessment `PASS`;
+4. `allowed_mode === "paper-validation-eligible"` — a shadow-only run (custom
+   dates, capital or cost set) is `PASS` too, and must not light this green;
+5. a well-formed contract block (`schema_version` 1, `sha256`, a 64-hex
+   report digest) and every mandatory evidence hash present and well-formed:
+   strategy identity, ranking universe, adjusted-bar prefix;
+6. non-zero evaluated checks, all of them passed;
+7. current identity and universe bindings against the running runtime, and the
+   report inside its 35-day freshness deadline; and
+8. the preflight's own **`canonical_validation_gate` check present, passing,
+   and from the same runtime cycle** as the state on screen.
+
+Condition 8 is where everything TypeScript cannot recompute is answered: that
+check *is* the Python gate's verdict, captured for a specific cycle. Requiring
+the same cycle is deliberate — the read model lets a newer manual preflight sit
+beside an older execution for *display*, but it must not silently authorize it.
+A newer preflight therefore shows `PREFLIGHT_CYCLE_MISMATCH` rather than
+`PASS`.
+
+### 10.9 Pages
 
 | Route | Content |
 |---|---|
@@ -729,9 +820,18 @@ The only supported executor. It:
 - fails on blocking `ABORT`/`ERROR` records.
 
 Mutable runtime state is deliberately **not** committed. The private artifact
-`paper-runtime-state-<approved sha>` contains exactly three files:
-`state/performance.json`, `state/positions.json` and
-`state/production/last_run.json`.
+`paper-runtime-state-<approved sha>` contains exactly three entries, named
+relative to the archive root — not with the `state/` prefix they carry in the
+repository:
+
+| Entry | Content |
+|---|---|
+| `performance.json` | Equity, cash, risk tier, rolling history, frozen plan |
+| `positions.json` | The executor's last saved position snapshot |
+| `production/last_run.json` | The cycle record: release SHA, status, timings |
+
+The `paper-diagnostics` artifact carries `production-preflight.json` and,
+when a cycle executed, `production-execution.json`.
 
 The workflow uses repository Alpaca paper secrets. Supabase dashboard accounts
 use a separate credential store; that is why the binding in section 10.3 must
@@ -755,8 +855,11 @@ be proven broker-side rather than assumed.
 | `0010_accounts_guard_authz_fix.sql` | Made that guard `SECURITY INVOKER` so a client role cannot be mistaken for its owner |
 | `0011_revoke_client_reads.sql` | Removed client **reads** (below) |
 
-0009 and 0010 are already applied in production and are never edited;
-corrections go in a new migration.
+**None of these is confirmed applied in production by this document.** The
+migration ledger in the Supabase project is the only authority for that, and it
+must be read before every deployment (section 13.2). What *is* fixed is the
+rule: a migration that has been applied anywhere is never edited afterwards —
+`0010` corrects `0009`, `0012` corrects `0011`, and so on.
 
 ### 12.2 What 0011 changed and why
 
@@ -781,10 +884,19 @@ After 0011:
 - soft-deleting an account also clears `alpaca_account_number`, so a deleted
   row stops carrying the identifier the production binding compares against.
 
-Every account read in the application now goes through
-`dashboard/lib/accounts/session.ts`, which reads with the service role and
-verifies the session and ownership **explicitly in code**, at each call site,
-rather than relying on a policy that a single edit could widen everywhere.
+No account read uses the cookie-bound (`authenticated`) client any more. There
+are two server-side paths, and both check ownership explicitly in code rather
+than relying on a policy that one edit could widen everywhere:
+
+* **`dashboard/lib/accounts/session.ts`** — how a *route* obtains the selected
+  account. `loadOwnedAccount` and `listOwnedAccounts` read with the service role
+  and compare `owner_id` against the session user before returning anything.
+* **`dashboard/lib/accounts/service.ts`** — the account-management operations
+  (list, create, update, rotate, delete). These do their own service-role reads
+  and writes, each scoped with an explicit `.eq("owner_id", userId)` and
+  `.is("deleted_at", null)`, and the two lifecycle flows run inside the
+  `rotate_account_credentials` and `delete_account_atomic` transactions from
+  `0013`.
 
 `supabase/tests/client_read_exposure.test.sql` proves this against a real
 PostgreSQL server: under `set local role authenticated`, with the same
@@ -800,7 +912,78 @@ timestamps and a public GitHub run URL — no broker identifier and no credentia
 reference. Accepted and documented: `routine_runs` rows with
 `account_id is null` are account-agnostic and readable by any signed-in user.
 
-### 12.3 Application security invariants
+### 12.3 What 0012 changed and why
+
+`0011` wrote `revoke all on accounts_safe from public` and then granted SELECT
+to `authenticated`. On a real Supabase project that is not enough. Supabase's
+initial schema sets
+
+```sql
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+```
+
+so every table and view created afterwards arrives with SELECT, INSERT, UPDATE,
+DELETE and TRUNCATE granted **directly** to `anon` and `authenticated`.
+Revoking from `public` does not touch a direct role grant, so all three
+`*_safe` views shipped DML-capable.
+
+That was exploitable, and it was verified against a real server before the fix.
+`accounts_safe` selects from one table with no aggregate, so PostgreSQL makes
+it automatically updatable, and a view executes with its **owner's**
+privileges:
+
+```sql
+set local role authenticated;
+update accounts_safe set nickname = 'pwned' where id = ...;   -- 1 row
+```
+
+Neither the base-table grant nor the RLS policy that `0011` removed applies to
+the view owner. `DELETE` happened to be caught by the `0009`/`0010` guard
+trigger and the two join views are not auto-updatable, but none of that was by
+design.
+
+`0012` therefore names every role explicitly, marks the three views as
+security barriers, removes client write privileges from the remaining
+account-scoped and shared tables (all of them are written by the service role;
+the one exception is a user editing their own `profiles` row), narrows this
+migration owner's default privileges so the next new object does not repeat it,
+and then **verifies the resulting catalogue with `has_table_privilege` and
+fails the migration if it is wrong**.
+
+The test harness was wrong too, and was fixed alongside: `bootstrap_local.sql`
+granted weaker defaults than Supabase does and gave `anon` nothing, so the
+suite had been exercising a database more locked down than production.
+`client_read_exposure.test.sql` now asserts the catalogue *and* runs real
+`INSERT`/`UPDATE`/`DELETE` statements as `authenticated` against all three
+views.
+
+### 12.4 What 0013 changed and why
+
+Key rotation and account deletion were each a sequence of independent round
+trips from Node, and every gap between them was a place to fail into a state no
+retry could repair:
+
+* key rotated, secret not — Vault holds a new key beside the **old** secret,
+  and the previous key value is gone, so the pair can never be made consistent
+  again;
+* both rotated, row update failed — the account still advertises the old broker
+  account number that the production binding compares against;
+* Vault purged, soft delete failed — a live row pointing at secrets that no
+  longer exist;
+* soft delete succeeded, Vault purge failed — and the purge result was
+  discarded entirely, so live credentials stayed behind a "deleted" account
+  with no error anywhere.
+
+A PL/pgSQL body is one transaction, so `rotate_account_credentials` and
+`delete_account_atomic` make each flow all-or-nothing: the Vault writes, the
+row change and the audit entry commit together or not at all. Both are
+service-role only, both verify ownership themselves, and both lock the row
+`FOR UPDATE` so concurrent calls serialise. `supabase/tests/account_lifecycle.test.sql`
+proves the rollback property against a real server — including that a failed
+rotation leaves the previous key value intact.
+
+### 12.5 Application security invariants
 
 - The application stays behind Supabase authentication; RLS account isolation
   and exact account scoping are preserved.
@@ -825,38 +1008,109 @@ The dashboard is a container built from `dashboard/Dockerfile` and served at
 deployment has happened only when the origin host runs the new image and
 `GET /api/health` reports the expected new build SHA.
 
-### 13.2 Prerequisites — all of them, in order
+### 13.2 Ordering — the schema and the image are not independent
+
+Two facts decide the order, and getting them the wrong way round breaks the
+site rather than the deployment:
+
+* **The candidate image runs on the *current* schema.** Its account reads use
+  the service role, which has full privileges before and after `0011`, and it
+  reads none of the `*_safe` views. So the new image can be validated against
+  today's database.
+* **The previously deployed image does *not* run on the new schema.** The
+  build at `d11bbad8a` reads `accounts` through the cookie-bound
+  (`authenticated`) client. `0011` revokes exactly that, and `0012` removes the
+  `update own account metadata` grant it relies on. Once the migrations are
+  applied, that image is broken.
+
+Therefore the image moves first and the schema second, so that at every instant
+the running image works against the schema that is actually in place.
 
 1. Access to the origin host that actually serves the site.
-2. Inspect the Supabase migration ledger and confirm which migrations are
-   already applied.
-3. Apply every pending migration **in order**. `0011` is required by this
-   build: the routes read `accounts` with the service role and the sanitized
-   views must exist.
-4. Confirm Supabase signup is disabled.
-5. Set `BUILD_SHA` to the commit being deployed, and confirm the five
-   production-binding variables (section 10.3) are present.
-6. Run a side-by-side authenticated smoke test against the new build before
-   cutting traffic over: login, account switch, every strategy section, the
-   `UNAVAILABLE` states, and `/api/health`.
-7. Verify the rollback path works (section 13.3) before you need it.
+2. Read the Supabase migration ledger and record exactly which migrations are
+   applied **today**. Do not assume; this document does not know either.
+3. Build the candidate image with `BUILD_SHA` set to the commit being deployed,
+   and confirm every runtime variable in section 13.5.
+4. Run the candidate **side by side** against the current, unmigrated schema
+   and smoke-test it authenticated: login, account switch, every strategy
+   section, the `UNAVAILABLE` states, `/api/health`.
+5. Cut traffic over to the candidate.
+6. **Only now** apply the pending migrations in order — `0011`, then `0012`,
+   then `0013`.
+7. Run the authenticated smoke test a second time, against the migrated
+   schema, and include the paths the migrations change: account metadata
+   editing, key rotation, account deletion.
+8. Confirm Supabase signup is disabled.
 
 Do not change `PRODUCTION_RELEASE_SHA` in order to deploy the UI. Do not run a
 mutating paper cycle as a smoke test.
 
-### 13.3 Rollback
+### 13.3 The window between step 5 and step 6
 
-The last known-good deployed dashboard is
-`d11bbad8aad7ec98596b0d290cb938706982d069`
-(`v11-dashboard-prod-2026-08-03`). Rolling the web image back to that commit
-restores the previous UI without touching the trading release.
+Between the cutover and the migrations, key rotation and account deletion call
+`rotate_account_credentials` and `delete_account_atomic`, which `0013` creates.
+Until it is applied both return a database error and **write nothing** — the
+failure is safe, but the features are unavailable. Nothing else is affected:
+every read path, the strategy screens and the performance endpoint work on
+either schema.
 
-Note the ordering constraint: `0011` revokes client table reads that the
-`d11bbad8a` build did not depend on either — that build already read accounts
-through server routes — but it also drops the `update own account metadata`
-grant. Verify account metadata editing in the smoke test after a rollback.
+Keep the window short, and do not start a key rotation inside it.
 
-### 13.4 Release commands
+### 13.4 Rollback
+
+Rolling back is *not* symmetric with rolling forward, and the honest position
+is worth stating plainly:
+
+* **Before the migrations** (step 5 has happened, step 6 has not): roll the web
+  image back to `d11bbad8a`. It is compatible with the unmigrated schema, which
+  is still what is running. This is a clean rollback.
+* **After the migrations**: `d11bbad8a` is **not** a valid target. It reads
+  `accounts` as `authenticated`, which no longer has that privilege, so it
+  would fail on every account screen.
+
+  Re-granting `select` on `accounts` to get it working again is not a rollback.
+  It re-opens the exact exposure `0011` closed — the full broker account
+  number, both Vault secret UUIDs, `owner_id` and `deleted_at`, readable by any
+  signed-in browser through PostgREST — and it must not be done.
+
+  The supported recovery is therefore a **database** recovery, not a grant:
+  restore the project to a point in time before the migrations were applied
+  (Supabase PITR), and put `d11bbad8a` back. Everything written after that
+  point is lost, which is why step 4's smoke test exists.
+
+**Known gap, first deployment only.** There is no earlier image that is
+compatible with the `0011`–`0013` schema, because this is the release that
+introduces server-side account reads. Until this release is deployed and
+becomes the baseline, the post-migration rollback path is database recovery
+alone. From the *next* release onward, the previous release is a proper
+schema-compatible rollback image, and this gap closes.
+
+Before deploying, confirm the PITR window covers the planned maintenance and
+that a restore has actually been rehearsed. A rollback plan that has never been
+executed is not a rollback plan.
+
+### 13.5 Runtime environment
+
+Every value the running container needs. Nothing here is optional unless it
+says so.
+
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL; reaches the browser. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Publishable anon key; reaches the browser. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Full-access key. **Server only** — it bypasses RLS and is how every account read and write is made. |
+| `BUILD_SHA` | The commit this image was built from. `/api/health` and `payload.web` report it; without it the build SHA is honestly unknown. |
+| `GITHUB_TOKEN` | Read-only. **`Actions: read` is always required** — it is the only way to list workflow runs and download the private `paper-runtime-state-*` and `paper-diagnostics` artifacts. Without it every strategy section is `UNAVAILABLE`. **`Environments: read`** is additionally needed to read the approved release from the `paper-production` environment; that one scope — and only that one — can instead be supplied by `PRODUCTION_RELEASE_SHA` below. |
+| `GITHUB_REPO` | Repository the dashboard reads from (`DanilaAnikin/nate_trader`). |
+| `GITHUB_STATE_REF` | Branch for repository-state reads (`main`). |
+| `PRODUCTION_OWNER_USER_ID` | Binding condition 1: the Supabase user allowed to see the production runtime. |
+| `PRODUCTION_ACCOUNT_ID` | Binding condition 2: the account the executor trades. |
+| `PRODUCTION_ALPACA_ACCOUNT_NUMBER` | Binding condition 5: compared against a number read fresh from Alpaca. Mandatory — see section 10.3. |
+| `PRODUCTION_RELEASE_SHA` | Optional. Substitutes for the token's `Environments: read` scope only; it does **not** replace `GITHUB_TOKEN`, and setting it changes nothing about what the executor trades. |
+| `V11_EPOCH_BASELINE` | Optional inline epoch baseline JSON, when it is not committed to `state/v11_epoch_baseline.json`. |
+| `ALLOW_LEGACY_DASHBOARD` | Optional, non-production only. Explicit opt-in to the repository-only legacy shell. |
+
+### 13.6 Release commands
 
 ```bash
 cd dashboard
@@ -917,6 +1171,14 @@ Rendered as `UNAVAILABLE` rather than estimated, and not solvable by UI work:
 - **`state/universe.json` is absent**, so validation resolves the maintained
   `watchlist.json` fallback. This has not been validated as the broad dynamic
   common-stock/ADR universe.
+- **Forward performance requires a flow-free window.** Any external cash
+  movement inside the measured period makes the return `UNAVAILABLE`, because
+  correcting for it exactly needs a portfolio valuation at the moment of the
+  flow and only daily equity exists. Closing this needs intraday valuation
+  around each flow, not a different formula. See section 10.7.
+- **No schema-compatible rollback image exists yet** for the `0011`–`0013`
+  schema; the first deployment's post-migration recovery path is database
+  point-in-time restore. See section 13.4.
 
 The correct answer to a missing backend fact is a small, sanitized, well-tested
 observability contract — never frontend inference.

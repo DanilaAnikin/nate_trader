@@ -86,14 +86,42 @@ export function provenance(input: {
         : input.now;
   const ageSeconds =
     asOf === null ? null : Math.round((nowMs - Date.parse(asOf)) / 1000);
+  const detail = input.detail ?? null;
   return {
     source: input.source,
     scope: input.scope,
     asOf,
     ageSeconds,
     freshness: input.freshness,
-    detail: input.detail ?? null,
+    // Anything other than CURRENT is a claim the reader must be able to act on,
+    // so it never ships without a reason. A caller-supplied detail is always
+    // preferred; this is the floor, not a substitute for one.
+    detail:
+      input.freshness === "CURRENT"
+        ? detail
+        : (detail ?? defaultDetail(input.freshness, ageSeconds)),
   };
+}
+
+/** Last-resort explanation, so no non-CURRENT state is ever silent. */
+function defaultDetail(freshness: Freshness, ageSeconds: number | null): string {
+  switch (freshness) {
+    case "STALE":
+      return `This value is ${formatAge(ageSeconds)} and is older than its freshness contract.`;
+    case "EXPIRED":
+      return `This value is ${formatAge(ageSeconds)} and is past its expiry, so it must not inform a decision.`;
+    case "MISMATCH":
+      return ageSeconds !== null && ageSeconds < 0
+        ? `This value is timestamped ${formatAge(ageSeconds)}, which cannot describe a completed observation.`
+        : "Two sources that must agree do not, so the value is withheld.";
+    case "PENDING":
+      return "The producing step has not finished yet.";
+    case "NOT_APPLICABLE":
+      return "This value does not apply to the selected account or viewer.";
+    case "UNAVAILABLE":
+    default:
+      return "The value could not be read from its source.";
+  }
 }
 
 /** Build a section whose data could not be obtained safely. */
@@ -145,7 +173,12 @@ export function classifyAge(
   ageSeconds: number | null,
   contract: { staleAfterSeconds: number; expiredAfterSeconds?: number },
 ): Freshness {
-  if (ageSeconds === null) return "UNAVAILABLE";
+  if (ageSeconds === null || !Number.isFinite(ageSeconds)) return "UNAVAILABLE";
+  // A negative age means the datum claims to be from the future. Only genuine
+  // clock skew between this server and the producer is tolerated; beyond that
+  // it is broken data, and a negative age must never fall through to CURRENT
+  // simply because it is not greater than the stale threshold.
+  if (ageSeconds < -CLOCK_SKEW_TOLERANCE_SECONDS) return "MISMATCH";
   if (
     contract.expiredAfterSeconds !== undefined &&
     ageSeconds > contract.expiredAfterSeconds
@@ -159,6 +192,15 @@ export function classifyAge(
 export const MINUTE = 60;
 export const HOUR = 60 * MINUTE;
 export const DAY = 24 * HOUR;
+
+/**
+ * The only allowance for a timestamp ahead of this server's clock.
+ *
+ * Producers (the GitHub runner, Alpaca, Supabase) run on synchronised clocks,
+ * so a few minutes covers ordinary drift. Anything further ahead is a
+ * disagreement about reality, not freshness.
+ */
+export const CLOCK_SKEW_TOLERANCE_SECONDS = 5 * MINUTE;
 
 /** Compact relative age such as `4m ago`, `2h 10m ago`, `3d ago`. */
 export function formatAge(ageSeconds: number | null): string {

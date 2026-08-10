@@ -24,9 +24,11 @@ let equityRows: { snapshot_date: string; equity: number }[] = [];
 let flowRows: { flow_date: string; amount: number }[] = [];
 let equityError: { message: string } | null = null;
 let flowError: { message: string } | null = null;
-/** Every `.range()` the route asked for, so paging can be asserted. */
-let equityRanges: [number, number][] = [];
-let flowRanges: [number, number][] = [];
+/** Every keyset cursor the route asked for, so paging can be asserted. */
+let equityCursors: (string | number | null)[] = [];
+let flowCursors: (string | number | null)[] = [];
+/** The fake server's own per-response cap, like `db-max-rows`. */
+let serverCap: number | undefined;
 
 vi.mock("@/lib/supabase/server", () => ({
   getSupabaseServer: async () => ({
@@ -87,16 +89,18 @@ vi.mock("@/lib/supabase/service", () => ({
       }
       if (table === "cash_flows") {
         return fakeTable({
-          rows: flowRows,
+          rows: flowRows.map((row, index) => ({ id: index + 1, ...row })),
           error: flowError,
-          ranges: flowRanges,
+          cursors: flowCursors,
+          cap: serverCap,
         });
       }
       if (table === "equity_snapshots") {
         return fakeTable({
           rows: equityRows,
           error: equityError,
-          ranges: equityRanges,
+          cursors: equityCursors,
+          cap: serverCap,
         });
       }
       return builder;
@@ -205,8 +209,9 @@ beforeEach(() => {
   accountOwner = OWNER_ID;
   equityError = null;
   flowError = null;
-  equityRanges = [];
-  flowRanges = [];
+  equityCursors = [];
+  flowCursors = [];
+  serverCap = undefined;
   equityBackfillError = null;
   cashFlowError = null;
   cashFlowResult = {
@@ -245,7 +250,7 @@ describe("GET /api/accounts/[id]/performance", () => {
     expect(body.provenance.asOf).toBe("2026-08-05");
   });
 
-  it("excludes a deposit from the return", async () => {
+  it("refuses rather than approximating a deposit inside the window", async () => {
     equityRows = [
       { snapshot_date: "2026-08-03", equity: 1_000_000 },
       { snapshot_date: "2026-08-04", equity: 1_510_000 },
@@ -253,12 +258,18 @@ describe("GET /api/accounts/[id]/performance", () => {
     ];
     flowRows = [{ flow_date: "2026-08-04", amount: 500_000 }];
     const { body } = await request();
-    expect(body.status).toBe("CURRENT");
-    expect(body.performance.portfolioTwrPct).toBeCloseTo(1, 4);
-    expect(body.performance.netCashFlow).toBe(500_000);
+    // Daily equity is the only valuation available. `(E_t − flow) / E_{t−1}`
+    // books the deposit at the close; a morning deposit would need
+    // `E_{t−1} + flow` as the denominator instead, and nothing here can tell
+    // the two apart. Publishing either as "cash-flow-adjusted TWR" would
+    // present an approximation as an exact figure.
+    expect(body.status).toBe("UNAVAILABLE");
+    expect(body.reason).toBe("CASH_FLOW_TIMING_UNVERIFIABLE");
+    expect(body.performance).toBeNull();
+    expect(body.detail).toContain("1 external cash movement");
   });
 
-  it("excludes a withdrawal from the return", async () => {
+  it("refuses rather than approximating a withdrawal inside the window", async () => {
     equityRows = [
       { snapshot_date: "2026-08-03", equity: 1_000_000 },
       { snapshot_date: "2026-08-04", equity: 910_000 },
@@ -266,7 +277,37 @@ describe("GET /api/accounts/[id]/performance", () => {
     ];
     flowRows = [{ flow_date: "2026-08-04", amount: -100_000 }];
     const { body } = await request();
-    expect(body.performance.portfolioTwrPct).toBeCloseTo(1, 4);
+    expect(body.status).toBe("UNAVAILABLE");
+    expect(body.reason).toBe("CASH_FLOW_TIMING_UNVERIFIABLE");
+    expect(body.performance).toBeNull();
+  });
+
+  it("refuses a cash movement dated on the baseline session itself", async () => {
+    // The recorded starting equity may be the value before the movement or
+    // after it, and nothing in the ledger says which. Folding it into the
+    // opening balance would silently pick one.
+    flowRows = [{ flow_date: START_SESSION, amount: 10_000 }];
+    const { body } = await request();
+    expect(body.status).toBe("UNAVAILABLE");
+    expect(body.reason).toBe("BASELINE_SESSION_HAS_CASH_FLOW");
+    expect(body.detail).toContain("Re-anchor");
+  });
+
+  it("refuses a ledger row with an unusable date or amount", async () => {
+    flowRows = [{ flow_date: "not-a-date", amount: 1 }];
+    const { body } = await request();
+    expect(body.status).toBe("UNAVAILABLE");
+    expect(body.reason).toBe("CASH_FLOW_UNUSABLE");
+  });
+
+  it("reports an exact return when the window is genuinely flow-free", async () => {
+    // With no external movement, chaining daily returns *is* exact TWR.
+    flowRows = [];
+    const { body } = await request();
+    expect(body.status).toBe("CURRENT");
+    expect(body.performance.portfolioTwrPct).toBeCloseTo(2, 4);
+    expect(body.performance.netCashFlow).toBe(0);
+    expect(body.performance.cashFlowCount).toBe(0);
   });
 
   it("refuses a viewer who is not the production owner", async () => {
@@ -449,8 +490,9 @@ describe("GET /api/accounts/[id]/performance", () => {
 });
 
 /* ---------------------------------------------------------------------------
- * Supabase caps a response at 1000 rows *without* an error. An unpaged read
- * therefore returns a shorter — and wrong — history that still looks valid.
+ * A server truncates a response *without* an error, and its cap is
+ * configuration rather than a constant. An unpaged read — or one that assumes
+ * the cap is 1000 — returns a shorter and wrong history that still looks valid.
  * ------------------------------------------------------------------------- */
 
 describe("history is read completely, not to the first Supabase page", () => {
@@ -481,11 +523,9 @@ describe("history is read completely, not to the first Supabase page", () => {
 
     const { body } = await request();
 
-    // Two ranges: 0–999 came back exactly full, so a second was required.
-    expect(equityRanges).toEqual([
-      [0, 999],
-      [1000, 1999],
-    ]);
+    // The first page came back exactly full, which proves nothing about what
+    // remains, so the walk continued from the last key it actually received.
+    expect(equityCursors).toEqual(["2030-05-31"]);
     expect(body.performance.sessions).toBe(1_250);
     expect(body.performance.startDate).toBe(START_SESSION);
     expect(body.performance.endDate).toBe(end);
@@ -508,13 +548,35 @@ describe("history is read completely, not to the first Supabase page", () => {
 
     const { body } = await request();
 
-    expect(flowRanges).toEqual([
-      [0, 999],
-      [1000, 1999],
-    ]);
-    // The flow dated on the baseline session itself is at the window's edge,
-    // not inside it, so 1_099 of the 1_100 count — 99 of them from page two.
-    expect(body.performance.cashFlowCount).toBe(1_099);
-    expect(body.performance.netCashFlow).toBeCloseTo(1_099, 6);
+    // The walk resumed from the last id it received, not from an offset.
+    expect(flowCursors).toHaveLength(1);
+    // Every one of the 1_100 flows was read, including the 100 on page two.
+    // The number itself is still withheld: an external movement inside the
+    // window cannot be corrected exactly without an intraday valuation.
+    expect(body.status).toBe("UNAVAILABLE");
+    expect(body.reason).toBe("BASELINE_SESSION_HAS_CASH_FLOW");
+  });
+
+  it("keeps reading when the server caps a page far below the request", async () => {
+    // `db-max-rows` is server configuration. A reader that assumes 1000 would
+    // stop after the first 100 rows here and report a confidently wrong return.
+    serverCap = 100;
+    const dates = tradingDays(250, START_SESSION);
+    const end = dates[dates.length - 1];
+    equityRows = dates.map((date, index) => ({
+      snapshot_date: date,
+      equity: 1_000_000 + index * 1_000,
+    }));
+    benchmarkBars = dates.map((date, index) => ({
+      date,
+      close: 700 + index * 0.7,
+    }));
+    vi.setSystemTime(new Date(`${end}T20:00:00Z`));
+
+    const { body } = await request();
+
+    expect(equityCursors).toHaveLength(2);
+    expect(body.performance.sessions).toBe(250);
+    expect(body.performance.portfolioTwrPct).toBeCloseTo(24.9, 4);
   });
 });

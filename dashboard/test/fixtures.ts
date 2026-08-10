@@ -15,6 +15,12 @@ export const STRATEGY_IDENTITY =
   "0cedd11966adff49ecb32b8cd84947efacbe5be8eeb35c1182f4c2f0411982be";
 export const UNIVERSE_HASH =
   "c86dc489c62625cd380dae6c105e28ee3dbe9aa124363b4dcd1a9f932bafa074";
+/** Adjusted-bar prefix digest, as `state/backtest/v11_validation.json` records it. */
+export const BAR_SNAPSHOT_SHA256 =
+  "d55b0f56c52ee23b351fb8746f7b984a6b0ace3dd34bbfeffcd2ada25a56ade3";
+/** Whole-report tamper-evident digest. */
+export const REPORT_SHA256 =
+  "33c94500a23d3e29834e7196c96b70e630cd3ab4afe8718f9bde02f3d380e5bc";
 
 export const TARGET_SYMBOLS = [
   "ASML",
@@ -255,9 +261,13 @@ export function validationJson(
     },
     slippage_scenarios_bps: [7.0, 15.0],
     evidence: {
+      schema_version: 1,
       ranking_universe_count: 540,
       ranking_universe_sha256: UNIVERSE_HASH,
       bar_snapshot_through_date: "2026-07-10",
+      bar_snapshot_sha256: BAR_SNAPSHOT_SHA256,
+      bar_symbols_requested: 552,
+      bar_symbols_observed: 552,
     },
     warnings: [
       {
@@ -312,9 +322,9 @@ export function validationJson(
       },
     ],
     contract: {
+      schema_version: 1,
       algorithm: "sha256",
-      report_sha256:
-        "33c94500a23d3e29834e7196c96b70e630cd3ab4afe8718f9bde02f3d380e5bc",
+      report_sha256: REPORT_SHA256,
     },
     ...overrides,
   };

@@ -21,6 +21,7 @@
 
 import type { LastRunSnapshot, PerformanceRuntimeSnapshot } from "./parse";
 import type { PreflightInfo } from "./types";
+import { CLOCK_SKEW_TOLERANCE_SECONDS } from "./vocab";
 
 export const V11_STRATEGY_VERSION = "v11-adaptive-momentum";
 
@@ -31,12 +32,16 @@ const GIT_SHA_RE = /^[0-9a-f]{40}$/;
 /** Strict `YYYY-MM-DD`; calendar validity is checked separately. */
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Matches the shared freshness tolerance in `vocab.ts`. */
+const CLOCK_SKEW_TOLERANCE_MS = CLOCK_SKEW_TOLERANCE_SECONDS * 1000;
+
 export type LineageField =
   | "approvedReleaseSha"
   | "strategyIdentity"
   | "strategyVersion"
   | "rankingUniverseHash"
-  | "signalDate";
+  | "signalDate"
+  | "completedAt";
 
 /**
  * Why a field failed.
@@ -120,7 +125,10 @@ export function evaluateLineage(input: {
   /** Artifact name the runtime state actually came from, when known. */
   runtimeArtifactName: string | null;
   expectedRuntimeArtifactName: string | null;
+  /** Evaluation instant; injectable so "in the future" is testable. */
+  now?: Date;
 }): LineageVerdict {
+  const nowMs = (input.now ?? new Date()).getTime();
   const conflicts: LineageConflict[] = [];
   const add = (
     field: LineageField,
@@ -193,6 +201,35 @@ export function evaluateLineage(input: {
         "MISMATCH",
         "the executor run record names a different release than the approved paper release",
       );
+    }
+  }
+
+  // --- the run record must say when it happened -----------------------------
+  // `completed_at` anchors the whole execution section's freshness and is the
+  // only thing the plan's signal date can be checked against. A run record
+  // without a usable one cannot be placed in time at all.
+  if (lastRun !== null) {
+    if (!present(lastRun.completedAt)) {
+      add(
+        "completedAt",
+        "MISSING_EVIDENCE",
+        "the executor run record does not say when the cycle completed",
+      );
+    } else {
+      const completed = Date.parse(lastRun.completedAt);
+      if (!Number.isFinite(completed)) {
+        add(
+          "completedAt",
+          "MISSING_EVIDENCE",
+          "the executor run record's completion timestamp is unparseable",
+        );
+      } else if (completed - nowMs > CLOCK_SKEW_TOLERANCE_MS) {
+        add(
+          "completedAt",
+          "MISMATCH",
+          "the executor run record claims to have completed in the future",
+        );
+      }
     }
   }
 
@@ -297,6 +334,29 @@ export function evaluateLineage(input: {
       "MISSING_EVIDENCE",
       "the frozen plan's ranking-universe hash is not a SHA-256 digest",
     );
+  }
+  // The hash is scraped out of the check's own detail text, which is still
+  // present and still syntactically valid when the check *failed* — that is
+  // exactly the case where the running universe does not match the validated
+  // one. Comparing the two hashes would then agree and hide the failure, so the
+  // check's verdict is required in its own right.
+  if (preflight !== null) {
+    const universeCheck = preflight.checks.find(
+      (check) => check.name === "ranking_universe",
+    );
+    if (!universeCheck) {
+      add(
+        "rankingUniverseHash",
+        "MISSING_EVIDENCE",
+        "the preflight report does not contain the ranking_universe check",
+      );
+    } else if (!universeCheck.passed) {
+      add(
+        "rankingUniverseHash",
+        "MISMATCH",
+        "the preflight reports that the running ranking universe does not match the validated one",
+      );
+    }
   }
   if (
     isSha256(planUniverse) &&

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyAge,
+  CLOCK_SKEW_TOLERANCE_SECONDS,
   DAY,
   formatAge,
   HOUR,
@@ -50,6 +51,66 @@ describe("classifyAge", () => {
     expect(classifyAge(100 * DAY, { staleAfterSeconds: 5 * MINUTE })).toBe(
       "STALE",
     );
+  });
+
+  // A negative age is a datum claiming to come from the future. It used to fall
+  // straight through to CURRENT, because -3600 is not greater than any stale
+  // threshold — so the *most* suspect timestamp got the greenest label.
+  it("tolerates only small clock skew, then calls the future a MISMATCH", () => {
+    expect(classifyAge(-30, contract)).toBe("CURRENT");
+    expect(classifyAge(-CLOCK_SKEW_TOLERANCE_SECONDS, contract)).toBe("CURRENT");
+    expect(classifyAge(-CLOCK_SKEW_TOLERANCE_SECONDS - 1, contract)).toBe(
+      "MISMATCH",
+    );
+    expect(classifyAge(-HOUR, contract)).toBe("MISMATCH");
+    expect(classifyAge(-23 * HOUR, contract)).toBe("MISMATCH");
+    expect(classifyAge(-100 * DAY, contract)).toBe("MISMATCH");
+  });
+
+  it("rejects a non-finite age instead of ranking it", () => {
+    expect(classifyAge(Number.NaN, contract)).toBe("UNAVAILABLE");
+    expect(classifyAge(Number.NEGATIVE_INFINITY, contract)).toBe("UNAVAILABLE");
+    expect(classifyAge(Number.POSITIVE_INFINITY, contract)).toBe("UNAVAILABLE");
+  });
+});
+
+describe("provenance always explains a non-CURRENT state", () => {
+  const base = { source: "src", scope: "scope", now: new Date("2026-08-07T12:00:00Z") };
+
+  it.each([
+    "STALE",
+    "EXPIRED",
+    "MISMATCH",
+    "UNAVAILABLE",
+    "NOT_APPLICABLE",
+    "PENDING",
+  ] as const)("supplies a detail for %s when the caller gave none", (freshness) => {
+    const result = provenance({ ...base, freshness });
+    expect(result.detail).toBeTruthy();
+    expect(result.detail!.length).toBeGreaterThan(15);
+  });
+
+  it("prefers the caller's own explanation", () => {
+    const result = provenance({
+      ...base,
+      freshness: "MISMATCH",
+      detail: "the artifact names another release",
+    });
+    expect(result.detail).toBe("the artifact names another release");
+  });
+
+  it("leaves CURRENT without an excuse", () => {
+    expect(provenance({ ...base, freshness: "CURRENT" }).detail).toBeNull();
+  });
+
+  it("says so plainly when the timestamp is in the future", () => {
+    const result = provenance({
+      ...base,
+      asOf: "2026-08-07T13:00:00Z",
+      freshness: "MISMATCH",
+    });
+    expect(result.ageSeconds).toBe(-HOUR);
+    expect(result.detail).toContain("from now");
   });
 });
 

@@ -5,7 +5,6 @@ import { maskAccountNumber } from "./mask";
 import {
   validateAlpacaKeys,
   storeCredentials,
-  rotateCredentials,
   purgeCredentials,
   type AccountMode,
 } from "./credentials";
@@ -114,12 +113,22 @@ export async function createAccount(
     .single();
 
   if (error || !data) {
-    await purgeCredentials(svc, keyId, secretId);
-    return {
-      ok: false,
-      reason: "db_error",
-      message: error?.message ?? "Account could not be created.",
-    };
+    // The row does not exist, so there is nothing to be atomic with; the two
+    // Vault secrets are compensated instead. A failed compensation is reported
+    // rather than hidden, because it leaves an orphaned secret behind.
+    const created = error?.message ?? "Account could not be created.";
+    try {
+      await purgeCredentials(svc, keyId, secretId);
+    } catch (caught) {
+      return {
+        ok: false,
+        reason: "db_error",
+        message: `${created} The stored credentials could not be rolled back: ${
+          caught instanceof Error ? caught.message : "unknown error"
+        }`,
+      };
+    }
+    return { ok: false, reason: "db_error", message: created };
   }
 
   await svc.from("audit_log").insert({
@@ -179,7 +188,16 @@ export async function updateAccount(
   return { ok: true, account: toSafe(data) };
 }
 
-/** Re-validate a fresh key pair and overwrite the Vault secrets in place. */
+/**
+ * Re-validate a fresh key pair and swap it in.
+ *
+ * The Vault writes, the account row and the audit entry all happen inside one
+ * `rotate_account_credentials` transaction. Doing them as separate round trips
+ * could leave a new key beside the old secret — with the previous key value
+ * already overwritten and therefore unrecoverable — or leave the row still
+ * advertising the old broker account number that the production binding
+ * compares against.
+ */
 export async function rotateKeys(
   userId: string,
   accountId: string,
@@ -190,13 +208,16 @@ export async function rotateKeys(
     return { ok: false, reason: "invalid_input", message: "API key and secret are required." };
   }
   const svc = getSupabaseService();
-  const { data: row } = await svc
+  const { data: row, error: readError } = await svc
     .from("accounts")
     .select("*")
     .eq("id", accountId)
     .eq("owner_id", userId)
     .is("deleted_at", null)
-    .single();
+    .maybeSingle();
+  if (readError) {
+    return { ok: false, reason: "db_error", message: readError.message };
+  }
   if (!row) {
     return { ok: false, reason: "not_found", message: "Account not found." };
   }
@@ -204,46 +225,50 @@ export async function rotateKeys(
     return { ok: false, reason: "no_credentials", message: "Account has no stored credentials." };
   }
 
+  // Alpaca is checked before anything is written, so a bad pair never reaches
+  // the transaction at all.
   const validation = await validateAlpacaKeys(row.mode, apiKey, apiSecret);
   if (!validation.ok) {
     return { ok: false, reason: validation.reason, message: validation.message };
   }
 
-  await rotateCredentials(
-    svc,
-    row.alpaca_key_secret_id,
-    row.alpaca_secret_secret_id,
-    apiKey,
-    apiSecret,
-  );
-
-  const { data, error } = await svc
-    .from("accounts")
-    .update({
-      status: "connected",
-      alpaca_account_number: validation.accountNumber,
-      last_verified_at: new Date().toISOString(),
-    })
-    .eq("id", accountId)
-    .eq("owner_id", userId)
-    .is("deleted_at", null)
-    .select("*")
-    .single();
-  if (error || !data) {
-    return { ok: false, reason: "db_error", message: error?.message ?? "Update failed." };
-  }
-  await svc.from("audit_log").insert({
-    actor_id: userId,
-    account_id: accountId,
-    action: "account.keys_rotated",
+  const { data, error } = await svc.rpc("rotate_account_credentials", {
+    p_account: accountId,
+    p_owner: userId,
+    p_api_key: apiKey,
+    p_api_secret: apiSecret,
+    p_account_number: validation.accountNumber,
   });
-  return { ok: true, account: toSafe(data) };
+  if (error) {
+    // Nothing was written: the whole function rolled back.
+    return {
+      ok: false,
+      reason: error.code === "P0002" ? "not_found" : "db_error",
+      message: `Key rotation was rolled back: ${error.message}`,
+    };
+  }
+  if (!data) {
+    return {
+      ok: false,
+      reason: "db_error",
+      message: "Key rotation returned no account row.",
+    };
+  }
+  return { ok: true, account: toSafe(data as AccountRow) };
 }
 
 /**
- * Delete an account. Credentials are always purged from Vault. By default the
- * row is soft-deleted (history preserved); `purgeHistory` hard-deletes it,
- * cascading away its snapshots/trades.
+ * Delete an account.
+ *
+ * The Vault purge, the row change and the audit entry happen inside one
+ * `delete_account_atomic` transaction. Separately, a failed purge used to be
+ * discarded silently, which left live credentials behind a row marked deleted;
+ * a failed row update left a row pointing at secrets that no longer existed.
+ * Now either everything happens or nothing does, and the error is returned.
+ *
+ * By default the row is soft-deleted (history preserved, credential references
+ * and broker account number cleared); `purgeHistory` hard-deletes it, cascading
+ * away its snapshots and trades.
  */
 export async function deleteAccount(
   userId: string,
@@ -251,48 +276,20 @@ export async function deleteAccount(
   opts: { purgeHistory?: boolean } = {},
 ): Promise<{ ok: true } | AccountError> {
   const svc = getSupabaseService();
-  const { data: row } = await svc
-    .from("accounts")
-    .select("*")
-    .eq("id", accountId)
-    .eq("owner_id", userId)
-    .is("deleted_at", null)
-    .single();
-  if (!row) {
-    return { ok: false, reason: "not_found", message: "Account not found." };
-  }
-
-  await purgeCredentials(svc, row.alpaca_key_secret_id, row.alpaca_secret_secret_id);
-
-  if (opts.purgeHistory) {
-    const { error } = await svc.from("accounts").delete().eq("id", accountId);
-    if (error) {
-      return { ok: false, reason: "db_error", message: error.message };
-    }
-  } else {
-    const { error } = await svc
-      .from("accounts")
-      .update({
-        deleted_at: new Date().toISOString(),
-        is_active: false,
-        status: "paused",
-        alpaca_key_secret_id: null,
-        alpaca_secret_secret_id: null,
-        // A soft-deleted row keeps its history but must stop carrying the
-        // broker identifier the production binding compares against.
-        alpaca_account_number: null,
-      })
-      .eq("id", accountId);
-    if (error) {
-      return { ok: false, reason: "db_error", message: error.message };
-    }
-  }
-
-  await svc.from("audit_log").insert({
-    actor_id: userId,
-    account_id: opts.purgeHistory ? null : accountId,
-    action: opts.purgeHistory ? "account.deleted_purged" : "account.deleted",
-    detail: { nickname: row.nickname },
+  const { error } = await svc.rpc("delete_account_atomic", {
+    p_account: accountId,
+    p_owner: userId,
+    p_purge_history: opts.purgeHistory ?? false,
   });
+  if (error) {
+    return {
+      ok: false,
+      reason: error.code === "P0002" ? "not_found" : "db_error",
+      message:
+        error.code === "P0002"
+          ? "Account not found."
+          : `Deletion was rolled back: ${error.message}`,
+    };
+  }
   return { ok: true };
 }

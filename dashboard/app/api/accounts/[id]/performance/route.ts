@@ -5,7 +5,7 @@ import {
   loadOwnedAccount,
 } from "@/lib/accounts/session";
 import { backfillCashFlows, backfillEquity } from "@/lib/accounts/equity-backfill";
-import { readAllRows } from "@/lib/accounts/paged";
+import { cashFlowKey, readAllRows } from "@/lib/accounts/paged";
 import {
   authorizeProductionRuntime,
   readProductionAuthzConfig,
@@ -43,6 +43,9 @@ export type PerformanceUnavailableReason =
   | "CASH_FLOW_REFRESH_FAILED"
   | "CASH_FLOW_QUERY_FAILED"
   | "CASH_FLOW_INCOMPLETE"
+  | "CASH_FLOW_UNUSABLE"
+  | "CASH_FLOW_TIMING_UNVERIFIABLE"
+  | "BASELINE_SESSION_HAS_CASH_FLOW"
   | "NON_CASH_EXTERNAL_TRANSFER"
   | "FUTURE_DATED"
   | "NO_EQUITY_HISTORY"
@@ -347,24 +350,34 @@ export async function GET(_req: Request, { params }: Ctx) {
   // at 1000 rows without reporting an error, and `snapshot_date` / `id` give
   // each query the total ordering range pagination needs.
   const [snapshotResult, flowResult] = await Promise.all([
-    readAllRows("equity snapshot", (from, to) =>
-      svc
-        .from("equity_snapshots")
-        .select("snapshot_date,equity")
-        .eq("account_id", id)
-        .gte("snapshot_date", baseline.startSessionDate)
-        .order("snapshot_date", { ascending: true })
-        .range(from, to),
+    // Keyset paging on a unique column: `snapshot_date` is unique per account
+    // and `id` is the ledger's primary key, so neither walk can skip a row when
+    // something changes underneath it.
+    readAllRows(
+      "equity snapshot",
+      (after, limit) => {
+        let query = svc
+          .from("equity_snapshots")
+          .select("snapshot_date,equity", { count: "exact" })
+          .eq("account_id", id)
+          .gte("snapshot_date", baseline.startSessionDate);
+        if (after !== null) query = query.gt("snapshot_date", after);
+        return query.order("snapshot_date", { ascending: true }).limit(limit);
+      },
+      (row) => row.snapshot_date,
     ),
-    readAllRows("cash-flow", (from, to) =>
-      svc
-        .from("cash_flows")
-        .select("flow_date,amount")
-        .eq("account_id", id)
-        .gte("flow_date", baseline.startSessionDate)
-        .order("flow_date", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, to),
+    readAllRows(
+      "cash-flow",
+      (after, limit) => {
+        let query = svc
+          .from("cash_flows")
+          .select("id,flow_date,amount", { count: "exact" })
+          .eq("account_id", id)
+          .gte("flow_date", baseline.startSessionDate);
+        if (after !== null) query = query.gt("id", Number(after));
+        return query.order("id", { ascending: true }).limit(limit);
+      },
+      (row) => cashFlowKey(row.id),
     ),
   ]);
 

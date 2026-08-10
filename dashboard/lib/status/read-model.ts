@@ -740,6 +740,7 @@ export async function buildStrategyStatus(input: {
         expectedRuntimeArtifactName: approved.sha
           ? `${RUNTIME_ARTIFACT_PREFIX}${approved.sha}`
           : null,
+        now,
       })
     : LINEAGE_OK;
 
@@ -798,6 +799,10 @@ export async function buildStrategyStatus(input: {
         approvedReleaseSha: approved.sha,
         approvedReleaseAuthoritative: approved.authoritative,
         lineageOk: !lineageBroken,
+        // The executor's own gate result, bound to the cycle it ran in.
+        preflight: preflightSelection.preflight,
+        preflightRunId: preflightSelection.run?.id ?? null,
+        executionRunId: executionSelection.run?.id ?? null,
         now,
       })
     : NOT_APPLICABLE_GATE;

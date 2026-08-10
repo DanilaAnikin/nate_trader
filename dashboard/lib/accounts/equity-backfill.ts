@@ -60,6 +60,33 @@ export async function backfillEquity(
   const pl = hist.profit_loss ?? [];
   const plpc = hist.profit_loss_pct ?? [];
 
+  // Portfolio history is column-oriented: the arrays are positional, so a
+  // length disagreement silently pairs one day's timestamp with another day's
+  // equity. An empty payload is equally not a curve — writing nothing and
+  // returning 0 would look like a successful refresh of an account that simply
+  // has no history.
+  if (!Array.isArray(ts) || !Array.isArray(equity)) {
+    throw new Error("Alpaca portfolio history is not column-oriented arrays");
+  }
+  if (ts.length === 0 || equity.length === 0) {
+    throw new Error("Alpaca portfolio history returned no observations");
+  }
+  if (equity.length !== ts.length) {
+    throw new Error(
+      `Alpaca portfolio history is inconsistent: ${ts.length} timestamps against ${equity.length} equity values`,
+    );
+  }
+  for (const [name, column] of [
+    ["profit_loss", pl],
+    ["profit_loss_pct", plpc],
+  ] as const) {
+    if (column.length > 0 && column.length !== ts.length) {
+      throw new Error(
+        `Alpaca portfolio history column ${name} has ${column.length} values against ${ts.length} timestamps`,
+      );
+    }
+  }
+
   // Keyed by date so a duplicated day collapses to its last value.
   const byDate = new Map<string, Database["public"]["Tables"]["equity_snapshots"]["Insert"]>();
   // Alpaca's daily timestamps fall in the trading day's evening, which is the
@@ -71,8 +98,18 @@ export async function backfillEquity(
   });
   for (let i = 0; i < ts.length; i++) {
     const eq = equity[i];
-    if (eq == null || eq <= 0) continue;
-    const date = etDate.format(new Date(ts[i] * 1000));
+    if (eq == null || !Number.isFinite(eq) || eq <= 0) continue;
+    const stamp = ts[i];
+    if (typeof stamp !== "number" || !Number.isFinite(stamp)) {
+      throw new Error("Alpaca portfolio history contains a non-numeric timestamp");
+    }
+    const date = etDate.format(new Date(stamp * 1000));
+    // `Intl` yields an empty string for an invalid Date rather than throwing.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new Error(
+        `Alpaca portfolio history timestamp ${stamp} is not a usable calendar date`,
+      );
+    }
     byDate.set(date, {
       account_id: accountId,
       snapshot_date: date,
@@ -133,23 +170,48 @@ const REQUESTED_ACTIVITY_TYPES = [
 ] as const;
 
 const ACTIVITY_PAGE_SIZE = 100;
-const MAX_ACTIVITY_PAGES = 50;
 
 /**
- * Alpaca's `after` filter is applied to the activity's own date, but the record
- * a transfer agent posts can settle on a different day than the one the event
- * is finally dated to, and corrections re-date existing rows. Asking for a
- * window that starts this many days *before* the baseline makes such a shift
- * visible; rows are then deduplicated by activity id and filtered on the real
- * occurrence date, so the overlap can only add evidence, never double-count.
+ * The walk reads the account's **entire** activity history for the requested
+ * types, back to the account's own beginning.
+ *
+ * A bounded window was the previous approach and it could not prove what it
+ * claimed. Alpaca's `after` filter is applied server-side to the activity
+ * record, not to the settlement date the ledger books against, and a
+ * correction can re-date or withdraw a record after the fact. Any finite
+ * lookback therefore has an edge that a late or amended activity can cross
+ * unseen, and "I looked back ten days" is not evidence that nothing older
+ * moved.
+ *
+ * Reading everything removes the edge. 500 pages of 100 is 50 000 activities;
+ * a paper account that exceeds that gets UNAVAILABLE, not a partial ledger.
  */
-export const ACTIVITY_OVERLAP_DAYS = 10;
+const MAX_ACTIVITY_PAGES = 500;
+
+/** Same tolerance the read model uses for a timestamp ahead of our clock. */
+const ACTIVITY_CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
+
+/**
+ * Alpaca's own sign convention for the two unambiguous cash types.
+ *
+ * `CSD` is a deposit and `CSW` is a withdrawal, so their `net_amount` signs are
+ * fixed. A `CSD` booked negative (or a `CSW` booked positive) means the feed
+ * and the ledger disagree about direction, and booking it anyway would move the
+ * return the wrong way by twice the amount. `JNLC` and `ACATC` legitimately go
+ * either way and are not constrained.
+ */
+const REQUIRED_SIGN: Readonly<Record<string, 1 | -1>> = {
+  CSD: 1,
+  CSW: -1,
+};
 
 export type CashFlowIncompleteReason =
   | "MALFORMED_ACTIVITY"
   | "UNEXPECTED_ACTIVITY_TYPE"
   | "NON_CASH_EXTERNAL_TRANSFER"
+  | "FUTURE_DATED_ACTIVITY"
   | "NO_PAGINATION_TOKEN"
+  | "LEDGER_RECONCILE_FAILED"
   | "PAGE_LIMIT_REACHED";
 
 export interface CashFlowBackfillResult {
@@ -199,11 +261,18 @@ export function resolveActivityDate(
 ): { readonly date: string; readonly instant: string } | null {
   if (typeof activity.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(activity.date)) {
     const noon = Date.parse(`${activity.date}T12:00:00Z`);
-    if (Number.isFinite(noon)) {
+    // The shape is not enough: `2026-02-30` parses in V8 and silently rolls
+    // over to 2 March, which would book a flow on a session that never was.
+    // Round-tripping rejects any day the calendar does not contain.
+    if (
+      Number.isFinite(noon) &&
+      new Date(noon).toISOString().slice(0, 10) === activity.date
+    ) {
       // Midday UTC is inside the ET day for every US offset, so formatting
       // cannot roll the date backwards.
       return { date: activity.date, instant: new Date(noon).toISOString() };
     }
+    return null;
   }
   const raw =
     typeof activity.date === "string" && activity.date.trim()
@@ -224,15 +293,6 @@ function boundaryDate(iso: string, etDate: Intl.DateTimeFormat): string | null {
   const parsed = Date.parse(iso);
   if (!Number.isFinite(parsed)) return null;
   return etDate.format(new Date(parsed));
-}
-
-/** Shift an ISO instant (or plain date) by whole days, as an ISO instant. */
-function shiftIsoDays(iso: string, days: number): string | null {
-  const parsed = Date.parse(
-    /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T00:00:00Z` : iso,
-  );
-  if (!Number.isFinite(parsed)) return null;
-  return new Date(parsed + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 function incomplete(
@@ -291,16 +351,13 @@ export async function backfillCashFlows(
   let pagesRead = 0;
   let complete = false;
   let latestActivityAt: string | null = null;
-  /** Every activity id already accounted for, across pages and the overlap. */
+  /** Every activity id seen anywhere in the history, for deduplication. */
   const seen = new Set<string>();
+  /** Ids that belong to the measured window, for reconciliation below. */
+  const inWindow = new Set<string>();
 
-  // The requested window starts before the baseline (see ACTIVITY_OVERLAP_DAYS)
-  // so a re-dated or late-settling transfer cannot fall through the boundary.
   const baselineDate = options.since ? boundaryDate(options.since, etDate) : null;
-  const queryAfter = options.since
-    ? shiftIsoDays(options.since, -ACTIVITY_OVERLAP_DAYS)
-    : null;
-  if (options.since && (baselineDate === null || queryAfter === null)) {
+  if (options.since && baselineDate === null) {
     // Without a usable boundary the walk cannot say what it covered.
     return incomplete(
       "MALFORMED_ACTIVITY",
@@ -309,13 +366,20 @@ export async function backfillCashFlows(
     );
   }
 
+  // No `after` filter: the whole history is read (see MAX_ACTIVITY_PAGES). The
+  // baseline is applied afterwards, to each activity's real occurrence date, so
+  // a server-side filter on the wrong field cannot hide anything.
+  const nowMs = Date.now();
+  const latestAllowedDate = etDate.format(
+    new Date(nowMs + ACTIVITY_CLOCK_SKEW_TOLERANCE_MS),
+  );
+
   for (let page = 0; page < MAX_ACTIVITY_PAGES; page++) {
     const query = new URLSearchParams({
       activity_types: REQUESTED_ACTIVITY_TYPES.join(","),
       page_size: String(ACTIVITY_PAGE_SIZE),
       direction: "desc",
     });
-    if (queryAfter) query.set("after", queryAfter);
     if (pageToken) query.set("page_token", pageToken);
 
     const res = await fetch(`${ALPACA_BASE[mode]}/account/activities?${query}`, {
@@ -379,14 +443,27 @@ export async function backfillCashFlows(
         );
       }
 
-      // The overlap window deliberately reaches behind the baseline. Those rows
-      // prove nothing was re-dated across the boundary, but they belong to the
-      // pre-V11 era and are neither written nor counted.
-      if (baselineDate !== null && occurred.date < baselineDate) continue;
-      // Deduplicate by activity id: the overlap and a re-dated correction can
-      // both surface the same activity twice.
+      // An activity dated after today's market date is broken data, not a
+      // future-scheduled transfer: the same five-minute clock-skew tolerance
+      // used everywhere else applies.
+      if (occurred.date > latestAllowedDate) {
+        return incomplete(
+          "FUTURE_DATED_ACTIVITY",
+          `Alpaca activity ${id} is dated ${occurred.date}, after the current New York session date, so the activity feed cannot be trusted.`,
+          pagesRead,
+        );
+      }
+
+      // Deduplicate by activity id: a correction can surface the same activity
+      // twice within one walk.
       if (seen.has(id)) continue;
       seen.add(id);
+
+      // Activities before the baseline are read (they prove nothing was
+      // re-dated across the boundary) but belong to the pre-V11 era, so they
+      // are neither written nor counted.
+      if (baselineDate !== null && occurred.date < baselineDate) continue;
+      inWindow.add(id);
 
       if (latestActivityAt === null || occurred.instant > latestActivityAt) {
         latestActivityAt = occurred.instant;
@@ -407,6 +484,14 @@ export async function backfillCashFlows(
         return incomplete(
           "MALFORMED_ACTIVITY",
           `Alpaca activity ${id} has an invalid or missing net_amount.`,
+          pagesRead,
+        );
+      }
+      const requiredSign = REQUIRED_SIGN[type];
+      if (requiredSign !== undefined && amount !== 0 && Math.sign(amount) !== requiredSign) {
+        return incomplete(
+          "MALFORMED_ACTIVITY",
+          `Alpaca activity ${id} is a ${type} with net_amount ${amount}, which contradicts its own direction.`,
           pagesRead,
         );
       }
@@ -448,8 +533,62 @@ export async function backfillCashFlows(
     );
   }
 
+  // --- reconcile the mirror against the broker's current truth --------------
+  //
+  // An upsert alone only ever adds and amends. Alpaca can *withdraw* an
+  // activity — a reversed transfer, a correction that re-issues under a new id,
+  // a duplicate that gets removed — and the row this mirror wrote for it would
+  // otherwise stay in the ledger forever, permanently subtracting a deposit
+  // that no longer exists from the reported return.
+  //
+  // The walk above read the account's entire history, so `seen` is the complete
+  // set of activity ids that currently exist. Any mirrored row inside the
+  // measured window whose id is absent from it has been withdrawn upstream and
+  // must go. Rows outside the window are left alone: this walk makes no claim
+  // about them.
+  const existing = await svc
+    .from("cash_flows")
+    .select("external_id,flow_date")
+    .eq("account_id", accountId)
+    .eq("source", "alpaca_activities");
+  if (existing.error) {
+    return incomplete(
+      "LEDGER_RECONCILE_FAILED",
+      `The mirrored cash-flow ledger could not be read for reconciliation: ${existing.error.message}`,
+      pagesRead,
+    );
+  }
+
+  const stale = (existing.data ?? [])
+    .filter((row) => {
+      const externalId = row.external_id;
+      if (typeof externalId !== "string" || !externalId) return false;
+      // Only rows the walk was authoritative about.
+      if (baselineDate !== null && (row.flow_date ?? "") < baselineDate) return false;
+      return !seen.has(externalId);
+    })
+    .map((row) => row.external_id as string);
+
+  if (stale.length > 0) {
+    const removal = await svc
+      .from("cash_flows")
+      .delete()
+      .eq("account_id", accountId)
+      .eq("source", "alpaca_activities")
+      .in("external_id", stale);
+    if (removal.error) {
+      return incomplete(
+        "LEDGER_RECONCILE_FAILED",
+        `${stale.length} mirrored cash flow(s) no longer exist at the broker but could not be removed: ${removal.error.message}`,
+        pagesRead,
+      );
+    }
+  }
+
   const list = [...rows.values()];
   if (list.length > 0) {
+    // An amended activity keeps its id, so the upsert overwrites the old
+    // amount and date rather than leaving both versions in place.
     const { error } = await svc
       .from("cash_flows")
       .upsert(list, { onConflict: "account_id,external_id" });

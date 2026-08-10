@@ -635,6 +635,20 @@ export type Database = {
         }[]
       }
       owns_account: { Args: { acct: string }; Returns: boolean }
+      delete_account_atomic: {
+        Args: { p_account: string; p_owner: string; p_purge_history?: boolean }
+        Returns: boolean
+      }
+      rotate_account_credentials: {
+        Args: {
+          p_account: string
+          p_owner: string
+          p_api_key: string
+          p_api_secret: string
+          p_account_number: string
+        }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
+      }
       vault_create_secret: {
         Args: { p_name?: string; p_secret: string }
         Returns: string
