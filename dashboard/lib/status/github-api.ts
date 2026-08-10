@@ -201,6 +201,7 @@ export async function fetchWorkflowRuns(
   workflowFile: string,
   options: {
     perPage?: number;
+    page?: number;
     headSha?: string;
     event?: string;
     ttlSeconds?: number;
@@ -208,6 +209,7 @@ export async function fetchWorkflowRuns(
 ): Promise<WorkflowRunSummary[] | null> {
   const perPage = Math.min(options.perPage ?? 20, 100);
   const query = new URLSearchParams({ per_page: String(perPage) });
+  if (options.page && options.page > 1) query.set("page", String(options.page));
   if (options.headSha) query.set("head_sha", options.headSha);
   if (options.event) query.set("event", options.event);
   const key = `runs:${workflowFile}:${query.toString()}`;

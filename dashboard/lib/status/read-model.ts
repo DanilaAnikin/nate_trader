@@ -27,12 +27,15 @@ import {
 } from "./github-api";
 import { executionFromLastRun, parseTournament, parseValidation } from "./parse";
 import { parseEpochBaseline, type V11EpochBaseline } from "./performance";
+import { evaluateLineage, LINEAGE_OK, type LineageVerdict } from "./lineage";
 import {
+  RUN_SCAN_PAGE_SIZE,
   RUNTIME_ARTIFACT_PREFIX,
   selectLatestExecution,
   selectLatestPreflight,
   type ExecutionSelection,
   type PreflightSelection,
+  type RunPageSource,
 } from "./runtime";
 import type {
   AuthorizationInfo,
@@ -257,6 +260,7 @@ export async function getEpochBaseline(
 function strategySection(
   execution: ExecutionSelection,
   approvedSha: string | null,
+  lineage: LineageVerdict,
   now: Date,
 ): Section<StrategyRuntimeInfo> {
   const scope = approvedSha
@@ -264,11 +268,12 @@ function strategySection(
     : "production executor account";
 
   // A lineage disagreement is fail-closed: no plan, no risk state, no numbers.
-  if (execution.lineageMismatch) {
+  if (!lineage.ok) {
     return unavailable<StrategyRuntimeInfo>(
       RUNTIME_SOURCE,
       scope,
-      execution.errors[0] ??
+      lineage.detail ??
+        execution.errors[0] ??
         "the runtime artifact does not belong to the approved paper release",
       "MISMATCH",
     );
@@ -350,16 +355,18 @@ function strategySection(
 function universeSection(
   execution: ExecutionSelection,
   preflight: PreflightSelection,
+  lineage: LineageVerdict,
   now: Date,
 ): Section<UniverseInfo> {
   const scope = "ranking universe used by the production executor";
   const source = "production preflight report + frozen V11 plan";
 
-  if (execution.lineageMismatch || preflight.lineageMismatch) {
+  if (!lineage.ok) {
     return unavailable<UniverseInfo>(
       source,
       scope,
-      "the ranking universe cannot be attributed while release lineage disagrees",
+      lineage.detail ??
+        "the ranking universe cannot be attributed while release lineage disagrees",
       "MISMATCH",
     );
   }
@@ -371,20 +378,6 @@ function universeSection(
       source,
       scope,
       "no preflight report or frozen plan is available",
-    );
-  }
-
-  const hashMismatch = Boolean(
-    report?.universeSha256 &&
-      plan?.rankingUniverseSha256 &&
-      report.universeSha256 !== plan.rankingUniverseSha256,
-  );
-  if (hashMismatch) {
-    return unavailable<UniverseInfo>(
-      source,
-      scope,
-      "the preflight ranking-universe hash differs from the frozen plan's hash",
-      "MISMATCH",
     );
   }
 
@@ -428,6 +421,7 @@ function validationSection(
   ref: string,
   now: Date,
   authorized: boolean,
+  lineage: LineageVerdict,
 ): Section<ValidationInfo> {
   const source = "repository state/backtest/v11_validation.json";
   const scope = `canonical fixed-strategy promotion evidence · read at ${ref.slice(0, 12)}`;
@@ -441,12 +435,13 @@ function validationSection(
 
   // Identity/universe matching is only meaningful against a runtime the viewer
   // is allowed to see. Otherwise both stay explicitly unknown.
-  const runtimeIdentity = authorized
+  const comparable = authorized && lineage.ok;
+  const runtimeIdentity = comparable
     ? (execution.performance?.plan?.strategyIdentityValue ??
       preflight.preflight?.strategyIdentity ??
       null)
     : null;
-  const runtimeUniverse = authorized
+  const runtimeUniverse = comparable
     ? (execution.performance?.plan?.rankingUniverseSha256 ??
       preflight.preflight?.universeSha256 ??
       null)
@@ -607,7 +602,7 @@ export async function buildStrategyStatus(input: {
     detail: null,
     authoritative: false,
   };
-  let paperRuns: WorkflowRunSummary[] | null = null;
+  let paperRuns: readonly WorkflowRunSummary[] | null = null;
   let latestRun: WorkflowRunSummary | null = null;
   let latestJobs: { stepCount: number }[] | null = null;
   let executionSelection: ExecutionSelection = {
@@ -630,7 +625,16 @@ export async function buildStrategyStatus(input: {
   let gateRun: WorkflowRunSummary | null = null;
 
   if (authorized) {
-    paperRuns = await fetchWorkflowRuns(PAPER_WORKFLOW, { perPage: 20 });
+    // Paged source: a long run of manual preflight-only invocations must not
+    // hide a still-valid executor cycle, so the scan pages rather than looking
+    // at a fixed prefix.
+    const runPage: RunPageSource = (page) =>
+      fetchWorkflowRuns(PAPER_WORKFLOW, {
+        perPage: RUN_SCAN_PAGE_SIZE,
+        page,
+      });
+
+    paperRuns = await runPage(1);
     latestRun = paperRuns?.[0] ?? null;
     const latestSuccessfulRun =
       paperRuns?.find((run) => run.conclusion === "success") ?? null;
@@ -639,10 +643,11 @@ export async function buildStrategyStatus(input: {
 
     // Independent selection: a manual preflight-only run must not hide an
     // older, still-valid execution, and vice versa.
-    executionSelection = await selectLatestExecution(approved.sha, paperRuns ?? []);
+    executionSelection = await selectLatestExecution(approved.sha, runPage, now);
     preflightSelection = await selectLatestPreflight(
-      paperRuns ?? [],
+      runPage,
       executionSelection.performance?.plan?.strategyIdentityValue ?? null,
+      now,
     );
     latestJobs = latestRun ? await fetchRunJobs(latestRun.id) : null;
 
@@ -716,12 +721,46 @@ export async function buildStrategyStatus(input: {
     } satisfies ReleaseInfo,
   );
 
+  // One shared verdict, cross-checking every mandatory lineage field across
+  // the preflight, the frozen plan and the executor record.
+  const crossChecked: LineageVerdict = authorized
+    ? evaluateLineage({
+        approvedReleaseSha: approved.sha,
+        performance: executionSelection.performance,
+        lastRun: executionSelection.lastRun,
+        preflight: preflightSelection.preflight,
+        runtimeArtifactName: executionSelection.artifactName,
+        expectedRuntimeArtifactName: approved.sha
+          ? `${RUNTIME_ARTIFACT_PREFIX}${approved.sha}`
+          : null,
+      })
+    : LINEAGE_OK;
+
+  // A selector that already refused a document (wrong artifact name, wrong
+  // recorded release, preflight identity conflict) is itself a lineage
+  // failure. Fold it into the one verdict every section consumes, so a
+  // selector-level refusal can never leave another section CURRENT.
+  const selectorRefusal =
+    executionSelection.lineageMismatch || preflightSelection.lineageMismatch;
+  const lineage: LineageVerdict = selectorRefusal
+    ? {
+        ok: false,
+        conflicts: crossChecked.conflicts,
+        detail:
+          crossChecked.detail ??
+          executionSelection.errors[0] ??
+          preflightSelection.errors[0] ??
+          "release or strategy lineage does not agree",
+      }
+    : crossChecked;
+  const lineageBroken = !lineage.ok;
+
   const strategy = authorized
-    ? strategySection(executionSelection, approved.sha, now)
+    ? strategySection(executionSelection, approved.sha, lineage, now)
     : withheld<StrategyRuntimeInfo>(RUNTIME_SOURCE, "production executor account");
 
   const universe = authorized
-    ? universeSection(executionSelection, preflightSelection, now)
+    ? universeSection(executionSelection, preflightSelection, lineage, now)
     : withheld<UniverseInfo>(
         "production preflight report + frozen V11 plan",
         "ranking universe used by the production executor",
@@ -742,6 +781,7 @@ export async function buildStrategyStatus(input: {
     validationRef,
     now,
     authorized,
+    lineage,
   );
 
   const validationGate: EffectiveValidationGate = authorized
@@ -749,6 +789,7 @@ export async function buildStrategyStatus(input: {
         report: validation.data,
         approvedReleaseSha: approved.sha,
         approvedReleaseAuthoritative: approved.authoritative,
+        lineageOk: !lineageBroken,
         now,
       })
     : NOT_APPLICABLE_GATE;
@@ -758,11 +799,12 @@ export async function buildStrategyStatus(input: {
         DIAGNOSTICS_SOURCE,
         "last successful production preflight",
       )
-    : preflightSelection.lineageMismatch
+    : lineageBroken
       ? unavailable<PreflightInfo>(
           DIAGNOSTICS_SOURCE,
           "last successful production preflight",
-          preflightSelection.errors[0] ??
+          lineage.detail ??
+            preflightSelection.errors[0] ??
             "the preflight report does not match the running strategy identity",
           "MISMATCH",
         )
@@ -791,11 +833,12 @@ export async function buildStrategyStatus(input: {
 
   const execution: Section<ExecutionInfo> = !authorized
     ? withheld<ExecutionInfo>(RUNTIME_SOURCE, "last successful executor cycle")
-    : executionSelection.lineageMismatch
+    : lineageBroken
       ? unavailable<ExecutionInfo>(
           RUNTIME_SOURCE,
           "last successful executor cycle",
-          executionSelection.errors[0] ??
+          lineage.detail ??
+            executionSelection.errors[0] ??
             "the executor record does not belong to the approved paper release",
           "MISMATCH",
         )
@@ -886,11 +929,12 @@ export async function buildStrategyStatus(input: {
   const convergenceScope = `frozen plan vs ${input.account.nickname}`;
   const convergence: Section<ConvergenceInfo> = !authorized
     ? withheld<ConvergenceInfo>("frozen V11 plan + broker snapshot", convergenceScope)
-    : executionSelection.lineageMismatch
+    : lineageBroken
       ? unavailable<ConvergenceInfo>(
           "frozen V11 plan + broker snapshot",
           convergenceScope,
-          "convergence is not computed while release lineage disagrees",
+          lineage.detail ??
+            "convergence is not computed while release lineage disagrees",
           "MISMATCH",
         )
       : strategy.data?.plan && input.broker.ok
@@ -917,9 +961,9 @@ export async function buildStrategyStatus(input: {
               : "no frozen V11 plan is available from the private runtime artifact",
           );
 
-  if (executionSelection.lineageMismatch || preflightSelection.lineageMismatch) {
+  if (lineageBroken) {
     warnings.push(
-      "A runtime artifact was found but its release or strategy lineage does not match the approved paper release. All affected data is withheld.",
+      `Production lineage does not agree, so every dependent section is withheld: ${lineage.detail}.`,
     );
   }
   if (

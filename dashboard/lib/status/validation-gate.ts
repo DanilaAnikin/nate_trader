@@ -27,7 +27,8 @@ export type ValidationGateReason =
   | "STRATEGY_IDENTITY_UNKNOWN"
   | "UNIVERSE_MISMATCH"
   | "UNIVERSE_UNKNOWN"
-  | "APPROVED_RELEASE_UNKNOWN";
+  | "APPROVED_RELEASE_UNKNOWN"
+  | "LINEAGE_MISMATCH";
 
 const REASON_DETAIL: Record<ValidationGateReason, string> = {
   REPORT_UNAVAILABLE: "The canonical validation report could not be read.",
@@ -49,6 +50,8 @@ const REASON_DETAIL: Record<ValidationGateReason, string> = {
     "The running ranking universe is unknown, so the report cannot be bound to it.",
   APPROVED_RELEASE_UNKNOWN:
     "The approved paper release is unknown, so no report can be bound to it.",
+  LINEAGE_MISMATCH:
+    "The preflight, frozen plan and executor record do not agree on the release, strategy or universe they describe.",
 };
 
 /**
@@ -60,6 +63,8 @@ export function computeEffectiveValidationGate(input: {
   approvedReleaseSha: string | null;
   /** True when the approved SHA came from an authoritative source. */
   approvedReleaseAuthoritative: boolean;
+  /** False when the shared lineage verdict found any conflict. */
+  lineageOk?: boolean;
   now: Date;
 }): EffectiveValidationGate {
   const { report, now } = input;
@@ -81,6 +86,7 @@ export function computeEffectiveValidationGate(input: {
   if (!input.approvedReleaseSha || !input.approvedReleaseAuthoritative) {
     reasons.push("APPROVED_RELEASE_UNKNOWN");
   }
+  if (input.lineageOk === false) reasons.push("LINEAGE_MISMATCH");
 
   const nowMs = now.getTime();
   const generatedAtMs = report.generatedAt ? Date.parse(report.generatedAt) : NaN;
