@@ -6,19 +6,27 @@ import { inflateRawSync } from "node:zlib";
  *
  * Actions artifacts are the only input, and they are produced by
  * `actions/upload-artifact`, so we implement exactly the subset we need
- * (stored + deflate, no encryption, no zip64) and reject everything else.
+ * (stored + deflate, streaming data descriptors, no encryption, no zip64) and
+ * reject everything else.
+ *
+ * `actions/upload-artifact` streams, so every real entry sets general-purpose
+ * bit 3 and leaves the local header's CRC and sizes zero; the true values live
+ * in the trailing data descriptor and in the central directory. We trust the
+ * central directory and verify the descriptor against it, rather than refusing
+ * the format — refusing it made the production runtime artifact unreadable.
  *
  * The archive is attacker-influenced in the sense that anything with write
  * access to the workflow could change it, so every dimension is bounded and
  * verified: archive size, entry count, per-entry declared and *actual*
  * inflated size, duplicate names, path traversal, encryption flags,
- * local/central header agreement and CRC-32.
+ * local/central/descriptor agreement and CRC-32.
  */
 
 const END_OF_CENTRAL_DIRECTORY = 0x06054b50;
 const CENTRAL_FILE_HEADER = 0x02014b50;
 const LOCAL_FILE_HEADER = 0x04034b50;
 const ZIP64_EOCD_LOCATOR = 0x07064b50;
+const DATA_DESCRIPTOR_SIGNATURE = 0x08074b50;
 
 export const MAX_ARCHIVE_BYTES = 5 * 1024 * 1024;
 export const MAX_ENTRY_BYTES = 4 * 1024 * 1024;
@@ -151,10 +159,11 @@ export function listZipEntries(buffer: Buffer): ZipEntry[] {
     if (flags & (FLAG_ENCRYPTED | FLAG_STRONG_ENCRYPTION)) {
       throw new ZipError(`zip entry ${name} is encrypted`);
     }
-    if (flags & FLAG_DATA_DESCRIPTOR) {
-      // Sizes/CRC then live after the data, which we deliberately do not parse.
-      throw new ZipError(`zip entry ${name} uses a streaming data descriptor`);
-    }
+    // A streaming data descriptor (bit 3) is normal: GitHub Actions writes
+    // every artifact entry that way, with a zeroed local header. The
+    // authoritative sizes and CRC are the central-directory values used here;
+    // `readZipEntry` additionally verifies the trailing descriptor against
+    // them, so the streamed values cannot disagree unnoticed.
     if (compressionMethod !== 0 && compressionMethod !== 8) {
       throw new ZipError(
         `zip entry ${name} uses unsupported compression ${compressionMethod}`,
@@ -186,11 +195,49 @@ export function listZipEntries(buffer: Buffer): ZipEntry[] {
 }
 
 /**
+ * Verify the trailing data descriptor of a streamed entry.
+ *
+ * The descriptor is the only place a streaming writer records the real CRC and
+ * sizes, so it must agree exactly with the central directory we are trusting.
+ * Both encodings are accepted: with the optional `PK\\x07\\x08` signature (what
+ * GitHub Actions emits) and the older signature-less form.
+ */
+function assertDataDescriptorMatches(
+  buffer: Buffer,
+  dataEnd: number,
+  entry: ZipEntry,
+): void {
+  const signed =
+    dataEnd + 4 <= buffer.length &&
+    buffer.readUInt32LE(dataEnd) === DATA_DESCRIPTOR_SIGNATURE;
+  const base = signed ? dataEnd + 4 : dataEnd;
+  if (base + 12 > buffer.length) {
+    throw new ZipError(
+      `zip entry ${entry.name} is missing its trailing data descriptor`,
+    );
+  }
+  const crc = buffer.readUInt32LE(base);
+  const compressedSize = buffer.readUInt32LE(base + 4);
+  const uncompressedSize = buffer.readUInt32LE(base + 8);
+  if (
+    crc !== entry.crc32 ||
+    compressedSize !== entry.compressedSize ||
+    uncompressedSize !== entry.uncompressedSize
+  ) {
+    throw new ZipError(
+      `zip entry ${entry.name} data descriptor disagrees with the central directory`,
+    );
+  }
+}
+
+/**
  * Decompress one entry and verify it against its central-directory record.
  *
- * The local header must agree with the central directory, the inflated output
- * must be exactly the declared length, and the CRC-32 must match — so a
- * tampered or truncated member is rejected rather than silently parsed.
+ * The local header must agree with the central directory (allowing the zeroed
+ * header a streaming writer emits), a streamed entry's trailing descriptor must
+ * match it too, the inflated output must be exactly the declared length, and
+ * the CRC-32 must match — so a tampered or truncated member is rejected rather
+ * than silently parsed.
  */
 export function readZipEntry(buffer: Buffer, entry: ZipEntry): Buffer {
   if (entry.uncompressedSize > MAX_ENTRY_BYTES) {
@@ -220,9 +267,29 @@ export function readZipEntry(buffer: Buffer, entry: ZipEntry): Buffer {
       `zip entry ${entry.name} disagrees with its local header name`,
     );
   }
-  if (
-    localMethod !== entry.compressionMethod ||
-    localFlags !== entry.flags ||
+  if (localMethod !== entry.compressionMethod || localFlags !== entry.flags) {
+    throw new ZipError(
+      `zip entry ${entry.name} local header disagrees with the central directory`,
+    );
+  }
+
+  const streaming = (entry.flags & FLAG_DATA_DESCRIPTOR) !== 0;
+  if (streaming) {
+    // A streaming writer leaves the local CRC and sizes zero. Some writers
+    // fill them in anyway; either is fine, but a third, different value is
+    // not.
+    const zeroed =
+      localCrc === 0 && localCompressed === 0 && localUncompressed === 0;
+    const filled =
+      localCrc === entry.crc32 &&
+      localCompressed === entry.compressedSize &&
+      localUncompressed === entry.uncompressedSize;
+    if (!zeroed && !filled) {
+      throw new ZipError(
+        `zip entry ${entry.name} local header disagrees with the central directory`,
+      );
+    }
+  } else if (
     localCrc !== entry.crc32 ||
     localCompressed !== entry.compressedSize ||
     localUncompressed !== entry.uncompressedSize
@@ -238,6 +305,10 @@ export function readZipEntry(buffer: Buffer, entry: ZipEntry): Buffer {
     throw new ZipError(`zip entry ${entry.name} is truncated`);
   }
   const raw = buffer.subarray(start, end);
+
+  if (streaming) {
+    assertDataDescriptorMatches(buffer, end, entry);
+  }
 
   let output: Buffer;
   if (entry.compressionMethod === 0) {

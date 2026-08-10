@@ -103,6 +103,142 @@ describe("diagnostics artifact contract", () => {
   });
 });
 
+/**
+ * `actions/upload-artifact` streams every entry: general-purpose bit 3 is set,
+ * the local header's CRC and sizes are zero, and the real values live in a
+ * trailing data descriptor plus the central directory. This is the exact shape
+ * of the production runtime artifact, verified against a real download.
+ */
+describe("GitHub Actions streaming layout", () => {
+  const RUNTIME_FILES = [
+    { name: "performance.json", content: '{"equity":881532.2}' },
+    { name: "positions.json", content: '{"positions":[]}' },
+    { name: "production/last_run.json", content: '{"status":"PASS"}' },
+  ];
+
+  it("produces the documented byte layout in the fixture", () => {
+    const zip = buildZip(
+      RUNTIME_FILES.map((file) => ({ ...file, dataDescriptor: true })),
+    );
+    // Local header: flag bit 3 set, CRC and both sizes zeroed.
+    expect(zip.readUInt16LE(6) & 0x0008).toBe(0x0008);
+    expect(zip.readUInt32LE(14)).toBe(0);
+    expect(zip.readUInt32LE(18)).toBe(0);
+    expect(zip.readUInt32LE(22)).toBe(0);
+
+    // Central directory: flag bit 3 set, real CRC and sizes present.
+    const entries = listZipEntries(zip);
+    expect(entries).toHaveLength(3);
+    for (const entry of entries) {
+      expect(entry.flags & 0x0008).toBe(0x0008);
+      expect(entry.crc32).not.toBe(0);
+      expect(entry.uncompressedSize).toBeGreaterThan(0);
+    }
+  });
+
+  it("reads the runtime artifact shape", () => {
+    const zip = buildZip(
+      RUNTIME_FILES.map((file) => ({ ...file, dataDescriptor: true })),
+    );
+    const entries = readJsonEntries(zip, RUNTIME_CONTRACT);
+    expect(entries["performance.json"]).toEqual({ equity: 881532.2 });
+    expect(entries["positions.json"]).toEqual({ positions: [] });
+    expect(entries["production/last_run.json"]).toEqual({ status: "PASS" });
+  });
+
+  it("reads the diagnostics artifact shape", () => {
+    const zip = buildZip([
+      {
+        name: "production-preflight.json",
+        content: '{"status":"PASS"}',
+        dataDescriptor: true,
+      },
+      {
+        name: "production-dry-run.log",
+        content: "dry run output",
+        dataDescriptor: true,
+      },
+    ]);
+    const entries = readJsonEntries(zip, DIAGNOSTICS_CONTRACT);
+    expect(entries["production-preflight.json"]).toEqual({ status: "PASS" });
+  });
+
+  it("reads a descriptor written without the optional signature", () => {
+    const zip = buildZip([
+      { name: "a.json", content: '{"a":1}', dataDescriptor: "unsigned" },
+    ]);
+    expect(readJsonEntries(zip, ["a.json"])).toEqual({ "a.json": { a: 1 } });
+  });
+
+  it("still verifies the descriptor against the central directory", () => {
+    const zip = buildZip([
+      {
+        name: "a.json",
+        content: '{"a":1}',
+        dataDescriptor: true,
+        descriptorCrcOverride: 0xdeadbeef,
+      },
+    ]);
+    const entries = listZipEntries(zip);
+    expect(() => readZipEntry(zip, entries[0])).toThrow(
+      /data descriptor disagrees/,
+    );
+  });
+
+  it("rejects a streamed entry whose descriptor is missing entirely", () => {
+    const zip = buildZip([
+      { name: "a.json", content: '{"a":1}', dataDescriptor: true },
+    ]);
+    const entries = listZipEntries(zip);
+    // Drop the descriptor bytes by pointing the entry past the archive end.
+    expect(() =>
+      readZipEntry(zip, { ...entries[0], compressedSize: zip.length }),
+    ).toThrow(/truncated/);
+  });
+
+  it("keeps every other guarantee for a streamed entry", () => {
+    // CRC is still enforced on the inflated bytes.
+    const zip = buildZip([
+      {
+        name: "a.json",
+        content: '{"a":1}',
+        dataDescriptor: true,
+        crcOverride: 0x12345678,
+        descriptorCrcOverride: 0x12345678,
+      },
+    ]);
+    const entries = listZipEntries(zip);
+    expect(() => readZipEntry(zip, entries[0])).toThrow(/CRC-32/);
+  });
+
+  it("still rejects an encrypted streamed entry", () => {
+    const zip = buildZip([
+      { name: "a.json", content: "{}", dataDescriptor: true, flags: 0x0001 },
+    ]);
+    expect(() => listZipEntries(zip)).toThrow(/encrypted/);
+  });
+
+  it("still rejects a duplicate name in the streamed layout", () => {
+    const zip = buildZip([
+      { name: "a.json", content: "{}", dataDescriptor: true },
+      { name: "a.json", content: "{}", dataDescriptor: true },
+    ]);
+    expect(() => listZipEntries(zip)).toThrow(/duplicate entry/);
+  });
+
+  it("still rejects a zip bomb in the streamed layout", () => {
+    const zip = buildZip([
+      {
+        name: "a.json",
+        content: "{}",
+        dataDescriptor: true,
+        uncompressedSizeOverride: MAX_ENTRY_BYTES + 1,
+      },
+    ]);
+    expect(() => listZipEntries(zip)).toThrow(/exceeds the allowed size/);
+  });
+});
+
 describe("zip reader — hardening", () => {
   it("rejects duplicate entry names", () => {
     const zip = buildZip([
@@ -141,11 +277,6 @@ describe("zip reader — hardening", () => {
   it("rejects encrypted entries", () => {
     const zip = buildZip([{ name: "a.json", content: "{}", flags: 0x0001 }]);
     expect(() => listZipEntries(zip)).toThrow(/encrypted/);
-  });
-
-  it("rejects a streaming data descriptor", () => {
-    const zip = buildZip([{ name: "a.json", content: "{}", flags: 0x0008 }]);
-    expect(() => listZipEntries(zip)).toThrow(/data descriptor/);
   });
 
   it("rejects an unsupported compression method", () => {

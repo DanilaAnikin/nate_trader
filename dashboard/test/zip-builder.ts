@@ -22,6 +22,14 @@ export interface ZipFileSpec {
   methodOverride?: number;
   /** Write a different name in the local header than in the central directory. */
   localNameOverride?: string;
+  /**
+   * Emit the entry the way `actions/upload-artifact` does: general-purpose
+   * bit 3 set, a zeroed local header, and the real CRC/sizes in a trailing
+   * data descriptor. `"unsigned"` omits the optional PK\x07\x08 signature.
+   */
+  dataDescriptor?: boolean | "unsigned";
+  /** Corrupt the descriptor's CRC to prove it is actually verified. */
+  descriptorCrcOverride?: number;
 }
 
 const CRC_TABLE = (() => {
@@ -57,22 +65,41 @@ export function buildZip(files: ZipFileSpec[]): Buffer {
     const crc = file.crcOverride ?? crc32(raw);
     const uncompressed = file.uncompressedSizeOverride ?? raw.length;
 
+    const streaming = file.dataDescriptor !== undefined && file.dataDescriptor !== false;
+    const effectiveFlags = streaming ? flags | 0x0008 : flags;
+
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
-    local.writeUInt16LE(flags, 6);
+    local.writeUInt16LE(effectiveFlags, 6);
     local.writeUInt16LE(method, 8);
-    local.writeUInt32LE(crc, 14);
-    local.writeUInt32LE(data.length, 18);
-    local.writeUInt32LE(uncompressed, 22);
+    // A streaming writer leaves these three fields zero.
+    local.writeUInt32LE(streaming ? 0 : crc, 14);
+    local.writeUInt32LE(streaming ? 0 : data.length, 18);
+    local.writeUInt32LE(streaming ? 0 : uncompressed, 22);
     local.writeUInt16LE(localNameBytes.length, 26);
     locals.push(local, localNameBytes, data);
+
+    let descriptor = Buffer.alloc(0);
+    if (streaming) {
+      const signed = file.dataDescriptor !== "unsigned";
+      descriptor = Buffer.alloc(signed ? 16 : 12);
+      let at = 0;
+      if (signed) {
+        descriptor.writeUInt32LE(0x08074b50, 0);
+        at = 4;
+      }
+      descriptor.writeUInt32LE(file.descriptorCrcOverride ?? crc, at);
+      descriptor.writeUInt32LE(data.length, at + 4);
+      descriptor.writeUInt32LE(uncompressed, at + 8);
+      locals.push(descriptor);
+    }
 
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
     central.writeUInt16LE(20, 4);
     central.writeUInt16LE(20, 6);
-    central.writeUInt16LE(flags, 8);
+    central.writeUInt16LE(effectiveFlags, 8);
     central.writeUInt16LE(method, 10);
     central.writeUInt32LE(crc, 16);
     central.writeUInt32LE(data.length, 20);
@@ -81,7 +108,7 @@ export function buildZip(files: ZipFileSpec[]): Buffer {
     central.writeUInt32LE(offset, 42);
     centrals.push(central, nameBytes);
 
-    offset += local.length + localNameBytes.length + data.length;
+    offset += local.length + localNameBytes.length + data.length + descriptor.length;
   }
 
   const localBuffer = Buffer.concat(locals);
