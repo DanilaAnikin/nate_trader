@@ -244,7 +244,8 @@ beforeEach(() => {
   vi.stubEnv("BUILD_SHA", DASHBOARD_SHA);
   vi.stubEnv("PRODUCTION_OWNER_USER_ID", OWNER_ID);
   vi.stubEnv("PRODUCTION_ACCOUNT_ID", PROD_ACCOUNT_ID);
-  vi.stubEnv("PRODUCTION_ALPACA_ACCOUNT_NUMBER", "");
+  // The broker-side identifier is a mandatory AND check.
+  vi.stubEnv("PRODUCTION_ALPACA_ACCOUNT_NUMBER", SECRET_BROKER_NUMBER);
 });
 
 describe("GET /api/accounts/[id]/status", () => {

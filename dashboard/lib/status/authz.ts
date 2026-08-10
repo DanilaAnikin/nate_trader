@@ -21,10 +21,11 @@ export interface ProductionAuthzConfig {
   /** Supabase `accounts.id` of the account the executor actually trades. */
   readonly productionAccountId: string | null;
   /**
-   * Optional *additional* AND check. When set, the broker account number read
-   * fresh from Alpaca `/v2/account` must match. A value stored in Supabase is
-   * never accepted as proof, because the client-facing account row is
-   * user-influenced.
+   * Required broker-side proof. A Supabase account row only says which
+   * credentials the *dashboard* uses; it cannot show that those credentials
+   * point at the account the executor trades. The number read fresh from
+   * Alpaca `/v2/account` must therefore match this server-only value. A value
+   * stored in Supabase is never accepted, because that row is user-influenced.
    */
   readonly productionBrokerAccountNumber: string | null;
 }
@@ -45,6 +46,7 @@ export function readProductionAuthzConfig(
 
 export type ProductionDenialReason =
   | "NOT_CONFIGURED"
+  | "BROKER_BINDING_NOT_CONFIGURED"
   | "NOT_PRODUCTION_OWNER"
   | "NOT_PRODUCTION_ACCOUNT"
   | "NOT_PAPER_MODE"
@@ -61,6 +63,8 @@ export interface ProductionAuthorization {
 const DENIAL_DETAIL: Record<ProductionDenialReason, string> = {
   NOT_CONFIGURED:
     "No server-side production owner and account are configured, so no viewer can be shown the production runtime.",
+  BROKER_BINDING_NOT_CONFIGURED:
+    "No server-side production broker account number is configured, so the Supabase account cannot be proven to use the executor's broker account.",
   NOT_PRODUCTION_OWNER:
     "The signed-in user is not the configured production owner. Central production runtime data is withheld.",
   NOT_PRODUCTION_ACCOUNT:
@@ -100,6 +104,12 @@ export function authorizeProductionRuntime(input: {
   if (!config.productionOwnerUserId || !config.productionAccountId) {
     return deny("NOT_CONFIGURED");
   }
+  // Owner + account + paper mode prove *who is asking about which row*. They
+  // cannot prove that the row's Vault credentials point at the broker account
+  // the executor actually trades, so a broker-side identifier is mandatory.
+  if (!config.productionBrokerAccountNumber) {
+    return deny("BROKER_BINDING_NOT_CONFIGURED");
+  }
   if (config.productionOwnerUserId !== input.viewerUserId) {
     return deny("NOT_PRODUCTION_OWNER");
   }
@@ -113,23 +123,20 @@ export function authorizeProductionRuntime(input: {
     return deny("ACCOUNT_NOT_OWNED_BY_PRODUCTION_OWNER");
   }
 
-  if (config.productionBrokerAccountNumber !== null) {
-    if (input.liveBrokerAccountNumber === null) {
-      return deny("BROKER_ACCOUNT_UNVERIFIED");
-    }
-    if (
-      input.liveBrokerAccountNumber.trim() !==
-      config.productionBrokerAccountNumber.trim()
-    ) {
-      return deny("BROKER_ACCOUNT_MISMATCH");
-    }
+  if (input.liveBrokerAccountNumber === null) {
+    return deny("BROKER_ACCOUNT_UNVERIFIED");
+  }
+  if (
+    input.liveBrokerAccountNumber.trim() !==
+    config.productionBrokerAccountNumber.trim()
+  ) {
+    return deny("BROKER_ACCOUNT_MISMATCH");
   }
 
   return {
     authorized: true,
     reason: null,
-    detail: config.productionBrokerAccountNumber
-      ? "Signed-in production owner, configured production account, paper mode, account ownership and a freshly verified Alpaca account number all match."
-      : "Signed-in production owner, configured production account, paper mode and account ownership all match.",
+    detail:
+      "Signed-in production owner, configured production account, paper mode, account ownership and a freshly verified Alpaca account number all match.",
   };
 }

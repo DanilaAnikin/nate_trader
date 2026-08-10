@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { getSupabaseService } from "@/lib/supabase/service";
+import { maskAccountNumber } from "@/lib/accounts/mask";
 
 export const dynamic = "force-dynamic";
 
@@ -79,18 +80,25 @@ export async function POST(_req: Request, { params }: Ctx) {
   const body = (await res.json().catch(() => null)) as {
     account_number?: string;
   } | null;
+  const accountNumber = body?.account_number ?? null;
+
+  // The full number is stored server-side (the production binding compares it
+  // against a freshly read one) but must never be returned to the browser.
   await svc
     .from("accounts")
     .update({
       status: "connected",
       last_verified_at: new Date().toISOString(),
-      alpaca_account_number: body?.account_number ?? null,
+      alpaca_account_number: accountNumber,
     })
     .eq("id", id);
 
-  return NextResponse.json({
-    ok: true,
-    status: "connected",
-    accountNumber: body?.account_number ?? null,
-  });
+  return NextResponse.json(
+    {
+      ok: true,
+      status: "connected",
+      brokerAccountMask: maskAccountNumber(accountNumber),
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
