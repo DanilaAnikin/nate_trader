@@ -68,3 +68,38 @@ jobs:
           scripts tests
       - name: Verify canonical promotion artifact
         run: python scripts/sanity_check.py
+
+  supabase-schema-gate:
+    name: Supabase schema and RLS integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+      # Applies every real migration to a real PostgreSQL server and then
+      # asserts the accounts lockdown against it. This is a database test, not
+      # a grep over SQL text: the policies, grants and triggers exercised here
+      # are the ones the migrations actually create.
+      - name: Apply migrations and run RLS assertions
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: supabase/tests/run_integration.sh

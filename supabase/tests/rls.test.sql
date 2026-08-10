@@ -22,7 +22,7 @@ values ('aaaaaaaa-0000-0000-0000-000000000001', :'user_a', 'Test A', 'paper');
 
 -- --- 1. user A can read their own account ----------------------------------
 set local role authenticated;
-set local request.jwt.claims to json_build_object('sub', :'user_a')::text;
+select set_config('request.jwt.claims', json_build_object('sub', :'user_a')::text, true);
 do $$ begin
   if (select count(*) from accounts
       where id = 'aaaaaaaa-0000-0000-0000-000000000001') <> 1 then
@@ -31,7 +31,7 @@ do $$ begin
 end $$;
 
 -- --- 2. user B cannot read user A's account --------------------------------
-set local request.jwt.claims to json_build_object('sub', :'user_b')::text;
+select set_config('request.jwt.claims', json_build_object('sub', :'user_b')::text, true);
 do $$ begin
   if (select count(*) from accounts
       where id = 'aaaaaaaa-0000-0000-0000-000000000001') <> 0 then
@@ -41,15 +41,21 @@ end $$;
 
 -- --- 3. anon cannot read accounts at all -----------------------------------
 set local role anon;
-do $$ begin
-  if (select count(*) from accounts) <> 0 then
+do $$
+declare visible integer;
+begin
+  begin
+    select count(*) into visible from accounts;
+  exception when insufficient_privilege then visible := 0;
+  end;
+  if visible <> 0 then
     raise exception 'FAIL: anon can read accounts';
   end if;
 end $$;
 
 -- --- 4. get_account_credentials is NOT callable by authenticated -----------
 set local role authenticated;
-set local request.jwt.claims to json_build_object('sub', :'user_a')::text;
+select set_config('request.jwt.claims', json_build_object('sub', :'user_a')::text, true);
 do $$ begin
   begin
     perform get_account_credentials('aaaaaaaa-0000-0000-0000-000000000001');
@@ -65,7 +71,7 @@ insert into equity_snapshots (account_id, snapshot_date, equity, cash)
 values ('aaaaaaaa-0000-0000-0000-000000000001', current_date, 1000, 1000);
 
 set local role authenticated;
-set local request.jwt.claims to json_build_object('sub', :'user_b')::text;
+select set_config('request.jwt.claims', json_build_object('sub', :'user_b')::text, true);
 do $$ begin
   if (select count(*) from equity_snapshots) <> 0 then
     raise exception 'FAIL: user B can read user A equity snapshots';
