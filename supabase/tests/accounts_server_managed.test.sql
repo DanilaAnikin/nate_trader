@@ -1,7 +1,7 @@
 -- ============================================================================
 -- accounts_server_managed.test.sql — proves clients cannot write account rows
 --
--- Run against a database with migrations 0001–0010 applied. Two auth users
+-- Run against a database with migrations 0001–0011 applied. Two auth users
 -- must exist; pass their UUIDs via psql variables:
 --
 --   psql "$DATABASE_URL" \
@@ -65,21 +65,36 @@ reset role;
 set local role authenticated;
 select set_config('request.jwt.claims', json_build_object('sub', :'user_a', 'role', 'authenticated')::text, true);
 
--- --- 1. the owner can still read their own row -----------------------------
-do $$ begin
-  if (select count(*) from accounts
-      where id = 'aaaaaaaa-0000-0000-0000-0000000000f1') <> 1 then
-    raise exception 'FAIL: owner cannot read their own account';
+-- --- 1. the owner cannot read the base table at all ------------------------
+-- 0011 revoked every client privilege; the sanitized view is the only client
+-- read path, and `client_read_exposure.test.sql` covers it in detail.
+do $$
+declare visible integer;
+begin
+  begin
+    select count(*) into visible from accounts
+     where id = 'aaaaaaaa-0000-0000-0000-0000000000f1';
+  exception when insufficient_privilege then visible := 0;
+  end;
+  if visible <> 0 then
+    raise exception 'FAIL: owner can still read the accounts base table';
   end if;
 end $$;
 
--- --- 2. the owner CAN change explicitly allowed metadata -------------------
-update accounts set nickname = 'Renamed by owner', color = '#123456', is_active = false
- where id = 'aaaaaaaa-0000-0000-0000-0000000000f1';
-do $$ begin
-  if (select nickname from accounts
-      where id = 'aaaaaaaa-0000-0000-0000-0000000000f1') <> 'Renamed by owner' then
-    raise exception 'FAIL: owner cannot change allowed metadata';
+-- --- 2. the owner cannot change metadata directly either -------------------
+-- Nickname/colour/is_active now change only through the server route, which
+-- writes as the service role after checking the session and ownership.
+do $$
+declare blocked boolean := false;
+begin
+  begin
+    update accounts set nickname = 'Renamed by owner', color = '#123456'
+     where id = 'aaaaaaaa-0000-0000-0000-0000000000f1';
+    blocked := not found;
+  exception when others then blocked := true;
+  end;
+  if not blocked then
+    raise exception 'FAIL: authenticated user could update account metadata';
   end if;
 end $$;
 
@@ -175,9 +190,15 @@ begin
 end $$;
 
 -- --- 8. a foreign row can be neither read nor written ----------------------
-do $$ begin
-  if (select count(*) from accounts
-      where id = 'bbbbbbbb-0000-0000-0000-0000000000f2') <> 0 then
+do $$
+declare visible integer;
+begin
+  begin
+    select count(*) into visible from accounts
+     where id = 'bbbbbbbb-0000-0000-0000-0000000000f2';
+  exception when insufficient_privilege then visible := 0;
+  end;
+  if visible <> 0 then
     raise exception 'FAIL: user A can read user B account (RLS leak)';
   end if;
 end $$;
@@ -198,10 +219,22 @@ end $$;
 
 -- --- 9. user B still cannot read user A's row ------------------------------
 select set_config('request.jwt.claims', json_build_object('sub', :'user_b', 'role', 'authenticated')::text, true);
-do $$ begin
-  if (select count(*) from accounts
-      where id = 'aaaaaaaa-0000-0000-0000-0000000000f1') <> 0 then
+do $$
+declare visible integer;
+begin
+  begin
+    select count(*) into visible from accounts
+     where id = 'aaaaaaaa-0000-0000-0000-0000000000f1';
+  exception when insufficient_privilege then visible := 0;
+  end;
+  if visible <> 0 then
     raise exception 'FAIL: user B can read user A account (RLS leak)';
+  end if;
+  if exists (
+    select 1 from accounts_safe
+     where id = 'aaaaaaaa-0000-0000-0000-0000000000f1'
+  ) then
+    raise exception 'FAIL: user B can read user A account through accounts_safe';
   end if;
 end $$;
 

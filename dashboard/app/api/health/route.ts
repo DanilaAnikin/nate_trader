@@ -20,8 +20,8 @@ export async function GET() {
       status: ready ? "ok" : "misconfigured",
       service: "nate-trader-dashboard",
       strategyVersion: V11_POLICY.strategyVersion,
-      buildSha:
-        process.env.BUILD_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown",
+      // Self-hosted container: `BUILD_SHA` is the only supported source.
+      buildSha: process.env.BUILD_SHA ?? "unknown",
       dataMode: accountBackendConfigured
         ? "account-scoped"
         : explicitLegacyMode

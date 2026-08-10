@@ -161,6 +161,16 @@ export function preflightJson(
     checks: [
       { name: "trading_mode", passed: true, detail: "paper" },
       {
+        name: "frozen_v11_policy",
+        passed: true,
+        detail: "breadth-scaled top-10 policy",
+      },
+      {
+        name: "strategy_identity",
+        passed: true,
+        detail: STRATEGY_IDENTITY,
+      },
+      {
         name: "ranking_universe",
         passed: true,
         detail: `540 symbols; hash=${UNIVERSE_HASH}`,

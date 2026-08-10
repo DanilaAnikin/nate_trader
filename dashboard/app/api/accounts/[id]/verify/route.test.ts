@@ -41,6 +41,26 @@ vi.mock("@/lib/supabase/service", () => ({
       error: null,
     }),
     from: () => ({
+      // Since migration 0011 the account row is read with the service role and
+      // the ownership check happens in code, so the service mock must answer
+      // the select too.
+      select: () => {
+        const builder = {
+          eq: () => builder,
+          is: () => builder,
+          maybeSingle: async () => ({
+            data: {
+              id: "acc-1",
+              owner_id: OWNER_ID,
+              mode: "paper" as const,
+              nickname: "Production",
+              deleted_at: null,
+            },
+            error: null,
+          }),
+        };
+        return builder;
+      },
       update: (patch: Record<string, unknown>) => {
         updates.push(patch);
         return { eq: async () => ({ error: null }) };

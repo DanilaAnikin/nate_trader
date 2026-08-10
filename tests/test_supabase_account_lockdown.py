@@ -19,7 +19,9 @@ MIGRATION = REPO_ROOT / "supabase" / "migrations" / "0009_accounts_server_manage
 GUARD_FIX = (
     REPO_ROOT / "supabase" / "migrations" / "0010_accounts_guard_authz_fix.sql"
 )
+READ_LOCKDOWN = REPO_ROOT / "supabase" / "migrations" / "0011_revoke_client_reads.sql"
 RLS_TEST = REPO_ROOT / "supabase" / "tests" / "accounts_server_managed.test.sql"
+READ_TEST = REPO_ROOT / "supabase" / "tests" / "client_read_exposure.test.sql"
 INTEGRATION_RUNNER = REPO_ROOT / "supabase" / "tests" / "run_integration.sh"
 RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "v11-release.yml"
 
@@ -46,6 +48,12 @@ def migration_sql() -> str:
 def guard_fix_sql() -> str:
     assert GUARD_FIX.is_file(), f"missing migration: {GUARD_FIX}"
     return GUARD_FIX.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def read_lockdown_sql() -> str:
+    assert READ_LOCKDOWN.is_file(), f"missing migration: {READ_LOCKDOWN}"
+    return READ_LOCKDOWN.read_text(encoding="utf-8")
 
 
 def test_permissive_for_all_policy_is_removed(migration_sql: str) -> None:
@@ -145,6 +153,131 @@ def test_the_original_migration_is_not_edited(migration_sql: str) -> None:
     )
 
 
+# --------------------------------------------------------------------------
+# 0011 — the read side. 0009/0010 stopped client *writes*; a signed-in browser
+# could still read the full broker account number and both Vault UUIDs
+# straight out of PostgREST.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("role", ["authenticated", "anon"])
+@pytest.mark.parametrize("table", ["accounts", "trades"])
+def test_client_read_privileges_are_revoked(
+    read_lockdown_sql: str, table: str, role: str
+) -> None:
+    assert f"revoke all on {table} from {role};" in read_lockdown_sql, (
+        f"{role} must hold no privileges on {table}"
+    )
+
+
+def test_the_read_policies_are_dropped_too(read_lockdown_sql: str) -> None:
+    """A later `grant select` must not silently re-open the table."""
+    for policy in ('"read own accounts" on accounts', '"read own trades" on trades'):
+        assert f"drop policy if exists {policy};" in read_lockdown_sql
+
+
+def test_the_sanitized_view_lists_only_safe_columns(read_lockdown_sql: str) -> None:
+    start = read_lockdown_sql.index("create or replace view accounts_safe")
+    view = read_lockdown_sql[start : read_lockdown_sql.index(";", start)]
+    for forbidden in (
+        "a.alpaca_key_secret_id",
+        "a.alpaca_secret_secret_id",
+        "a.owner_id,",
+        "a.deleted_at,",
+    ):
+        assert forbidden not in view, f"accounts_safe must not select {forbidden}"
+    # The broker number is masked, never selected whole.
+    assert "right(a.alpaca_account_number, 4)" in view
+    assert "where a.owner_id = auth.uid()" in view
+    assert "a.deleted_at is null" in view
+
+
+def test_the_trade_view_withholds_the_broker_order_id(read_lockdown_sql: str) -> None:
+    start = read_lockdown_sql.index("create or replace view trades_safe")
+    view = read_lockdown_sql[start : read_lockdown_sql.index(";", start)]
+    assert "alpaca_order_id" not in view
+    assert "a.deleted_at is null" in view
+
+
+@pytest.mark.parametrize("view", ["accounts_safe", "trades_safe"])
+def test_the_views_are_not_public(read_lockdown_sql: str, view: str) -> None:
+    assert f"revoke all on {view} from public;" in read_lockdown_sql
+    assert f"grant select on {view} to authenticated;" in read_lockdown_sql
+    assert f"grant select on {view} to anon" not in read_lockdown_sql
+
+
+def test_owns_account_excludes_soft_deleted_accounts(read_lockdown_sql: str) -> None:
+    start = read_lockdown_sql.index("function owns_account(acct uuid)")
+    body = read_lockdown_sql[start:]
+    assert "deleted_at is null" in body
+    assert "set search_path = pg_catalog, public" in body
+
+
+@pytest.mark.parametrize("earlier", [MIGRATION, GUARD_FIX])
+def test_the_applied_migrations_are_not_edited(earlier: Path) -> None:
+    """0009 and 0010 are already applied in production; 0011 is the fix."""
+    text = earlier.read_text(encoding="utf-8")
+    assert "revoke all on accounts from authenticated" not in text, (
+        f"{earlier.name} must be left as applied; the read revoke belongs in 0011"
+    )
+
+
+def test_the_real_select_test_proves_the_read_side() -> None:
+    """A DTO test cannot prove this: PostgREST answers the browser directly."""
+    assert READ_TEST.is_file(), f"missing read-exposure test: {READ_TEST}"
+    sql = READ_TEST.read_text(encoding="utf-8")
+    assert "set local role authenticated;" in sql
+    for expectation in (
+        "can SELECT the accounts base table",
+        "can read accounts.% via REST",
+        "can SELECT the trades base table",
+        "can read trades.alpaca_order_id",
+        "soft-deleted account is readable through accounts_safe",
+        "another user''s account is readable through accounts_safe",
+        "accounts_safe exposes unexpected columns",
+        "leaked the full broker account number",
+        "snapshots of a soft-deleted account are still readable",
+        "anon can read accounts_safe",
+    ):
+        assert expectation in sql, f"read-exposure test must assert: {expectation}"
+    # Every sensitive column is probed individually, not only the whole table.
+    for column in (
+        "alpaca_account_number",
+        "alpaca_key_secret_id",
+        "alpaca_secret_secret_id",
+        "owner_id",
+        "deleted_at",
+    ):
+        assert f"'{column}'" in sql
+
+    runner = INTEGRATION_RUNNER.read_text(encoding="utf-8")
+    assert "client_read_exposure.test.sql" in runner, (
+        "the read-exposure test must run in the integration harness"
+    )
+
+
+def test_soft_delete_clears_the_broker_identifier() -> None:
+    """A deleted row must stop carrying the number the binding compares."""
+    service = (REPO_ROOT / "dashboard" / "lib" / "accounts" / "service.ts").read_text(
+        encoding="utf-8"
+    )
+    start = service.index("export async function deleteAccount")
+    body = service[start:]
+    assert "alpaca_account_number: null," in body
+
+
+def test_routes_read_accounts_through_the_server_session_helper() -> None:
+    """No route may read `accounts` with the cookie-bound (RLS) client."""
+    api = REPO_ROOT / "dashboard" / "app" / "api" / "accounts"
+    for route in sorted(api.rglob("route.ts")):
+        text = route.read_text(encoding="utf-8")
+        if 'from("accounts")' not in text:
+            continue
+        assert "getSupabaseServer" not in text, (
+            f"{route.relative_to(REPO_ROOT)} must not read accounts via RLS"
+        )
+
+
 def test_a_real_database_integration_test_exists_and_is_wired_into_ci() -> None:
     assert INTEGRATION_RUNNER.is_file(), f"missing runner: {INTEGRATION_RUNNER}"
     assert INTEGRATION_RUNNER.stat().st_mode & 0o111, "runner must be executable"
@@ -173,7 +306,7 @@ def test_rls_regression_script_exists_and_covers_the_write_paths() -> None:
         "could DELETE an account",
         "can read user A account (RLS leak)",
         "anon can read accounts",
-        "cannot change allowed metadata",
+        "could update account metadata",
         "the service role cannot update server-managed columns",
         "authorizes a client role with no JWT claims",
         "forged service_role claim could rewrite the binding",

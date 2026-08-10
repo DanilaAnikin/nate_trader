@@ -90,12 +90,22 @@ describe("backfillCashFlows", () => {
     expect(upserted[0]).toMatchObject({ external_id: "acat", amount: 5000 });
   });
 
-  it("requests every cash activity type, including ACATC", async () => {
+  it("requests every cash type and every non-cash transfer type", async () => {
     const calls = stubPages({ "": [] });
     const { svc } = service();
     await backfillCashFlows(svc, "acc-1", "paper");
     const types = new URL(calls[0]).searchParams.get("activity_types");
-    expect(types?.split(",").sort()).toEqual(["ACATC", "CSD", "CSW", "JNLC"]);
+    // The securities transfers are requested so they can be *detected*: they
+    // move equity with no cash leg and must block any reported return.
+    expect(types?.split(",").sort()).toEqual([
+      "ACATC",
+      "ACATS",
+      "CSD",
+      "CSW",
+      "FOPT",
+      "JNLC",
+      "JNLS",
+    ]);
   });
 
   it("pages past 100 activities and keeps them all", async () => {
@@ -187,14 +197,202 @@ describe("backfillCashFlows", () => {
     expect(result.latestActivityAt?.slice(0, 10)).toBe("2026-08-06");
   });
 
-  it("passes the baseline boundary as the `after` filter", async () => {
+  it("asks for a window that starts before the baseline", async () => {
     const calls = stubPages({ "": [] });
     const { svc } = service();
     await backfillCashFlows(svc, "acc-1", "paper", {
       since: "2026-08-03T13:30:00.000Z",
     });
+    // Alpaca filters on the activity's own date, which a late settlement or a
+    // correction can move. The overlap makes such a shift visible.
     expect(new URL(calls[0]).searchParams.get("after")).toBe(
-      "2026-08-03T13:30:00.000Z",
+      "2026-07-24T13:30:00.000Z",
     );
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * A securities transfer moves equity without any cash to book. No time-weighted
+ * return can neutralise it from the activity record, so it is not an
+ * approximation problem — the number is simply not attributable.
+ * ------------------------------------------------------------------------- */
+
+describe("non-cash external transfers", () => {
+  it.each(["ACATS", "JNLS", "FOPT"])(
+    "refuses to report anything once a %s settles after the baseline",
+    async (type) => {
+      stubPages({
+        "": [
+          activity({ id: "dep", activity_type: "CSD", net_amount: "1000" }),
+          activity({ id: "xfer", activity_type: type, date: "2026-08-05" }),
+        ],
+      });
+      const { svc, upserted } = service();
+      const result = await backfillCashFlows(svc, "acc-1", "paper", {
+        since: "2026-08-01T00:00:00.000Z",
+      });
+
+      expect(result.complete).toBe(false);
+      expect(result.incompleteReason).toBe("NON_CASH_EXTERNAL_TRANSFER");
+      expect(result.detail).toContain(type);
+      expect(result.detail).toContain("2026-08-05");
+      // Nothing is written: a partial ledger would look complete next time.
+      expect(upserted).toHaveLength(0);
+    },
+  );
+
+  it("ignores a securities transfer that predates the baseline", async () => {
+    // Inside the overlap window, but before the epoch — it belongs to the
+    // pre-V11 account history the baseline exists to exclude.
+    stubPages({
+      "": [
+        activity({ id: "old-xfer", activity_type: "ACATS", date: "2026-07-28" }),
+        activity({ id: "dep", activity_type: "CSD", date: "2026-08-04" }),
+      ],
+    });
+    const { svc, upserted } = service();
+    const result = await backfillCashFlows(svc, "acc-1", "paper", {
+      since: "2026-08-01T00:00:00.000Z",
+    });
+    expect(result.complete).toBe(true);
+    expect(result.incompleteReason).toBeNull();
+    expect(upserted.map((row) => row.external_id)).toEqual(["dep"]);
+  });
+});
+
+describe("net_amount is accepted only in the expected shape", () => {
+  it.each([
+    ["null", null],
+    ["missing", undefined],
+    ["boolean true", true],
+    ["boolean false", false],
+    ["empty string", ""],
+    ["whitespace", "   "],
+    ["NaN string", "NaN"],
+    ["Infinity string", "Infinity"],
+    ["-Infinity string", "-Infinity"],
+    ["NaN number", Number.NaN],
+    ["Infinity number", Number.POSITIVE_INFINITY],
+    ["thousands separator", "1,000.00"],
+    ["currency", "$1000"],
+    ["hex", "0x10"],
+    ["exponent", "1e3"],
+    ["object", { amount: 10 }],
+    ["array", [10]],
+  ])("is incomplete when net_amount is %s", async (_label, value) => {
+    // `Number()` turns null, "", "   " and false into 0 and true into 1, so
+    // each of these once looked like "understood, moved no money".
+    stubPages({ "": [activity({ id: "bad", net_amount: value })] });
+    const { svc, upserted } = service();
+    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    expect(result.complete).toBe(false);
+    expect(result.incompleteReason).toBe("MALFORMED_ACTIVITY");
+    expect(result.detail).toContain("net_amount");
+    expect(upserted).toHaveLength(0);
+  });
+
+  it.each([
+    ["a decimal string", "2500.50", 2500.5],
+    ["a negative string", "-750.25", -750.25],
+    ["an explicit plus", "+42", 42],
+    ["a bare integer string", "1000", 1000],
+    ["a JSON number", 1234.56, 1234.56],
+    ["a negative JSON number", -99, -99],
+  ])("accepts %s", async (_label, value, expected) => {
+    stubPages({ "": [activity({ id: "ok", net_amount: value })] });
+    const { svc, upserted } = service();
+    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    expect(result.complete).toBe(true);
+    expect(upserted[0]).toMatchObject({ amount: expected });
+  });
+
+  it("treats an exact zero as understood but writes no flow", async () => {
+    stubPages({ "": [activity({ id: "zero", net_amount: "0.00" })] });
+    const { svc, upserted } = service();
+    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    expect(result.complete).toBe(true);
+    expect(upserted).toHaveLength(0);
+  });
+});
+
+describe("occurrence date, not record-creation time", () => {
+  it("books a flow on its settlement date, not its transaction_time", async () => {
+    // Created just after midnight UTC on the 5th; the activity is dated the 4th.
+    stubPages({
+      "": [
+        activity({
+          id: "late",
+          date: "2026-08-04",
+          transaction_time: "2026-08-05T00:30:00Z",
+        }),
+      ],
+    });
+    const { svc, upserted } = service();
+    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    expect(result.complete).toBe(true);
+    expect(upserted[0]).toMatchObject({ flow_date: "2026-08-04" });
+  });
+
+  it("falls back to transaction_time in market time when no date is given", async () => {
+    // 01:30 UTC on the 5th is 21:30 ET on the 4th.
+    stubPages({
+      "": [
+        activity({
+          id: "tt",
+          date: undefined,
+          transaction_time: "2026-08-05T01:30:00Z",
+        }),
+      ],
+    });
+    const { svc, upserted } = service();
+    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    expect(result.complete).toBe(true);
+    expect(upserted[0]).toMatchObject({ flow_date: "2026-08-04" });
+  });
+
+  it("filters the overlap window by the real activity date", async () => {
+    stubPages({
+      "": [
+        activity({ id: "before", date: "2026-07-30", net_amount: "500" }),
+        activity({ id: "on", date: "2026-08-01", net_amount: "600" }),
+        activity({ id: "after", date: "2026-08-04", net_amount: "700" }),
+      ],
+    });
+    const { svc, upserted } = service();
+    const result = await backfillCashFlows(svc, "acc-1", "paper", {
+      since: "2026-08-01T13:30:00.000Z",
+    });
+    expect(result.complete).toBe(true);
+    // The baseline day itself counts; earlier days do not.
+    expect(upserted.map((row) => row.external_id).sort()).toEqual(["after", "on"]);
+  });
+
+  it("deduplicates an activity that appears on two pages", async () => {
+    const first = Array.from({ length: 100 }, (_, index) =>
+      activity({ id: `p1-${index}`, net_amount: "10" }),
+    );
+    // The overlap and the token-based walk can both surface the same row.
+    stubPages({
+      "": first,
+      "p1-99": [
+        activity({ id: "p1-0", net_amount: "10" }),
+        activity({ id: "fresh", net_amount: "10" }),
+      ],
+    });
+    const { svc, upserted } = service();
+    const result = await backfillCashFlows(svc, "acc-1", "paper");
+    expect(result.complete).toBe(true);
+    expect(upserted).toHaveLength(101);
+    expect(new Set(upserted.map((row) => row.external_id)).size).toBe(101);
+  });
+
+  it("is incomplete when the baseline boundary itself is unusable", async () => {
+    stubPages({ "": [] });
+    const { svc } = service();
+    const result = await backfillCashFlows(svc, "acc-1", "paper", {
+      since: "not-a-timestamp",
+    });
+    expect(result.complete).toBe(false);
+    expect(result.incompleteReason).toBe("MALFORMED_ACTIVITY");
   });
 });

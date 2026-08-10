@@ -1,20 +1,22 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { getSupabaseServer } from "./supabase/server";
+import { getSessionUser, listOwnedAccounts } from "./accounts/session";
 import { toSafe, type SafeAccount } from "./accounts/service";
 
 export const SELECTED_ACCOUNT_COOKIE = "nt_account";
 
-/** Every non-deleted account owned by the signed-in user (RLS-scoped). */
+/**
+ * Every non-deleted account owned by the signed-in user.
+ *
+ * Read with the service role and filtered by an explicit ownership check —
+ * migration 0011 removed the client's privileges on `accounts` entirely.
+ */
 export async function getUserAccounts(): Promise<SafeAccount[]> {
   try {
-    const supa = await getSupabaseServer();
-    const { data } = await supa
-      .from("accounts")
-      .select("*")
-      .is("deleted_at", null)
-      .order("created_at", { ascending: true });
-    return (data ?? []).map(toSafe);
+    const user = await getSessionUser();
+    if (!user) return [];
+    return (await listOwnedAccounts(user.id)).map(toSafe);
   } catch {
     // Supabase unreachable (e.g. paused project). Treat as "no accounts";
     // account-scoped screens then fail closed without substituting repo data.

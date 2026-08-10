@@ -27,7 +27,12 @@ import {
 } from "./github-api";
 import { executionFromLastRun, parseTournament, parseValidation } from "./parse";
 import { parseEpochBaseline, type V11EpochBaseline } from "./performance";
-import { evaluateLineage, LINEAGE_OK, type LineageVerdict } from "./lineage";
+import {
+  evaluateLineage,
+  lineageWithholdState,
+  LINEAGE_OK,
+  type LineageVerdict,
+} from "./lineage";
 import {
   RUN_SCAN_PAGE_SIZE,
   RUNTIME_ARTIFACT_PREFIX,
@@ -117,8 +122,10 @@ function webInfo(): WebInfo {
   const accountBackendConfigured =
     SUPABASE_CONFIGURED && Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
   const explicitLegacyMode = !SUPABASE_CONFIGURED && LEGACY_DASHBOARD_ALLOWED;
-  const buildSha =
-    process.env.BUILD_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? null;
+  // The dashboard is self-hosted from `dashboard/Dockerfile`; `BUILD_SHA` is
+  // the only supported source. Without it the build SHA is honestly unknown
+  // rather than guessed from a hosting provider's variable.
+  const buildSha = process.env.BUILD_SHA ?? null;
   return {
     dashboardBuildSha: buildSha && buildSha !== "unknown" ? buildSha : null,
     dataMode: accountBackendConfigured
@@ -275,7 +282,7 @@ function strategySection(
       lineage.detail ??
         execution.errors[0] ??
         "the runtime artifact does not belong to the approved paper release",
-      "MISMATCH",
+      lineageWithholdState(lineage),
     );
   }
   if (!execution.performance || !execution.lastRun) {
@@ -367,7 +374,7 @@ function universeSection(
       scope,
       lineage.detail ??
         "the ranking universe cannot be attributed while release lineage disagrees",
-      "MISMATCH",
+      lineageWithholdState(lineage),
     );
   }
 
@@ -745,6 +752,7 @@ export async function buildStrategyStatus(input: {
   const lineage: LineageVerdict = selectorRefusal
     ? {
         ok: false,
+        status: "MISMATCH",
         conflicts: crossChecked.conflicts,
         detail:
           crossChecked.detail ??
@@ -806,7 +814,7 @@ export async function buildStrategyStatus(input: {
           lineage.detail ??
             preflightSelection.errors[0] ??
             "the preflight report does not match the running strategy identity",
-          "MISMATCH",
+          lineageWithholdState(lineage),
         )
       : preflightSelection.preflight
         ? section(
@@ -840,7 +848,7 @@ export async function buildStrategyStatus(input: {
           lineage.detail ??
             executionSelection.errors[0] ??
             "the executor record does not belong to the approved paper release",
-          "MISMATCH",
+          lineageWithholdState(lineage),
         )
       : executionSelection.lastRun
         ? section(
@@ -935,7 +943,7 @@ export async function buildStrategyStatus(input: {
           convergenceScope,
           lineage.detail ??
             "convergence is not computed while release lineage disagrees",
-          "MISMATCH",
+          lineageWithholdState(lineage),
         )
       : strategy.data?.plan && input.broker.ok
         ? section<ConvergenceInfo>(

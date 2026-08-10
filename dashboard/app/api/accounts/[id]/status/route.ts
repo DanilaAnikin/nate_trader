@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServer } from "@/lib/supabase/server";
 import { getSupabaseService } from "@/lib/supabase/service";
+import {
+  getSessionUser,
+  loadOwnedAccount,
+} from "@/lib/accounts/session";
 import { fetchBrokerSnapshot, loadCredentials } from "@/lib/status/broker";
 import { buildStrategyStatus } from "@/lib/status/read-model";
 
@@ -22,10 +25,7 @@ type Ctx = { params: Promise<{ id: string }> };
  */
 export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
-  const supa = await getSupabaseServer();
-  const {
-    data: { user },
-  } = await supa.auth.getUser();
+  const user = await getSessionUser();
   if (!user) {
     return NextResponse.json(
       { code: "UNAUTHENTICATED", error: "Authentication is required." },
@@ -33,16 +33,11 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
-  // RLS scopes this to the caller's own accounts. `owner_id` is read here (and
-  // re-checked below) so production authorization can never rest on anything
-  // the browser supplied.
-  const { data: account } = await supa
-    .from("accounts")
-    .select("id,nickname,mode,owner_id")
-    .eq("id", id)
-    .is("deleted_at", null)
-    .single();
-  if (!account || account.owner_id !== user.id) {
+  // Service-role read with an explicit ownership check in code. `owner_id`
+  // feeds the production authorization, so it must never come from anything
+  // the browser supplied nor rest solely on an RLS policy.
+  const account = await loadOwnedAccount(user.id, id);
+  if (!account) {
     return NextResponse.json(
       { code: "ACCOUNT_NOT_FOUND", error: "Account not found." },
       { status: 404, headers: { "Cache-Control": "no-store" } },

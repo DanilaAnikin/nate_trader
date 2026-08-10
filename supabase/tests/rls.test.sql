@@ -2,7 +2,7 @@
 -- rls.test.sql — Row-Level Security verification (DASHBOARD plan T1.8)
 --
 -- Proves account isolation and credential lockdown. Run against a project
--- that has migrations 0001–0006 applied. Two auth users must exist; pass
+-- that has migrations 0001–0011 applied. Two auth users must exist; pass
 -- their UUIDs via psql variables:
 --
 --   psql "$DATABASE_URL" \
@@ -20,20 +20,22 @@ begin;
 insert into accounts (id, owner_id, nickname, mode)
 values ('aaaaaaaa-0000-0000-0000-000000000001', :'user_a', 'Test A', 'paper');
 
--- --- 1. user A can read their own account ----------------------------------
+-- --- 1. user A can see their own account through the sanitized view --------
+-- Since 0011 the base table carries no client privileges, so isolation is
+-- asserted on the only client-readable surface.
 set local role authenticated;
 select set_config('request.jwt.claims', json_build_object('sub', :'user_a')::text, true);
 do $$ begin
-  if (select count(*) from accounts
+  if (select count(*) from accounts_safe
       where id = 'aaaaaaaa-0000-0000-0000-000000000001') <> 1 then
-    raise exception 'FAIL: user A cannot read their own account';
+    raise exception 'FAIL: user A cannot see their own account';
   end if;
 end $$;
 
 -- --- 2. user B cannot read user A's account --------------------------------
 select set_config('request.jwt.claims', json_build_object('sub', :'user_b')::text, true);
 do $$ begin
-  if (select count(*) from accounts
+  if (select count(*) from accounts_safe
       where id = 'aaaaaaaa-0000-0000-0000-000000000001') <> 0 then
     raise exception 'FAIL: user B can read user A account (RLS leak)';
   end if;

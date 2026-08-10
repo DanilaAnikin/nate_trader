@@ -11,7 +11,13 @@ import {
   YAxis,
 } from "recharts";
 import { money, percent, points } from "@/lib/status/client";
-import { Metric, MetricGrid, Panel, UnavailableBlock } from "./status/primitives";
+import {
+  Metric,
+  MetricGrid,
+  Panel,
+  StatePill,
+  UnavailableBlock,
+} from "./status/primitives";
 import { useStrategyStatus } from "./status/StatusProvider";
 
 /**
@@ -94,11 +100,31 @@ export default function ForwardPerformancePanel() {
 
   const performance = body.performance;
   const baseline = body.baseline;
+  // A number that is no longer current must say so where the number is, not
+  // only in the provenance footer.
+  const outdated = body.status === "STALE" || body.status === "EXPIRED";
   return (
     <Panel
       title="E · Forward paper-validation performance"
       subtitle={`Cash-flow-adjusted TWR vs ${performance.benchmarkSymbol} over ${performance.sessions} shared sessions (${performance.startDate} → ${performance.endDate})`}
     >
+      {outdated && (
+        <div
+          role="status"
+          className="mb-4 flex flex-col items-start gap-2 rounded-md border border-dashed border-border-strong bg-surface/60 px-4 py-3"
+        >
+          <StatePill state={body.status} />
+          <p className="text-sm font-medium text-foreground">
+            These figures are not current
+          </p>
+          <p className="text-xs text-secondary max-w-prose">
+            {body.detail ??
+              `The most recent session shared by the account and the benchmark is ${performance.endDate}.`}{" "}
+            They describe the window ending on that session and say nothing
+            about performance since.
+          </p>
+        </div>
+      )}
       <MetricGrid>
         <Metric
           label="Portfolio TWR"

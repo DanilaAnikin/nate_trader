@@ -1,8 +1,8 @@
 import type { NextConfig } from "next";
 
 // Next 16 forbids `turbopack.root` mismatching `outputFileTracingRoot`.
-// Vercel auto-sets `outputFileTracingRoot` to the monorepo root, so we
-// don't pin `turbopack.root` here and let Next/Vercel agree on the value.
+// `turbopack.root` is deliberately not pinned here: the Docker build sets the
+// tracing root, and pinning both would make them disagree.
 
 // Security headers (NFR-SEC-3). The CSP is intentionally limited to the
 // directives that harden the app without breaking Next's inline runtime:

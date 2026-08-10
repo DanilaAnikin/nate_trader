@@ -5,6 +5,7 @@ import {
   type StatusAccount,
   type StatusViewer,
 } from "./read-model";
+import { RUN_SCAN_PAGE_SIZE } from "./runtime";
 import type { BrokerResult } from "./broker";
 import type { BrokerInfo } from "./types";
 import {
@@ -198,8 +199,16 @@ function stubGithub(options: RouteOptions = {}) {
       });
     }
     if (url.includes("/workflows/paper-production.yml/runs")) {
+      // Mirror GitHub's paging exactly: `page` is 1-based, `per_page` bounds
+      // the slice, and a page beyond the end is empty. A stub that returned
+      // every run on every page would make the scan look like it paged when it
+      // never left page one.
+      const params = new URL(url).searchParams;
+      const perPage = Number(params.get("per_page") ?? "30");
+      const page = Number(params.get("page") ?? "1");
+      const slice = runs.slice((page - 1) * perPage, page * perPage);
       return json({
-        workflow_runs: runs.map((run) => ({
+        workflow_runs: slice.map((run) => ({
           id: run.id,
           run_number: run.runNumber,
           run_attempt: 1,
@@ -681,6 +690,72 @@ describe("independent runtime source selection", () => {
     expect(payload.preflight.provenance.scope).toContain("#114");
   });
 
+  it("crosses an exactly-full first page to reach the executor on page two", async () => {
+    // The boundary case a stub that ignores `page` can never exercise: the
+    // first page comes back with exactly RUN_SCAN_PAGE_SIZE runs, which proves
+    // nothing about whether more exist, so a second page must be requested.
+    const preflightOnly: RunSpec[] = Array.from(
+      { length: RUN_SCAN_PAGE_SIZE },
+      (_, index) => ({
+        id: 3000 + index,
+        runNumber: 200 + index,
+        conclusion: "success",
+        event: "workflow_dispatch",
+        // Newest first: index 0 is the most recent.
+        updatedAt: new Date(
+          Date.parse("2026-08-09T09:00:00Z") - index * 60_000,
+        ).toISOString(),
+        runtimeArtifactName: null,
+        diagnostics: diagnosticsZipBuffer(),
+      }),
+    );
+
+    const handler = stubGithub({
+      runs: [
+        ...preflightOnly,
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: diagnosticsZipBuffer(),
+        },
+      ],
+    });
+
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: new Date("2026-08-09T12:00:00Z"),
+    });
+
+    // The run list really was requested twice, the second time for page 2.
+    const runListCalls = handler.mock.calls
+      .map(([input]) => String(input))
+      .filter((url) => url.includes("/workflows/paper-production.yml/runs"));
+    const pagesRequested = runListCalls.map((url) =>
+      Number(new URL(url).searchParams.get("page") ?? "1"),
+    );
+    expect(pagesRequested).toContain(2);
+    expect(
+      runListCalls.every(
+        (url) =>
+          Number(new URL(url).searchParams.get("per_page")) ===
+          RUN_SCAN_PAGE_SIZE,
+      ),
+    ).toBe(true);
+
+    expect(payload.execution.data).not.toBeNull();
+    expect(payload.execution.data?.runUrl).toContain("/runs/900");
+    expect(payload.strategy.data?.plan?.planId).toBe("f8756105eb63dde2");
+    // The newest preflight is still the one on page one.
+    expect(payload.preflight.provenance.scope).toContain("#200");
+  });
+
   it("stops at the freshness boundary instead of scanning forever", async () => {
     stubGithub({
       runs: [
@@ -918,6 +993,81 @@ describe("lineage mismatch is fail-closed", () => {
     expect(payload.execution.data).toBeNull();
     expect(payload.convergence.data).toBeNull();
     expect(payload.validationGate.reasons).toContain("LINEAGE_MISMATCH");
+  });
+
+  it("withholds everything when the preflight cannot prove its own lineage", async () => {
+    // A preflight report that simply omits its strategy identity used to be
+    // read as "nothing to disagree with" and left every section CURRENT.
+    const base = preflightJson();
+    const details = { ...(base.details as Record<string, unknown>) };
+    delete details.strategy_identity;
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: diagnosticsZipBuffer({ ...base, details }),
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    // Missing evidence is reported as UNAVAILABLE, not as a disagreement —
+    // but it withholds exactly as much.
+    for (const key of [
+      "strategy",
+      "universe",
+      "preflight",
+      "execution",
+      "convergence",
+    ] as const) {
+      expect(payload[key].data).toBeNull();
+      expect(payload[key].provenance.freshness).toBe("UNAVAILABLE");
+    }
+    expect(payload.validationGate.effective).not.toBe("PASS");
+    expect(payload.validationGate.reasons).toContain("LINEAGE_MISMATCH");
+  });
+
+  it("withholds everything when the frozen plan has no signal date", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(
+            performanceJson({
+              adaptive_rebalance_pending: frozenPlanJson({ signal_date: null }),
+            }),
+          ),
+          diagnostics: diagnosticsZipBuffer(),
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.execution.data).toBeNull();
+    expect(payload.convergence.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+    // The plan must not leak through any section once it is withheld.
+    expect(JSON.stringify(payload)).not.toContain("f8756105eb63dde2");
   });
 
   it("returns UNAVAILABLE, not a fallback, for a corrupt artifact", async () => {

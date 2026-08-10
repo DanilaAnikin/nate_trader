@@ -48,6 +48,10 @@ echo "==> accounts lockdown assertions"
 "${PSQL[@]}" -v user_a="$USER_A" -v user_b="$USER_B" \
   -f "$TESTS/accounts_server_managed.test.sql"
 
+echo "==> client read exposure assertions"
+"${PSQL[@]}" -v user_a="$USER_A" -v user_b="$USER_B" \
+  -f "$TESTS/client_read_exposure.test.sql"
+
 echo "==> legacy RLS assertions"
 "${PSQL[@]}" -v user_a="$USER_A" -v user_b="$USER_B" \
   -f "$TESTS/rls.test.sql"

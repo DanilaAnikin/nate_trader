@@ -110,12 +110,45 @@ type Activity = {
 const CASH_ACTIVITY_TYPES = ["CSD", "CSW", "JNLC", "ACATC"] as const;
 const CASH_ACTIVITY_TYPE_SET: ReadonlySet<string> = new Set(CASH_ACTIVITY_TYPES);
 
+/**
+ * External movements of *securities*, not cash.
+ *
+ * `ACATS` transfers positions in or out of the account, `JNLS` journals shares
+ * between accounts, and `FOPT` is an option-related position adjustment. None
+ * of them has a cash `net_amount` that could be booked as a flow, yet every one
+ * changes equity without the strategy having traded. Time-weighted return has
+ * no way to neutralise them from the activity record alone, so their presence
+ * since the baseline makes the number unreportable rather than approximate.
+ *
+ * They are requested alongside the cash types precisely so they are *detected*.
+ */
+const NON_CASH_TRANSFER_TYPES = ["ACATS", "JNLS", "FOPT"] as const;
+const NON_CASH_TRANSFER_TYPE_SET: ReadonlySet<string> = new Set(
+  NON_CASH_TRANSFER_TYPES,
+);
+
+const REQUESTED_ACTIVITY_TYPES = [
+  ...CASH_ACTIVITY_TYPES,
+  ...NON_CASH_TRANSFER_TYPES,
+] as const;
+
 const ACTIVITY_PAGE_SIZE = 100;
 const MAX_ACTIVITY_PAGES = 50;
+
+/**
+ * Alpaca's `after` filter is applied to the activity's own date, but the record
+ * a transfer agent posts can settle on a different day than the one the event
+ * is finally dated to, and corrections re-date existing rows. Asking for a
+ * window that starts this many days *before* the baseline makes such a shift
+ * visible; rows are then deduplicated by activity id and filtered on the real
+ * occurrence date, so the overlap can only add evidence, never double-count.
+ */
+export const ACTIVITY_OVERLAP_DAYS = 10;
 
 export type CashFlowIncompleteReason =
   | "MALFORMED_ACTIVITY"
   | "UNEXPECTED_ACTIVITY_TYPE"
+  | "NON_CASH_EXTERNAL_TRANSFER"
   | "NO_PAGINATION_TOKEN"
   | "PAGE_LIMIT_REACHED";
 
@@ -129,6 +162,77 @@ export interface CashFlowBackfillResult {
   readonly refreshedAt: string;
   /** Newest activity timestamp seen, for freshness reporting. */
   readonly latestActivityAt: string | null;
+}
+
+/**
+ * Alpaca sends `net_amount` as a decimal *string* ("-2500.00"), and sometimes
+ * as a JSON number. Nothing else is acceptable.
+ *
+ * `Number()` is the trap this replaces: `Number(null)`, `Number("")` and
+ * `Number("   ")` are all `0`, and `Number(true)` is `1` — so a broken or
+ * absent amount silently became "a cash activity that moved no money" and the
+ * walk was still declared complete. Every one of those must fail closed.
+ */
+export function parseNetAmount(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  // A strict decimal: optional sign, digits, optional fraction. No hex, no
+  // exponent, no "Infinity", no "NaN", no empty string, no thousands commas.
+  if (!/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * The day the activity actually happened, in market time.
+ *
+ * Alpaca's non-trade activities carry `date` (the occurrence/settlement day)
+ * and may also carry `transaction_time` (when the record was created). They can
+ * disagree across a day boundary, so `date` wins when it is present and valid.
+ */
+export function resolveActivityDate(
+  activity: Activity,
+  etDate: Intl.DateTimeFormat,
+): { readonly date: string; readonly instant: string } | null {
+  if (typeof activity.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(activity.date)) {
+    const noon = Date.parse(`${activity.date}T12:00:00Z`);
+    if (Number.isFinite(noon)) {
+      // Midday UTC is inside the ET day for every US offset, so formatting
+      // cannot roll the date backwards.
+      return { date: activity.date, instant: new Date(noon).toISOString() };
+    }
+  }
+  const raw =
+    typeof activity.date === "string" && activity.date.trim()
+      ? activity.date
+      : typeof activity.transaction_time === "string"
+        ? activity.transaction_time
+        : "";
+  if (!raw.trim()) return null;
+  const parsed = Date.parse(raw);
+  if (!Number.isFinite(parsed)) return null;
+  const at = new Date(parsed);
+  return { date: etDate.format(at), instant: at.toISOString() };
+}
+
+/** The market-time calendar day an ISO instant (or plain date) falls on. */
+function boundaryDate(iso: string, etDate: Intl.DateTimeFormat): string | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const parsed = Date.parse(iso);
+  if (!Number.isFinite(parsed)) return null;
+  return etDate.format(new Date(parsed));
+}
+
+/** Shift an ISO instant (or plain date) by whole days, as an ISO instant. */
+function shiftIsoDays(iso: string, days: number): string | null {
+  const parsed = Date.parse(
+    /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T00:00:00Z` : iso,
+  );
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 function incomplete(
@@ -187,14 +291,31 @@ export async function backfillCashFlows(
   let pagesRead = 0;
   let complete = false;
   let latestActivityAt: string | null = null;
+  /** Every activity id already accounted for, across pages and the overlap. */
+  const seen = new Set<string>();
+
+  // The requested window starts before the baseline (see ACTIVITY_OVERLAP_DAYS)
+  // so a re-dated or late-settling transfer cannot fall through the boundary.
+  const baselineDate = options.since ? boundaryDate(options.since, etDate) : null;
+  const queryAfter = options.since
+    ? shiftIsoDays(options.since, -ACTIVITY_OVERLAP_DAYS)
+    : null;
+  if (options.since && (baselineDate === null || queryAfter === null)) {
+    // Without a usable boundary the walk cannot say what it covered.
+    return incomplete(
+      "MALFORMED_ACTIVITY",
+      `The epoch baseline timestamp ${options.since} is not a usable date, so the activity window cannot be bounded.`,
+      0,
+    );
+  }
 
   for (let page = 0; page < MAX_ACTIVITY_PAGES; page++) {
     const query = new URLSearchParams({
-      activity_types: CASH_ACTIVITY_TYPES.join(","),
+      activity_types: REQUESTED_ACTIVITY_TYPES.join(","),
       page_size: String(ACTIVITY_PAGE_SIZE),
       direction: "desc",
     });
-    if (options.since) query.set("after", options.since);
+    if (queryAfter) query.set("after", queryAfter);
     if (pageToken) query.set("page_token", pageToken);
 
     const res = await fetch(`${ALPACA_BASE[mode]}/account/activities?${query}`, {
@@ -220,13 +341,6 @@ export async function backfillCashFlows(
         typeof activity.activity_type === "string"
           ? activity.activity_type.trim()
           : "";
-      const stamp =
-        typeof activity.date === "string"
-          ? activity.date
-          : typeof activity.transaction_time === "string"
-            ? activity.transaction_time
-            : "";
-      const amount = Number(activity.net_amount);
 
       if (!id) {
         return incomplete(
@@ -235,6 +349,9 @@ export async function backfillCashFlows(
           pagesRead,
         );
       }
+      // Pagination is by id, so it must advance even for a row that is skipped
+      // as pre-baseline or already seen.
+      lastId = id;
       if (!type) {
         return incomplete(
           "MALFORMED_ACTIVITY",
@@ -242,43 +359,57 @@ export async function backfillCashFlows(
           pagesRead,
         );
       }
-      if (!CASH_ACTIVITY_TYPE_SET.has(type)) {
+      if (
+        !CASH_ACTIVITY_TYPE_SET.has(type) &&
+        !NON_CASH_TRANSFER_TYPE_SET.has(type)
+      ) {
         return incomplete(
           "UNEXPECTED_ACTIVITY_TYPE",
           `Alpaca returned activity type ${type}, which was not requested.`,
           pagesRead,
         );
       }
-      if (!stamp) {
+
+      const occurred = resolveActivityDate(activity, etDate);
+      if (!occurred) {
         return incomplete(
           "MALFORMED_ACTIVITY",
-          `Alpaca activity ${id} has no timestamp.`,
-          pagesRead,
-        );
-      }
-      const parsed = Date.parse(
-        /^\d{4}-\d{2}-\d{2}$/.test(stamp) ? `${stamp}T12:00:00Z` : stamp,
-      );
-      if (!Number.isFinite(parsed)) {
-        return incomplete(
-          "MALFORMED_ACTIVITY",
-          `Alpaca activity ${id} has an unparseable timestamp.`,
-          pagesRead,
-        );
-      }
-      if (!Number.isFinite(amount)) {
-        return incomplete(
-          "MALFORMED_ACTIVITY",
-          `Alpaca activity ${id} has an invalid net_amount.`,
+          `Alpaca activity ${id} has no usable occurrence date.`,
           pagesRead,
         );
       }
 
-      const iso = new Date(parsed).toISOString();
-      if (latestActivityAt === null || iso > latestActivityAt) {
-        latestActivityAt = iso;
+      // The overlap window deliberately reaches behind the baseline. Those rows
+      // prove nothing was re-dated across the boundary, but they belong to the
+      // pre-V11 era and are neither written nor counted.
+      if (baselineDate !== null && occurred.date < baselineDate) continue;
+      // Deduplicate by activity id: the overlap and a re-dated correction can
+      // both surface the same activity twice.
+      if (seen.has(id)) continue;
+      seen.add(id);
+
+      if (latestActivityAt === null || occurred.instant > latestActivityAt) {
+        latestActivityAt = occurred.instant;
       }
-      lastId = id;
+
+      // A securities transfer changes equity with no cash leg to book. Return
+      // is not merely imprecise here — it is unattributable.
+      if (NON_CASH_TRANSFER_TYPE_SET.has(type)) {
+        return incomplete(
+          "NON_CASH_EXTERNAL_TRANSFER",
+          `An external securities transfer (${type}, ${occurred.date}) settled in this account after the V11 epoch baseline. It moves positions without a cash flow, so no return or alpha can be attributed to the strategy.`,
+          pagesRead,
+        );
+      }
+
+      const amount = parseNetAmount(activity.net_amount);
+      if (amount === null) {
+        return incomplete(
+          "MALFORMED_ACTIVITY",
+          `Alpaca activity ${id} has an invalid or missing net_amount.`,
+          pagesRead,
+        );
+      }
 
       // A zero-amount cash activity moves no money and is not a flow, but it
       // was still fully understood, so it does not break completeness.
@@ -286,7 +417,7 @@ export async function backfillCashFlows(
 
       rows.set(id, {
         account_id: accountId,
-        flow_date: etDate.format(new Date(parsed)),
+        flow_date: occurred.date,
         amount: Math.round(amount * 100) / 100,
         kind: amount > 0 ? "deposit" : "withdrawal",
         source: "alpaca_activities",

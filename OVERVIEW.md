@@ -1,225 +1,159 @@
-# Nate Trader — current system, V11 strategy, production and dashboard contract
+# Nate Trader — current system, V11 strategy, production and dashboard
 
-> Audit snapshot: 2026-08-07 (Europe/Prague)
+> Snapshot: 2026-08-10 (Europe/Prague)
 >
-> Repository baseline: `49cd8bda494550f1b8b7b2232eb7af6fe92e9390` (`main`)
+> Repository `main` HEAD when this document was written:
+> `5e34ca7f1083ce6fba7fef8442c290598b80247e`
 >
-> Audience: maintainers and coding agents taking over the production dashboard
+> Newest dashboard tag: `v11-dashboard-prod-2026-08-10` → that same commit.
+> **It is not deployed.** See section 12.
 >
-> Scope: current behavior, not an aspirational design and not investment advice
+> Audience: maintainers and coding agents operating this repository
+>
+> Scope: what the system does today. Not an aspirational design, not a plan,
+> and not investment advice.
 
-## 0. Implementation status (2026-08-07 dashboard rebuild)
+---
 
-Sections 11–17 of this document described the dashboard **as it was before the
-rebuild** plus the contract it had to meet. That contract has since been
-implemented. What changed:
-
-- The unified server-side read model of section 12 exists as
-  `dashboard/lib/status/` and is served by `GET /api/accounts/[id]/status`.
-  Every section carries its own source, scope, absolute `asOf`, relative age and
-  freshness state, using exactly the vocabulary of section 12.2.
-- The missing arrow in the section 4 diagram is closed: a **server-only** reader
-  now fetches the private `paper-runtime-state-<approved SHA>` and
-  `paper-diagnostics` Actions artifacts, validating name, release lineage,
-  schema, size and the exact expected entry list before returning a sanitized
-  DTO. No Python, workflow or other strategy-identity source was modified, so
-  the existing canonical validation and release approval remain valid.
-- Access to that runtime is authorized server-side by
-  `PRODUCTION_OWNER_USER_ID` **and** `PRODUCTION_ACCOUNT_ID` **and** paper mode
-  **and** account ownership; `PRODUCTION_ALPACA_ACCOUNT_NUMBER` is an optional
-  extra AND check against a freshly read Alpaca `/v2/account`. An unauthorized
-  viewer receives none of it and triggers no GitHub Actions call. Unproven
-  accounts are observer-only and their V11 compliance is `NOT_APPLICABLE`.
-- `accounts` is SELECT-only for end users (migration
-  `0009_accounts_server_managed.sql`); server-managed columns are not
-  client-writable, and the client DTO is an explicit allowlist that exposes only
-  a four-character broker mask.
-- The legacy V10 screener/research/benchmark screens, the committed-state
-  fallbacks, the static "Dashboard Online" dot and the stale-SPY alpha chart
-  were removed. `/operations` was added.
-- Forward performance uses cash-flow-adjusted TWR over a shared benchmark
-  window and requires a persisted V11 epoch baseline.
-
-An independent security audit of that first build (2026-08-09) found and
-required fixes for: a cross-tenant leak of the central production runtime to any
-signed-in user; a production binding that accepted a client-writable broker
-account number as an OR proof; the full Alpaca account number reaching the
-browser; a release gate that accepted pull-request and manual successes; a
-runtime selection where a newer preflight-only run hid an older valid execution;
-lineage mismatches that only warned; a validation gate that conflated the stored
-report with the effective authorization; forward performance that could start at
-the wrong session or report a number after a refresh error; and a ZIP reader
-without CRC, duplicate-entry, header-agreement or streaming size checks. All are
-fixed and covered by regression tests; see the dashboard section of `README.md`.
-
-Gaps that the UI genuinely cannot close are tracked in section 18 and are
-rendered as `UNAVAILABLE` rather than estimated.
-
-## 1. Executive summary
+## 1. What this repository is
 
 Nate Trader is a research system and a guarded **Alpaca paper-trading**
-forward-validation system. Its current directional strategy is
-`v11-adaptive-momentum`: a causal, long-only, monthly US-equity momentum
-portfolio. It does not trade live money, options, crypto, FX, futures, every
-listed instrument, or the old leveraged TQQQ/UPRO strategy.
+executor for one strategy, `v11-adaptive-momentum`, plus a **read-only**
+Next.js dashboard that observes it.
 
-The current V11 process ranks a broad validated universe of ordinary US common
-stocks and ADRs, applies liquidity/trend/volatility/sector filters, and targets
-up to ten equal-weight positions. It normally keeps at least 10% cash, scales
-exposure down with weak market breadth, exits directional exposure when SPY is
-below SMA200, and has independent portfolio-damage circuit breakers.
+Three planes, deliberately separated:
 
-The checked-in canonical validation is `PASS`, but that means only that the
-exact frozen code, universe and historical evidence are eligible for forward
-paper validation. It does **not** prove future alpha, does not authorize live
-money, and does not make the historical 2025–2026 interval fresh out-of-sample
-evidence.
+- **Research / release** — the canonical validator produces
+  `state/backtest/v11_validation.json`; the `V11 Release Gate` workflow proves a
+  commit is green; a human then approves one exact SHA for trading.
+- **Execution** — one scheduled GitHub Actions workflow checks out that exact
+  approved SHA, runs preflight, and calls the guarded executor against an
+  Alpaca **paper** account. Runtime state lives in a private Actions artifact,
+  never in git.
+- **Observability** — the dashboard reads the broker, Supabase, the repository
+  at an explicit ref, GitHub Actions metadata and (server-side only) the
+  private runtime artifact, and renders each with its own provenance.
 
-An epoch-1 tournament compared eleven pre-registered strategies and retained
-V11. No challenger passed all return, drawdown, cost, delay, capacity,
-stability and multiple-testing gates. Production therefore did not change.
+The dashboard cannot place, cancel or modify an order. It has no code path that
+mutates strategy state, and it never becomes a trading control plane.
 
-The production dashboard is currently only partially compatible with this
-system:
-
-- Dashboard and Positions can read a freshly selected Alpaca account.
-- Authentication, account metadata, credentials and equity history use
-  Supabase.
-- Market regime, SPY comparison, Research and Screener still read stale,
-  committed V10-era files from `state/`.
-- The dashboard does not read the private V11 production artifact, so it does
-  not know the approved trading release, frozen target, risk-off latch, true
-  execution risk snapshot, pending convergence, last preflight or scheduler
-  health.
-- The UI therefore mixes facts with different sources, accounts, timestamps
-  and meanings. A fresh broker request is not the same thing as a fresh V11
-  run.
-
-This document defines the source-of-truth hierarchy and the contract the UI
-must follow. It deliberately separates **broker state**, **strategy intent**,
-**operational health**, **validation evidence** and **historical research**.
-
-## 2. Non-negotiable claim and safety boundary
-
-No strategy can be made “perfect”, and positive historical alpha cannot be
-guaranteed to continue. Every user-facing result must preserve these facts:
+## 2. Non-negotiable claims
 
 - V11 is in **paper forward validation**, not production-proven live trading.
-- The supported executor is hard-wired to Alpaca paper trading.
-- A validation `PASS` permits new paper exposure only when every identity and
-  freshness gate still matches.
-- Historical results have current-universe selection/survivorship bias.
-- The 2025–2026 interval was seen during prior development and is explicitly a
-  reused temporal check, not a fresh holdout.
+- The supported executor is hard-wired to Alpaca paper (`paper=True`).
+- A validation `PASS` permits new paper exposure only while every identity and
+  freshness gate still matches. It expires.
+- Historical results carry current-universe selection/survivorship bias.
+- The 2025–2026 interval was seen during development. It is a **reused temporal
+  check**, not a fresh holdout.
 - Jensen alpha is a SPY/BIL CAPM statistic, not a promise of economic profit.
 - Account equity before the V11 cutover contains legacy V10/TQQQ/UPRO history
-  and cannot be labeled “V11 performance” without a persisted V11 epoch
-  baseline.
-- The dashboard is a read-only observability layer. It must not become a
-  trading control plane or reimplement strategy decisions in TypeScript.
+  and is never labelled "V11 performance". Without a persisted V11 epoch
+  baseline, forward performance is `UNAVAILABLE`.
 
-The correct user-facing phrase is “historical diagnostic” or “paper
-forward-validation result”, never “guaranteed alpha”, “works perfectly” or
-“production proven”.
+The correct user-facing phrase is "historical diagnostic" or "paper
+forward-validation result" — never "guaranteed alpha" or "production proven".
 
-## 3. Source-of-truth hierarchy
+## 3. Three SHAs, three meanings
 
-When files disagree, use this order and show the source explicitly in the UI.
+These are independent and must never be conflated. The UI shows all three
+separately, and each has its own failure mode.
 
-| Concern | Authoritative source | Notes |
+| Layer | Where it comes from | What it means |
 |---|---|---|
-| Current account, positions, orders and clock | Fresh Alpaca response for the explicitly bound account | Broker state is authoritative for what is actually held/filled. |
-| Decision used by one production cycle | Captured production preflight/result for that cycle | Must include time, approved release and account binding. |
-| In-flight target and order intent | Valid schema-v3 `adaptive_rebalance_pending` plan in the private runtime artifact | Intent is not a fill. It must match strategy and universe identity. |
-| Active strategy rules | Effective `_V11_POLICY` in `scripts/strategy_config.py`, plus `scripts/adaptive_momentum.py` and `scripts/risk_policy.py` | Do not infer active policy from archived v3–v10 tables/functions. |
-| Execution behavior | `scripts/execute_trades.py`, `scripts/trade.py`, `scripts/production_run.py` | Adaptive V11 dispatch disables the legacy trading stack. |
-| Production approval | `paper-production` environment `PRODUCTION_RELEASE_SHA` plus a successful exact-SHA release gate | `main` or a trigger SHA is not automatically the traded SHA. |
-| Promotion evidence | `state/backtest/v11_validation.json`, recomputed and identity/freshness checked | `PASS` is paper-only and expires. |
-| Cross-strategy research | Epoch-specific tournament spec, result Markdown and JSON artifact | Never merge tournament metrics with canonical-validator metrics. |
-| Dashboard policy labels | `dashboard/lib/v11-policy.json` | A tested display mirror, not the trading source of truth. |
-| Committed `state/performance.json` and `state/positions.json` | Legacy/seed snapshot only | Never substitute them for account-scoped production data. |
-| `state/research*.json`, `state/screener.json`, `state/spy_history.json` | Legacy research snapshots | Not current V11 runner state. |
-| v3–v10 documents and modules | Archive/audit reference | Not current policy. |
+| **Web build SHA** | `BUILD_SHA` baked into the dashboard image; reported by `GET /api/health` and `payload.web.dashboardBuildSha` | Which commit the running web application was built from. Changing it deploys UI only. |
+| **Approved trading release SHA** | `PRODUCTION_RELEASE_SHA` in the `paper-production` GitHub environment (or, for a deployment whose token cannot read environment variables, the dashboard's own `PRODUCTION_RELEASE_SHA`) | The exact commit the paper workflow checks out and trades. **Only a human changes this.** |
+| **Runtime artifact SHA** | The suffix of the private artifact `paper-runtime-state-<sha>` that produced the state on screen | Which release actually wrote the runtime state being displayed. |
 
-Two older dashboard documents need special care:
+Rules the read model enforces:
 
-- `DASHBOARD_SPECIFICATION.md`
-- `DASHBOARD_IMPLEMENTATION_PLAN.md`
+- The trigger SHA of a workflow run is **not** the trading release. A scheduled
+  run is triggered from the newest `main` while checking out the older approved
+  SHA.
+- If the approved SHA cannot be read from an authoritative source, it may be
+  *derived* from the runtime artifact name — but that value is flagged
+  non-authoritative and can never satisfy the effective validation gate.
+- If the runtime artifact is not named for the approved release, nothing from
+  it is shown. An older artifact is never silently substituted.
+- `dashboardMatchesApprovedRelease` is reported as a fact, not a warning: the
+  web build and the trading release are *expected* to differ.
 
-They describe an older ambition in which an agent trades every Supabase paper
-and live account. That directly conflicts with the current guarded, single
-approved **paper-only** executor. They are historical planning material, not an
-authority for the new implementation. Any useful authentication, RLS or data
-model ideas may be retained, but their trading-control assumptions must not be
-revived.
-
-## 4. Current high-level architecture
+## 4. Architecture
 
 ```text
                           RESEARCH / RELEASE PLANE
 
-  strategy code + adjusted bars + frozen universe
+  strategy code + adjusted bars + frozen ranking universe
                          |
                          v
-  canonical V11 validator ------> v11_validation.json (PASS/FAIL evidence)
+  canonical V11 validator ------> state/backtest/v11_validation.json
                          |
                          v
-  V11 Release Gate for exact commit SHA
+  V11 Release Gate for an exact commit SHA  (3 jobs, section 11.1)
                          |
                          v
-  explicit paper-production PRODUCTION_RELEASE_SHA approval
+  human approval: paper-production PRODUCTION_RELEASE_SHA
 
 
                          EXECUTION PLANE
 
   weekday/manual GitHub Actions paper workflow
                          |
-        restore exact-SHA private runtime artifact
+        check out exactly PRODUCTION_RELEASE_SHA
                          |
-        verify release + validation + identity + bars
+        require a green release gate for that exact SHA
                          |
-        paper broker preflight + dry/guarded execution
+        restore the private paper-runtime-state-<sha> artifact
                          |
-             Alpaca PAPER account only
+        offline sanity + paper broker/deployment preflight
+                         |
+        scripts/production_run.py -> Alpaca PAPER account only
                          |
         save performance.json / positions.json /
-        production/last_run.json to a private artifact
+        production/last_run.json back to the private artifact
 
 
                          OBSERVABILITY PLANE
 
-  Browser -> Next.js dashboard -> Supabase Auth/RLS/Vault
-                              |-> selected Alpaca account (read-only snapshot)
-                              |-> Supabase equity history + cash flows
-                              |-> repository evidence at an explicit git ref
-                              |-> GitHub Actions run/gate metadata
-                              |-> private V11 runtime artifact
-                                  (server-only, lineage-validated, sanitized)
+  Browser -> Next.js dashboard (server) -> Supabase Auth / RLS / Vault
+                                       |-> selected Alpaca account (read-only)
+                                       |-> Supabase equity + cash-flow mirror
+                                       |-> repository evidence at an explicit ref
+                                       |-> GitHub Actions run and gate metadata
+                                       |-> private V11 runtime artifact
+                                           (server-only, lineage-validated,
+                                            returned as a sanitized DTO)
 ```
 
-The last arrow was the core dashboard problem and is now closed. Broker
-positions alone cannot reveal the target portfolio, signal date, breadth tier,
-SPY gate, recovery latch, plan identity, pending order lifecycle or production
-workflow status; those now come from the private runtime artifact, read only on
-the server and returned to the browser as a sanitized DTO.
+## 5. Source-of-truth hierarchy
 
-### 4.1 Three different deployed versions
+When sources disagree, use this order — and show the source explicitly in the
+UI rather than picking a convenient value.
 
-As of this audit, three SHAs have different meanings:
-
-| Layer | SHA / tag | Meaning |
+| Concern | Authoritative source | Notes |
 |---|---|---|
-| Repository `main` | `49cd8bda494550f1b8b7b2232eb7af6fe92e9390` | Latest source, including the strategy tournament. Its V11 Release Gate passed. |
-| Approved paper executor | `0cb02c0765ebf91e60e5efd7f51334e9b538fbcb` / `v11-paper-prod-2026-08-02` | Exact release checked out by the guarded paper workflow. |
-| Deployed dashboard | `d11bbad8aad7ec98596b0d290cb938706982d069` / `v11-dashboard-prod-2026-08-03` | Build reported by `https://nate-trader.anikin.cz/api/health`. |
+| Current account, positions, orders and clock | A fresh Alpaca response for the explicitly bound account | The broker is authoritative for what is actually held and filled. |
+| The decision one production cycle made | The captured preflight/result for that cycle | Includes time, approved release and account binding. |
+| In-flight target and order intent | The schema-v3 `adaptive_rebalance_pending` plan in the private runtime artifact | Intent is not a fill. It must match strategy and universe identity. |
+| Active strategy rules | Effective `_V11_POLICY` in `scripts/strategy_config.py`, plus `scripts/adaptive_momentum.py` and `scripts/risk_policy.py` | Never infer active policy from archived v3–v10 tables. |
+| Execution behaviour | `scripts/execute_trades.py`, `scripts/trade.py`, `scripts/production_run.py` | The adaptive V11 dispatch disables the legacy trading stack. |
+| Production approval | `paper-production` environment `PRODUCTION_RELEASE_SHA` plus a successful exact-SHA release gate | `main`, and a run's trigger SHA, are not the traded SHA. |
+| Promotion evidence | `state/backtest/v11_validation.json`, recomputed and identity/freshness checked | `PASS` is paper-only and expires. |
+| Cross-strategy research | The epoch-specific tournament spec, result Markdown and JSON artifact | Never merge tournament metrics with canonical-validator metrics. |
+| Dashboard policy labels | `dashboard/lib/v11-policy.json` | A tested display mirror, not a trading source of truth. |
+| v3–v10 documents and modules | Archive and audit reference only | Not current policy. |
 
-The UI must never call the default-branch/trigger SHA the “trading release”. A
-scheduled run may be triggered from a newer `main`, while the workflow itself
-checks out the older explicitly approved SHA.
+Committed `state/performance.json`, `state/positions.json`,
+`state/research*.json`, `state/screener.json` and `state/spy_history.json` are
+legacy seed snapshots. The active dashboard does **not** read them: every
+runtime number comes from the private artifact for the approved release, the
+broker, or the account-scoped Supabase mirror. Earlier versions of this
+document described a UI that fell back to those committed files; that fallback
+was removed and must not return.
 
-## 5. V11 Adaptive Momentum in detail
+## 6. V11 Adaptive Momentum in detail
 
-### 5.1 Instrument universe
+### 6.1 Instrument universe
 
 The intended live discovery boundary is Alpaca assets that are active,
 tradable US equities on supported exchanges. `scripts/universe.py` then keeps
@@ -257,7 +191,7 @@ V11 therefore covers many ordinary US stocks, not “every possible stock and
 everything else”. Crypto, options, futures, FX and non-US asset classes are
 outside the implemented and validated strategy.
 
-### 5.2 Information clock
+### 6.2 Information clock
 
 V11 is explicitly causal:
 
@@ -275,7 +209,7 @@ daily bar cannot leak into the signal. Live DAY limit orders may fill later or
 not at all; “D+1 open” is the earliest legal backtest/decision clock, not a
 promise of the official opening print.
 
-### 5.3 Ranking signal
+### 6.3 Ranking signal
 
 For stock `i` at completed date D:
 
@@ -293,7 +227,7 @@ Ranking is deterministic:
 V11 does not use the legacy news/AI confidence score, a score threshold of 65,
 RSI, MACD, most-active lists or short-term movers to authorize a trade.
 
-### 5.4 Eligibility filters
+### 6.4 Eligibility filters
 
 A new candidate must pass all of these checks at the signal date:
 
@@ -311,7 +245,7 @@ A new candidate must pass all of these checks at the signal date:
 Unknown or weakly inferred sectors are rejected rather than allowed to bypass
 the sector cap.
 
-### 5.5 Target construction
+### 6.5 Target construction
 
 The production target is transparent:
 
@@ -327,10 +261,10 @@ The production target is transparent:
 
 Top ten, 9% and 20% are **target-construction rules**. A live broker snapshot
 may temporarily have nine of ten positions, a weight slightly above 9% after a
-price move, or transitional legacy exposure. The UI must describe the delta
-and lifecycle, not automatically call every drift a strategy failure.
+price move, or transitional legacy exposure. The portfolio screen describes the
+delta and its lifecycle rather than calling every drift a strategy failure.
 
-### 5.6 Breadth scaler
+### 6.6 Breadth scaler
 
 Breadth is the share of liquid, price-eligible names above their SMA200:
 
@@ -345,7 +279,7 @@ An unavailable breadth calculation fails defensively to 50% exposure scaling;
 it never authorizes more exposure. Breadth changes gross exposure, not ranks,
 and it cannot bypass SPY, risk, position or sector rules.
 
-### 5.7 SPY market gate and recovery
+### 6.7 SPY market gate and recovery
 
 SPY must be above its 200-session SMA for a non-zero directional target. This
 gate is checked on every executor invocation, not only at month start.
@@ -362,10 +296,12 @@ permits one fresh off-cycle D-close/D+1 target. Once consumed, ordinary monthly
 cadence resumes.
 
 The legacy `BULL/BEAR/NEUTRAL` label in `research_summary.json` is not this
-gate. The V11 UI should show `SPY RISK-ON` or `SPY RISK-OFF`, the completed
-session, SPY close, SMA200 and recovery-latch state.
+gate and is not read by the dashboard. The UI shows `SPY RISK-ON` or
+`SPY RISK-OFF` and the recovery-latch state; the numeric SPY close, its SMA200
+and the breadth census are not persisted by the runner and are therefore
+`UNAVAILABLE` (section 10.6).
 
-### 5.8 Portfolio damage tiers
+### 6.8 Portfolio damage tiers
 
 Risk classification uses current equity, the previous broker equity and the
 highest observation inside a rolling 22-session window:
@@ -379,7 +315,7 @@ highest observation inside a rolling 22-session window:
 The SPY gate and risk tier combine. A `CAUTIOUS` account can still take reduced
 risk when SPY is above SMA200; SPY risk-off or `HALT` produces a zero target.
 
-### 5.9 What V11 explicitly disables
+### 6.9 What V11 explicitly disables
 
 The effective policy sets these legacy/alternative sleeves to zero or off:
 
@@ -403,7 +339,7 @@ migration. Active parameters are produced by applying `_V11_POLICY`, and the
 adaptive dispatch skips the legacy order stack. UI code must not introspect an
 old table, docstring or function name and present it as current strategy.
 
-## 6. Data completeness and fail-closed behavior
+## 7. Data completeness and fail-closed behaviour
 
 Risk-on target creation is intentionally strict:
 
@@ -430,7 +366,7 @@ when credentials are available and adjusted yfinance as a fallback.
 `--incremental` is faster but is not safe promotion evidence because later
 corporate actions can revise the historical adjustment basis.
 
-## 7. Live order lifecycle and safety
+## 8. Live order lifecycle and safety
 
 The broker-independent planner returns target weights. The executor converges
 actual positions to those targets:
@@ -473,7 +409,9 @@ The dashboard may connect to a real Alpaca account for **read-only monitoring**.
 That does not make the V11 executor live-capable and must never display a
 live observer account as “managed by V11”.
 
-## 8. Canonical validation result
+## 9. Canonical validation and research evidence
+
+### 9.1 Canonical validation result
 
 Artifact: `state/backtest/v11_validation.json`
 
@@ -492,7 +430,7 @@ Artifact: `state/backtest/v11_validation.json`
 | Runtime | Python 3.12.11, alpaca-py 0.43.5, NumPy 2.5.1, pandas 3.0.5 |
 | Freshness limit | 35 days for report and bar boundary; the stored 2026-07-10 bar boundary is the earlier constraint and reaches its limit on 2026-08-14 UTC |
 
-### 8.1 Stored headline metrics
+### 9.2 Stored headline metrics
 
 | Cost per fill | Segment | V11 CAGR | SPY CAGR | Excess CAGR | Jensen alpha | Sharpe | Max drawdown |
 |---:|---|---:|---:|---:|---:|---:|---:|
@@ -505,7 +443,7 @@ The 15 bps reused raw excess is only +0.2677 percentage points. The positive
 Jensen alpha partly reflects lower SPY beta. These facts must be visible
 instead of collapsing the result into a single green “alpha” number.
 
-### 8.2 Limitations that must accompany the metrics
+### 9.3 Limitations that must accompany the metrics
 
 - The ranking universe is based on a current/fallback list, not historical
   point-in-time membership with complete delisting returns.
@@ -520,7 +458,7 @@ instead of collapsing the result into a single green “alpha” number.
 - A code, dependency, workflow, universe or validated historical-prefix change
   requires a new canonical validation.
 
-## 9. Strategy tournament epoch 1
+### 9.4 Strategy tournament epoch 1
 
 Authoritative artifacts:
 
@@ -567,519 +505,355 @@ The tournament runner and canonical validator are different controlled
 experiments, so their V11 reused-period numbers are slightly different. The UI
 must keep their names, methodology and metrics separate.
 
-## 10. Production deployment and operations
+## 10. Dashboard: the status architecture
 
-There are only two supported GitHub workflows:
+### 10.1 One server-side read model
 
-### 10.1 `V11 Release Gate`
+Everything the strategy screens display comes from a single endpoint,
+`GET /api/accounts/[id]/status`, assembled by `dashboard/lib/status/`. The
+browser never talks to GitHub, never sees an artifact, and never receives a
+credential, a Vault UUID, a broker order id or a full broker account number.
 
-`.github/workflows/v11-release.yml` runs on `main` pushes and pull requests.
-It verifies:
+The payload (`StrategyStatusPayload`, schema-versioned) carries these sections,
+each an independently-provenanced `Section<T>`:
 
-- locked dashboard install;
-- high-severity dependency audit;
-- dashboard unit tests, ESLint, TypeScript and production build;
-- Python 3.12.11 and hash-locked production requirements;
-- complete Python regression suite;
-- compile checks and critical Ruff checks; and
-- canonical promotion artifact through `scripts/sanity_check.py`.
+| Section | Source |
+|---|---|
+| `web` | The dashboard's own build and data mode |
+| `release` | GitHub environment variable + release-gate runs |
+| `authorization` | The five-point production check (section 10.3) |
+| `accountBinding` | The role this account plays, derived from that check |
+| `broker` | A fresh read-only Alpaca `/v2/account` + positions snapshot |
+| `strategy` | Frozen plan, risk tier and targets from the private artifact |
+| `universe` | Preflight report + frozen plan |
+| `validation` | `state/backtest/v11_validation.json` at the approved ref |
+| `preflight` | `production-preflight.json` from `paper-diagnostics` |
+| `execution` | `production/last_run.json` from the runtime artifact |
+| `operations` | Workflow run and job metadata |
+| `tournament` | Frozen epoch-1 research evidence |
+| `convergence` | Frozen plan vs the fresh broker snapshot |
+| `validationGate` | The one derived "may V11 buy right now" verdict |
 
-A green release gate makes a commit reviewable/approvable. It does not place an
-order.
+Every section states its `source`, `scope`, absolute `asOf`, relative age and
+freshness. There is no global "online" dot: `web`, `broker`, `runtime`,
+`scheduler` and `validation` are five separate indicators with five separate
+contracts.
 
-### 10.2 `V11 Paper Production`
+### 10.2 State vocabulary
 
-`.github/workflows/paper-production.yml`:
+| State | Meaning |
+|---|---|
+| `CURRENT` | Read successfully and inside its freshness contract |
+| `STALE` | Genuine, but older than its contract allows |
+| `EXPIRED` | So old it must not inform a decision |
+| `MISMATCH` | Two documents that must agree do not |
+| `UNAVAILABLE` | Could not be read, or the evidence needed was never there |
+| `NOT_APPLICABLE` | Meaningless for this viewer or account |
+| `PENDING` / `PASS` / `WARN` / `FAIL` | Check outcomes |
 
-- requests a weekday run at 15:05 UTC; GitHub may start it later;
-- serializes invocations with concurrency;
-- checks out only the full SHA stored in `PRODUCTION_RELEASE_SHA`;
-- requires a green release gate for that exact SHA;
+A number is never shown without one of these. Missing data never becomes zero,
+and never becomes a green check.
+
+### 10.3 The five-point production binding
+
+The frozen plan, pending order intents, preflight, executor results and
+workflow operations all describe **one** central production account. Owning
+some Supabase account is not enough to see them. All five conditions must hold
+together — AND, never OR:
+
+1. `PRODUCTION_OWNER_USER_ID` equals the signed-in Supabase user;
+2. `PRODUCTION_ACCOUNT_ID` equals the selected account;
+3. the account is in **paper** mode;
+4. the account is owned by that owner (service-role read of `owner_id`,
+   verified in code); and
+5. `PRODUCTION_ALPACA_ACCOUNT_NUMBER` equals the account number read **fresh
+   from Alpaca `/v2/account`** during this request.
+
+Point 5 is mandatory and is the only broker-side proof. A number stored in
+Supabase is never accepted, because the first four conditions establish only
+*who is asking about which row* — they cannot show that the row's Vault
+credentials point at the account the executor actually trades. An unreadable
+broker fails the check closed.
+
+Without all five, the account is observer-only: V11 compliance is
+`NOT_APPLICABLE`, the private runtime is withheld, and **no GitHub Actions call
+is made for that viewer at all**.
+
+### 10.4 One shared lineage verdict
+
+`dashboard/lib/status/lineage.ts` cross-checks the approved release, strategy
+identity, strategy version and ranking-universe hash across the preflight, the
+frozen plan and the executor record — once, so no two sections can disagree
+about whether production is coherent.
+
+- **Absent evidence is not agreement.** A document that is *present* must carry
+  every lineage field it owns, in the exact expected format: a SHA-256 must be
+  64 lower-case hex characters, a commit id 40, a signal date a real
+  `YYYY-MM-DD` calendar day. Null, empty, whitespace, truncated, uppercase or
+  prefixed values all fail.
+- Only the frozen plan persists `signal_date`; neither the run record nor the
+  preflight does. It is therefore **not** compared between documents. It is
+  required to exist, to be a valid calendar date, and to be no later than the
+  cycle that wrote it.
+- The preflight carries no strategy-version string, so the version evidence
+  used is the one it does persist: its `frozen_v11_policy` and
+  `strategy_identity` checks must both be present and passing.
+- Any conflict — including a selector-level refusal such as a wrongly named
+  artifact — withholds **all** of `strategy`, `universe`, `preflight`,
+  `execution` and `convergence`, and the effective validation gate cannot be
+  `PASS`. Two documents that contradict each other give `MISMATCH`; evidence
+  that was never there gives `UNAVAILABLE`. Neither is ever `CURRENT`.
+
+### 10.5 Reading the private artifacts
+
+`dashboard/lib/status/runtime.ts` selects the executor result and the preflight
+**independently**, because a manual `operation=preflight` run produces
+diagnostics but no runtime state and must not hide an older valid execution.
+The scan walks successful runs newest-first across pages (100 per page, up to
+10 pages) and stops at an explicit 45-day freshness boundary.
+
+Before anything is parsed, the reader checks the artifact name, its advertised
+size, and the exact expected entry list. The ZIP reader handles the streaming
+layout GitHub actually produces — general-purpose bit `0x0008`, zeroed local
+headers and signed `PK\x07\x08` data descriptors — and verifies each
+descriptor against the central directory, along with CRC, duplicate entries and
+header agreement.
+
+### 10.6 Sections that are honestly `UNAVAILABLE`
+
+These are not bugs and are not estimated. The backend does not persist the
+fact, and recomputing it in the browser would create a second, unvalidated
+strategy:
+
+- **SPY close, SMA200 and the breadth census.** The runner records the
+  resulting gate flag and eligible count, not the numeric SPY level, the
+  breadth numerator/denominator or the breadth multiplier.
+- **Per-filter eligibility and the 12-1 / 6-1 rank table.** The signals funnel
+  therefore shows universe → eligible → selected, with each individual filter
+  stage `UNAVAILABLE`.
+- **Forward performance without a persisted epoch baseline.** The reader,
+  schema, TWR maths and UI all exist, but until
+  `state/v11_epoch_baseline.json` carries a release SHA, start time, starting
+  equity and benchmark baseline, the panel stays `UNAVAILABLE`. It is never
+  back-filled from pre-V11 account history.
+- **Anything downstream of a lineage conflict** (section 10.4).
+
+### 10.7 Forward performance accounting
+
+`GET /api/accounts/[id]/performance` is fail-closed by construction. It returns
+a named `UNAVAILABLE` reason rather than a number when any of these hold:
+
+- the viewer is not the production viewer, or the approved release is unknown;
+- no epoch baseline is persisted, or it is bound to a different release,
+  strategy or account, or its recorded observations disagree with the data;
+- the equity mirror or the cash-flow walk could not be refreshed or queried;
+- the Alpaca activity walk could not be proven complete;
+- **an external securities transfer (`ACATS`, `JNLS`, `FOPT`) settled after the
+  baseline** — it moves positions with no cash leg, so no return or alpha is
+  attributable (`NON_CASH_EXTERNAL_TRANSFER`);
+- a session is dated after today's New York date beyond a five-minute
+  clock-skew tolerance; or
+- the two series do not genuinely share a window.
+
+What it does when it *can* answer:
+
+- Cash flows are mirrored from Alpaca activities with strict typing:
+  `net_amount` is accepted only as a finite JSON number or a plain decimal
+  string. Null, boolean, empty, whitespace, `NaN` and `Infinity` make the walk
+  incomplete rather than silently reading as zero.
+- The activity window starts ten days **before** the baseline, because Alpaca
+  filters on the activity's own date, which a late settlement or correction can
+  move. Rows are deduplicated by activity id and filtered on the real
+  occurrence date, so the overlap can only add evidence.
+- Both the equity curve and the cash-flow ledger are read **page by page**.
+  Supabase caps a response at 1000 rows without an error, so an unpaged read
+  would return a shorter — and wrong — history that still looks valid.
+- The root `status` mirrors the provenance freshness exactly. A `STALE` or
+  `EXPIRED` result is labelled as such at the top of the response *and* carries
+  a banner in the UI. It is never presented as current.
+
+### 10.8 Pages
+
+| Route | Content |
+|---|---|
+| `/` | Overview: five system indicators, release lineage, plan summary |
+| `/positions` | Portfolio: actual vs target, convergence, legacy holdings |
+| `/screener` | Signals: universe → eligible → selected funnel |
+| `/research` | Canonical validation and tournament evidence, with limitations |
+| `/operations` | Workflow attempts, infrastructure vs strategy failures |
+| `/accounts` | Account management, verification, key rotation |
+| `/settings` | Profile and default account |
+| `/login` | Supabase authentication |
+
+`/operations` shows both "the latest attempt failed for infrastructure reasons"
+and "the last successful executor snapshot is from *date*" — never one dot.
+
+## 11. Workflows
+
+There are exactly two supported workflows. The archived optimizer, research and
+multi-account workflows must not be restored.
+
+### 11.1 `V11 Release Gate` — `.github/workflows/v11-release.yml`
+
+Non-trading. Runs on `main` pushes, pull requests and manual dispatch. Three
+independent jobs:
+
+| Job | What it proves |
+|---|---|
+| `dashboard-gate` | Node 22, `npm ci` from the lockfile, `npm audit --audit-level=high`, dashboard tests, ESLint, `tsc --noEmit`, production `next build` |
+| `release-gate` | Python 3.12.11, `pip install --require-hashes -r requirements.lock`, `pip check`, the complete pytest suite, `compileall`, critical Ruff checks (E9,F63,F7,F82), and `scripts/sanity_check.py` |
+| `supabase-schema-gate` | Applies **every** migration to a real `postgres:16-alpine` service and runs the SQL assertions against it — a database test, not a grep over SQL text |
+
+A green gate makes a commit *approvable*. It does not place an order and it
+does not deploy anything.
+
+### 11.2 `V11 Paper Production` — `.github/workflows/paper-production.yml`
+
+The only supported executor. It:
+
+- requests a weekday run at 15:05 UTC (GitHub may start it later);
+- serialises invocations with concurrency;
+- checks out only the full SHA in `PRODUCTION_RELEASE_SHA`;
+- requires a successful release gate for that **exact** SHA;
 - installs Python 3.12.11 and `requirements.lock` with hashes;
-- restores only a matching private runtime artifact;
-- runs offline sanity and paper broker/deployment preflight;
+- restores only a matching private runtime artifact, after schema and lineage
+  validation;
+- runs offline sanity and the paper broker/deployment preflight;
 - optionally runs a read-only dry preview;
-- calls `scripts/production_run.py` only for the schedule or explicit execute;
-- preserves runtime state for 90 days and diagnostics for 30 days; and
-- returns failure on blocking `ABORT`/`ERROR` records.
+- calls `scripts/production_run.py` only for the schedule or an explicit
+  `operation=execute`;
+- keeps runtime state for 90 days and diagnostics for 30 days; and
+- fails on blocking `ABORT`/`ERROR` records.
 
-Mutable runtime state is intentionally not committed. The artifact includes:
-
-- `state/performance.json`;
-- `state/positions.json`; and
-- `state/production/last_run.json`.
+Mutable runtime state is deliberately **not** committed. The private artifact
+`paper-runtime-state-<approved sha>` contains exactly three files:
+`state/performance.json`, `state/positions.json` and
+`state/production/last_run.json`.
 
 The workflow uses repository Alpaca paper secrets. Supabase dashboard accounts
-use a separate credential store. Until an explicit, verifiable account binding
-exists, the UI cannot assume the selected Supabase account is the production
-executor account merely because it is paper or happens to hold similar names.
-
-### 10.3 Operational snapshot at this audit
-
-These values are time-sensitive evidence for the handoff and must not be
-hard-coded into the application. They were already superseded on the day this
-document was written; the live equivalents are on the dashboard's
-`/operations` screen, read from the Actions run metadata and the private
-runtime artifact:
-
-- Last successful paper cycle: 2026-08-05 16:50 UTC.
-- Preflight: 18/18 checks passed, paper endpoint, no shorts or pre-existing
-  open orders.
-- Captured execution risk snapshot: `NORMAL`; market entry was allowed.
-- Last saved broker snapshot contained nine V11 equities: ASML, CASY, CAT,
-  MPC, MRK, PANW, ROST, VLO and VRT.
-- Frozen plan `29a8b1667bd3ac6c` used signal date 2026-08-03 and targeted ten
-  names at 9%; UNH was the missing target and MPC needed a top-up.
-- Two `ADAPTIVE_BUY` records meant orders were submitted, not proven filled.
-- The next scheduled attempt on 2026-08-06 failed before the job started
-  because GitHub could not acquire a hosted runner. No strategy, preflight or
-  broker execution ran in that failed attempt.
-
-The correct operations UI must show both “latest workflow attempt failed due
-to infrastructure” and “last successful executor snapshot is from 5 August”.
-It must not reduce both facts to a single green or red dot.
-
-### 10.4 Runtime risk-state conflict discovered in the audit
-
-The last run/preflight captured `NORMAL` from a fresh broker account and
-rolling-history snapshot. The subsequently saved `performance.json` classified
-`CAUTIOUS` from a mixed local daily history containing the older V10 period.
-
-For the decision made by that cycle, the captured per-run broker risk snapshot
-is authoritative. A future UI must retain source and time for both values and
-surface the conflict. It must not silently choose a convenient green value or
-merge the histories.
-
-## 11. Current dashboard architecture
-
-### 11.1 Technology
-
-- Next.js 16 App Router;
-- React 19 and strict TypeScript;
-- Tailwind CSS 4;
-- Recharts;
-- Supabase Auth/SSR, Postgres, Vault and RLS;
-- Vitest for data/policy contracts;
-- standalone Docker build;
-- production URL currently reports account-scoped mode.
-
-Routes:
-
-- `/` — account overview;
-- `/accounts` — account and credential management;
-- `/positions` — broker positions;
-- `/research` — legacy V10 research diagnostics;
-- `/screener` — legacy V10 screener;
-- `/settings` — profile/default observer account/password;
-- `/login` — Supabase authentication.
-
-Important API routes:
-
-- `/api/accounts/[id]/live` — authenticated, account-scoped Alpaca account and
-  position snapshot, `no-store`;
-- `/api/accounts/[id]/equity` — refreshes/mirrors Alpaca portfolio history into
-  Supabase and returns equity snapshots/cash flows;
-- `/api/accounts/*` — account CRUD and verification;
-- `/api/health` — web configuration/build health only;
-- `/api/live` — retired global endpoint, correctly returns 410;
-- `/api/spy-history` — committed legacy benchmark history.
-
-### 11.2 What already works correctly
-
-- A delayed request for account A cannot paint over selected account B.
-- Account/mode/schema/source are runtime-validated before live broker data are
-  displayed.
-- In account-scoped production mode, broker failure does not silently fall
-  back to a global committed account snapshot.
-- Supabase Auth gates the application; RLS isolates account rows.
-- Alpaca credentials stay server-side in Vault.
-- Live observer accounts are labeled read-only and the V11 executor remains
-  paper-only.
-- Current source already removed the screenshot-era “max 15” and fixed “STOP
-  8%” columns and mirrors the basic V11 top-10/cash/name constraints.
-- `tests/test_dashboard_policy_contract.py` prevents the static display mirror
-  from silently drifting from important Python policy values.
-
-### 11.3 Why the UI is still incompatible
-
-The application mixes at least four independent scopes:
-
-| UI datum | Current source | Problem |
-|---|---|---|
-| Equity, cash, daily P&L, current positions | Direct selected Alpaca account | Fresh broker state, but not necessarily the production-controlled account. |
-| Equity curve | Alpaca history mirrored into Supabase | Cash flows are returned but currently ignored by the main UI. It can include legacy pre-V11 history. |
-| SPY regime/monthly comparison | `state/research_summary.json` on `main` | Snapshot ends 2026-07-10 and its regime is not the V11 SPY/SMA200 gate. |
-| Research | `state/research.json` on `main` | Archived V10 confidence/news/Perplexity process. |
-| Screener | `state/screener.json` on `main` | Archived V10 movers/score-65 process, last updated 2026-06-02. |
-| Strategy target/risk/lifecycle | Not loaded | Exists in the private runtime artifact. |
-| Scheduler/release/preflight health | Not loaded | `/api/health` only reports web readiness. |
-
-Consequences:
-
-- `ALPACA FRESH` means only that an HTTP broker request just succeeded. It says
-  nothing about the latest market-data session, V11 target, workflow,
-  validation or fill.
-- The sidebar’s green “Dashboard Online” dot is static web chrome, not system
-  or strategy health.
-- A V11 guardrail is evaluated against any selected observer account, even
-  though the dashboard cannot prove that V11 controls it.
-- Broker positions cannot reveal target weights, sector caps, pending fills or
-  recovery state.
-- Missing data are sometimes rendered as zero, which fabricates financial
-  information.
-- The monthly portfolio calculation and SPY snapshot can cover different
-  windows.
-- The chart can extend a stale SPY value flat across newer portfolio dates and
-  still label the difference alpha.
-- Returned deposits/withdrawals are ignored, so simple equity change can
-  mistake cash flow for investment return.
-- UTC is used for a synthesized “today” point while Alpaca history is bucketed
-  in America/New_York, creating a possible date-boundary mismatch.
-- All-time account history includes V10 and cannot be called V11 performance.
-
-Checked-in legacy state explains old screenshots:
-
-- `state/performance.json` and `state/positions.json` are from 2026-07-10;
-- the committed position snapshot contains TQQQ and UPRO;
-- production runtime moved to a private Actions artifact and is not committed;
-- an account-scoped browser request may show the real broker state, while a
-  fallback/old deployment can still display that stale seed.
-
-## 12. Required unified dashboard read model
-
-Create one server-side, runtime-validated DTO instead of letting components
-join unrelated files. A suggested conceptual contract is:
-
-```text
-StrategyStatusPayload
-  schemaVersion
-  collectedAt
-  freshness / warnings
-
-  web
-    dashboardBuildSha
-    dataMode
-    status
-
-  release
-    repositoryMainSha
-    researchRefSha
-    approvedPaperReleaseSha
-    releaseGateStatus
-
-  accountBinding
-    selectedObserverAccountId
-    productionAccountBound (true/false)
-    bindingProof/source
-    mode (paper/live)
-
-  broker
-    source + asOf
-    equity / cash / positions / open-order summary / clock
-
-  strategy
-    version / identity / paperOnly
-    universe source/count/hash
-    signalDate / rebalanceMonth
-    SPY close / SMA200 / riskOn
-    breadth / breadthMultiplier
-    riskTier / trigger / source
-    recoveryLatch
-    frozenPlanId / construction tier
-    target weights + sectors
-    convergence state + pending actions
-
-  validation
-    status / allowedMode
-    generatedAt / boundary / expiresAt
-    strategy/universe/bar identity match
-    development and reused metrics
-    required warnings
-
-  operations
-    latestWorkflowAttempt
-    lastSuccessfulPreflight
-    lastSuccessfulExecution
-    approved release lineage
-    action counts / blocking reason
-
-  tournament
-    epoch / status / decision / productionChanged
-```
-
-Every section must carry its own `source`, scope, absolute `asOf`, age and
-freshness classification. One root timestamp is insufficient.
-
-Raw credentials, Vault IDs, full account numbers, raw private artifacts,
-broker order IDs and client-order IDs must never be returned to the browser.
-
-### 12.1 Getting strategy runtime data safely
-
-Use one of these safe approaches after reviewing operational trade-offs:
-
-1. A server-only reader for the latest exact-release private Actions artifact,
-   with strict name, release lineage and schema validation, followed by a
-   minimal sanitized DTO; or
-2. A sanitized read-only observability mirror written after production into an
-   account-scoped Supabase table, with explicit release/account identity and
-   RLS.
-
-Do not expose a GitHub token to the client. Do not use committed V10 state as a
-fallback when the runtime source is unavailable. Return `UNAVAILABLE`.
-
-Changing `scripts/production_run.py`, the paper workflow or another strategy
-identity source invalidates existing promotion evidence. If an exporter
-touches those files, a new canonical validation and release gate are required
-before another paper buy. A separate read-only adapter is preferable when it
-can satisfy the contract without changing trading behavior.
-
-### 12.2 Required state vocabulary
-
-Use explicit states, not binary green/red guesses:
-
-- `CURRENT` — source is available, scoped and within its defined freshness;
-- `STALE` — valid but older than its contract;
-- `EXPIRED` — evidence is past an authorization/freshness deadline;
-- `MISMATCH` — identity, account, release, date or schema does not match;
-- `UNAVAILABLE` — source could not be obtained safely;
-- `NOT_APPLICABLE` — a rule does not apply to this observer/account/state;
-- `PENDING` — submitted/reconciling, not filled/converged;
-- `PASS`, `WARN`, `FAIL` — only when a defined check actually ran.
-
-Never convert `null`, missing, stale or mismatched financial data to `$0`,
-`0%`, a green check or “LIVE”.
-
-## 13. Target page-by-page product contract
-
-### 13.1 Global application shell
-
-Always show:
-
-- `V11 Adaptive Momentum`;
-- `PAPER FORWARD VALIDATION`;
-- selected observer account and its paper/live mode;
-- whether that account is explicitly bound to the production executor;
-- broker snapshot freshness;
-- strategy runtime freshness;
-- latest workflow outcome;
-- validation state; and
-- dashboard build SHA separately from the approved paper release SHA.
-
-Replace the static “Dashboard Online” dot with separately named web, broker,
-strategy and scheduler states. All timestamps should have a precise tooltip in
-UTC and America/New_York (or the user locale) and a relative age.
-
-### 13.2 `/` — Overview
-
-Organize the page into distinct sections:
-
-1. **Broker account** — equity, cash, daily P&L and actual exposure from one
-   validated account snapshot.
-2. **V11 market/risk state** — signal session, SPY vs SMA200, risk-on/off,
-   breadth, multiplier, captured risk tier/reason and recovery latch.
-3. **Target convergence** — frozen plan, target gross/cash, actual gross/cash,
-   target count, observed count and the next pending action.
-4. **Operations** — latest workflow attempt, last successful preflight, last
-   successful executor cycle, approved SHA and any blocking failure.
-5. **Forward validation performance** — only after a real V11 epoch baseline
-   exists; use cash-flow-adjusted TWR and SPY over the same dates.
-6. **Evidence** — canonical validation freshness and concise limitations.
-
-Do not call unmatched simple returns alpha. If no V11 cutover baseline exists,
-show “V11 forward performance unavailable — baseline not persisted” rather
-than using all-time account history.
-
-### 13.3 `/positions` → Portfolio
-
-For each symbol, show:
-
-- actual broker quantity/value/weight;
-- V11 target weight;
-- dollar and percentage-point delta;
-- target sector;
-- classification (`TARGET`, `LEGACY/EXCLUDED`, `HELD-ONLY`, `UNMANAGED`);
-- lifecycle (`KEEP`, `BUY`, `TOP-UP`, `TRIM`, `EXIT`, `PENDING`, `CONVERGED`);
-- signal date and plan ID context; and
-- actual unrealized broker P&L, clearly separate from strategy performance.
-
-TQQQ/UPRO or any other real holding must never be hidden. If held, display it
-as actual legacy/excluded exposure with target 0 and its migration state.
-
-Do not invent stop prices. V11 has no fixed 8% position stop.
-
-### 13.4 `/screener` → Signals / Universe
-
-Replace the active V10 score/movers presentation with V11 information:
-
-- universe source, count, hash and cache/fallback freshness;
-- completed signal date;
-- eligibility funnel: data, price, liquidity, trend, positive 12-1,
-  volatility and sector;
-- 12-1 rank and 6-1 tie-break;
-- breadth numerator/denominator and tier;
-- selected target basket and weights.
-
-Do not recompute V11 in the browser or duplicate it in TypeScript. The runner
-must persist/export the needed sanitized ranking diagnostics. Until those
-diagnostics exist, display `UNAVAILABLE`. Legacy score-65, most-active, movers
-and AI confidence may live only in a clearly separated archive, never as an
-active trading signal.
-
-### 13.5 `/research` → Validation & strategy research
-
-Primary content:
-
-- canonical V11 `PASS/FAIL`, allowed mode, generated date, expiry and bar
-  boundary;
-- strategy, universe and bar identity match;
-- 7/15 bps development vs reused-temporal metrics;
-- survivorship, reused-period and no-guarantee warnings;
-- epoch-1 tournament status, `RETAIN_V11`, no eligible challenger and
-  `productionChanged=false`;
-- clear separation of the canonical validator and tournament methodologies.
-
-Move old V10 news/Perplexity/confidence research out of primary navigation or
-put it under an explicit non-trading archive.
-
-### 13.6 `/accounts`
-
-Preserve secure account creation, verification, key rotation and removal.
-Add an unambiguous distinction:
-
-- **production-controlled paper account** — only when proven by an explicit
-  server-side binding; and
-- **observer-only account** — any other paper or live account.
-
-A live account must always display “read-only monitoring; never traded by
-V11”. Switching the observer account must not switch the GitHub Actions
-executor.
-
-### 13.7 New `/operations`
-
-Add a read-only operations page containing:
-
-- web build SHA;
-- repository/research SHA;
-- approved paper release SHA;
-- release gate and validation gate;
-- latest scheduled attempt and infrastructure outcome;
-- last successful preflight/execution;
-- paper-only and market-entry status;
-- frozen plan/convergence summary;
-- sanitized action counts/blocking reason; and
-- safe link to the relevant Actions run when available.
-
-No execute, cancel, sell, approve-release or emergency-trade buttons belong in
-the web UI.
-
-### 13.8 `/settings`
-
-Keep profile, password, default observer account and credential management.
-Add a read-only effective V11 policy summary. Do not add strategy tuning,
-universe refresh or risk-limit controls.
-
-## 14. Return and benchmark correctness
-
-Any performance comparison must satisfy all of these conditions:
-
-- same bound account;
-- explicit V11 epoch start and release identity;
-- same start/end sessions for portfolio and SPY;
-- no forward-filling SPY beyond its last actual common session;
-- cash-flow-adjusted TWR (or a clearly labeled unadjusted equity series);
-- exact source and time zone;
-- no reuse of V10 account history as V11 results; and
-- `UNAVAILABLE` when dates, cash flows or benchmark coverage cannot be aligned.
-
-The current `/api/accounts/[id]/equity` response already includes cash flows,
-but the client ignores them. Fix that before presenting account return. A
-deposit must not look like profit and a withdrawal must not look like a loss.
-
-Historical backtest alpha and live paper account performance are different
-products. Never splice them into one continuous chart.
-
-## 15. Security requirements for any dashboard rebuild
-
-- Keep the application behind Supabase authentication.
-- Preserve RLS account isolation and exact account scoping.
-- Keep service-role keys, GitHub tokens and Alpaca credentials server-only.
-- Never return Vault UUIDs, secrets, full broker account numbers or raw private
-  artifacts.
-- Keep financial/account API responses `no-store`.
-- Preserve request cancellation and exact account/mode/schema checks on account
-  switching.
-- Do not fall back from a failed account-scoped request to public repo state.
-- Preserve HSTS, clickjacking, MIME-sniffing and CSP headers.
-- Redact logs and error messages.
-- Do not modify `PRODUCTION_RELEASE_SHA`, trigger an execute workflow or place
-  broker orders as part of a UI deployment.
-- If a required strategy-identity file changes, stop paper buys until a new
-  canonical validation/release promotion is complete.
-
-## 16. Required test matrix for the rebuild
-
-### 16.1 Unit and contract tests
-
-- Runtime DTO validation for every source and schema.
-- Freshness/expiry/mismatch classifications.
-- Exact separation of build, main/research and approved-trading SHAs.
-- Tri-state/explicit guardrail evaluation.
-- Target-vs-actual and legacy/held-only classification.
-- TWR with deposits and withdrawals.
-- Benchmark alignment with no forward-fill beyond common dates.
-- New York session-date handling.
-- Validation expiry and identity mismatch.
-- Sanitization/no-secret serialization.
-
-### 16.2 API and security tests
-
-- unauthenticated access;
-- RLS and account A/B isolation;
-- selected account different from production binding;
-- live observer account;
-- Alpaca timeout/auth/schema failure;
-- Supabase outage;
-- GitHub/artifact outage or corrupt zip;
-- stale exact-release artifact;
-- trigger SHA different from approved release;
-- raw artifact/order identifiers never reach the response.
-
-### 16.3 Component states
-
-Every page needs fixtures for:
-
-- loading;
-- empty but valid;
-- current;
-- stale;
-- expired;
-- mismatch;
-- unavailable;
-- broker fresh but runtime stale;
-- latest workflow failure with an older successful executor run;
-- SPY risk-off cash portfolio;
-- `CAUTIOUS` and `HALT`;
-- recovery latch;
-- nine-of-ten pending convergence;
-- real TQQQ/UPRO legacy holdings;
-- short-position reconciliation;
-- missing V11 epoch baseline; and
-- zero positions due to risk-off versus zero positions due to missing data.
-
-### 16.4 End-to-end, accessibility and visual checks
-
-- login/logout and protected routes;
-- switch accounts without cross-account bleed;
-- all observer/production-bound mode labels;
-- keyboard navigation, focus management, skip link and accessible dialogs;
-- `aria-expanded`/status semantics and screen-reader-readable tables;
-- reduced motion and adequate light/dark contrast;
-- responsive layouts at approximately 390, 768 and 1440 px;
-- visual regression for both themes.
-
-### 16.5 Release commands
-
-At minimum:
+use a separate credential store; that is why the binding in section 10.3 must
+be proven broker-side rather than assumed.
+
+## 12. Database and security model
+
+### 12.1 Migrations
+
+| Migration | Purpose |
+|---|---|
+| `0001_enums.sql` | Shared enum types |
+| `0002_profiles_accounts.sql` | `profiles`, `accounts`, base RLS |
+| `0003_helpers.sql` | `owns_account()` and friends |
+| `0004_account_state.sql` | `equity_snapshots`, `performance`, `positions`, `trades`, `cash_flows`, `routine_runs` |
+| `0005_shared.sql` | Shared research/market tables and the audit log |
+| `0006_storage_policies.sql` | Storage bucket policies |
+| `0007_advisor_hardening.sql` | Pinned `search_path`, revoked `anon` execute |
+| `0008_vault_wrappers.sql` | Vault credential wrappers |
+| `0009_accounts_server_managed.sql` | Removed client **writes** to `accounts`; server-managed column guard |
+| `0010_accounts_guard_authz_fix.sql` | Made that guard `SECURITY INVOKER` so a client role cannot be mistaken for its owner |
+| `0011_revoke_client_reads.sql` | Removed client **reads** (below) |
+
+0009 and 0010 are already applied in production and are never edited;
+corrections go in a new migration.
+
+### 12.2 What 0011 changed and why
+
+0009/0010 stopped clients writing `accounts`, but a signed-in browser could
+still `select *` the base table through Supabase REST and read
+`alpaca_account_number`, both Vault secret UUIDs, `owner_id` and `deleted_at`.
+The TypeScript `SafeAccount` allowlist never protected that path — PostgREST
+answers the browser directly. The 0009 SELECT policy also did not exclude
+soft-deleted rows.
+
+After 0011:
+
+- `accounts`, `trades` and `cash_flows` carry **no client privileges at all**,
+  and their client SELECT policies are dropped, so a future stray `grant` still
+  cannot re-open them;
+- three sanitized, explicitly-columned views remain as defence in depth:
+  `accounts_safe` (a four-character broker mask, never the number),
+  `trades_safe` (no `alpaca_order_id`) and `cash_flows_safe` (no Alpaca
+  activity `external_id`), all filtering `deleted_at is null`;
+- `owns_account()` is restated with a pinned `search_path` and an explicit
+  soft-delete exclusion, so every account-scoped table inherits it; and
+- soft-deleting an account also clears `alpaca_account_number`, so a deleted
+  row stops carrying the identifier the production binding compares against.
+
+Every account read in the application now goes through
+`dashboard/lib/accounts/session.ts`, which reads with the service role and
+verifies the session and ownership **explicitly in code**, at each call site,
+rather than relying on a policy that a single edit could widen everywhere.
+
+`supabase/tests/client_read_exposure.test.sql` proves this against a real
+PostgreSQL server: under `set local role authenticated`, with the same
+privileges Supabase REST uses, it asserts that the base tables raise
+`insufficient_privilege`, that each sensitive column is individually
+unreadable, that a soft-deleted and a foreign account are invisible, and that
+the views expose only their allowlisted columns. A DTO test cannot prove any of
+that.
+
+Reviewed and left with their owner-scoped policies: `equity_snapshots`,
+`performance`, `positions` and `routine_runs` hold prices, quantities,
+timestamps and a public GitHub run URL — no broker identifier and no credential
+reference. Accepted and documented: `routine_runs` rows with
+`account_id is null` are account-agnostic and readable by any signed-in user.
+
+### 12.3 Application security invariants
+
+- The application stays behind Supabase authentication; RLS account isolation
+  and exact account scoping are preserved.
+- Service-role keys, GitHub tokens and Alpaca credentials are server-only.
+- No response contains a Vault UUID, a secret, a full broker account number, a
+  broker order id or a raw artifact.
+- Financial and account responses are `no-store`.
+- Account switching cancels in-flight requests and re-checks account, mode and
+  schema; a failed account-scoped request never falls back to public repo state.
+- HSTS, clickjacking, MIME-sniffing and CSP headers are set.
+- Deploying the UI never modifies `PRODUCTION_RELEASE_SHA`, triggers an execute
+  workflow, or places a broker order.
+- If a strategy-identity source changes, paper buys stop until a new canonical
+  validation and release promotion complete.
+
+## 13. Deployment
+
+### 13.1 What "deployed" means here
+
+The dashboard is a container built from `dashboard/Dockerfile` and served at
+`https://nate-trader.anikin.cz`. **Building an image is not a deployment.** A
+deployment has happened only when the origin host runs the new image and
+`GET /api/health` reports the expected new build SHA.
+
+### 13.2 Prerequisites — all of them, in order
+
+1. Access to the origin host that actually serves the site.
+2. Inspect the Supabase migration ledger and confirm which migrations are
+   already applied.
+3. Apply every pending migration **in order**. `0011` is required by this
+   build: the routes read `accounts` with the service role and the sanitized
+   views must exist.
+4. Confirm Supabase signup is disabled.
+5. Set `BUILD_SHA` to the commit being deployed, and confirm the five
+   production-binding variables (section 10.3) are present.
+6. Run a side-by-side authenticated smoke test against the new build before
+   cutting traffic over: login, account switch, every strategy section, the
+   `UNAVAILABLE` states, and `/api/health`.
+7. Verify the rollback path works (section 13.3) before you need it.
+
+Do not change `PRODUCTION_RELEASE_SHA` in order to deploy the UI. Do not run a
+mutating paper cycle as a smoke test.
+
+### 13.3 Rollback
+
+The last known-good deployed dashboard is
+`d11bbad8aad7ec98596b0d290cb938706982d069`
+(`v11-dashboard-prod-2026-08-03`). Rolling the web image back to that commit
+restores the previous UI without touching the trading release.
+
+Note the ordering constraint: `0011` revokes client table reads that the
+`d11bbad8a` build did not depend on either — that build already read accounts
+through server routes — but it also drops the `update own account metadata`
+grant. Verify account metadata editing in the smoke test after a rollback.
+
+### 13.4 Release commands
 
 ```bash
 cd dashboard
@@ -1089,143 +863,104 @@ npm run lint
 npx tsc --noEmit
 npm run build
 npm audit --audit-level=high
+npx playwright test
 
 cd ..
 PYTHONPATH=scripts python3 -m pytest -q
 python3 -m compileall -q scripts tests
 python3 scripts/sanity_check.py
+git diff --check
+
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
+  supabase/tests/run_integration.sh
 ```
 
-Use the repository’s pinned Python 3.12.11 environment for promotion checks.
-A local interpreter/version mismatch is a dev-environment failure, not evidence
-that the promoted release itself failed.
+Use the pinned Python 3.12.11 environment for promotion checks. A local
+interpreter mismatch is a dev-environment failure, not evidence that the
+promoted release failed.
 
-## 17. Production deployment acceptance criteria
+## 14. Return and benchmark correctness
 
-A dashboard rebuild is complete only when all of these are true:
+Any performance comparison must satisfy all of these:
 
-1. Active UI contains no max-15 rule, fixed 8% stop, TQQQ/UPRO target, V10
-   score-65 authorization or AI/news trading signal.
-2. Real legacy holdings remain visible as actual positions with V11 target 0.
-3. No status says `LIVE`, `FRESH` or `ONLINE` without a named source, scope and
-   freshness contract.
-4. Selected observer account is never called the production V11 account without
-   explicit binding proof.
-5. Missing/stale/mismatched data never become zero or a green check.
-6. Broker state, strategy intent, scheduler health and validation evidence are
-   visually and semantically separate.
-7. Positions show actual vs target and order/fill convergence correctly.
-8. Research shows canonical validation and the tournament, with limitations.
-9. Screener shows V11 universe/signal diagnostics or honest `UNAVAILABLE`.
-10. Performance uses a persisted V11 baseline, cash-flow-adjusted returns and a
-    common SPY interval; otherwise it is unavailable.
-11. The browser bundle and responses contain no sensitive server values.
-12. Unit, contract, component/E2E, accessibility, build and Python regression
-    gates pass.
-13. Only the dashboard is deployed; no paper execution or release-SHA mutation
-    is performed as part of deployment.
-14. After deployment, the actual production `/api/health` reports the expected
-    new dashboard build SHA and account-scoped mode.
-15. Login gating, security headers, account switching and fail-closed states
-    pass production smoke tests.
+- the same bound account;
+- an explicit V11 epoch start and release identity;
+- the same start and end sessions for portfolio and benchmark;
+- no forward-filling the benchmark beyond its last actual common session;
+- cash-flow-adjusted TWR, or a clearly labelled unadjusted equity series;
+- an exact source and time zone (America/New_York session dates);
+- no reuse of V10 account history as a V11 result; and
+- `UNAVAILABLE` when dates, cash flows or benchmark coverage cannot be aligned.
 
-## 18. Known open gaps that UI alone cannot solve
+Historical backtest alpha and live paper account performance are different
+products. They are never spliced into one continuous chart.
 
-Still open after the 2026-08-07 rebuild; each is rendered as `UNAVAILABLE`
-rather than estimated:
+## 15. Known open gaps
 
-- **No persisted V11 forward-validation epoch baseline.** The reader, schema,
-  TWR math and UI all exist, but until a baseline containing release SHA, start
-  time, starting equity and the benchmark baseline is committed to
-  `state/v11_epoch_baseline.json`, forward performance stays `UNAVAILABLE`. It
-  must not be back-filled from pre-V11 account history.
-- **SPY close, SMA200 and the breadth census are not persisted.** The runner
-  records only the resulting gate flag and eligible count, so the numeric SPY
-  level, breadth numerator/denominator and breadth multiplier are `UNAVAILABLE`.
-  Recomputing them in the browser would create a second, unvalidated strategy.
-- **Per-filter eligibility and the 12-1 / 6-1 rank table are not persisted.**
-  The funnel therefore shows universe → eligible → selected, with each
-  individual filter stage `UNAVAILABLE`.
-- The `paper-diagnostics` artifact is not SHA-scoped; the dashboard binds it to
-  a specific successful run instead and cross-checks the strategy identity.
-- A branch/repository security hardening review (for example branch and
-  environment protection) is separate from this UI work.
-- Strong historical claims still require point-in-time universe membership and
-  delisting data plus a genuinely fresh forward period.
+Rendered as `UNAVAILABLE` rather than estimated, and not solvable by UI work:
 
-Closed by the rebuild: the sanitized private-artifact read model, the explicit
-Supabase-account binding, the infrastructure-versus-strategy workflow-failure
-distinction, and the removal of stale committed research/screener/benchmark
-snapshots from the active UI.
+- **No persisted V11 forward-validation epoch baseline.** Everything downstream
+  exists; the baseline does not. See section 10.6.
+- **SPY level, breadth census and per-filter eligibility are not persisted** by
+  the runner. See section 10.6.
+- **`paper-diagnostics` is not SHA-scoped.** The dashboard binds it to a
+  specific successful run and cross-checks the strategy identity instead.
+- **Branch and environment protection** hardening is a repository-administration
+  task, separate from application code.
+- **Stronger historical claims need point-in-time universe membership and
+  delisting data**, plus a genuinely fresh forward period. The required next
+  evidence is frozen-rule forward paper performance across several monthly
+  rebalances.
+- **`state/universe.json` is absent**, so validation resolves the maintained
+  `watchlist.json` fallback. This has not been validated as the broad dynamic
+  common-stock/ADR universe.
 
-The correct solution to a missing backend fact is a small, sanitized,
-well-tested observability contract — not frontend inference.
+The correct answer to a missing backend fact is a small, sanitized, well-tested
+observability contract — never frontend inference.
 
-## 19. Repository map
+## 16. Repository map
 
 | Path | Purpose |
 |---|---|
-| `CLAUDE.md` | Current agent operating/safety manual. |
-| `strategy/v11_adaptive_momentum.md` | Authoritative V11 strategy specification. |
-| `strategy/PRODUCTION_RUNBOOK.md` | Paper release, monitoring and rollback runbook. |
-| `strategy/strategy_tournament_epoch_1.md` | Frozen tournament protocol. |
-| `strategy/strategy_tournament_epoch_1_results.md` | Tournament result summary. |
-| `scripts/strategy_config.py` | Effective V11 overlay plus archived older parameters. |
-| `scripts/adaptive_momentum.py` | Broker-independent signal and target planner. |
-| `scripts/universe.py` | Dynamic universe discovery/cache/fallback. |
-| `scripts/risk_policy.py` | Shared rolling portfolio risk classifier. |
-| `scripts/execute_trades.py` | Guarded target convergence and legacy migration. |
-| `scripts/trade.py` | Alpaca paper order validation and lifecycle. |
-| `scripts/production_preflight.py` | Exact-release/broker safety preflight. |
-| `scripts/production_run.py` | One guarded production paper cycle and compact status. |
-| `scripts/strategy_identity.py` | Strategy and universe identity hashes. |
-| `scripts/backtest/validate_v11.py` | Canonical fixed-policy promotion validator. |
-| `scripts/backtest/run_strategy_tournament.py` | Research-only pre-registered tournament. |
-| `state/backtest/v11_validation.json` | Bound canonical validation evidence. |
-| `state/backtest/strategy_tournament_epoch_1.json` | Complete tournament evidence. |
-| `.github/workflows/v11-release.yml` | Non-trading release gate. |
-| `.github/workflows/paper-production.yml` | Only supported scheduled paper executor. |
-| `dashboard/` | Read-only Next.js application. |
-| `dashboard/lib/status/` | The unified server-side V11 read model. |
-| `dashboard/lib/status/read-model.ts` | Assembles `StrategyStatusPayload`. |
-| `dashboard/lib/status/runtime.ts` | Lineage-validated private-artifact reader. |
-| `dashboard/lib/status/authz.ts` | Server-side production-runtime authorization. |
-| `dashboard/lib/status/binding.ts` | Account role derived from that authorization. |
-| `dashboard/lib/status/validation-gate.ts` | The one effective paper-buy gate. |
-| `dashboard/lib/status/performance.ts` | Cash-flow-adjusted TWR and benchmark alignment. |
-| `dashboard/lib/v11-policy.json` | Tested UI mirror of static V11 labels/limits. |
-| `supabase/` | Auth/account/Vault/RLS and telemetry data model. |
+| `CLAUDE.md` | Agent operating and safety manual |
+| `strategy/v11_adaptive_momentum.md` | Authoritative V11 specification |
+| `strategy/PRODUCTION_RUNBOOK.md` | Paper release, monitoring and rollback runbook |
+| `strategy/strategy_tournament_epoch_1.md` | Frozen tournament protocol |
+| `scripts/strategy_config.py` | Effective `_V11_POLICY` overlay plus archived parameters |
+| `scripts/adaptive_momentum.py` | Broker-independent signal and target planner |
+| `scripts/universe.py` | Universe discovery, cache and fallback |
+| `scripts/risk_policy.py` | Shared rolling portfolio risk classifier |
+| `scripts/execute_trades.py` | Guarded target convergence |
+| `scripts/trade.py` | Alpaca paper order validation and lifecycle |
+| `scripts/production_preflight.py` | Exact-release and broker safety preflight |
+| `scripts/production_run.py` | One guarded production paper cycle |
+| `scripts/strategy_identity.py` | Strategy and universe identity hashes |
+| `scripts/backtest/validate_v11.py` | Canonical fixed-policy validator |
+| `state/backtest/v11_validation.json` | Bound canonical validation evidence |
+| `.github/workflows/v11-release.yml` | Non-trading release gate (3 jobs) |
+| `.github/workflows/paper-production.yml` | The only supported paper executor |
+| `dashboard/lib/status/` | The unified server-side V11 read model |
+| `dashboard/lib/status/lineage.ts` | The one shared, fail-closed lineage verdict |
+| `dashboard/lib/status/authz.ts` | The five-point production authorization |
+| `dashboard/lib/status/runtime.ts` | Lineage-validated private-artifact reader |
+| `dashboard/lib/status/validation-gate.ts` | The one effective paper-buy gate |
+| `dashboard/lib/accounts/session.ts` | The only way a route obtains an account row |
+| `dashboard/lib/accounts/paged.ts` | Proven-complete Supabase paging |
+| `supabase/migrations/` | The applied schema, in order |
+| `supabase/tests/` | Real-PostgreSQL RLS and read-exposure assertions |
 
-## 20. Handoff checklist for the next coding agent
+## 17. Historical note
 
-Before editing:
+Two older documents, `DASHBOARD_SPECIFICATION.md` and
+`DASHBOARD_IMPLEMENTATION_PLAN.md`, describe an earlier ambition in which an
+agent trades every Supabase paper and live account. That conflicts directly
+with the current guarded, single approved paper-only executor. They are
+historical planning material. Their authentication, RLS and data-model ideas
+may be reused; their trading-control assumptions must not be revived.
 
-- read this document, `CLAUDE.md`, the V11 spec and production runbook;
-- inspect the current production `/api/health` and GitHub workflow state;
-- confirm all three SHA scopes independently;
-- audit the private runtime artifact schema without leaking it;
-- identify the production-account binding mechanism;
-- treat older dashboard plans and v3–v10 material as archive.
-
-While implementing:
-
-- introduce a single typed, sanitized server read model;
-- preserve the trading engine and paper-only gates;
-- make missing data explicit;
-- add tests before relying on a new status or metric;
-- avoid frontend copies of trading logic;
-- preserve account isolation and credentials secrecy.
-
-Before deployment:
-
-- run every relevant dashboard and Python gate;
-- inspect the diff for any strategy-identity source change;
-- never change `PRODUCTION_RELEASE_SHA` merely to deploy the UI;
-- never trigger a mutating paper cycle as a smoke test;
-- deploy the web build and verify its exact build SHA, auth, headers, data
-  sources, error states and responsive layout in production.
-
-The desired outcome is not a dashboard that merely looks modern. It is a
-dashboard whose every number can answer: **which account, which source, which
-release, which completed session, how fresh, and does this represent actual
-broker state, strategy intent, operational health or historical evidence?**
+V10's apparent performance was never a valid baseline: the portfolio was
+concentrated in TQQQ/UPRO, the simulator used same-session close information
+for same-session-open trades, the live picker did not fetch enough sessions for
+its lookback, and an infrastructure symbol was not consistently marked to
+market. v3–v10 code and documents are audit references only. Their behaviour
+and historical dependencies are not guaranteed to remain reproducible.

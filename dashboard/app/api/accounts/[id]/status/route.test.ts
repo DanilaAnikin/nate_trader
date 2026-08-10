@@ -57,7 +57,15 @@ vi.mock("@/lib/supabase/server", () => ({
         data: { user: currentUserId ? { id: currentUserId } : null },
       }),
     },
+  }),
+}));
+
+vi.mock("@/lib/supabase/service", () => ({
+  getSupabaseService: () => ({
     from: () => {
+      // Since 0011 the row is read with the service role, which sees *every*
+      // account. The tenant-isolation assertions below therefore exercise the
+      // explicit ownership check in `loadOwnedAccount`, not an RLS policy.
       const builder = {
         _id: "",
         select() {
@@ -70,23 +78,15 @@ vi.mock("@/lib/supabase/server", () => ({
         is() {
           return builder;
         },
-        async single() {
+        async maybeSingle() {
           const row = ACCOUNTS[builder._id];
-          // Mirror RLS: a row belonging to another user is simply not visible.
-          if (!row || row.owner_id !== currentUserId) {
-            return { data: null, error: { message: "not found" } };
-          }
-          return { data: row, error: null };
+          if (!row) return { data: null, error: { message: "not found" } };
+          return { data: { ...row, deleted_at: null }, error: null };
         },
+        update: () => ({ eq: async () => ({ error: null }) }),
       };
       return builder;
     },
-  }),
-}));
-
-vi.mock("@/lib/supabase/service", () => ({
-  getSupabaseService: () => ({
-    from: () => ({ update: () => ({ eq: async () => ({ error: null }) }) }),
   }),
 }));
 

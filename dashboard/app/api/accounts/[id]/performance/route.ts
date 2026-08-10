@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServer } from "@/lib/supabase/server";
 import { getSupabaseService } from "@/lib/supabase/service";
+import {
+  getSessionUser,
+  loadOwnedAccount,
+} from "@/lib/accounts/session";
 import { backfillCashFlows, backfillEquity } from "@/lib/accounts/equity-backfill";
+import { readAllRows } from "@/lib/accounts/paged";
 import {
   authorizeProductionRuntime,
   readProductionAuthzConfig,
@@ -39,6 +43,7 @@ export type PerformanceUnavailableReason =
   | "CASH_FLOW_REFRESH_FAILED"
   | "CASH_FLOW_QUERY_FAILED"
   | "CASH_FLOW_INCOMPLETE"
+  | "NON_CASH_EXTERNAL_TRANSFER"
   | "FUTURE_DATED"
   | "NO_EQUITY_HISTORY"
   | "NO_BENCHMARK_HISTORY"
@@ -66,15 +71,38 @@ export interface PerformanceProvenance {
 const STALE_AFTER_DAYS = 5;
 const EXPIRED_AFTER_DAYS = 21;
 
-function classifyPerformanceAge(
+/**
+ * The only allowance for a session dated ahead of "now".
+ *
+ * Sessions are market-time calendar days, so the comparison is made against the
+ * current America/New_York date — the timezone offset needs no tolerance. What
+ * remains is ordinary clock skew between this server and whatever produced the
+ * data, and five minutes covers it. Anything beyond that is a future-dated
+ * session: broken data, never fresh data.
+ */
+const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
+
+const ET_DATE = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+});
+
+export function classifyPerformanceAge(
   endSessionDate: string,
   now: Date,
 ): "CURRENT" | "STALE" | "EXPIRED" | "MISMATCH" {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endSessionDate)) return "MISMATCH";
   const end = Date.parse(`${endSessionDate}T00:00:00Z`);
   if (!Number.isFinite(end)) return "MISMATCH";
+
+  // A session cannot be dated after today's market date. The old check allowed
+  // a whole day of slack to absorb the UTC/ET offset, which meant a genuinely
+  // future-dated session could still be reported as CURRENT.
+  const latestAllowed = ET_DATE.format(
+    new Date(now.getTime() + CLOCK_SKEW_TOLERANCE_MS),
+  );
+  if (endSessionDate > latestAllowed) return "MISMATCH";
+
   const ageDays = (now.getTime() - end) / (24 * 60 * 60 * 1000);
-  // A session dated in the future is not fresh data, it is broken data.
-  if (ageDays < -1) return "MISMATCH";
   if (ageDays > EXPIRED_AFTER_DAYS) return "EXPIRED";
   if (ageDays > STALE_AFTER_DAYS) return "STALE";
   return "CURRENT";
@@ -83,7 +111,15 @@ function classifyPerformanceAge(
 export interface PerformanceResponse {
   readonly accountId: string;
   readonly refreshedAt: string;
-  readonly status: "CURRENT" | "UNAVAILABLE";
+  /**
+   * The root status mirrors the provenance freshness exactly.
+   *
+   * It used to be `CURRENT` whenever a number could be computed at all, so a
+   * three-week-old result was labelled current at the top of the response while
+   * only the nested provenance said EXPIRED. A stale number presented as a
+   * current one is the failure mode this vocabulary exists to prevent.
+   */
+  readonly status: "CURRENT" | "STALE" | "EXPIRED" | "UNAVAILABLE";
   readonly reason: PerformanceUnavailableReason | null;
   readonly detail: string | null;
   readonly baseline: {
@@ -140,10 +176,7 @@ function respond(
  */
 export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
-  const supa = await getSupabaseServer();
-  const {
-    data: { user },
-  } = await supa.auth.getUser();
+  const user = await getSessionUser();
   if (!user) {
     return NextResponse.json(
       { error: "unauthenticated" },
@@ -151,13 +184,8 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
-  const { data: account } = await supa
-    .from("accounts")
-    .select("id,mode,owner_id")
-    .eq("id", id)
-    .is("deleted_at", null)
-    .single();
-  if (!account || account.owner_id !== user.id) {
+  const account = await loadOwnedAccount(user.id, id);
+  if (!account) {
     return NextResponse.json(
       { error: "not found" },
       { status: 404, headers: { "Cache-Control": "no-store" } },
@@ -269,6 +297,17 @@ export async function GET(_req: Request, { params }: Ctx) {
       since: baseline.startedAt,
     });
     if (!result.complete) {
+      // A securities transfer is its own named failure: nothing about it can be
+      // repaired by reading more pages, and it must never be shown as return.
+      if (result.incompleteReason === "NON_CASH_EXTERNAL_TRANSFER") {
+        return respond(
+          id,
+          "NON_CASH_EXTERNAL_TRANSFER",
+          result.detail ??
+            "An external securities transfer settled in this account after the V11 epoch baseline, so no return or alpha can be attributed to the strategy.",
+          baselineDto,
+        );
+      }
       return respond(
         id,
         "CASH_FLOW_INCOMPLETE",
@@ -303,38 +342,50 @@ export async function GET(_req: Request, { params }: Ctx) {
     }
   }
 
+  // Both histories are read page by page. A silently truncated equity curve or
+  // ledger would produce a plausible, wrong number: PostgREST caps a response
+  // at 1000 rows without reporting an error, and `snapshot_date` / `id` give
+  // each query the total ordering range pagination needs.
   const [snapshotResult, flowResult] = await Promise.all([
-    svc
-      .from("equity_snapshots")
-      .select("snapshot_date,equity")
-      .eq("account_id", id)
-      .gte("snapshot_date", baseline.startSessionDate)
-      .order("snapshot_date", { ascending: true }),
-    svc
-      .from("cash_flows")
-      .select("flow_date,amount")
-      .eq("account_id", id)
-      .gte("flow_date", baseline.startSessionDate),
+    readAllRows("equity snapshot", (from, to) =>
+      svc
+        .from("equity_snapshots")
+        .select("snapshot_date,equity")
+        .eq("account_id", id)
+        .gte("snapshot_date", baseline.startSessionDate)
+        .order("snapshot_date", { ascending: true })
+        .range(from, to),
+    ),
+    readAllRows("cash-flow", (from, to) =>
+      svc
+        .from("cash_flows")
+        .select("flow_date,amount")
+        .eq("account_id", id)
+        .gte("flow_date", baseline.startSessionDate)
+        .order("flow_date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
   ]);
 
-  if (snapshotResult.error) {
+  if (!snapshotResult.ok) {
     return respond(
       id,
       "EQUITY_QUERY_FAILED",
-      "The equity snapshot query failed, so no return can be reported.",
+      `${snapshotResult.detail} No return can be reported.`,
       baselineDto,
     );
   }
-  if (flowResult.error) {
+  if (!flowResult.ok) {
     return respond(
       id,
       "CASH_FLOW_QUERY_FAILED",
-      "The cash-flow query failed, so a deposit could not be excluded from the return.",
+      `${flowResult.detail} A deposit could not be excluded from the return.`,
       baselineDto,
     );
   }
 
-  const equity: EquityPoint[] = (snapshotResult.data ?? []).map((row) => ({
+  const equity: EquityPoint[] = snapshotResult.rows.map((row) => ({
     date: row.snapshot_date,
     equity: Number(row.equity),
   }));
@@ -347,7 +398,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
-  const cashFlows: CashFlow[] = (flowResult.data ?? []).map((row) => ({
+  const cashFlows: CashFlow[] = flowResult.rows.map((row) => ({
     date: row.flow_date,
     amount: Number(row.amount),
   }));
@@ -392,9 +443,12 @@ export async function GET(_req: Request, { params }: Ctx) {
   const body: PerformanceResponse = {
     accountId: id,
     refreshedAt: now.toISOString(),
-    status: "CURRENT",
+    status: freshness,
     reason: null,
-    detail: null,
+    detail:
+      freshness === "CURRENT"
+        ? null
+        : `The most recent session shared by the account and the benchmark is ${result.performance.endDate}. These figures are ${freshness.toLowerCase()} and must not be read as today's performance.`,
     baseline: baselineDto,
     performance: result.performance,
     provenance: {

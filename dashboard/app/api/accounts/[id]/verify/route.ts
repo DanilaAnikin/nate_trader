@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServer } from "@/lib/supabase/server";
 import { getSupabaseService } from "@/lib/supabase/service";
+import {
+  getSessionUser,
+  loadOwnedAccount,
+} from "@/lib/accounts/session";
 import { maskAccountNumber } from "@/lib/accounts/mask";
 
 export const dynamic = "force-dynamic";
@@ -19,21 +22,12 @@ const ALPACA_BASE: Record<string, string> = {
  */
 export async function POST(_req: Request, { params }: Ctx) {
   const { id } = await params;
-  const supa = await getSupabaseServer();
-  const {
-    data: { user },
-  } = await supa.auth.getUser();
+  const user = await getSessionUser();
   if (!user) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
 
-  // RLS scopes this select to the caller's own accounts.
-  const { data: account } = await supa
-    .from("accounts")
-    .select("id,mode")
-    .eq("id", id)
-    .is("deleted_at", null)
-    .single();
+  const account = await loadOwnedAccount(user.id, id);
   if (!account) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }

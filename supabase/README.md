@@ -19,6 +19,12 @@ project shared with another application):
 | `0006_storage_policies.sql` | Storage buckets `backtest-results`, `research-snapshots`. |
 | `0007_advisor_hardening.sql` | Resolve Supabase security-advisor warnings. |
 | `0008_vault_wrappers.sql` | Service-role-only `public` wrappers for Vault writes. |
+| `0009_accounts_server_managed.sql` | Remove client **writes** to `accounts`; guard server-managed columns. |
+| `0010_accounts_guard_authz_fix.sql` | Make that guard `SECURITY INVOKER` so a client role cannot be read as its owner. |
+| `0011_revoke_client_reads.sql` | Remove client **reads** of `accounts`, `trades` and `cash_flows`; add the sanitized `*_safe` views. |
+
+`0009` and `0010` are applied in production and are never edited; corrections
+go in a new migration.
 
 ### How to apply
 
@@ -36,8 +42,26 @@ in order.
 
 ## Tests
 
-`tests/rls.test.sql` verifies Row-Level Security isolation and the credential
-lockdown. It needs two existing auth users:
+`tests/run_integration.sh` is the one command that matters: it applies every
+migration to a real PostgreSQL server and then runs all three assertion files
+against it. This is a database test, not a grep over SQL text.
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
+  supabase/tests/run_integration.sh
+```
+
+The release gate runs exactly this against a `postgres:16-alpine` service.
+A clean run prints `ALL SUPABASE INTEGRATION TESTS PASSED`; every script runs
+in a transaction and rolls back, leaving no data.
+
+| Script | Proves |
+|---|---|
+| `accounts_server_managed.test.sql` | A client cannot insert, delete or write any server-managed `accounts` column, and a forged `service_role` claim does not help. |
+| `client_read_exposure.test.sql` | Under `set local role authenticated` — the same privileges Supabase REST uses — the `accounts`, `trades` and `cash_flows` base tables and each sensitive column are unreadable, soft-deleted and foreign rows are invisible through the sanitized views, and `anon` sees nothing. |
+| `rls.test.sql` | Per-owner isolation of account-scoped data and the credential lockdown. |
+
+Each script can also be run on its own with two existing auth users:
 
 ```bash
 psql "$DATABASE_URL" \
@@ -45,13 +69,12 @@ psql "$DATABASE_URL" \
   -f supabase/tests/rls.test.sql
 ```
 
-A clean run prints `RLS OK` and rolls back (leaves no data).
-
 ## Security notes
 
 - Alpaca API keys are stored **only** in Supabase Vault. The `accounts` table
   holds Vault secret UUIDs, never plaintext.
 - `get_account_credentials()` is callable by the **service role only**.
 - Every account-scoped table has RLS; users see only their own accounts' rows.
-- The service-role key belongs in server environments only (Vercel server
-  scope, GitHub Actions Secrets) — never in a client bundle or `NEXT_PUBLIC_*`.
+- The service-role key belongs in server environments only (the dashboard
+  container's own environment, GitHub Actions Secrets) — never in a client
+  bundle or `NEXT_PUBLIC_*`.

@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServer } from "@/lib/supabase/server";
 import { getSupabaseService } from "@/lib/supabase/service";
+import {
+  getSessionUser,
+  loadOwnedAccount,
+} from "@/lib/accounts/session";
 import { backfillEquity } from "@/lib/accounts/equity-backfill";
+import { readAllRows } from "@/lib/accounts/paged";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -17,21 +21,12 @@ type Ctx = { params: Promise<{ id: string }> };
  */
 export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
-  const supa = await getSupabaseServer();
-  const {
-    data: { user },
-  } = await supa.auth.getUser();
+  const user = await getSessionUser();
   if (!user) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
 
-  // RLS scopes this to the caller's own accounts.
-  const { data: account } = await supa
-    .from("accounts")
-    .select("id,mode")
-    .eq("id", id)
-    .is("deleted_at", null)
-    .single();
+  const account = await loadOwnedAccount(user.id, id);
   if (!account) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
@@ -48,31 +43,51 @@ export async function GET(_req: Request, { params }: Ctx) {
     refreshWarning = e instanceof Error ? e.message : "equity refresh failed";
   }
 
-  const { data: snapshots, error } = await svc
-    .from("equity_snapshots")
-    .select(
-      "snapshot_date,equity,cash,profit_loss,profit_loss_pct,num_positions",
-    )
-    .eq("account_id", id)
-    .order("snapshot_date", { ascending: true });
-  if (error) {
+  // Paged: PostgREST caps a response at 1000 rows silently, which would clip
+  // the oldest end of a multi-year curve rather than report an error.
+  const snapshotResult = await readAllRows("equity snapshot", (from, to) =>
+    svc
+      .from("equity_snapshots")
+      .select(
+        "snapshot_date,equity,cash,profit_loss,profit_loss_pct,num_positions",
+      )
+      .eq("account_id", id)
+      .order("snapshot_date", { ascending: true })
+      .range(from, to),
+  );
+  if (!snapshotResult.ok) {
     return NextResponse.json(
-      { error: "could not load equity snapshots" },
-      { status: 500 },
+      { error: `could not load equity snapshots: ${snapshotResult.detail}` },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
+  const snapshots = snapshotResult.rows;
 
-  if ((snapshots?.length ?? 0) === 0 && refreshWarning) {
+  if (snapshots.length === 0 && refreshWarning) {
     return NextResponse.json(
       { error: refreshWarning },
       { status: 502, headers: { "Cache-Control": "no-store" } },
     );
   }
 
-  const { data: flows } = await svc
-    .from("cash_flows")
-    .select("flow_date,amount")
-    .eq("account_id", id);
+  const flowResult = await readAllRows("cash-flow", (from, to) =>
+    svc
+      .from("cash_flows")
+      .select("flow_date,amount")
+      .eq("account_id", id)
+      .order("flow_date", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  if (!flowResult.ok) {
+    // The chart annotates deposits and withdrawals; a partial ledger would
+    // mislabel one as a jump in performance.
+    return NextResponse.json(
+      { error: `could not load cash flows: ${flowResult.detail}` },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const flows = flowResult.rows;
 
   return NextResponse.json(
     {
@@ -80,7 +95,7 @@ export async function GET(_req: Request, { params }: Ctx) {
       backfilled,
       refreshedAt: new Date().toISOString(),
       warning: refreshWarning,
-      snapshots: (snapshots ?? []).map((s) => ({
+      snapshots: snapshots.map((s) => ({
         date: s.snapshot_date,
         equity: s.equity,
         cash: s.cash,
@@ -88,7 +103,7 @@ export async function GET(_req: Request, { params }: Ctx) {
         pnl_pct: s.profit_loss_pct,
         num_positions: s.num_positions,
       })),
-      cashFlows: (flows ?? []).map((f) => ({
+      cashFlows: flows.map((f) => ({
         date: f.flow_date,
         amount: f.amount,
       })),

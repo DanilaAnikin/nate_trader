@@ -225,6 +225,8 @@ export async function rotateKeys(
       last_verified_at: new Date().toISOString(),
     })
     .eq("id", accountId)
+    .eq("owner_id", userId)
+    .is("deleted_at", null)
     .select("*")
     .single();
   if (error || !data) {
@@ -254,6 +256,7 @@ export async function deleteAccount(
     .select("*")
     .eq("id", accountId)
     .eq("owner_id", userId)
+    .is("deleted_at", null)
     .single();
   if (!row) {
     return { ok: false, reason: "not_found", message: "Account not found." };
@@ -275,6 +278,9 @@ export async function deleteAccount(
         status: "paused",
         alpaca_key_secret_id: null,
         alpaca_secret_secret_id: null,
+        // A soft-deleted row keeps its history but must stop carrying the
+        // broker identifier the production binding compares against.
+        alpaca_account_number: null,
       })
       .eq("id", accountId);
     if (error) {

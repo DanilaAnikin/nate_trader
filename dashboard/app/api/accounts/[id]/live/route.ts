@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServer } from "@/lib/supabase/server";
 import { getSupabaseService } from "@/lib/supabase/service";
+import {
+  getSessionUser,
+  loadOwnedAccount,
+} from "@/lib/accounts/session";
 import { fetchBrokerSnapshot, loadCredentials } from "@/lib/status/broker";
 import type { BrokerInfo } from "@/lib/status/types";
 
@@ -32,10 +35,7 @@ export interface BrokerSnapshotPayload {
  */
 export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
-  const supa = await getSupabaseServer();
-  const {
-    data: { user },
-  } = await supa.auth.getUser();
+  const user = await getSessionUser();
   if (!user) {
     return NextResponse.json(
       { code: "UNAUTHENTICATED", error: "Authentication is required." },
@@ -43,13 +43,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
-  // RLS scopes this to the caller's own accounts.
-  const { data: account } = await supa
-    .from("accounts")
-    .select("id,nickname,mode")
-    .eq("id", id)
-    .is("deleted_at", null)
-    .single();
+  const account = await loadOwnedAccount(user.id, id);
   if (!account) {
     return NextResponse.json(
       { code: "ACCOUNT_NOT_FOUND", error: "Account not found." },

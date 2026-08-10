@@ -352,12 +352,18 @@ Three contracts inside the model are worth calling out:
   updates only the preflight and never hides an older, still-valid execution;
   each section carries its own run URL, source and `asOf`.
 - **One shared lineage verdict.** `lib/status/lineage.ts` cross-checks the
-  approved release, strategy identity, strategy version, ranking-universe hash
-  and signal date across the preflight, the frozen plan and the executor
-  record. Any disagreement — or any selector-level refusal — withholds *all* of
-  strategy, universe, preflight, execution and convergence as `null` with state
-  `MISMATCH`, and the effective validation gate cannot be `PASS`. An older
-  artifact is never silently substituted.
+  approved release, strategy identity, strategy version and ranking-universe
+  hash across the preflight, the frozen plan and the executor record. Only the
+  frozen plan persists `signal_date`, so it is not compared between documents;
+  it is required to be a valid `YYYY-MM-DD` calendar date and to be no later
+  than the cycle that wrote it. Evidence that is absent, empty or malformed
+  fails exactly like a disagreement: a document that is present must carry
+  every lineage field it owns, in the exact expected format. Any conflict — or
+  any selector-level refusal — withholds *all* of strategy, universe,
+  preflight, execution and convergence as `null`, with state `MISMATCH` when
+  two documents disagree and `UNAVAILABLE` when the evidence was never there,
+  and the effective validation gate cannot be `PASS`. An older artifact is
+  never silently substituted.
 - **One effective validation gate.** `validationGate` separates the historical
   `reportAssessment` from the currently `effective` gate. Effective `PASS`
   requires all of: report PASS, present and non-future generation and bar
