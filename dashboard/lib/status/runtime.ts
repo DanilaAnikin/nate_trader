@@ -117,52 +117,116 @@ const SUCCEEDED = (run: WorkflowRunSummary) =>
   run.status === "completed" && run.conclusion === "success";
 
 /**
- * The workflow step that produces `production-preflight.json`.
+ * Named steps of `.github/workflows/paper-production.yml`.
  *
- * `.github/workflows/paper-production.yml`, step
- * "Verify paper broker and deployment health". Its diagnostics upload runs
- * `if: always()`, so if this step reached a conclusion a report was written
- * and an artifact should exist.
+ * The preflight's diagnostics upload and the runtime-state upload both run
+ * `if: always()`, so a step that reached a conclusion produced its output and
+ * an artifact should exist.
  */
 export const PREFLIGHT_STEP_NAME = "Verify paper broker and deployment health";
+export const EXECUTE_STEP_NAME = "Execute one guarded paper cycle";
+export const RUNTIME_UPLOAD_STEP_NAME = "Preserve private runtime state";
 
 /**
- * Whether a run's preflight step actually executed.
+ * What a run's jobs say about one named step.
  *
- * `DID_NOT_RUN` is the *only* evidence that lets an older preflight stand. A
- * completed run with no diagnostics is not self-explanatory: the step may have
- * run and the upload failed, in which case the newest report exists and is
- * simply unreachable — and showing an older green one instead would be exactly
- * the substitution this module refuses to make.
+ * `DID_NOT_RUN` is the **only** verdict that lets an older artifact stand, and
+ * it now requires GitHub to say so explicitly: the step is present, completed,
+ * and concluded `skipped`. Everything else is `UNKNOWN`.
+ *
+ * That is deliberately narrow, and it is narrower than it used to be. The
+ * previous version treated a missing step entry as proof the run ended before
+ * reaching it. But GitHub omits steps for several different reasons — a job
+ * that died mid-way lists only what it started, a cancelled job may list
+ * nothing at all, and a renamed step is simply absent from every job — and
+ * none of those is distinguishable from the others through this API. Treating
+ * all of them as "it never ran" is how a newer failed cycle gets replaced on
+ * screen by an older green one.
+ *
+ * The operational consequence is accepted: a run that fails before the
+ * preflight (a release-verification failure, say) now makes the section
+ * `UNAVAILABLE` rather than falling back. An operator seeing UNAVAILABLE goes
+ * and looks; an operator seeing yesterday's PASS does not.
  */
-export type PreflightStepEvidence = "RAN" | "DID_NOT_RUN" | "UNKNOWN";
-
-export async function preflightStepEvidence(
-  runId: number,
-): Promise<PreflightStepEvidence> {
-  const jobs = await fetchRunJobs(runId);
-  // Not knowing is not the same as knowing it did not run.
-  if (jobs === null) return "UNKNOWN";
-  // A completed run that reports no jobs at all is an anomaly, not evidence.
-  // Observed live: a cancelled run whose single job carried an empty step
-  // list. Neither shape proves the preflight was skipped.
-  if (jobs.length === 0) return "UNKNOWN";
-
-  let sawStepList = false;
-  for (const job of jobs) {
-    if (job.steps.length > 0) sawStepList = true;
-    const step = job.steps.find((entry) => entry.name === PREFLIGHT_STEP_NAME);
-    if (!step) continue;
-    // `skipped` and `cancelled` mean it never produced a report.
-    if (step.status === "completed" && step.conclusion !== null &&
-        step.conclusion !== "skipped" && step.conclusion !== "cancelled") {
-      return "RAN";
+export type StepOutcome =
+  | {
+      readonly kind: "RAN";
+      readonly startedAt: string | null;
+      readonly completedAt: string | null;
     }
-    return "DID_NOT_RUN";
+  | { readonly kind: "DID_NOT_RUN" }
+  | { readonly kind: "UNKNOWN"; readonly detail: string };
+
+/**
+ * Resolve one named step within a specific run **attempt**.
+ *
+ * The attempt matters: a re-run keeps the run id, and its jobs describe
+ * different work. Reading the latest attempt's steps to judge an older
+ * attempt's artifact is the same substitution in a different disguise.
+ */
+export async function namedStepOutcome(
+  run: WorkflowRunSummary,
+  stepName: string,
+): Promise<StepOutcome> {
+  const jobs = await fetchRunJobs(run.id, run.attempt);
+  if (jobs === null) {
+    return {
+      kind: "UNKNOWN",
+      detail: `the jobs of run #${run.runNumber} attempt ${run.attempt} could not be listed`,
+    };
   }
-  // Jobs exist and their steps are listed, but the preflight step is not among
-  // them: the run ended before reaching it. That is provable non-execution.
-  return sawStepList ? "DID_NOT_RUN" : "UNKNOWN";
+  if (jobs.length === 0) {
+    return {
+      kind: "UNKNOWN",
+      detail: `run #${run.runNumber} attempt ${run.attempt} reports no jobs`,
+    };
+  }
+  // A job still in flight can still reach the step. Its silence proves nothing.
+  const unfinished = jobs.find((job) => job.status !== "completed");
+  if (unfinished) {
+    return {
+      kind: "UNKNOWN",
+      detail: `job "${unfinished.name}" has not completed, so its steps are not final`,
+    };
+  }
+
+  const matches = jobs.flatMap((job) =>
+    job.steps.filter((step) => step.name === stepName),
+  );
+  if (matches.length === 0) {
+    // Never reached, never listed, or renamed — indistinguishable here.
+    return {
+      kind: "UNKNOWN",
+      detail: `no step named "${stepName}" appears in run #${run.runNumber} attempt ${run.attempt}`,
+    };
+  }
+  if (matches.length > 1) {
+    return {
+      kind: "UNKNOWN",
+      detail: `more than one step named "${stepName}" appears in run #${run.runNumber}`,
+    };
+  }
+
+  const step = matches[0];
+  if (step.status !== "completed" || step.conclusion === null) {
+    return {
+      kind: "UNKNOWN",
+      detail: `step "${stepName}" is ${step.status}/${step.conclusion ?? "no conclusion"}`,
+    };
+  }
+  if (step.conclusion === "skipped") return { kind: "DID_NOT_RUN" };
+  if (step.conclusion === "success" || step.conclusion === "failure") {
+    return {
+      kind: "RAN",
+      startedAt: step.startedAt,
+      completedAt: step.completedAt,
+    };
+  }
+  // `cancelled`, and anything GitHub adds later. Neither ran nor provably not.
+  return {
+    kind: "UNKNOWN",
+    detail: `step "${stepName}" concluded ${step.conclusion}`,
+  };
 }
 
 /**
@@ -212,17 +276,14 @@ export const EMPTY_PREFLIGHT_SELECTION: PreflightSelection = {
   lineageMismatch: false,
 };
 
-function newestUsable(
-  artifacts: readonly ArtifactMeta[],
-  predicate: (artifact: ArtifactMeta) => boolean,
-): ArtifactMeta | null {
-  const usable = artifacts
-    .filter((artifact) => !artifact.expired && predicate(artifact))
-    .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
-  return usable[0] ?? null;
-}
-
-/** The newest matching artifact *including* expired ones. */
+/**
+ * The newest matching artifact, **including expired ones**.
+ *
+ * There is deliberately no "newest usable" variant any more. Filtering expired
+ * artifacts out made an expired artifact indistinguishable from an absent one,
+ * so the walk stepped past the newest cycle and presented an older one as
+ * current. An expired artifact is a reason to report UNAVAILABLE.
+ */
 function newestAny(
   artifacts: readonly ArtifactMeta[],
   predicate: (artifact: ArtifactMeta) => boolean,
@@ -234,32 +295,57 @@ function newestAny(
 }
 
 /**
- * Slack around a run's own window for an artifact upload.
+ * Slack around a step's own window.
  *
- * An artifact is created by a step inside the run, so its timestamp must fall
- * within the run — a few minutes either side for the upload itself and for
- * clock differences between GitHub's services.
+ * A step's output is uploaded by a later step, and GitHub's API, runner and
+ * storage do not share a clock to the second. A few minutes either side covers
+ * that without covering a different cycle.
  */
 const ARTIFACT_WINDOW_SLACK_MS = 15 * 60 * 1000;
 
 /**
- * True when the artifact was created inside the run that supposedly produced
- * it. An artifact from outside that window is not this run's output, whatever
- * the API attached it to.
+ * The window a named step's output must fall inside.
+ *
+ * `from` is the step's start; `to` is the run's end, because the upload runs
+ * after the step. A null bound means the API did not state it, and an unstated
+ * bound cannot be satisfied — every caller here treats that as a failure.
  */
-function artifactWithinRunWindow(
-  artifact: ArtifactMeta,
+interface OutputWindow {
+  readonly fromMs: number;
+  readonly toMs: number;
+}
+
+function stepOutputWindow(
+  step: Extract<StepOutcome, { kind: "RAN" }>,
   run: WorkflowRunSummary,
-): boolean {
-  const created = artifact.createdAt ? Date.parse(artifact.createdAt) : NaN;
-  if (!Number.isFinite(created)) return false;
-  const started = run.runStartedAt ? Date.parse(run.runStartedAt) : NaN;
-  const ended = run.updatedAt ? Date.parse(run.updatedAt) : NaN;
-  if (!Number.isFinite(started) || !Number.isFinite(ended)) return false;
-  return (
-    created >= started - ARTIFACT_WINDOW_SLACK_MS &&
-    created <= ended + ARTIFACT_WINDOW_SLACK_MS
-  );
+): OutputWindow | null {
+  const from = step.startedAt ? Date.parse(step.startedAt) : NaN;
+  const runEnd = run.updatedAt ? Date.parse(run.updatedAt) : NaN;
+  if (!Number.isFinite(from) || !Number.isFinite(runEnd)) return null;
+  return {
+    fromMs: from - ARTIFACT_WINDOW_SLACK_MS,
+    toMs: runEnd + ARTIFACT_WINDOW_SLACK_MS,
+  };
+}
+
+/** The tighter window a *report timestamp* must fall inside: the step itself. */
+function stepRunWindow(
+  step: Extract<StepOutcome, { kind: "RAN" }>,
+): OutputWindow | null {
+  const from = step.startedAt ? Date.parse(step.startedAt) : NaN;
+  const to = step.completedAt ? Date.parse(step.completedAt) : NaN;
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  return {
+    fromMs: from - ARTIFACT_WINDOW_SLACK_MS,
+    toMs: to + ARTIFACT_WINDOW_SLACK_MS,
+  };
+}
+
+function withinWindow(instant: string | null, window: OutputWindow | null): boolean {
+  if (window === null) return false;
+  const parsed = instant ? Date.parse(instant) : NaN;
+  if (!Number.isFinite(parsed)) return false;
+  return parsed >= window.fromMs && parsed <= window.toMs;
 }
 
 /**
@@ -291,15 +377,75 @@ export async function selectLatestExecution(
     if (!artifacts) {
       return {
         ...EMPTY_EXECUTION_SELECTION,
+        run,
         errors: ["GitHub Actions artifacts could not be listed"],
       };
     }
 
-    const anyRuntime = newestUsable(artifacts, (artifact) =>
+    // Expired artifacts are looked at too. Filtering them out made an expired
+    // runtime artifact indistinguishable from a preflight-only run, so the
+    // walk stepped past the newest cycle and showed an older one.
+    const anyRuntime = newestAny(artifacts, (artifact) =>
       artifact.name.startsWith(RUNTIME_ARTIFACT_PREFIX),
     );
-    // A preflight-only run carries no runtime state at all; keep looking.
-    if (!anyRuntime) return null;
+
+    if (!anyRuntime) {
+      // The same tri-state question the preflight asks. A successful run with
+      // no runtime state either never executed a cycle (a preflight-only
+      // dispatch, where the execute step is explicitly `skipped`) or executed
+      // one whose upload failed — and only the first supersedes nothing.
+      const executed = await namedStepOutcome(run, EXECUTE_STEP_NAME);
+      if (executed.kind === "DID_NOT_RUN") return null;
+      return {
+        ...EMPTY_EXECUTION_SELECTION,
+        run,
+        errors: [
+          executed.kind === "RAN"
+            ? `run #${run.runNumber} executed a guarded paper cycle but produced no runtime-state artifact`
+            : `it could not be established whether run #${run.runNumber} executed a paper cycle: ${executed.detail}`,
+        ],
+      };
+    }
+
+    if (anyRuntime.expired) {
+      return {
+        ...EMPTY_EXECUTION_SELECTION,
+        run,
+        artifactName: anyRuntime.name,
+        artifactCreatedAt: anyRuntime.createdAt,
+        errors: [
+          `the runtime-state artifact of run #${run.runNumber} has expired`,
+        ],
+      };
+    }
+
+    // The artifact must be datable to the step that wrote it, in this attempt.
+    const upload = await namedStepOutcome(run, RUNTIME_UPLOAD_STEP_NAME);
+    if (upload.kind !== "RAN") {
+      return {
+        ...EMPTY_EXECUTION_SELECTION,
+        run,
+        artifactName: anyRuntime.name,
+        artifactCreatedAt: anyRuntime.createdAt,
+        errors: [
+          upload.kind === "DID_NOT_RUN"
+            ? `run #${run.runNumber} carries a runtime-state artifact although its upload step was skipped`
+            : `the runtime-state artifact of run #${run.runNumber} could not be bound to its upload step: ${upload.detail}`,
+        ],
+      };
+    }
+    if (!withinWindow(anyRuntime.createdAt, stepOutputWindow(upload, run))) {
+      return {
+        ...EMPTY_EXECUTION_SELECTION,
+        run,
+        artifactName: anyRuntime.name,
+        artifactCreatedAt: anyRuntime.createdAt,
+        lineageMismatch: true,
+        errors: [
+          "the runtime-state artifact was not created inside the window of the step that uploads it",
+        ],
+      };
+    }
 
     if (anyRuntime.name !== expectedName) {
       return {
@@ -355,6 +501,37 @@ export async function selectLatestExecution(
           lineageMismatch: true,
           errors: [
             "the runtime artifact's recorded release does not match the approved paper release",
+          ],
+        };
+      }
+      // The record says when the cycle finished; the step says when the cycle
+      // could have finished. A `completed_at` outside that window describes a
+      // different execution, whatever artifact it travelled in.
+      const executeStep = await namedStepOutcome(run, EXECUTE_STEP_NAME);
+      if (executeStep.kind !== "RAN") {
+        return {
+          ...EMPTY_EXECUTION_SELECTION,
+          run,
+          artifactName: anyRuntime.name,
+          artifactCreatedAt: anyRuntime.createdAt,
+          errors: [
+            `the executor record of run #${run.runNumber} could not be bound to its execute step: ${
+              executeStep.kind === "DID_NOT_RUN"
+                ? "the step is recorded as skipped"
+                : executeStep.detail
+            }`,
+          ],
+        };
+      }
+      if (!withinWindow(lastRun.completedAt, stepRunWindow(executeStep))) {
+        return {
+          ...EMPTY_EXECUTION_SELECTION,
+          run,
+          artifactName: anyRuntime.name,
+          artifactCreatedAt: anyRuntime.createdAt,
+          lineageMismatch: true,
+          errors: [
+            "the executor record's completion time lies outside the window of the step that produced it",
           ],
         };
       }
@@ -450,17 +627,17 @@ export async function selectLatestPreflight(
     );
 
     if (!anyDiagnostics) {
-      // The decisive question: did the preflight step run? Only provable
-      // non-execution lets an older report stand.
-      const evidence = await preflightStepEvidence(run.id);
-      if (evidence === "DID_NOT_RUN") return null;
+      // The decisive question: did the preflight step run? Only an explicit
+      // `completed + skipped` lets an older report stand.
+      const evidence = await namedStepOutcome(run, PREFLIGHT_STEP_NAME);
+      if (evidence.kind === "DID_NOT_RUN") return null;
       return {
         ...EMPTY_PREFLIGHT_SELECTION,
         run,
         errors: [
-          evidence === "RAN"
-            ? "the newest completed run ran its preflight step but uploaded no diagnostics artifact"
-            : "it could not be established whether the newest completed run reached its preflight step",
+          evidence.kind === "RAN"
+            ? `run #${run.runNumber} ran its preflight step but uploaded no diagnostics artifact`
+            : `it could not be established whether run #${run.runNumber} reached its preflight step: ${evidence.detail}`,
         ],
       };
     }
@@ -477,14 +654,29 @@ export async function selectLatestPreflight(
     }
 
     const diagnostics = anyDiagnostics;
-    if (!artifactWithinRunWindow(diagnostics, run)) {
+    // Bound to the step, in this attempt — not merely to the run. A re-run
+    // keeps the id, and the run's window spans both attempts' work.
+    const preflightStep = await namedStepOutcome(run, PREFLIGHT_STEP_NAME);
+    if (preflightStep.kind !== "RAN") {
+      return {
+        ...EMPTY_PREFLIGHT_SELECTION,
+        run,
+        artifactCreatedAt: diagnostics.createdAt,
+        errors: [
+          preflightStep.kind === "DID_NOT_RUN"
+            ? `run #${run.runNumber} carries a diagnostics artifact although its preflight step was skipped`
+            : `the diagnostics artifact of run #${run.runNumber} could not be bound to its preflight step: ${preflightStep.detail}`,
+        ],
+      };
+    }
+    if (!withinWindow(diagnostics.createdAt, stepOutputWindow(preflightStep, run))) {
       return {
         ...EMPTY_PREFLIGHT_SELECTION,
         run,
         artifactCreatedAt: diagnostics.createdAt,
         lineageMismatch: true,
         errors: [
-          "the preflight diagnostics artifact was not created inside the run it is attached to",
+          "the preflight diagnostics artifact was not created inside the window of the step that produces it",
         ],
       };
     }
@@ -518,6 +710,20 @@ export async function selectLatestPreflight(
           run,
           artifactCreatedAt: diagnostics.createdAt,
           errors: ["the preflight report failed schema validation"],
+        };
+      }
+      // `checked_at` must fall inside the preflight step itself, not merely
+      // inside the run: a report stamped outside it describes a different
+      // execution of the runner.
+      if (!withinWindow(preflight.checkedAt, stepRunWindow(preflightStep))) {
+        return {
+          ...EMPTY_PREFLIGHT_SELECTION,
+          run,
+          artifactCreatedAt: diagnostics.createdAt,
+          lineageMismatch: true,
+          errors: [
+            "the preflight report's checked_at lies outside the window of the step that produced it",
+          ],
         };
       }
       if (

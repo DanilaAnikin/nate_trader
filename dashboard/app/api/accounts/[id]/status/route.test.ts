@@ -132,7 +132,9 @@ function diagnosticsZip(): Buffer {
   return buildZip([
     {
       name: "production-preflight.json",
-      content: JSON.stringify(preflightJson()),
+      content: JSON.stringify(
+        preflightJson({ checked_at: "2026-08-07T16:05:30+00:00" }),
+      ),
     },
   ]);
 }
@@ -188,8 +190,30 @@ function stubGithub() {
         ],
       });
     }
-    if (url.includes("/actions/runs/900/jobs")) {
-      return json({ jobs: [{ steps: [{ name: "checkout" }] }] });
+    // Attempt-scoped, with the named steps and their windows — the shape the
+    // selectors actually bind artifacts and report timestamps to.
+    if (url.includes("/actions/runs/900/attempts/1/jobs")) {
+      const step = (name: string) => ({
+        name,
+        status: "completed",
+        conclusion: "success",
+        started_at: "2026-08-07T16:04:00Z",
+        completed_at: "2026-08-07T16:06:00Z",
+      });
+      return json({
+        jobs: [
+          {
+            name: "Guarded paper forward-validation",
+            status: "completed",
+            conclusion: "success",
+            steps: [
+              step("Verify paper broker and deployment health"),
+              step("Execute one guarded paper cycle"),
+              step("Preserve private runtime state"),
+            ],
+          },
+        ],
+      });
     }
     if (url.includes("/actions/runs/900/artifacts")) {
       return json({

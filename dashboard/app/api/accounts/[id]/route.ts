@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { maintenanceBlock } from "@/lib/maintenance";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { deleteAccount, rotateKeys, updateAccount } from "@/lib/accounts/service";
 
@@ -20,6 +21,9 @@ function statusFor(reason: string): number {
  *  - { nickname?, color?, is_active? }      → update metadata
  */
 export async function PATCH(req: Request, { params }: Ctx) {
+  const frozen = maintenanceBlock();
+  if (frozen) return frozen;
+
   const { id } = await params;
   const supa = await getSupabaseServer();
   const {
@@ -66,6 +70,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
 /** DELETE /api/accounts/[id]?purgeHistory=true */
 export async function DELETE(req: Request, { params }: Ctx) {
+  const frozen = maintenanceBlock();
+  if (frozen) return frozen;
+
   const { id } = await params;
   const supa = await getSupabaseServer();
   const {

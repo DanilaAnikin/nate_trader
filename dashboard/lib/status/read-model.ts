@@ -701,7 +701,9 @@ export async function buildStrategyStatus(input: {
         null,
       now,
     );
-    latestJobs = latestRun ? await fetchRunJobs(latestRun.id) : null;
+    latestJobs = latestRun
+      ? await fetchRunJobs(latestRun.id, latestRun.attempt)
+      : null;
 
     // A release gate is only a gate when a *push* run for the exact approved
     // commit completed successfully. A pull-request or manual dispatch success

@@ -309,10 +309,22 @@ for role, sub in (("anon", None), ("authenticated", OWNER)):
         }),
         ("begin_broker_refresh", {"p_account": ACCOUNT, "p_owner": OWNER}),
         ("publish_broker_refresh", {
-            "p_account": ACCOUNT, "p_owner": OWNER, "p_generation": 1,
+            "p_token": "00000000-0000-0000-0000-000000000000",
             "p_equity": [], "p_equity_complete": True,
             "p_flows": [], "p_flows_from": "2020-01-01",
             "p_flows_complete": True, "p_flows_scanned": 0,
+            "p_flows_saw_empty_page": True,
+        }),
+        ("retract_equity_snapshot", {
+            "p_account": ACCOUNT, "p_owner": OWNER,
+            "p_date": "2020-01-01", "p_reason": "x",
+        }),
+        ("retract_cash_flow", {
+            "p_account": ACCOUNT, "p_owner": OWNER,
+            "p_external_id": "act-1", "p_reason": "x",
+        }),
+        ("record_account_verification", {
+            "p_account": ACCOUNT, "p_owner": OWNER, "p_status": "connected",
         }),
         ("create_account_atomic", {
             "p_owner": OWNER, "p_nickname": "x", "p_mode": "paper",
@@ -434,8 +446,18 @@ for superseded, payload in (
         f"{superseded} should refuse rather than delete: {status} {body[:160]}",
     )
 
-# An empty activity walk that examined nothing must not empty the ledger.
-generation = int(psql(f"select begin_broker_refresh('{ACCOUNT}','{OWNER}')"))
+def reserve() -> str:
+    """A fresh refresh token, through the real API surface."""
+    status, body = request(
+        "/rpc/begin_broker_refresh",
+        role="service_role",
+        method="POST",
+        body={"p_account": ACCOUNT, "p_owner": OWNER},
+    )
+    check(status == 200, f"begin_broker_refresh failed: {status} {body[:200]}")
+    return json.loads(body)["token"]
+
+
 equity_now = json.loads(
     psql(
         "select coalesce(jsonb_agg(jsonb_build_object("
@@ -445,79 +467,168 @@ equity_now = json.loads(
         "and source='alpaca_portfolio_history'"
     )
 )
+flows_now = json.loads(
+    psql(
+        "select coalesce(jsonb_agg(jsonb_build_object("
+        "'external_id', external_id, 'flow_date', flow_date,"
+        "'amount', amount, 'kind', kind)), '[]'::jsonb) "
+        f"from cash_flows where account_id='{ACCOUNT}' and source='alpaca_activities'"
+    )
+)
+equity_before = int(psql(f"select count(*) from equity_snapshots where account_id='{ACCOUNT}'"))
+
+# An empty activity walk must not empty the ledger, however much it examined.
 status, body = request(
     "/rpc/publish_broker_refresh",
     role="service_role",
     method="POST",
     body={
-        "p_account": ACCOUNT, "p_owner": OWNER, "p_generation": generation,
+        "p_token": reserve(),
         "p_equity": equity_now, "p_equity_complete": True,
         "p_flows": [], "p_flows_from": "2020-01-01",
-        "p_flows_complete": True, "p_flows_scanned": 0,
+        "p_flows_complete": True, "p_flows_scanned": 5000,
+        "p_flows_saw_empty_page": True,
     },
 )
 check(
-    status >= 400 and "unexamined" in body,
-    f"an unexamined empty walk should not empty the ledger: {status} {body[:200]}",
+    status >= 400 and "RECONCILIATION_CONFLICT" in body,
+    f"an empty walk should not empty the ledger: {status} {body[:250]}",
 )
 remaining = int(psql(f"select count(*) from cash_flows where account_id='{ACCOUNT}'"))
 check(remaining == total_flows, f"the refused publish still changed the ledger ({remaining})")
 
-# A walk that examined activities and reports one may reconcile the rest away.
-generation = int(psql(f"select begin_broker_refresh('{ACCOUNT}','{OWNER}')"))
+# The reproduction from 0018's header, through the real API: one stored day
+# omitted from an otherwise complete payload must abort the whole transaction.
+short_equity = [row for row in equity_now][1:]
 status, body = request(
     "/rpc/publish_broker_refresh",
     role="service_role",
     method="POST",
     body={
-        "p_account": ACCOUNT, "p_owner": OWNER, "p_generation": generation,
-        "p_equity": equity_now, "p_equity_complete": True,
-        "p_flows": [{
-            "external_id": "act-000000", "flow_date": "2020-01-01",
-            "amount": 10, "kind": "deposit",
-        }],
-        "p_flows_from": "2020-01-01",
-        "p_flows_complete": True, "p_flows_scanned": total_flows,
-    },
-)
-check(status == 200, f"service_role publish failed: {status} {body[:200]}")
-if status == 200:
-    outcome = json.loads(body)
-    check(
-        outcome["flows_removed"] == total_flows - 1,
-        f"the reconciliation removed {outcome['flows_removed']} of an expected {total_flows - 1}",
-    )
-    check(
-        outcome["equity_removed"] == 0,
-        f"the reconciliation removed {outcome['equity_removed']} equity rows it should not have",
-    )
-
-# A stale generation must be refused outright.
-status, body = request(
-    "/rpc/publish_broker_refresh",
-    role="service_role",
-    method="POST",
-    body={
-        "p_account": ACCOUNT, "p_owner": OWNER, "p_generation": generation,
-        "p_equity": equity_now, "p_equity_complete": True,
-        "p_flows": [], "p_flows_from": "2020-01-01",
-        "p_flows_complete": True, "p_flows_scanned": 5,
+        "p_token": reserve(),
+        "p_equity": short_equity, "p_equity_complete": True,
+        "p_flows": flows_now, "p_flows_from": "2020-01-01",
+        "p_flows_complete": True, "p_flows_scanned": len(flows_now),
+        "p_flows_saw_empty_page": True,
     },
 )
 check(
-    status >= 400 and "not newer" in body,
-    f"a replayed generation should be refused: {status} {body[:200]}",
+    status >= 400 and "RECONCILIATION_CONFLICT" in body,
+    f"a payload omitting a stored day should abort: {status} {body[:250]}",
 )
-print("  publish_broker_refresh reconciles atomically and refuses stale generations")
+check(
+    int(psql(f"select count(*) from equity_snapshots where account_id='{ACCOUNT}'"))
+    == equity_before,
+    "a refused publish deleted an equity row",
+)
+
+# A walk that never terminated on an empty page is not a complete walk.
+status, body = request(
+    "/rpc/publish_broker_refresh",
+    role="service_role",
+    method="POST",
+    body={
+        "p_token": reserve(),
+        "p_equity": equity_now, "p_equity_complete": True,
+        "p_flows": flows_now, "p_flows_from": "2020-01-01",
+        "p_flows_complete": True, "p_flows_scanned": len(flows_now),
+        "p_flows_saw_empty_page": False,
+    },
+)
+check(
+    status >= 400 and "empty page" in body,
+    f"a walk with no terminal empty page should be refused: {status} {body[:250]}",
+)
+
+# The complete payload publishes, and removes nothing.
+publish_token = reserve()
+status, body = request(
+    "/rpc/publish_broker_refresh",
+    role="service_role",
+    method="POST",
+    body={
+        "p_token": publish_token,
+        "p_equity": equity_now, "p_equity_complete": True,
+        "p_flows": flows_now, "p_flows_from": "2020-01-01",
+        "p_flows_complete": True, "p_flows_scanned": len(flows_now),
+        "p_flows_saw_empty_page": True,
+    },
+)
+check(status == 200, f"service_role publish failed: {status} {body[:250]}")
+if status == 200:
+    outcome = json.loads(body)
+    check(
+        outcome["equity_removed"] == 0 and outcome["flows_removed"] == 0,
+        f"a publish reported removals: {outcome}",
+    )
+
+# The token is single-use.
+status, body = request(
+    "/rpc/publish_broker_refresh",
+    role="service_role",
+    method="POST",
+    body={
+        "p_token": publish_token,
+        "p_equity": equity_now, "p_equity_complete": True,
+        "p_flows": flows_now, "p_flows_from": "2020-01-01",
+        "p_flows_complete": True, "p_flows_scanned": len(flows_now),
+        "p_flows_saw_empty_page": True,
+    },
+)
+check(
+    status >= 400 and "already been published" in body,
+    f"a refresh token was published twice: {status} {body[:250]}",
+)
+
+# A binding change between reservation and publish refuses the publish. (The
+# fixture account holds no Vault secrets, so the rebind path is used; both bump
+# `credential_version`, which is what the publish re-checks.)
+stale_token = reserve()
+psql(
+    f"select record_account_verification('{ACCOUNT}','{OWNER}',"
+    "'connected','PA-PGRST-REBOUND-9999') is not null"
+)
+status, body = request(
+    "/rpc/publish_broker_refresh",
+    role="service_role",
+    method="POST",
+    body={
+        # The identity re-check happens before any row validation, so the
+        # smallest well-formed payload reaches it.
+        "p_token": stale_token,
+        "p_equity": [], "p_equity_complete": True,
+        "p_flows": [], "p_flows_from": "2020-01-01",
+        "p_flows_complete": True, "p_flows_scanned": 0,
+        "p_flows_saw_empty_page": True,
+    },
+)
+check(
+    status >= 400
+    and ("credentials changed" in body or "account number changed" in body),
+    f"a publish survived a credential change: {status} {body[:250]}",
+)
+print("  publish_broker_refresh never deletes, and refuses stale or rotated tokens")
 
 # RLS helpers, Vault and the lifecycle RPC must all still function.
 check(psql("select owns_account('%s')" % ACCOUNT) in ("f", ""), "owns_account is callable")
 
 # The refresh generation is service-role only and monotonic.
-gen_a = int(psql(f"select begin_broker_refresh('{ACCOUNT}','{OWNER}')"))
-gen_b = int(psql(f"select begin_broker_refresh('{ACCOUNT}','{OWNER}')"))
+gen_a = int(psql(f"select begin_broker_refresh('{ACCOUNT}','{OWNER}') ->> 'generation'"))
+gen_b = int(psql(f"select begin_broker_refresh('{ACCOUNT}','{OWNER}') ->> 'generation'"))
 check(gen_b > gen_a, f"refresh generations are not monotonic ({gen_a} then {gen_b})")
 print("  refresh generations are monotonic and service-role only")
+
+# The count heuristic must be gone from the live catalogue, not merely unused.
+check(
+    psql(
+        "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace "
+        "where n.nspname='public' and p.proname in "
+        "('equity_retraction_limit','equity_retraction_allowance')"
+    )
+    == "0",
+    "the equity retraction allowance still exists in the live catalogue",
+)
+print("  the retraction allowance heuristic is gone from the catalogue")
 status, body = request(
     "/rpc/delete_account_atomic",
     role="service_role",

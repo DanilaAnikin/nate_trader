@@ -15,6 +15,9 @@ type Ctx = { params: Promise<{ id: string }> };
 /**
  * GET /api/accounts/[id]/status — the single, account-scoped V11 read model.
  *
+ * **Side-effect free.** It reads the broker, the GitHub artifacts and the
+ * database, and writes nothing to any of them.
+ *
  * Everything the UI shows comes from here: broker snapshot, approved release,
  * private runtime artifact, canonical validation, scheduler health and
  * research evidence, each with its own source, scope, timestamp and freshness.
@@ -54,9 +57,12 @@ export async function GET(_req: Request, { params }: Ctx) {
         detail: "This account has no stored Alpaca credentials.",
       } as const);
 
-  if (!broker.ok && broker.code === "ALPACA_AUTH_FAILED") {
-    await svc.from("accounts").update({ status: "auth_failed" }).eq("id", id);
-  }
+  // No write here, deliberately. This handler used to set `status` to
+  // `auth_failed` when Alpaca rejected the credentials, which made a GET
+  // mutate the account — unaudited, from a path with no CSRF protection and
+  // no user intent, and reachable by any page that happened to poll. The
+  // broker rejection is reported in the payload; recording it is the job of
+  // `POST /api/accounts/[id]/verify`, which does it atomically and audits it.
 
   const payload = await buildStrategyStatus({
     viewer: { userId: user.id },

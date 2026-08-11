@@ -1,17 +1,12 @@
 -- ============================================================================
--- broker_refresh.test.sql — the refresh generation and the ingest guards
+-- broker_refresh.test.sql — a refresh may never delete, and a token is bound
+-- to the credentials it was issued against.
 --
--- Everything here is about not losing real data:
---
---   * two overlapping refreshes must not interleave, and the one that finishes
---     second with an older generation must be refused rather than overwriting
---     fresher data;
---   * a partial, empty or truncated upstream payload must never be read as a
---     retraction;
---   * a genuine retraction — including of the *oldest* day — must be honoured;
---   * an empty activity walk must not empty a populated ledger; and
---   * every destructive RPC must refuse a NULL or malformed argument before it
---     touches a row.
+-- The central property, stated once: **`publish_broker_refresh` has no code
+-- path that removes a row.** Every test below that used to assert "the right
+-- rows were deleted" now asserts "nothing was deleted and the transaction was
+-- refused", because no payload can distinguish a genuine retraction from a
+-- partial response, and guessing costs real history.
 --
 --   psql "$DATABASE_URL" \
 --     -v user_a='...' -v user_b='...' -f supabase/tests/broker_refresh.test.sql
@@ -36,30 +31,32 @@ values (
   'connected', 'PA-REFRESH-7777', :'key_id', :'secret_id'
 );
 
--- Five mirrored days and three mirrored flows to reconcile against.
+-- One hundred mirrored days: the exact scale of the reproduction in 0018's
+-- header, where an incoming payload of 99 was inside the old allowance and
+-- deleted the missing day.
 insert into equity_snapshots (account_id, snapshot_date, equity, cash, source)
 select 'ffffffff-0000-0000-0000-0000000000a1',
-       date '2026-08-03' + (n || ' days')::interval,
+       date '2026-03-02' + (n || ' days')::interval,
        1000000 + n, 0, 'alpaca_portfolio_history'
-from generate_series(0, 4) as n;
+from generate_series(0, 99) as n;
 
 insert into cash_flows (account_id, flow_date, amount, kind, source, external_id)
 select 'ffffffff-0000-0000-0000-0000000000a1',
-       date '2026-08-03' + (n || ' days')::interval,
+       date '2026-03-02' + (n || ' days')::interval,
        10, 'deposit', 'alpaca_activities', 'act-' || n
 from generate_series(0, 2) as n;
 
 -- A row this mirror did not write must survive every reconciliation below.
 insert into equity_snapshots (account_id, snapshot_date, equity, cash, source)
 values (
-  'ffffffff-0000-0000-0000-0000000000a1', date '2026-07-01', 900000, 0, 'agent'
+  'ffffffff-0000-0000-0000-0000000000a1', date '2026-01-05', 900000, 0, 'agent'
 );
 
--- Helper: the five mirrored days, as the payload shape the RPC expects.
+-- Helpers producing exactly the payload shape the RPC validates.
 create or replace function test_equity_payload(p_days int[])
 returns jsonb language sql stable as $$
   select coalesce(jsonb_agg(jsonb_build_object(
-           'snapshot_date', (date '2026-08-03' + (d || ' days')::interval)::date,
+           'snapshot_date', (date '2026-03-02' + (d || ' days')::interval)::date,
            'equity', 1000000 + d,
            'cash', 0,
            'profit_loss', null,
@@ -72,260 +69,537 @@ create or replace function test_flow_payload(p_ids int[])
 returns jsonb language sql stable as $$
   select coalesce(jsonb_agg(jsonb_build_object(
            'external_id', 'act-' || i,
-           'flow_date', (date '2026-08-03' + (i || ' days')::interval)::date,
+           'flow_date', (date '2026-03-02' + (i || ' days')::interval)::date,
            'amount', 10,
            'kind', 'deposit'
          ) order by i), '[]'::jsonb)
   from unnest(p_ids) as i;
 $$;
 
--- --- 1. every argument is required -----------------------------------------
+/** All 100 mirrored days, and all three mirrored flows. */
+create or replace function test_full_equity() returns jsonb language sql stable as $$
+  select test_equity_payload(array(select generate_series(0, 99)));
+$$;
+create or replace function test_full_flows() returns jsonb language sql stable as $$
+  select test_flow_payload(array[0, 1, 2]);
+$$;
+
+/** A fresh token for the fixture account. */
+create or replace function test_token() returns uuid language sql as $$
+  select (begin_broker_refresh(
+            'ffffffff-0000-0000-0000-0000000000a1',
+            current_setting('test.user_a')::uuid
+          ) ->> 'token')::uuid;
+$$;
+
+/** Row counts, so "nothing was written" is a measurement rather than a hope. */
+create or replace function test_counts() returns text language sql stable as $$
+  select format('%s/%s/%s',
+    (select count(*) from equity_snapshots
+      where account_id = 'ffffffff-0000-0000-0000-0000000000a1'),
+    (select count(*) from cash_flows
+      where account_id = 'ffffffff-0000-0000-0000-0000000000a1'),
+    (select coalesce(sum(equity), 0) from equity_snapshots
+      where account_id = 'ffffffff-0000-0000-0000-0000000000a1'));
+$$;
+
+-- --- 1. every argument is required, and nothing is touched ------------------
 do $$
 declare
-  gen      bigint;
+  tok      uuid;
   blocked  boolean;
+  before_  text := test_counts();
   attempts text[] := '{}';
 begin
-  gen := begin_broker_refresh(
-    'ffffffff-0000-0000-0000-0000000000a1',
-    current_setting('test.user_a')::uuid
-  );
+  tok := test_token();
 
-  -- Each call below is valid except for exactly one NULL.
-  blocked := false;
   begin
-    perform publish_broker_refresh(
-      null, current_setting('test.user_a')::uuid, gen,
-      test_equity_payload(array[0,1,2,3,4]), true,
-      test_flow_payload(array[0,1,2]), date '2026-08-03', true, 3
-    );
-  exception when others then blocked := true; end;
-  if not blocked then attempts := attempts || 'null account'; end if;
+    perform publish_broker_refresh(null, test_full_equity(), true,
+      test_full_flows(), date '2026-03-02', true, 3, true);
+    attempts := attempts || 'null token accepted';
+  exception when others then null; end;
 
-  blocked := false;
   begin
-    perform publish_broker_refresh(
-      'ffffffff-0000-0000-0000-0000000000a1', current_setting('test.user_a')::uuid, gen,
-      null, true, test_flow_payload(array[0,1,2]), date '2026-08-03', true, 3
-    );
-  exception when others then blocked := true; end;
-  if not blocked then attempts := attempts || 'null equity payload'; end if;
+    perform publish_broker_refresh(tok, null, true,
+      test_full_flows(), date '2026-03-02', true, 3, true);
+    attempts := attempts || 'null equity accepted';
+  exception when others then null; end;
 
-  blocked := false;
   begin
-    perform publish_broker_refresh(
-      'ffffffff-0000-0000-0000-0000000000a1', current_setting('test.user_a')::uuid, gen,
-      test_equity_payload(array[0,1,2,3,4]), true,
-      test_flow_payload(array[0,1,2]), null, true, 3
-    );
-  exception when others then blocked := true; end;
-  if not blocked then attempts := attempts || 'null flow window'; end if;
+    perform publish_broker_refresh(tok, test_full_equity(), null,
+      test_full_flows(), date '2026-03-02', true, 3, true);
+    attempts := attempts || 'null completeness accepted';
+  exception when others then null; end;
 
-  blocked := false;
   begin
-    perform publish_broker_refresh(
-      'ffffffff-0000-0000-0000-0000000000a1', current_setting('test.user_a')::uuid, gen,
-      '{"not":"an array"}'::jsonb, true,
-      test_flow_payload(array[0,1,2]), date '2026-08-03', true, 3
-    );
-  exception when others then blocked := true; end;
-  if not blocked then attempts := attempts || 'object instead of array'; end if;
+    perform publish_broker_refresh(tok, test_full_equity(), true,
+      null, date '2026-03-02', true, 3, true);
+    attempts := attempts || 'null flows accepted';
+  exception when others then null; end;
 
-  -- A payload the caller could not prove complete must be refused outright.
-  blocked := false;
   begin
-    perform publish_broker_refresh(
-      'ffffffff-0000-0000-0000-0000000000a1', current_setting('test.user_a')::uuid, gen,
-      test_equity_payload(array[0,1,2,3,4]), false,
-      test_flow_payload(array[0,1,2]), date '2026-08-03', true, 3
-    );
-  exception when others then blocked := true; end;
-  if not blocked then attempts := attempts || 'unproven equity payload'; end if;
+    perform publish_broker_refresh(tok, test_full_equity(), true,
+      test_full_flows(), null, true, 3, true);
+    attempts := attempts || 'null window accepted';
+  exception when others then null; end;
+
+  begin
+    perform publish_broker_refresh(tok, test_full_equity(), true,
+      test_full_flows(), date '2026-03-02', true, null, true);
+    attempts := attempts || 'null scanned accepted';
+  exception when others then null; end;
+
+  begin
+    perform publish_broker_refresh(tok, test_full_equity(), true,
+      test_full_flows(), date '2026-03-02', true, 3, null);
+    attempts := attempts || 'null terminal-page flag accepted';
+  exception when others then null; end;
+
+  begin
+    perform publish_broker_refresh(tok, '{"not":"an array"}'::jsonb, true,
+      test_full_flows(), date '2026-03-02', true, 3, true);
+    attempts := attempts || 'a non-array equity payload accepted';
+  exception when others then null; end;
+
+  begin
+    perform publish_broker_refresh(tok, test_full_equity(), false,
+      test_full_flows(), date '2026-03-02', true, 3, true);
+    attempts := attempts || 'an incomplete equity payload accepted';
+  exception when others then null; end;
+
+  -- `page_size` is a maximum, not an EOF marker. A walk that never saw an
+  -- explicit empty page did not reach the end of the feed.
+  begin
+    perform publish_broker_refresh(tok, test_full_equity(), true,
+      test_full_flows(), date '2026-03-02', true, 3, false);
+    attempts := attempts || 'a walk with no terminal empty page accepted';
+  exception when others then null; end;
+
+  -- More rows than activities examined is arithmetically impossible.
+  begin
+    perform publish_broker_refresh(tok, test_full_equity(), true,
+      test_full_flows(), date '2026-03-02', true, 1, true);
+    attempts := attempts || 'more rows than scanned activities accepted';
+  exception when others then null; end;
 
   if array_length(attempts, 1) is not null then
-    raise exception 'FAIL: accepted %', array_to_string(attempts, ', ');
+    raise exception 'FAIL: %', array_to_string(attempts, '; ');
   end if;
-
-  -- And none of those refusals moved anything.
-  if (select count(*) from equity_snapshots
-       where account_id = 'ffffffff-0000-0000-0000-0000000000a1'
-         and source = 'alpaca_portfolio_history') <> 5 then
-    raise exception 'FAIL: a refused publish still changed the equity mirror';
+  if test_counts() <> before_ then
+    raise exception 'FAIL: a rejected publish changed the mirror (% -> %)',
+      before_, test_counts();
   end if;
 end $$;
 
--- --- 2. an empty portfolio history is not a retraction ---------------------
+-- --- 2. stored 100, incoming 99: no mutation --------------------------------
+-- The exact reproduction from 0018's header. Under 0017 this succeeded and
+-- deleted the omitted day, because a shrink of one was inside the allowance.
 do $$
-declare blocked boolean := false;
+declare
+  before_ text := test_counts();
+  blocked boolean := false;
+  msg     text;
 begin
   begin
     perform publish_broker_refresh(
-      'ffffffff-0000-0000-0000-0000000000a1',
-      current_setting('test.user_a')::uuid,
-      begin_broker_refresh('ffffffff-0000-0000-0000-0000000000a1',
-                           current_setting('test.user_a')::uuid),
-      '[]'::jsonb, true,
-      test_flow_payload(array[0,1,2]), date '2026-08-03', true, 3
+      test_token(),
+      -- Every day except 2026-04-01 (offset 30): a valid day simply omitted.
+      test_equity_payload(array(select g from generate_series(0, 99) g where g <> 30)),
+      true,
+      test_full_flows(), date '2026-03-02', true, 3, true
     );
-  exception when others then blocked := true; end;
-  if not blocked then
-    raise exception 'FAIL: an empty portfolio history emptied the mirror';
-  end if;
-  if (select count(*) from equity_snapshots
-       where account_id = 'ffffffff-0000-0000-0000-0000000000a1'
-         and source = 'alpaca_portfolio_history') <> 5 then
-    raise exception 'FAIL: an empty payload deleted stored days';
-  end if;
-end $$;
+  exception when others then
+    blocked := true;
+    msg := sqlerrm;
+  end;
 
--- --- 3. a truncated payload is not a retraction ----------------------------
--- Only the newest day survives in the payload: that is a loss of four days,
--- past the retraction limit, so it must be refused rather than applied.
-do $$
-declare blocked boolean := false;
-begin
-  begin
-    perform publish_broker_refresh(
-      'ffffffff-0000-0000-0000-0000000000a1',
-      current_setting('test.user_a')::uuid,
-      begin_broker_refresh('ffffffff-0000-0000-0000-0000000000a1',
-                           current_setting('test.user_a')::uuid),
-      test_equity_payload(array[4]), true,
-      test_flow_payload(array[0,1,2]), date '2026-08-03', true, 3
-    );
-  exception when others then blocked := true; end;
   if not blocked then
-    raise exception 'FAIL: a truncated payload was applied as a retraction';
+    raise exception
+      'FAIL: a payload of 99 against 100 stored days was accepted';
   end if;
-  if (select count(*) from equity_snapshots
-       where account_id = 'ffffffff-0000-0000-0000-0000000000a1'
-         and source = 'alpaca_portfolio_history') <> 5 then
-    raise exception 'FAIL: a truncated payload deleted stored days';
+  if msg not like '%RECONCILIATION_CONFLICT%' then
+    raise exception 'FAIL: expected RECONCILIATION_CONFLICT, got %', msg;
   end if;
-end $$;
-
--- --- 4. a genuine retraction of the OLDEST day is honoured -----------------
--- The bound the old code used — `>= min(incoming)` — could never remove this
--- day, because dropping it moves the bound past it.
-do $$
-declare removed jsonb;
-begin
-  removed := publish_broker_refresh(
-    'ffffffff-0000-0000-0000-0000000000a1',
-    current_setting('test.user_a')::uuid,
-    begin_broker_refresh('ffffffff-0000-0000-0000-0000000000a1',
-                         current_setting('test.user_a')::uuid),
-    test_equity_payload(array[1,2,3,4]), true,
-    test_flow_payload(array[0,1,2]), date '2026-08-03', true, 3
-  );
-  if (removed ->> 'equity_removed')::int <> 1 then
-    raise exception 'FAIL: the retracted oldest day was not removed (%)', removed;
+  if test_counts() <> before_ then
+    raise exception 'FAIL: the mirror changed (% -> %)', before_, test_counts();
   end if;
-  if exists (
-    select 1 from equity_snapshots
-     where account_id = 'ffffffff-0000-0000-0000-0000000000a1'
-       and snapshot_date = date '2026-08-03'
-       and source = 'alpaca_portfolio_history'
-  ) then
-    raise exception 'FAIL: the retracted oldest day survived';
-  end if;
-  -- A row this mirror did not write keeps its own authority.
   if not exists (
     select 1 from equity_snapshots
      where account_id = 'ffffffff-0000-0000-0000-0000000000a1'
-       and snapshot_date = date '2026-07-01' and source = 'agent'
+       and snapshot_date = date '2026-04-01'
   ) then
-    raise exception 'FAIL: the reconciliation deleted a row it did not write';
+    raise exception 'FAIL: the omitted day was deleted';
   end if;
 end $$;
 
--- --- 5. an empty, unexamined activity walk must not empty the ledger -------
+-- --- 3. a first-load partial response claims nothing -------------------------
+-- Ten days out of a hundred, flagged complete. Nothing about this payload is
+-- distinguishable from a broker that truncated its answer.
 do $$
-declare blocked boolean := false;
+declare
+  before_ text := test_counts();
+  blocked boolean := false;
 begin
   begin
     perform publish_broker_refresh(
-      'ffffffff-0000-0000-0000-0000000000a1',
-      current_setting('test.user_a')::uuid,
-      begin_broker_refresh('ffffffff-0000-0000-0000-0000000000a1',
-                           current_setting('test.user_a')::uuid),
-      test_equity_payload(array[1,2,3,4]), true,
-      '[]'::jsonb, date '2026-08-03', true, 0
+      test_token(),
+      test_equity_payload(array(select generate_series(90, 99))), true,
+      test_full_flows(), date '2026-03-02', true, 3, true
     );
   exception when others then blocked := true; end;
+
   if not blocked then
-    raise exception 'FAIL: an unexamined empty walk emptied the ledger';
+    raise exception 'FAIL: a 10-of-100 payload was accepted';
+  end if;
+  if test_counts() <> before_ then
+    raise exception 'FAIL: a truncated payload changed the mirror';
+  end if;
+end $$;
+
+-- --- 4. an empty portfolio history is not a tombstone ------------------------
+do $$
+declare
+  before_ text := test_counts();
+  blocked boolean := false;
+begin
+  begin
+    perform publish_broker_refresh(
+      test_token(), '[]'::jsonb, true,
+      test_full_flows(), date '2026-03-02', true, 3, true
+    );
+  exception when others then blocked := true; end;
+
+  if not blocked then
+    raise exception 'FAIL: an empty portfolio history emptied the mirror';
+  end if;
+  if test_counts() <> before_ then
+    raise exception 'FAIL: an empty payload changed the mirror';
+  end if;
+end $$;
+
+-- --- 5. flows = [] with scanned = 1 leaves the ledger alone ------------------
+-- Under 0017 this deleted the whole ledger: "we examined one activity" was
+-- accepted as proof that the three mirrored ones were withdrawn.
+do $$
+declare
+  before_ text := test_counts();
+  blocked boolean := false;
+  msg     text;
+begin
+  begin
+    perform publish_broker_refresh(
+      test_token(), test_full_equity(), true,
+      '[]'::jsonb, date '2026-03-02', true, 1, true
+    );
+  exception when others then
+    blocked := true;
+    msg := sqlerrm;
+  end;
+
+  if not blocked then
+    raise exception 'FAIL: an empty activity walk emptied the ledger';
+  end if;
+  if msg not like '%RECONCILIATION_CONFLICT%' then
+    raise exception 'FAIL: expected RECONCILIATION_CONFLICT, got %', msg;
   end if;
   if (select count(*) from cash_flows
        where account_id = 'ffffffff-0000-0000-0000-0000000000a1') <> 3 then
-    raise exception 'FAIL: an unexamined empty walk deleted mirrored flows';
+    raise exception 'FAIL: the ledger lost rows';
+  end if;
+  if test_counts() <> before_ then
+    raise exception 'FAIL: the mirror changed';
   end if;
 end $$;
 
--- A walk that examined activities and found none in the window may empty it.
-do $$
-declare result jsonb;
-begin
-  result := publish_broker_refresh(
-    'ffffffff-0000-0000-0000-0000000000a1',
-    current_setting('test.user_a')::uuid,
-    begin_broker_refresh('ffffffff-0000-0000-0000-0000000000a1',
-                         current_setting('test.user_a')::uuid),
-    test_equity_payload(array[1,2,3,4]), true,
-    '[]'::jsonb, date '2026-08-03', true, 12
-  );
-  if (result ->> 'flows_removed')::int <> 3 then
-    raise exception 'FAIL: an examined empty walk did not reconcile (%)', result;
-  end if;
-end $$;
-
--- --- 6. two generations completing in the wrong order ----------------------
--- A takes its generation first, B takes one after it and publishes first. A's
--- later publish carries the older generation and must be refused, so B's
--- fresher data survives.
+-- --- 6. an examined empty walk is still not a tombstone ----------------------
+-- Even with a large `scanned`, absence is not withdrawal.
 do $$
 declare
-  gen_a   bigint;
-  gen_b   bigint;
+  before_ text := test_counts();
   blocked boolean := false;
 begin
-  gen_a := begin_broker_refresh('ffffffff-0000-0000-0000-0000000000a1',
-                                current_setting('test.user_a')::uuid);
-  gen_b := begin_broker_refresh('ffffffff-0000-0000-0000-0000000000a1',
-                                current_setting('test.user_a')::uuid);
-  if gen_b <= gen_a then
-    raise exception 'FAIL: generations are not monotonic (% then %)', gen_a, gen_b;
-  end if;
-
-  -- B publishes first, with two flows.
-  perform publish_broker_refresh(
-    'ffffffff-0000-0000-0000-0000000000a1', current_setting('test.user_a')::uuid,
-    gen_b,
-    test_equity_payload(array[1,2,3,4]), true,
-    test_flow_payload(array[0,1]), date '2026-08-03', true, 2
-  );
-
-  -- A now arrives late with a stale generation and only one flow.
   begin
     perform publish_broker_refresh(
-      'ffffffff-0000-0000-0000-0000000000a1', current_setting('test.user_a')::uuid,
-      gen_a,
-      test_equity_payload(array[1,2,3,4]), true,
-      test_flow_payload(array[0]), date '2026-08-03', true, 1
+      test_token(), test_full_equity(), true,
+      '[]'::jsonb, date '2026-03-02', true, 5000, true
+    );
+  exception when others then blocked := true; end;
+
+  if not blocked then
+    raise exception 'FAIL: a well-examined empty walk emptied the ledger';
+  end if;
+  if test_counts() <> before_ then
+    raise exception 'FAIL: the mirror changed';
+  end if;
+end $$;
+
+-- --- 7. the complete payload publishes, and removes nothing ------------------
+do $$
+declare
+  outcome jsonb;
+begin
+  outcome := publish_broker_refresh(
+    test_token(), test_full_equity(), true,
+    test_full_flows(), date '2026-03-02', true, 3, true
+  );
+  if (outcome ->> 'equity_written')::int <> 100 then
+    raise exception 'FAIL: expected 100 equity rows written, got %',
+      outcome ->> 'equity_written';
+  end if;
+  if (outcome ->> 'equity_removed')::int <> 0
+     or (outcome ->> 'flows_removed')::int <> 0 then
+    raise exception 'FAIL: a publish reported removals';
+  end if;
+  -- The `agent`-sourced row this mirror never wrote is untouched, as always.
+  if not exists (
+    select 1 from equity_snapshots
+     where account_id = 'ffffffff-0000-0000-0000-0000000000a1'
+       and source = 'agent'
+  ) then
+    raise exception 'FAIL: a foreign-sourced row was removed';
+  end if;
+end $$;
+
+-- --- 8. per-row validation, before the first mutation ------------------------
+do $$
+declare
+  before_  text := test_counts();
+  attempts text[] := '{}';
+  tok      uuid;
+
+  procedure_failed boolean;
+begin
+  -- Each case builds a payload that is complete except for one bad row, so
+  -- the only reason to refuse it is the row itself.
+  declare
+    cases jsonb[] := array[
+      -- an extra key
+      test_full_equity() || jsonb_build_array(jsonb_build_object(
+        'snapshot_date', '2026-06-11', 'equity', 1, 'cash', 0,
+        'profit_loss', null, 'profit_loss_pct', null, 'extra', 1)),
+      -- a missing key
+      test_full_equity() || jsonb_build_array(jsonb_build_object(
+        'snapshot_date', '2026-06-11', 'equity', 1, 'cash', 0,
+        'profit_loss', null)),
+      -- an impossible calendar date
+      test_full_equity() || jsonb_build_array(jsonb_build_object(
+        'snapshot_date', '2026-02-30', 'equity', 1, 'cash', 0,
+        'profit_loss', null, 'profit_loss_pct', null)),
+      -- a non-positive equity
+      test_full_equity() || jsonb_build_array(jsonb_build_object(
+        'snapshot_date', '2026-06-11', 'equity', 0, 'cash', 0,
+        'profit_loss', null, 'profit_loss_pct', null)),
+      -- equity as a string
+      test_full_equity() || jsonb_build_array(jsonb_build_object(
+        'snapshot_date', '2026-06-11', 'equity', '1000', 'cash', 0,
+        'profit_loss', null, 'profit_loss_pct', null)),
+      -- profit_loss as a string
+      test_full_equity() || jsonb_build_array(jsonb_build_object(
+        'snapshot_date', '2026-06-11', 'equity', 1, 'cash', 0,
+        'profit_loss', 'n/a', 'profit_loss_pct', null)),
+      -- a duplicate session date
+      test_full_equity() || jsonb_build_array(jsonb_build_object(
+        'snapshot_date', '2026-03-02', 'equity', 1, 'cash', 0,
+        'profit_loss', null, 'profit_loss_pct', null)),
+      -- a scalar where an object belongs
+      test_full_equity() || jsonb_build_array(42)
+    ];
+    labels text[] := array[
+      'extra key', 'missing key', '2026-02-30', 'zero equity',
+      'string equity', 'string profit_loss', 'duplicate date', 'scalar row'
+    ];
+    i int;
+  begin
+    for i in 1 .. array_length(cases, 1) loop
+      procedure_failed := false;
+      begin
+        perform publish_broker_refresh(
+          test_token(), cases[i], true,
+          test_full_flows(), date '2026-03-02', true, 3, true
+        );
+      exception when others then procedure_failed := true; end;
+      if not procedure_failed then
+        attempts := attempts || format('equity payload with %s accepted', labels[i]);
+      end if;
+    end loop;
+  end;
+
+  declare
+    flow_cases jsonb[] := array[
+      -- a duplicate external id
+      test_full_flows() || jsonb_build_array(jsonb_build_object(
+        'external_id', 'act-0', 'flow_date', '2026-03-02',
+        'amount', 5, 'kind', 'deposit')),
+      -- a zero amount
+      test_full_flows() || jsonb_build_array(jsonb_build_object(
+        'external_id', 'act-9', 'flow_date', '2026-03-02',
+        'amount', 0, 'kind', 'deposit')),
+      -- a kind outside the allowed set
+      test_full_flows() || jsonb_build_array(jsonb_build_object(
+        'external_id', 'act-9', 'flow_date', '2026-03-02',
+        'amount', 5, 'kind', 'fee')),
+      -- a negative deposit
+      test_full_flows() || jsonb_build_array(jsonb_build_object(
+        'external_id', 'act-9', 'flow_date', '2026-03-02',
+        'amount', -5, 'kind', 'deposit')),
+      -- a flow before the declared window
+      test_full_flows() || jsonb_build_array(jsonb_build_object(
+        'external_id', 'act-9', 'flow_date', '2026-01-01',
+        'amount', 5, 'kind', 'deposit')),
+      -- an empty external id
+      test_full_flows() || jsonb_build_array(jsonb_build_object(
+        'external_id', '', 'flow_date', '2026-03-02',
+        'amount', 5, 'kind', 'deposit'))
+    ];
+    flow_labels text[] := array[
+      'duplicate external_id', 'zero amount', 'disallowed kind',
+      'negative deposit', 'out-of-window date', 'blank external_id'
+    ];
+    i int;
+  begin
+    for i in 1 .. array_length(flow_cases, 1) loop
+      procedure_failed := false;
+      begin
+        perform publish_broker_refresh(
+          test_token(), test_full_equity(), true,
+          flow_cases[i], date '2026-03-02', true, 9, true
+        );
+      exception when others then procedure_failed := true; end;
+      if not procedure_failed then
+        attempts := attempts || format('flow payload with %s accepted', flow_labels[i]);
+      end if;
+    end loop;
+  end;
+
+  if array_length(attempts, 1) is not null then
+    raise exception 'FAIL: %', array_to_string(attempts, '; ');
+  end if;
+  if test_counts() <> before_ then
+    raise exception 'FAIL: a rejected payload changed the mirror';
+  end if;
+end $$;
+
+-- --- 9. two refreshes completing in the wrong order ---------------------------
+do $$
+declare
+  tok_a   uuid;
+  tok_b   uuid;
+  blocked boolean := false;
+begin
+  tok_a := test_token();
+  tok_b := test_token();
+
+  -- B publishes first, adding one new day.
+  perform publish_broker_refresh(
+    tok_b,
+    test_full_equity() || jsonb_build_array(jsonb_build_object(
+      'snapshot_date', '2026-06-10', 'equity', 1000200, 'cash', 0,
+      'profit_loss', null, 'profit_loss_pct', null)),
+    true, test_full_flows(), date '2026-03-02', true, 3, true
+  );
+
+  -- A now arrives late, without B's new day. It is refused twice over: the
+  -- generation is older, and its payload omits a stored row.
+  begin
+    perform publish_broker_refresh(
+      tok_a, test_full_equity(), true,
+      test_full_flows(), date '2026-03-02', true, 3, true
     );
   exception when others then blocked := true; end;
 
   if not blocked then
     raise exception 'FAIL: a stale generation overwrote a newer refresh';
   end if;
-  if (select count(*) from cash_flows
-       where account_id = 'ffffffff-0000-0000-0000-0000000000a1') <> 2 then
-    raise exception
-      'FAIL: the late refresh changed the ledger despite being refused';
+  if not exists (
+    select 1 from equity_snapshots
+     where account_id = 'ffffffff-0000-0000-0000-0000000000a1'
+       and snapshot_date = date '2026-06-10'
+  ) then
+    raise exception 'FAIL: the late refresh removed the newer day';
   end if;
 end $$;
 
--- --- 7. ownership is enforced ----------------------------------------------
+-- --- 10. a token is single-use ------------------------------------------------
+do $$
+declare
+  tok     uuid := test_token();
+  blocked boolean := false;
+begin
+  perform publish_broker_refresh(
+    tok,
+    test_full_equity() || jsonb_build_array(
+      jsonb_build_object('snapshot_date', '2026-06-10', 'equity', 1000200,
+        'cash', 0, 'profit_loss', null, 'profit_loss_pct', null)),
+    true, test_full_flows(), date '2026-03-02', true, 3, true
+  );
+  begin
+    perform publish_broker_refresh(
+      tok,
+      test_full_equity() || jsonb_build_array(
+        jsonb_build_object('snapshot_date', '2026-06-10', 'equity', 1000200,
+          'cash', 0, 'profit_loss', null, 'profit_loss_pct', null)),
+      true, test_full_flows(), date '2026-03-02', true, 3, true
+    );
+  exception when others then blocked := true; end;
+  if not blocked then
+    raise exception 'FAIL: a refresh token was published twice';
+  end if;
+end $$;
+
+-- --- 11. a credential change during the refresh refuses the publish -----------
+do $$
+declare
+  tok     uuid;
+  blocked boolean := false;
+  msg     text;
+  payload jsonb;
+begin
+  payload := test_full_equity() || jsonb_build_array(
+    jsonb_build_object('snapshot_date', '2026-06-10', 'equity', 1000200,
+      'cash', 0, 'profit_loss', null, 'profit_loss_pct', null));
+
+  -- Reserve, then rotate, then publish: exactly the interleaving that would
+  -- otherwise mix one credential's data into another's mirror.
+  tok := test_token();
+  perform rotate_account_credentials(
+    'ffffffff-0000-0000-0000-0000000000a1',
+    current_setting('test.user_a')::uuid,
+    'NEW-KEY', 'NEW-SECRET', 'PA-REFRESH-7777'
+  );
+  begin
+    perform publish_broker_refresh(
+      tok, payload, true, test_full_flows(), date '2026-03-02', true, 3, true
+    );
+  exception when others then
+    blocked := true;
+    msg := sqlerrm;
+  end;
+  if not blocked then
+    raise exception 'FAIL: a publish survived a credential rotation';
+  end if;
+  if msg not like '%credentials changed%' then
+    raise exception 'FAIL: expected a credential-change refusal, got %', msg;
+  end if;
+
+  -- The same for a re-binding of the broker account number.
+  tok := test_token();
+  perform record_account_verification(
+    'ffffffff-0000-0000-0000-0000000000a1',
+    current_setting('test.user_a')::uuid,
+    'connected', 'PA-REFRESH-8888'
+  );
+  blocked := false;
+  begin
+    perform publish_broker_refresh(
+      tok, payload, true, test_full_flows(), date '2026-03-02', true, 3, true
+    );
+  exception when others then blocked := true; end;
+  if not blocked then
+    raise exception 'FAIL: a publish survived a broker account rebinding';
+  end if;
+end $$;
+
+-- --- 12. ownership is enforced -----------------------------------------------
 do $$
 declare blocked boolean := false;
 begin
@@ -334,55 +608,148 @@ begin
                                  current_setting('test.user_b')::uuid);
   exception when others then blocked := true; end;
   if not blocked then
-    raise exception 'FAIL: another user could start a refresh';
+    raise exception 'FAIL: another owner reserved a refresh';
   end if;
 end $$;
 
--- --- 8. the superseded RPC refuses rather than deleting --------------------
+-- --- 13. the superseded RPCs still refuse -------------------------------------
 do $$
-declare blocked boolean := false;
+declare blocked int := 0;
 begin
+  begin
+    perform reconcile_cash_flow_mirror(
+      'ffffffff-0000-0000-0000-0000000000a1',
+      current_setting('test.user_a')::uuid, date '2026-03-02', '[]'::jsonb);
+  exception when others then blocked := blocked + 1; end;
   begin
     perform replace_equity_snapshots(
       'ffffffff-0000-0000-0000-0000000000a1',
-      current_setting('test.user_a')::uuid,
-      '[]'::jsonb
-    );
-  exception when others then blocked := true; end;
-  if not blocked then
-    raise exception 'FAIL: replace_equity_snapshots still accepts unproven input';
+      current_setting('test.user_a')::uuid, '[]'::jsonb);
+  exception when others then blocked := blocked + 1; end;
+  if blocked <> 2 then
+    raise exception 'FAIL: a superseded reconciliation RPC still runs';
   end if;
 end $$;
 
--- --- 9. neither refresh RPC is reachable by a client role ------------------
-set local role authenticated;
-select set_config('request.jwt.claims', json_build_object('sub', :'user_a', 'role', 'authenticated')::text, true);
+-- --- 14. withdrawing a row is deliberate, audited and one at a time -----------
 do $$
-declare denied boolean;
+declare
+  before_equity bigint;
 begin
-  denied := false;
+  select count(*) into before_equity
+    from equity_snapshots
+   where account_id = 'ffffffff-0000-0000-0000-0000000000a1';
+
+  perform retract_equity_snapshot(
+    'ffffffff-0000-0000-0000-0000000000a1',
+    current_setting('test.user_a')::uuid,
+    date '2026-04-01',
+    'broker withdrew the session in a corrected statement'
+  );
+  if (select count(*) from equity_snapshots
+       where account_id = 'ffffffff-0000-0000-0000-0000000000a1')
+     <> before_equity - 1 then
+    raise exception 'FAIL: the retraction did not remove exactly one row';
+  end if;
+  if not exists (
+    select 1 from audit_log
+     where account_id = 'ffffffff-0000-0000-0000-0000000000a1'
+       and action = 'equity.retracted'
+  ) then
+    raise exception 'FAIL: the retraction was not audited';
+  end if;
+
+  perform retract_cash_flow(
+    'ffffffff-0000-0000-0000-0000000000a1',
+    current_setting('test.user_a')::uuid,
+    'act-2', 'the deposit was reversed'
+  );
+  if exists (
+    select 1 from cash_flows
+     where account_id = 'ffffffff-0000-0000-0000-0000000000a1'
+       and external_id = 'act-2'
+  ) then
+    raise exception 'FAIL: the cash flow was not withdrawn';
+  end if;
+  if not exists (
+    select 1 from audit_log
+     where account_id = 'ffffffff-0000-0000-0000-0000000000a1'
+       and action = 'cash_flow.retracted'
+  ) then
+    raise exception 'FAIL: the cash-flow retraction was not audited';
+  end if;
+end $$;
+
+-- A retraction without a stated reason is not a retraction.
+do $$
+declare blocked int := 0;
+begin
+  begin
+    perform retract_equity_snapshot(
+      'ffffffff-0000-0000-0000-0000000000a1',
+      current_setting('test.user_a')::uuid, date '2026-03-03', '');
+  exception when others then blocked := blocked + 1; end;
+  begin
+    perform retract_equity_snapshot(
+      'ffffffff-0000-0000-0000-0000000000a1',
+      current_setting('test.user_a')::uuid, date '2026-03-03', null);
+  exception when others then blocked := blocked + 1; end;
+  begin
+    perform retract_cash_flow(
+      'ffffffff-0000-0000-0000-0000000000a1',
+      current_setting('test.user_b')::uuid, 'act-1', 'not my account');
+  exception when others then blocked := blocked + 1; end;
+  if blocked <> 3 then
+    raise exception 'FAIL: an unreasoned or unowned retraction was allowed';
+  end if;
+end $$;
+
+-- --- 15. the count heuristic is gone ------------------------------------------
+do $$ begin
+  if exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in ('equity_retraction_limit', 'equity_retraction_allowance')
+  ) then
+    raise exception 'FAIL: the retraction allowance still exists';
+  end if;
+end $$;
+
+-- --- 16. no client role can reach any of this ---------------------------------
+select set_config(
+  'request.jwt.claims',
+  json_build_object('sub', current_setting('test.user_a'), 'role', 'authenticated')::text,
+  true
+);
+set local role authenticated;
+
+do $$
+declare denied int := 0;
+begin
   begin
     perform begin_broker_refresh(gen_random_uuid(), gen_random_uuid());
-  exception when insufficient_privilege then denied := true;
-    when others then denied := false;
-  end;
-  if not denied then
-    raise exception 'FAIL: authenticated can call begin_broker_refresh';
-  end if;
-
-  denied := false;
+  exception when insufficient_privilege then denied := denied + 1;
+    when others then null; end;
   begin
-    perform publish_broker_refresh(
-      gen_random_uuid(), gen_random_uuid(), 1,
-      '[]'::jsonb, true, '[]'::jsonb, current_date, true, 0
-    );
-  exception when insufficient_privilege then denied := true;
-    when others then denied := false;
-  end;
-  if not denied then
-    raise exception 'FAIL: authenticated can call publish_broker_refresh';
+    perform publish_broker_refresh(gen_random_uuid(), '[]'::jsonb, true,
+      '[]'::jsonb, current_date, true, 0, true);
+  exception when insufficient_privilege then denied := denied + 1;
+    when others then null; end;
+  begin
+    perform retract_equity_snapshot(gen_random_uuid(), gen_random_uuid(),
+      current_date, 'x');
+  exception when insufficient_privilege then denied := denied + 1;
+    when others then null; end;
+  begin
+    perform record_account_verification(gen_random_uuid(), gen_random_uuid(),
+      'connected', 'PA-1');
+  exception when insufficient_privilege then denied := denied + 1;
+    when others then null; end;
+  if denied <> 4 then
+    raise exception 'FAIL: only % of 4 refresh RPCs refused a client role', denied;
   end if;
 end $$;
+
 reset role;
 select set_config('request.jwt.claims', '', true);
 

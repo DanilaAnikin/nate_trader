@@ -655,21 +655,48 @@ export type Database = {
       }
       begin_broker_refresh: {
         Args: { p_account: string; p_owner: string }
-        Returns: number
+        /** `{ token, generation, credential_version, mode, account_number }` */
+        Returns: Json
       }
       publish_broker_refresh: {
         Args: {
-          p_account: string
-          p_owner: string
-          p_generation: number
+          p_token: string
           p_equity: Json
           p_equity_complete: boolean
           p_flows: Json
           p_flows_from: string
           p_flows_complete: boolean
           p_flows_scanned: number
+          p_flows_saw_empty_page: boolean
         }
         Returns: Json
+      }
+      retract_equity_snapshot: {
+        Args: {
+          p_account: string
+          p_owner: string
+          p_date: string
+          p_reason: string
+        }
+        Returns: boolean
+      }
+      retract_cash_flow: {
+        Args: {
+          p_account: string
+          p_owner: string
+          p_external_id: string
+          p_reason: string
+        }
+        Returns: boolean
+      }
+      record_account_verification: {
+        Args: {
+          p_account: string
+          p_owner: string
+          p_status: Database["public"]["Enums"]["account_status"]
+          p_account_number?: string | null
+        }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
       }
       create_account_atomic: {
         Args: {

@@ -4,7 +4,6 @@ import {
   getSessionUser,
   loadOwnedAccount,
 } from "@/lib/accounts/session";
-import { refreshBrokerDatasets } from "@/lib/accounts/broker-refresh";
 import { readAccountHistory } from "@/lib/accounts/history";
 import {
   authorizeProductionRuntime,
@@ -283,26 +282,14 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
-  // Both broker datasets are fetched, fully validated, and published as one
-  // generation. Any failure writes nothing and produces a named UNAVAILABLE —
-  // never a number with a warning attached.
-  const refresh = await refreshBrokerDatasets(svc, id, account.owner_id, account.mode, {
-    flowsFrom: baseline.startedAt,
-  });
-  if (!refresh.ok) {
-    const reason: PerformanceUnavailableReason =
-      refresh.reason === "NON_CASH_EXTERNAL_TRANSFER"
-        ? "NON_CASH_EXTERNAL_TRANSFER"
-        : refresh.reason === "CASH_FLOW_INCOMPLETE"
-          ? "CASH_FLOW_INCOMPLETE"
-          : refresh.reason === "NO_CREDENTIALS"
-            ? "NO_CREDENTIALS"
-            : refresh.reason === "STALE_GENERATION"
-              ? "REFRESH_SUPERSEDED"
-              : "EQUITY_REFRESH_FAILED";
-    return respond(id, reason, refresh.detail, baselineDto);
-  }
-  const latestActivityAt = refresh.latestActivityAt;
+  // No refresh here. This handler used to republish both broker mirrors on
+  // every call, which made a GET write four tables and hit two broker
+  // endpoints — and made two open tabs race each other's refreshes. Publishing
+  // is `POST /api/accounts/[id]/refresh` now; this reads what is stored.
+  //
+  // The consequence is stated rather than hidden: the number below describes
+  // the mirror as last published, and `mirrorPublishedAt` says when that was.
+  const latestActivityAt: string | null = null;
 
   // A broker activity stamped in the future means the feed disagrees with
   // reality; that is a mismatch, not fresh data. The allowance is the same

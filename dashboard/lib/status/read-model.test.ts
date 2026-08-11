@@ -105,8 +105,18 @@ interface RunSpec {
   /** Artifacts attached to this run. */
   runtimeArtifactName?: string | null;
   runtimeZip?: Buffer | "corrupt";
-  diagnostics?: Buffer | null;
+  diagnostics?: Buffer | typeof DEFAULT_DIAGNOSTICS | null;
 }
+
+/**
+ * A diagnostics artifact stamped for the run it is attached to.
+ *
+ * A fixed `checked_at` on every run was fiction: a real report is written by
+ * the preflight step of *that* run, and the selector now binds it to that
+ * step's window. The stub builds it lazily so the fixture cannot claim a
+ * report that predates its own run by hours.
+ */
+const DEFAULT_DIAGNOSTICS = "default-diagnostics" as const;
 
 function runtimeZipBuffer(
   perf: Record<string, unknown> = performanceJson(),
@@ -138,7 +148,7 @@ function defaultRuns(): RunSpec[] {
       updatedAt: "2026-08-07T16:06:00Z",
       runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
       runtimeZip: runtimeZipBuffer(),
-      diagnostics: diagnosticsZipBuffer(),
+      diagnostics: DEFAULT_DIAGNOSTICS,
     },
     {
       id: 800,
@@ -148,16 +158,66 @@ function defaultRuns(): RunSpec[] {
       updatedAt: "2026-08-05T16:51:00Z",
       runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
       runtimeZip: runtimeZipBuffer(),
-      diagnostics: diagnosticsZipBuffer(),
+      diagnostics: DEFAULT_DIAGNOSTICS,
     },
   ];
+}
+
+/**
+ * The jobs GitHub really returns for a paper-production run: one job, with the
+ * named steps and their own windows. The selectors bind every artifact and
+ * every recorded timestamp to these, so a stub that omitted them was testing
+ * a shape production never sees.
+ */
+function runJob(run: RunSpec): Record<string, unknown> {
+  const step = (name: string, conclusion: string) => ({
+    name,
+    status: "completed",
+    conclusion,
+    started_at: run.updatedAt,
+    completed_at: run.updatedAt,
+  });
+  const steps: Record<string, unknown>[] = [
+    step("Set up job", "success"),
+    step("Verify immutable release approval", "success"),
+  ];
+  steps.push(
+    step(
+      "Verify paper broker and deployment health",
+      run.diagnostics ? "success" : "skipped",
+    ),
+  );
+  steps.push(
+    step(
+      "Execute one guarded paper cycle",
+      run.runtimeArtifactName ? "success" : "skipped",
+    ),
+  );
+  steps.push(
+    step(
+      "Preserve private runtime state",
+      run.runtimeArtifactName ? "success" : "skipped",
+    ),
+  );
+  steps.push(step("Preserve preflight diagnostics", "success"));
+  return {
+    name: "Guarded paper forward-validation",
+    status: "completed",
+    conclusion: run.conclusion,
+    steps,
+  };
 }
 
 interface RouteOptions {
   approvedShaVariable?: string | null;
   runs?: RunSpec[];
   validation?: Record<string, unknown> | null;
-  latestRunJobs?: { steps: unknown[] }[];
+  /** Overrides the jobs of the *newest* run only. */
+  latestRunJobs?: { status?: string; steps: unknown[] }[];
+  /** Patch one run's runtime artifact metadata (expiry, creation time). */
+  runtimeArtifactPatch?: { runId: number; patch: Record<string, unknown> };
+  /** `run_attempt` as GitHub reports it; null omits the field entirely. */
+  runAttempt?: number | null;
   releaseGate?: { conclusion: string; event: string } | null;
 }
 
@@ -166,7 +226,9 @@ function stubGithub(options: RouteOptions = {}) {
     approvedShaVariable = APPROVED_SHA,
     runs = defaultRuns(),
     validation = validationJson(),
-    latestRunJobs = [{ steps: [{ name: "checkout" }] }],
+    latestRunJobs,
+    runtimeArtifactPatch,
+    runAttempt = 1,
     releaseGate = { conclusion: "success", event: "push" },
   } = options;
 
@@ -212,7 +274,7 @@ function stubGithub(options: RouteOptions = {}) {
         workflow_runs: slice.map((run) => ({
           id: run.id,
           run_number: run.runNumber,
-          run_attempt: 1,
+          ...(runAttempt === null ? {} : { run_attempt: runAttempt }),
           status: "completed",
           conclusion: run.conclusion,
           event: run.event,
@@ -248,8 +310,24 @@ function stubGithub(options: RouteOptions = {}) {
         ],
       });
     }
-    const jobsMatch = url.match(/\/actions\/runs\/(\d+)\/jobs/);
-    if (jobsMatch) return json({ jobs: latestRunJobs });
+    // Attempt-scoped, exactly like GitHub: `/runs/{id}/attempts/{n}/jobs`.
+    const jobsMatch = url.match(/\/actions\/runs\/(\d+)\/attempts\/(\d+)\/jobs/);
+    if (jobsMatch) {
+      const runId = Number(jobsMatch[1]);
+      if (latestRunJobs && runs.length > 0 && runs[0].id === runId) {
+        return json({
+          jobs: latestRunJobs.map((job) => ({
+            name: "Guarded paper forward-validation",
+            status: job.status ?? "completed",
+            conclusion: "success",
+            steps: job.steps,
+          })),
+        });
+      }
+      const run = runs.find((entry) => entry.id === runId);
+      if (!run) return json({ jobs: [] });
+      return json({ jobs: [runJob(run)] });
+    }
 
     const artifactsMatch = url.match(/\/actions\/runs\/(\d+)\/artifacts/);
     if (artifactsMatch) {
@@ -263,6 +341,9 @@ function stubGithub(options: RouteOptions = {}) {
           size_in_bytes: 4271,
           expired: false,
           created_at: run.updatedAt,
+          ...(runtimeArtifactPatch?.runId === run.id
+            ? runtimeArtifactPatch.patch
+            : {}),
         });
       }
       if (run.diagnostics) {
@@ -295,7 +376,11 @@ function stubGithub(options: RouteOptions = {}) {
         return zipResponse(run.runtimeZip);
       }
       if (!run.diagnostics) return json({ message: "gone" }, 404);
-      return zipResponse(run.diagnostics);
+      return zipResponse(
+        run.diagnostics === DEFAULT_DIAGNOSTICS
+          ? diagnosticsZipBuffer(preflightJson({ checked_at: run.updatedAt }))
+          : run.diagnostics,
+      );
     }
 
     if (url.includes("/contents/state/backtest/v11_validation.json")) {
@@ -619,7 +704,7 @@ describe("independent runtime source selection", () => {
       updatedAt: "2026-08-07T16:06:00Z",
       runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
       runtimeZip: runtimeZipBuffer(),
-      diagnostics: diagnosticsZipBuffer(),
+      diagnostics: DEFAULT_DIAGNOSTICS,
     };
     stubGithub({ runs: [preflightOnly, execution] });
 
@@ -658,7 +743,7 @@ describe("independent runtime source selection", () => {
       // Newest first, all after the execution below.
       updatedAt: `2026-08-08T${String(9 + index).padStart(2, "0")}:00:00Z`,
       runtimeArtifactName: null,
-      diagnostics: diagnosticsZipBuffer(),
+      diagnostics: DEFAULT_DIAGNOSTICS,
     })).reverse();
 
     stubGithub({
@@ -672,7 +757,7 @@ describe("independent runtime source selection", () => {
           updatedAt: "2026-08-07T16:06:00Z",
           runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
           runtimeZip: runtimeZipBuffer(),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -708,7 +793,7 @@ describe("independent runtime source selection", () => {
           Date.parse("2026-08-09T09:00:00Z") - index * 60_000,
         ).toISOString(),
         runtimeArtifactName: null,
-        diagnostics: diagnosticsZipBuffer(),
+        diagnostics: DEFAULT_DIAGNOSTICS,
       }),
     );
 
@@ -723,7 +808,7 @@ describe("independent runtime source selection", () => {
           updatedAt: "2026-08-07T16:06:00Z",
           runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
           runtimeZip: runtimeZipBuffer(),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -758,6 +843,146 @@ describe("independent runtime source selection", () => {
     expect(payload.preflight.provenance.scope).toContain("#200");
   });
 
+  it.each([
+    [
+      "an expired runtime artifact",
+      { expired: true },
+      "has expired",
+    ],
+    [
+      "a runtime artifact created outside its upload step",
+      { created_at: "2026-08-06T09:00:00Z" },
+      "not created inside the window",
+    ],
+  ])(
+    "does not fall back to an older cycle when a newer run has %s",
+    async (_label, artifactPatch, expected) => {
+      // A newer *successful* run that executed a cycle is the authority for
+      // what production did. If its runtime state cannot be read, the answer
+      // is UNAVAILABLE — showing the previous cycle's equity, positions and
+      // risk tier as if they were current is the failure being prevented.
+      stubGithub({
+        runs: [
+          {
+            id: 960,
+            runNumber: 48,
+            conclusion: "success",
+            event: "schedule",
+            updatedAt: "2026-08-07T18:30:00Z",
+            runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+            runtimeZip: runtimeZipBuffer(),
+            diagnostics: DEFAULT_DIAGNOSTICS,
+          },
+          {
+            id: 900,
+            runNumber: 43,
+            conclusion: "success",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:06:00Z",
+            runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+            runtimeZip: runtimeZipBuffer(),
+            diagnostics: DEFAULT_DIAGNOSTICS,
+          },
+        ],
+        runtimeArtifactPatch: { runId: 960, patch: artifactPatch },
+      });
+      const payload = await buildStrategyStatus({
+        viewer: OWNER,
+        account: PRODUCTION_ACCOUNT,
+        broker: OK_BROKER,
+        now: new Date("2026-08-07T19:00:00Z"),
+      });
+      expect(payload.execution.data).toBeNull();
+      expect(payload.execution.provenance.scope).not.toContain("#43");
+      expect(payload.execution.provenance.detail ?? "").toContain(expected);
+    },
+  );
+
+  it("does not fall back when a newer successful run uploaded no runtime state", async () => {
+    // The execute step ran (it is not `skipped`), so the artifact should
+    // exist. Its absence is an upload failure, not a preflight-only dispatch.
+    const step = (name: string, conclusion: string) => ({
+      name,
+      status: "completed",
+      conclusion,
+      started_at: "2026-08-07T18:29:00Z",
+      completed_at: "2026-08-07T18:30:00Z",
+    });
+    stubGithub({
+      runs: [
+        {
+          id: 961,
+          runNumber: 49,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T18:30:00Z",
+          runtimeArtifactName: null,
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+      latestRunJobs: [
+        {
+          steps: [
+            step("Verify paper broker and deployment health", "success"),
+            step("Execute one guarded paper cycle", "success"),
+            step("Preserve private runtime state", "failure"),
+          ],
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: new Date("2026-08-07T19:00:00Z"),
+    });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.execution.provenance.detail ?? "").toContain(
+      "produced no runtime-state artifact",
+    );
+  });
+
+  it("drops a run whose attempt GitHub did not state", async () => {
+    // `run_attempt` used to default to 1. Every attempt-scoped lookup and
+    // every step window keys on it, so an unstated attempt is not a run this
+    // model can reason about.
+    stubGithub({ runAttempt: null });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.preflight.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("reads the jobs of the attempt on screen, not the latest attempt", async () => {
+    const handler = stubGithub({ runAttempt: 3 });
+    await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    const jobCalls = handler.mock.calls
+      .map(([input]) => String(input))
+      .filter((url) => url.includes("/jobs"));
+    expect(jobCalls.length).toBeGreaterThan(0);
+    expect(jobCalls.every((url) => url.includes("/attempts/3/jobs"))).toBe(true);
+  });
+
   it("stops at the freshness boundary instead of scanning forever", async () => {
     stubGithub({
       runs: [
@@ -769,7 +994,7 @@ describe("independent runtime source selection", () => {
           updatedAt: "2026-01-02T16:06:00Z",
           runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
           runtimeZip: runtimeZipBuffer(),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -793,7 +1018,7 @@ describe("independent runtime source selection", () => {
           event: "workflow_dispatch",
           updatedAt: "2026-08-07T18:30:00Z",
           runtimeArtifactName: null,
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
         {
           id: 900,
@@ -830,7 +1055,7 @@ describe("lineage mismatch is fail-closed", () => {
           updatedAt: "2026-08-07T16:06:00Z",
           runtimeArtifactName: `paper-runtime-state-${OTHER_SHA}`,
           runtimeZip: runtimeZipBuffer(),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -868,7 +1093,7 @@ describe("lineage mismatch is fail-closed", () => {
             performanceJson(),
             lastRunJson({ release_sha: OTHER_SHA }),
           ),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -981,7 +1206,7 @@ describe("lineage mismatch is fail-closed", () => {
             performanceJson(),
             lastRunJson({ strategy_version: "v12-experimental" }),
           ),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -1054,7 +1279,7 @@ describe("lineage mismatch is fail-closed", () => {
               adaptive_rebalance_pending: frozenPlanJson({ signal_date: null }),
             }),
           ),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -1083,7 +1308,7 @@ describe("lineage mismatch is fail-closed", () => {
           updatedAt: "2026-08-07T16:06:00Z",
           runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
           runtimeZip: "corrupt",
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -1204,7 +1429,7 @@ describe("operations and risk states", () => {
             performanceJson({ risk_tier: "CAUTIOUS" }),
             lastRunJson({ risk_tier: "NORMAL" }),
           ),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -1243,7 +1468,7 @@ describe("operations and risk states", () => {
             }),
             lastRunJson({ risk_tier: "HALT", market_entry_allowed: false }),
           ),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -1422,7 +1647,7 @@ describe("future-dated sources are never CURRENT", () => {
             performanceJson(),
             lastRunJson({ completed_at: null }),
           ),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -1567,7 +1792,7 @@ describe("preflight selection follows completion, not conclusion", () => {
         updatedAt: "2026-08-07T16:06:00Z",
         runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
         runtimeZip: runtimeZipBuffer(),
-        diagnostics: diagnosticsZipBuffer(),
+        diagnostics: DEFAULT_DIAGNOSTICS,
       },
     ];
   }
@@ -1651,7 +1876,7 @@ describe("preflight selection follows completion, not conclusion", () => {
           updatedAt: "2026-08-07T16:06:00Z",
           runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
           runtimeZip: runtimeZipBuffer(),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -1694,7 +1919,7 @@ describe("preflight selection follows completion, not conclusion", () => {
             updatedAt: "2026-08-07T16:06:00Z",
             runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
             runtimeZip: runtimeZipBuffer(),
-            diagnostics: diagnosticsZipBuffer(),
+            diagnostics: DEFAULT_DIAGNOSTICS,
           },
         ],
         latestRunJobs,
@@ -1708,6 +1933,70 @@ describe("preflight selection follows completion, not conclusion", () => {
       expect(payload.preflight.data).toBeNull();
       expect(payload.preflight.provenance.freshness).toBe("UNAVAILABLE");
       // Crucially, it did not silently show run #43's green report instead.
+      expect(payload.preflight.provenance.scope).not.toContain("#43");
+      expect(payload.validationGate.effective).not.toBe("PASS");
+    },
+  );
+
+  it.each([
+    ["cancelled", { conclusion: "cancelled" }],
+    ["still running", { status: "in_progress", conclusion: null }],
+    ["without a conclusion", { conclusion: null }],
+    ["renamed", { name: "Verify broker health" }],
+  ])(
+    "does not reach past a newer run whose preflight step is %s",
+    async (_label, patch) => {
+      // `DID_NOT_RUN` requires an explicit completed+skipped. None of these
+      // shapes proves the step never produced a report, so none may license
+      // an older green one.
+      const step = (name: string, conclusion: string | null) => ({
+        name,
+        status: "completed",
+        conclusion,
+        started_at: "2026-08-07T16:49:00Z",
+        completed_at: "2026-08-07T16:50:00Z",
+      });
+      stubGithub({
+        runs: [
+          {
+            id: 953,
+            runNumber: 47,
+            conclusion: "failure",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:50:00Z",
+            runtimeArtifactName: null,
+            diagnostics: null,
+          },
+          {
+            id: 900,
+            runNumber: 43,
+            conclusion: "success",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:06:00Z",
+            runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+            runtimeZip: runtimeZipBuffer(),
+            diagnostics: DEFAULT_DIAGNOSTICS,
+          },
+        ],
+        latestRunJobs: [
+          {
+            steps: [
+              {
+                ...step("Verify paper broker and deployment health", "success"),
+                ...patch,
+              },
+            ],
+          },
+        ],
+      });
+      const payload = await buildStrategyStatus({
+        viewer: OWNER,
+        account: PRODUCTION_ACCOUNT,
+        broker: OK_BROKER,
+        now: NOW,
+      });
+      expect(payload.preflight.data).toBeNull();
+      expect(payload.preflight.provenance.freshness).toBe("UNAVAILABLE");
       expect(payload.preflight.provenance.scope).not.toContain("#43");
       expect(payload.validationGate.effective).not.toBe("PASS");
     },
@@ -1733,7 +2022,7 @@ describe("preflight selection follows completion, not conclusion", () => {
           updatedAt: "2026-08-07T16:06:00Z",
           runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
           runtimeZip: runtimeZipBuffer(),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });

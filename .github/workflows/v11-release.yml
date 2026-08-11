@@ -133,3 +133,23 @@ jobs:
           sudo apt-get install -y --no-install-recommends postgresql-client
       - name: Run the PostgREST integration gate
         run: supabase/tests/run_postgrest.sh
+
+  # Non-trading. The two races that a single-connection test cannot reach: two
+  # transactions that each read state the other has not committed yet. Both
+  # were real — concurrent account creation with the same Vault ids committed
+  # twice, and an older refresh could publish over a newer one.
+  concurrency-gate:
+    name: Concurrency races
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+      - name: Run the concurrency gate
+        run: supabase/tests/run_concurrency.sh

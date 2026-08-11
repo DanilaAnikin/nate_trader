@@ -4,7 +4,6 @@ import {
   getSessionUser,
   loadOwnedAccount,
 } from "@/lib/accounts/session";
-import { refreshBrokerDatasets } from "@/lib/accounts/broker-refresh";
 import { readAccountHistory } from "@/lib/accounts/history";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +14,15 @@ type Ctx = { params: Promise<{ id: string }> };
 /**
  * GET /api/accounts/[id]/equity — the account's daily equity curve.
  *
- * Refreshes the idempotent Alpaca Portfolio History mirror on each validated
- * account refresh, then reads the curve and the cash-flow ledger from a single
- * database snapshot. Existing rows remain a clearly warned fallback if Alpaca
- * history is temporarily unavailable.
+ * **Side-effect free.** This handler used to refresh the Alpaca mirrors on
+ * every call, which made a GET write four tables, hit two broker endpoints and
+ * consume a sequence value. Three things were wrong with that beyond the
+ * verb: a page that polls turns into a write loop; two tabs open on the same
+ * account race each other's refreshes; and the write happened with no audit
+ * entry and no user intent behind it.
+ *
+ * Refreshing is now `POST /api/accounts/[id]/refresh`, an explicit command.
+ * This reads the stored curve and ledger from one database snapshot.
  */
 export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
@@ -34,23 +38,6 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   const svc = getSupabaseService();
 
-  // Both broker datasets are fetched, validated and published as one
-  // generation. A failed refresh writes nothing at all, so the stored mirror
-  // stays exactly as it was and is served with the reason attached.
-  let backfilled = 0;
-  let refreshWarning: string | null = null;
-  const refresh = await refreshBrokerDatasets(
-    svc,
-    id,
-    account.owner_id,
-    account.mode,
-  );
-  if (refresh.ok) {
-    backfilled = refresh.equityWritten;
-  } else {
-    refreshWarning = `${refresh.reason}: ${refresh.detail}`;
-  }
-
   // One request, one database snapshot, both datasets. Reading them as two
   // paged walks could return an equity curve and a ledger from two different
   // states of the database, and the chart annotates one with the other.
@@ -63,19 +50,12 @@ export async function GET(_req: Request, { params }: Ctx) {
   }
   const { equity, cashFlows, snapshot, capturedAt } = historyResult.history;
 
-  if (equity.length === 0 && refreshWarning) {
-    return NextResponse.json(
-      { error: refreshWarning },
-      { status: 502, headers: { "Cache-Control": "no-store" } },
-    );
-  }
-
   return NextResponse.json(
     {
       accountId: id,
-      backfilled,
-      refreshedAt: new Date().toISOString(),
-      warning: refreshWarning,
+      // What the mirror holds, and when it was last published — not when this
+      // request ran. A read cannot claim freshness it did not establish.
+      lastPublishedAt: historyResult.history.capturedAt,
       // The database snapshot both series came from, so a client-side
       // comparison can be audited back to one state.
       snapshot,

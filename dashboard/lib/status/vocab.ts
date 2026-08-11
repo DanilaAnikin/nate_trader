@@ -6,6 +6,8 @@
  * check, `LIVE`, `FRESH` or `ONLINE`.
  */
 
+import { parseRfc3339 } from "@/lib/calendar-date";
+
 /** Freshness/identity classification for one section of the read model. */
 export type Freshness =
   | "CURRENT"
@@ -190,8 +192,10 @@ function inRunnerZone(instantMs: number): string {
  */
 export function parseRunnerNaiveInstant(text: string): string | null {
   const normalized = text.replace("T", " ");
-  const asUtc = Date.parse(`${normalized.replace(" ", "T")}Z`);
-  if (!Number.isFinite(asUtc)) return null;
+  // Validated as a complete timestamp *before* it is evaluated: reading it as
+  // UTC is arithmetic on a known-good string, not a guess at what it might be.
+  const asUtc = parseRfc3339(`${normalized.replace(" ", "T")}Z`);
+  if (asUtc === null) return null;
 
   // North American offsets are whole hours; -4 (EDT) and -5 (EST) are the only
   // two this zone uses. Both are tried and the round trip decides.
@@ -204,32 +208,37 @@ export function parseRunnerNaiveInstant(text: string): string | null {
   return new Date(matches[0]).toISOString();
 }
 
+/** The runner's naive wall-clock format, exactly: no offset, no sub-second. */
+const RUNNER_NAIVE_SHAPE = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/;
+
 /**
- * Normalize an instant to ISO-8601 UTC.
+ * Normalize an instant to ISO-8601 UTC, or null.
  *
- * Two shapes appear in the runtime artifact: Python's `datetime.isoformat()`,
- * which carries an explicit offset, and the runner's naive
- * `"YYYY-MM-DD HH:MM:SS"`, which does not. The naive form is written in
+ * Two shapes appear in the runtime artifact and the diagnostics: Python's
+ * `datetime.isoformat()`, which carries an explicit offset, and the runner's
+ * naive `"YYYY-MM-DD HH:MM:SS"`, which does not. The naive form is written in
  * America/New_York (see `parseRunnerNaiveInstant`), and an ambiguous or
  * nonexistent wall time returns null so the caller reports it as unavailable
  * rather than displaying an instant that may be an hour wrong.
+ *
+ * **Nothing here is decided by `Date.parse`.** It used to be the fallback for
+ * anything with an offset, which made the function as lenient as the engine:
+ * `"2026-02-30T12:00:00Z"` became 2 March, `"2026-08-11T25:00:00Z"` became the
+ * next day, and bare `"2026"` became a January midnight. All three now return
+ * null, because a timestamp this module cannot fully account for is not a
+ * timestamp — and every caller here treats one as evidence of *when* something
+ * happened.
  */
 export function normalizeInstant(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const looksLikeTimestamp = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/.test(trimmed);
-  const hasOffset = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(trimmed);
-  if (looksLikeTimestamp && !hasOffset) {
-    // Sub-second precision is not part of the runner's naive format; anything
-    // after the seconds field means this is not that format.
-    const seconds = trimmed.slice(0, 19);
-    if (trimmed.length !== 19) return null;
-    return parseRunnerNaiveInstant(seconds);
+
+  if (RUNNER_NAIVE_SHAPE.test(trimmed)) {
+    return parseRunnerNaiveInstant(trimmed);
   }
-  const parsed = Date.parse(looksLikeTimestamp ? trimmed.replace(" ", "T") : trimmed);
-  if (!Number.isFinite(parsed)) return null;
-  return new Date(parsed).toISOString();
+  const parsed = parseRfc3339(trimmed);
+  return parsed === null ? null : new Date(parsed).toISOString();
 }
 
 /**

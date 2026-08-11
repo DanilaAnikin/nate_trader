@@ -74,21 +74,13 @@ describe("fetchCashActivities", () => {
     expect(result.rows[0]).toMatchObject({ external_id: "acat", amount: 5000 });
   });
 
-  it("requests every cash type and every non-cash transfer type", async () => {
+  it("requests no activity_types filter at all", async () => {
     const calls = stubPages({ "": [] });
-        await fetchCashActivities(KEY, SECRET, "paper");
-    const types = new URL(calls[0]).searchParams.get("activity_types");
-    // The securities transfers are requested so they can be *detected*: they
-    // move equity with no cash leg and must block any reported return.
-    expect(types?.split(",").sort()).toEqual([
-      "ACATC",
-      "ACATS",
-      "CSD",
-      "CSW",
-      "FOPT",
-      "JNLC",
-      "JNLS",
-    ]);
+    await fetchCashActivities(KEY, SECRET, "paper");
+    // A closed allowlist cannot return a type it was never told to ask for,
+    // and an unrequested cash movement is exactly what must not be missed. The
+    // whole non-trade feed is read and every row classified.
+    expect(new URL(calls[0]).searchParams.get("activity_types")).toBeNull();
   });
 
   it("pages past 100 activities and keeps them all", async () => {
@@ -98,13 +90,48 @@ describe("fetchCashActivities", () => {
     const second = Array.from({ length: 30 }, (_, index) =>
       activity({ id: `p2-${index}`, net_amount: "10" }),
     );
-    stubPages({ "": first, "p1-99": second });
+    stubPages({ "": first, "p1-99": second, "p2-29": [] });
 
-        const result = await fetchCashActivities(KEY, SECRET, "paper");
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
 
     expect(result.complete).toBe(true);
-    expect(result.pagesRead).toBe(2);
+    // Three, not two: the short second page proves nothing, so the walk asks
+    // again and only the explicit `[]` ends it.
+    expect(result.pagesRead).toBe(3);
+    expect(result.sawEmptyTerminalPage).toBe(true);
     expect(result.rows).toHaveLength(130);
+  });
+
+  it("does not stop at a short but non-empty page", async () => {
+    // The regression: `page_size` is a maximum. A page of 3 out of a requested
+    // 100 used to end the walk, silently dropping everything behind it — and a
+    // short ledger is indistinguishable downstream from a complete one.
+    const short = Array.from({ length: 3 }, (_, index) =>
+      activity({ id: `s-${index}`, net_amount: "10" }),
+    );
+    const behind = Array.from({ length: 4 }, (_, index) =>
+      activity({ id: `b-${index}`, net_amount: "10" }),
+    );
+    stubPages({ "": short, "s-2": behind, "b-3": [] });
+
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(true);
+    expect(result.rows).toHaveLength(7);
+    expect(result.pagesRead).toBe(3);
+  });
+
+  it("refuses a feed whose cursor does not advance", async () => {
+    // Every page returns the same rows: the token is not moving, and looping
+    // to MAX_ACTIVITY_PAGES would report the wrong reason.
+    const page = [activity({ id: "loop", net_amount: "10" })];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(page), { status: 200 })),
+    );
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(false);
+    expect(result.incompleteReason).toBe("PAGINATION_STALLED");
+    expect(result.rows).toHaveLength(0);
   });
 
   it("is incomplete when a full page yields no pagination id", async () => {
@@ -138,21 +165,85 @@ describe("fetchCashActivities", () => {
     }
   });
 
-  it("is incomplete when Alpaca returns a type that was not requested", async () => {
-    stubPages({ "": [activity({ id: "fill", activity_type: "FILL" })] });
-        const result = await fetchCashActivities(KEY, SECRET, "paper");
-    expect(result.complete).toBe(false);
-    expect(result.incompleteReason).toBe("UNEXPECTED_ACTIVITY_TYPE");
+  it("classifies a fill as internal rather than refusing it", async () => {
+    // A fill is the strategy's own P/L and is already inside the equity curve.
+    // It is understood, and deliberately not a cash flow.
+    stubPages({
+      "": [activity({ id: "fill", activity_type: "FILL", net_amount: "10" })],
+      fill: [],
+    });
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(true);
+    expect(result.rows).toHaveLength(0);
+    expect(result.scanned).toBe(1);
   });
 
-  it("throws on a broker outage so the caller can fail closed", async () => {
+  it.each(["NEWTHING", "XFER2", "cash_deposit"])(
+    "is incomplete when Alpaca returns the unclassified type %s",
+    async (type) => {
+      // Unrecognised is not the same as irrelevant: a type this build has
+      // never seen might move money, and the closed allowlist it replaces
+      // could not even have asked for it.
+      stubPages({ "": [activity({ id: "x", activity_type: type })] });
+      const result = await fetchCashActivities(KEY, SECRET, "paper");
+      expect(result.complete).toBe(false);
+      expect(result.incompleteReason).toBe("UNKNOWN_ACTIVITY_TYPE");
+      expect(result.rows).toHaveLength(0);
+    },
+  );
+
+  it.each(["MA", "SSP", "SPIN", "REORG"])(
+    "treats the corporate action %s as a non-cash external transfer",
+    async (type) => {
+      stubPages({ "": [activity({ id: "x", activity_type: type })] });
+      const result = await fetchCashActivities(KEY, SECRET, "paper");
+      expect(result.complete).toBe(false);
+      expect(result.incompleteReason).toBe("NON_CASH_EXTERNAL_TRANSFER");
+    },
+  );
+
+  it("reports a broker outage as an incomplete walk, not a throw", async () => {
+    // It used to throw, which escaped the route as an unhandled rejection and
+    // reached the browser as a raw 500 with no named reason.
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("upstream down", { status: 503 })),
     );
-        await expect(fetchCashActivities(KEY, SECRET, "paper")).rejects.toThrow(
-      /HTTP 503/,
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(false);
+    expect(result.incompleteReason).toBe("BROKER_UNREACHABLE");
+    expect(result.detail).toContain("503");
+  });
+
+  it.each([
+    ["a timeout", new DOMException("timed out", "TimeoutError")],
+    ["an abort", new DOMException("aborted", "AbortError")],
+    [
+      "a DNS failure",
+      Object.assign(new TypeError("fetch failed"), {
+        cause: new Error("getaddrinfo ENOTFOUND"),
+      }),
+    ],
+  ])("reports %s as an incomplete walk", async (_label, thrown) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw thrown;
+      }),
     );
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(false);
+    expect(result.incompleteReason).toBe("BROKER_UNREACHABLE");
+  });
+
+  it("reports malformed JSON as an incomplete walk", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{not json", { status: 200 })),
+    );
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(false);
+    expect(result.incompleteReason).toBe("MALFORMED_ACTIVITY");
   });
 
   it("reports the newest *real* timestamp for freshness", async () => {
@@ -554,7 +645,7 @@ describe("fetchPortfolioHistory refuses an unusable payload, writing nothing", (
     [
       "a payload that is not an object",
       [1, 2, 3],
-      /not column-oriented arrays/,
+      /is not an object/,
     ],
   ])("refuses %s", async (_label, body, pattern) => {
     stubHistory(body);

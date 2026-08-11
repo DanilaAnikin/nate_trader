@@ -798,6 +798,16 @@ What it does when it *can* answer:
   explicit 20 000-row ceiling it refuses rather than materialising an unbounded
   history. The real-PostgREST gate demonstrates the tear a page walk produces
   against a live server, and that this call does not.
+- **A refresh never deletes.** A stored day or activity the incoming payload
+  does not mention aborts the whole publish with `RECONCILIATION_CONFLICT` and
+  leaves the mirror untouched, because a partial response and a genuine
+  withdrawal are the same input (section 12.7). Withdrawing a row is a
+  separate, audited, one-row command.
+- **Refreshing is a command, not a side effect.** `GET /equity` and
+  `GET /performance` used to republish both mirrors on every call, so a page
+  that polled wrote four tables per poll and two open tabs raced each other.
+  `POST /api/accounts/[id]/refresh` is the only path that writes them; the
+  reads serve what is stored and say when it was published.
 - The mirrors are reconciled **in the database** too, and both in the same
   call. Computing the set difference in the application needed an unpaged
   `select` of the mirrored ledger — truncated silently past the server's row
@@ -806,18 +816,32 @@ What it does when it *can* answer:
   transaction, so a withdrawn activity and a retracted Alpaca equity day
   disappear instead of outliving the authoritative history, and the two
   mirrors can never be published from different moments.
-- The refresh carries a **generation**, taken from a sequence before the broker
-  is read. `publish_broker_refresh` refuses any generation that is not newer
-  than the one already published, so two overlapping refreshes cannot land out
-  of order and the caller reports `REFRESH_SUPERSEDED` rather than retrying.
+- The refresh carries a **reservation**, taken before the broker is read and
+  recording the account, owner, mode, broker account number and credential
+  version it is about to read *with*. Publishing re-checks all five and
+  refuses any generation that is not newer than the one already published, so
+  two overlapping refreshes cannot land out of order and a rotation landing
+  mid-fetch cannot have its data published under the new binding.
 - Nothing is written unless **both** datasets validated completely. A
   portfolio-history payload with a null, non-finite or non-positive equity, or
   an unreadable date, fails the whole refresh before the first mutation — the
   earlier version skipped bad days, which turned a corrupt payload into a
-  shorter one, and a shorter payload is exactly what reconciliation reads as a
-  retraction. The database refuses a shrink beyond the smaller of five rows and
-  a tenth of the stored history, and refuses an empty payload against a
-  non-empty mirror outright.
+  shorter one. Two rows for one ET session, a repeated timestamp, or an
+  unusable `profit_loss` entry reject the payload as well: a `Map` keyed by
+  date used to resolve duplicates last-wins, which is a guess about which
+  day's equity is real.
+- **The activity walk ends on an explicit empty page, never a short one.**
+  `page_size` is a maximum: a broker under load or a page boundary that falls
+  short both produce fewer rows than requested while more data remains, and
+  ending there is indistinguishable downstream from a complete ledger. The
+  walk also proves it is progressing — the cursor must advance and each page
+  must show something new — so a looping feed reports `PAGINATION_STALLED`
+  rather than exhausting the page budget.
+- **No allowlist of activity types.** A closed list cannot return a type it was
+  never told to ask for, so the walk requests the whole non-trade feed and
+  classifies every row as external cash, a non-cash transfer, or an internal
+  P/L event. A type this build does not recognise is `UNAVAILABLE`: unknown is
+  not the same as irrelevant.
 - A cash movement dated **on the baseline session** is refused. The recorded
   starting equity may be the value before it or after it and nothing says
   which, so the safe contract is a flow-free baseline session; otherwise the
@@ -915,7 +939,7 @@ multi-account workflows must not be restored.
 
 ### 11.1 `V11 Release Gate` — `.github/workflows/v11-release.yml`
 
-Non-trading. Runs on `main` pushes, pull requests and manual dispatch. Four
+Non-trading. Runs on `main` pushes, pull requests and manual dispatch. Five
 independent jobs:
 
 | Job | What it proves |
@@ -923,6 +947,7 @@ independent jobs:
 | `dashboard-gate` | Node 22, `npm ci` from the lockfile, `npm audit --audit-level=high`, dashboard tests, ESLint, `tsc --noEmit`, production `next build`, and the Playwright end-to-end suite against that build |
 | `release-gate` | Python 3.12.11, `pip install --require-hashes -r requirements.lock`, `pip check`, the complete pytest suite, `compileall`, critical Ruff checks (E9,F63,F7,F82), and `scripts/sanity_check.py` |
 | `supabase-schema-gate` | Applies **every** migration to a real `postgres:16-alpine` service and runs the SQL assertions against it — a database test, not a grep over SQL text |
+| `concurrency-gate` | Runs the two races as actual races — two `psql` processes, two overlapping transactions. Exactly one of two concurrent `create_account_atomic` calls with the same Vault ids may commit, and an older refresh reservation may not publish over a newer one |
 | `postgrest-gate` | Starts a real PostgREST against that database with `db-max-rows=100` and asserts the API surface: which `/rpc/` functions are reachable, that the history snapshot returns everything past the cap, that a page walk demonstrably tears where the snapshot does not, and that a function created *after* the migrations is not anonymously callable |
 
 A green gate makes a commit *approvable*. It does not place an order and it
@@ -987,6 +1012,7 @@ be proven broker-side rather than assumed.
 | `0015_sequence_and_function_acl.sql` | Revoked sequence privileges; first attempt at closing routine execute (superseded below) |
 | `0016_global_function_acl.sql` | Global `ALTER DEFAULT PRIVILEGES`, event trigger removed, catalogue asserted by live probes inside the migration |
 | `0017_refresh_generation_and_guards.sql` | `begin_broker_refresh` / `publish_broker_refresh`; NULL and shape guards on every destructive RPC |
+| `0018_no_delete_reconciliation.sql` | A refresh may never delete; refresh tokens bound to `credential_version`; one Vault secret per account, enforced by a primary key |
 
 **None of these is confirmed applied in production by this document.** The
 migration ledger in the Supabase project is the only authority for that, and it
@@ -1197,12 +1223,11 @@ the one already published. Both datasets go in one call, in one transaction.
 reconciliation deleted every stored day at or after the earliest incoming day,
 which is wrong in both directions: a truncated response deletes real history,
 and a payload whose *oldest* day was retracted never deletes it, because the
-bound moves with the payload. Now the bound is gone — `period=all` describes
-the whole account, so a day it no longer reports has been withdrawn, including
-the oldest — and the protection against truncation is a size test instead: a
-shrink beyond the smaller of five rows and a tenth of the stored history is
-refused, nothing is deleted, and the caller reports `UNAVAILABLE`. An empty
-payload against a non-empty mirror is always refused.
+bound moves with the payload. 0017 replaced the bound with a size test — a
+shrink beyond the smaller of five rows and a tenth of the history was refused.
+**That was still wrong, and 0018 removed it entirely** (section 12.7): a
+threshold cannot tell a withdrawal from an omission, it only changes how often
+it guesses. Nothing deletes now.
 
 **Destructive RPCs accepted anything.** Every argument is now checked for NULL
 and shape before a row is touched. `create_account_atomic` additionally
@@ -1221,7 +1246,64 @@ refused unless something was actually looked at.
 `reconcile_cash_flow_mirror` and `replace_equity_snapshots` are superseded and
 now raise. A shim that quietly did half the job would be worse than an error.
 
-### 12.7 Application security invariants
+Everything in this section about *how much* a refresh may remove was superseded
+by 0018, which removed the ability to remove.
+
+### 12.7 What 0018 changed and why
+
+Three independent ways to lose real data, all of them reproduced against
+PostgreSQL 16 before being fixed.
+
+**A partial HTTP 200 was indistinguishable from a retraction, and 0017 decided
+between them by counting.** A refresh could delete stored days the incoming
+payload no longer mentioned, bounded by `equity_retraction_allowance()` — the
+smaller of five rows and a tenth of the history. The reproduction:
+
+```
+stored equity rows                    100
+incoming payload, flagged complete     99   (one valid day omitted)
+allowance                               5
+100 - 99 = 1 <= 5                     -> accepted
+result  {"equity_removed": 1}         -> the omitted day is gone
+```
+
+The bound was not the bug; the premise was. Nothing in a 200 response
+distinguishes "the broker withdrew this day" from "the broker did not send it
+this time", and no threshold can recover information the payload does not
+contain — every threshold deletes real history at some frequency. A refresh
+therefore has no code path that deletes. A stored row the payload omits aborts
+the whole transaction with `RECONCILIATION_CONFLICT` and the mirror is left
+byte-for-byte as it was. The same rule covers the ledger: `p_flows = []` with
+`p_flows_scanned = 1` used to empty it, on the theory that having examined
+*something* proved the absence was real. The absence of an activity is never
+evidence that a mirrored one was withdrawn.
+
+Withdrawing a row is now a deliberate act: `retract_equity_snapshot` and
+`retract_cash_flow` take one row and a stated reason, and write an audit entry.
+
+**`create_account_atomic` guarded credential reuse with `SELECT EXISTS`.** That
+is a read, and two concurrent transactions both read "not in use" before
+either writes. Reproduced with two `psql` processes holding overlapping
+transactions: both committed, leaving two live accounts sharing one Vault
+secret — rotating either would silently break the other. The guard is now
+`account_credential_assignment`, whose primary key on `secret_id` is evaluated
+at write time, so exactly one writer can succeed whatever the interleaving. It
+covers cross-column reuse too, because the constraint is on the id alone.
+
+**A refresh could publish data fetched with credentials that had since
+changed.** A reservation now records the account, owner, mode, broker account
+number and `credential_version` it was issued against, and publishing
+re-checks all five. A rotation landing mid-fetch refuses the publish instead
+of mixing two credentials' data into one mirror.
+
+One implementation note worth keeping, because it cost an afternoon: that
+refusal must not raise a class-40 SQLSTATE. `40001` (serialization_failure)
+tells PostgREST the call may succeed on retry, and PostgREST retries it in a
+loop — the request hung until the client gave up, while every other refusal
+returned in 30 ms. The condition is permanent: the payload really was fetched
+with the old credentials, and only re-fetching helps. It raises `P0001`.
+
+### 12.8 Application security invariants
 
 - The application stays behind Supabase authentication; RLS account isolation
   and exact account scoping are preserved.
@@ -1279,25 +1361,28 @@ deployment, which is why the candidate goes in *after* the migrations.
    exactly which migrations are applied **today**. Do not assume, and do not
    infer it from the fact that the site works: this document does not know
    either, and every step below depends on the answer.
-2. Deploy **`fc73acaae`** (`BUILD_SHA` set to it) against the current,
-   unmigrated schema. Smoke-test it authenticated: login, account switch, every
-   strategy section, the `UNAVAILABLE` states, `/api/health`.
-3. Enter a **maintenance / write freeze** for account lifecycle operations —
-   see 13.4 for why this matters specifically for `fc73acaae`.
-4. Apply the pending migrations in order: `0011`, `0012`, `0013`, `0014`,
-   `0015`.
-5. Verify `fc73acaae` again, now on the migrated schema. It should keep working
-   throughout; if it does not, roll the migrations back (13.5) before going
-   further.
-6. Deploy the new candidate image.
-7. Lift the write freeze and run the full authenticated smoke test, including
-   the paths the migrations change.
-8. Confirm Supabase signup is disabled.
+2. Build the **bridge image** from `fc73acaae` with `DASHBOARD_MAINTENANCE_MODE`
+   available in its environment (13.4). Deploy it against the current schema
+   with the freeze **off** and smoke-test it authenticated: login, account
+   switch, every strategy section, the `UNAVAILABLE` states, `/api/health`.
+3. Turn the freeze **on** (`DASHBOARD_MAINTENANCE_MODE=on`) and confirm it: a
+   `POST /api/accounts` must return `503` before the freeze is trusted.
+4. Apply **every** pending migration in numeric order — `0011` through `0018`,
+   or whatever subset the ledger from step 1 says is missing. A partial
+   application leaves the RPC surface and the ACL in a state no test covers.
+5. Verify the bridge again on the migrated schema. Reads must keep working
+   throughout; if they do not, roll back (13.5) before going further.
+6. Deploy the new candidate image, still frozen.
+7. Verify the candidate's reads on the migrated schema.
+8. Lift the freeze and run the full authenticated smoke test, including the
+   paths the migrations change and one explicit
+   `POST /api/accounts/[id]/refresh`.
+9. Confirm Supabase signup is disabled.
 
 Do not change `PRODUCTION_RELEASE_SHA` in order to deploy the UI. Do not run a
 mutating paper cycle as a smoke test.
 
-### 13.4 The bridge is read-safe, not write-safe — enforce the freeze
+### 13.4 The freeze is enforced in the application, not announced
 
 `fc73acaae` reads correctly on both schemas, but its **account lifecycle
 operations are not atomic**: key rotation is a sequence of separate Vault and
@@ -1305,30 +1390,50 @@ row writes, and a failure between them leaves a new key beside the old secret
 with the previous key value already overwritten — unrecoverable. Deletion has
 the same shape, and a failed Vault purge is discarded silently.
 
-An important correction to what this section used to say: after the migrations
-those operations **do not fail**. `fc73acaae` never calls `0013`/`0014`'s
-transactions — it performs the same sequence of individual writes it always
-did, and every one of them still succeeds against the migrated schema. So the
-window is not self-protecting: it looks like it works, and it is exactly as
-unsafe as before.
+And after the migrations those operations **do not fail**. `fc73acaae` never
+calls `0013`/`0014`'s transactions — it performs the same sequence of
+individual writes it always did, and every one still succeeds against the
+migrated schema. The window is not self-protecting: it looks like it works,
+and it is exactly as unsafe as before.
 
-The freeze therefore has to be **enforced, not announced**. Before step 5,
-disable the mutating endpoints at the edge — return `503` for
-`POST /api/accounts`, `PATCH`/`DELETE /api/accounts/[id]`,
-`POST /api/accounts/[id]/rotate` and `POST /api/accounts/[id]/verify` — using
-whatever the origin's reverse proxy offers, so no client and no stray tab can
-start one. Lift it only in step 9, once the candidate is serving.
+So the freeze is a control in the code. `DASHBOARD_MAINTENANCE_MODE=on` makes
+every mutating handler return `503` before it touches Alpaca, the Vault or the
+database:
 
-Reads, the strategy screens and the performance endpoint are unaffected on
-either schema with either image.
+| Frozen | Why it is in the list |
+|---|---|
+| `POST /api/accounts` | non-atomic creation |
+| `PATCH` / `DELETE /api/accounts/[id]` | non-atomic update and deletion |
+| `POST /api/accounts/[id]/verify` | writes the status and the broker binding |
+| `POST /api/accounts/[id]/refresh` | writes `equity_snapshots`, `cash_flows`, `broker_refresh_state` and `broker_refresh_token` |
+
+The last row is the one an edge-level block would have missed. A freeze that
+stopped the lifecycle endpoints while the financial mirrors kept moving would
+not be a freeze; it is included because refreshing is now an explicit endpoint
+rather than a side effect of two GETs, which is also what makes it blockable.
+
+It is an environment variable rather than a database flag on purpose: the
+freeze has to hold while the database is being migrated, and a flag stored in
+the thing being migrated cannot do that. **A rollback image that does not carry
+this control is not a safe rollback target** — verify `503` before trusting it,
+in both directions.
+
+Reads are unaffected and stay served: they no longer write anything, so there
+is nothing to freeze, and the dashboard stays legible while the work happens.
 
 ### 13.5 Rollback
 
 Two independent axes, and they roll back separately.
 
-**Image rollback.** `fc73acaae` is a valid image rollback target on either
-schema. That is the point of the bridge: if the candidate misbehaves after step
-6, go back to `fc73acaae` without touching the database.
+**Image rollback.** `fc73acaae` reads correctly on either schema, which is what
+makes it a bridge — but as tagged it carries no write freeze, so on its own it
+is a rollback target for *reads* only. A rollback image must be built from
+`fc73acaae` **plus** the maintenance control (13.4), or the moment it starts
+serving, its non-atomic lifecycle writes are reachable again. Verify `503` on
+`POST /api/accounts` before trusting either direction of the rollback.
+
+If the candidate misbehaves after step 6, go back to that image without
+touching the database.
 
 `d11bbad8a` is a valid target only *before* the migrations. Afterwards it reads
 `accounts` as `authenticated`, which no longer has that privilege, so it fails
@@ -1342,8 +1447,8 @@ browser through PostgREST — and it must not be done.
 **Database rollback.** The migrations have no down-scripts, so reverting the
 *schema* is a point-in-time restore (Supabase PITR) to before step 4. That is
 the only supported database rollback, and it loses everything written since.
-It is not, however, the only image rollback — that distinction was previously
-stated wrongly here.
+It is not the image rollback, and the two are not substitutes: an image
+rollback needs no PITR, and a PITR does not change which image is serving.
 
 Before deploying, confirm the PITR window covers the planned maintenance and
 that a restore has actually been rehearsed. A rollback plan that has never been
@@ -1454,18 +1559,44 @@ Rendered as `UNAVAILABLE` rather than estimated, and not solvable by UI work:
   around each flow, not a different formula. See section 10.7.
 - **The migrations have no down-scripts.** Reverting the *schema* is a
   point-in-time restore, and it loses everything written since. Reverting the
-  *image* is separate and does have a target: `fc73acaae` runs on both schemas
-  (section 13.2). Its lifecycle operations are not atomic and do **not** start
-  failing after the migrations, so the write freeze has to be enforced at the
-  edge rather than relied on (section 13.4).
+  *image* is separate: `fc73acaae` reads on both schemas, but a rollback image
+  must be built from it *plus* the maintenance control, because its lifecycle
+  writes are non-atomic and do **not** start failing after the migrations
+  (sections 13.4 and 13.5).
 - **The production migration ledger has not been read.** Every statement here
   about which schema production is on is an inference from the running image,
   not a reading of the ledger.
+- **`main`, the `paper-production` environment and the tags carry no technical
+  protection.** There is no branch protection rule, no required status check,
+  no environment reviewer and no tag protection on this repository, and this
+  build cannot add them: they are repository-administration settings that need
+  an owner-scoped token, which the tooling here does not have. So the release
+  boundary today is a convention, not a control — a direct push to `main`, a
+  moved tag or a changed `PRODUCTION_RELEASE_SHA` would all succeed. Closing it
+  is an **external blocker**, listed in section 16.
+- **Tags are unsigned.** No signing key is configured for this repository, so
+  tags are annotated but not verifiable. Do not describe a tag as signed.
 
 The correct answer to a missing backend fact is a small, sanitized, well-tested
 observability contract — never frontend inference.
 
-## 16. Repository map
+## 16. External blockers
+
+Work this build cannot do, stated as blockers rather than left implied.
+
+| Blocker | What it needs | Why it is not done here |
+|---|---|---|
+| Branch protection on `main` | An owner-scoped token or a repository admin in the GitHub UI | Repository administration; no such credential is available to this build, and inventing one would be worse than saying so |
+| Required status checks (the five release-gate jobs) | The same | A green gate is currently evidence, not an obstacle to merging |
+| `paper-production` environment reviewers | The same | Nothing technically prevents a dispatch today |
+| Tag protection | The same | Historical tags could be moved; the convention is that they are not |
+| Tag signing | A signing key trusted by the repository | Tags are annotated, never signed; this document does not claim otherwise |
+| Reading the production migration ledger | Access to the origin Supabase project | Everything in section 13 depends on it, and it has not been read |
+
+Until the first four are configured, the release boundary is enforced by
+process. Say that, rather than describing it as protected.
+
+## 17. Repository map
 
 | Path | Purpose |
 |---|---|
@@ -1484,7 +1615,7 @@ observability contract — never frontend inference.
 | `scripts/strategy_identity.py` | Strategy and universe identity hashes |
 | `scripts/backtest/validate_v11.py` | Canonical fixed-policy validator |
 | `state/backtest/v11_validation.json` | Bound canonical validation evidence |
-| `.github/workflows/v11-release.yml` | Non-trading release gate (4 jobs) |
+| `.github/workflows/v11-release.yml` | Non-trading release gate (5 jobs) |
 | `.github/workflows/paper-production.yml` | The only supported paper executor |
 | `dashboard/lib/status/` | The unified server-side V11 read model |
 | `dashboard/lib/status/lineage.ts` | The one shared, fail-closed lineage verdict |
@@ -1496,7 +1627,7 @@ observability contract — never frontend inference.
 | `supabase/migrations/` | The applied schema, in order |
 | `supabase/tests/` | Real-PostgreSQL RLS and read-exposure assertions |
 
-## 17. Historical note
+## 18. Historical note
 
 Two older documents, `DASHBOARD_SPECIFICATION.md` and
 `DASHBOARD_IMPLEMENTATION_PLAN.md`, describe an earlier ambition in which an

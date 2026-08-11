@@ -64,6 +64,7 @@ export type ValidationGateReason =
   | "PREFLIGHT_CYCLE_MISMATCH"
   | "PREFLIGHT_NOT_PASS"
   | "PREFLIGHT_CHECK_MISSING"
+  | "PREFLIGHT_CONTRACT_DRIFT"
   | "PREFLIGHT_DUPLICATE_CHECK"
   | "PREFLIGHT_COUNTS_INCONSISTENT"
   | "PREFLIGHT_CHECKED_AT_INVALID"
@@ -87,21 +88,51 @@ export const PAPER_ELIGIBLE_MODE = "paper-validation-eligible";
 export const PYTHON_GATE_CHECK = "canonical_validation_gate";
 
 /**
- * Checks a preflight must contain, exactly once each, before its verdict can
- * authorize anything.
+ * The complete production preflight contract: every check
+ * `scripts/production_preflight.py` emits, exactly once each, and nothing else.
  *
- * These are the ones the dashboard reasons about: the mode it ran in, the
- * frozen policy, the strategy identity, the ranking universe, and Python's own
- * gate. A report missing any of them is not the report this gate was designed
- * against, whatever its summary says.
+ * Transcribed from the real PASS artifact of paper-production run
+ * `31407157501` (`paper-diagnostics/production-preflight.json`, 18 checks,
+ * 18 passed).
+ *
+ * This list used to hold five names — the ones the dashboard reasons about
+ * explicitly. That was a hole, not an economy: a report carrying only those
+ * five, all passing, with `status: PASS` and `checks_passed == checks_evaluated
+ * == 5`, satisfied every condition and lit the gate green. But a preflight that
+ * never checked the paper endpoint, the account status, the broker clock, the
+ * short positions or the open-order snapshot has not established that a buy is
+ * safe; it has only established the handful of things the dashboard happens to
+ * name. Authorization must require the *whole* contract, so a truncated,
+ * downgraded or forked runner fails closed instead of passing on a subset.
+ *
+ * The set is matched exactly. A missing name is `PREFLIGHT_CHECK_MISSING`; an
+ * unrecognised one is `PREFLIGHT_CONTRACT_DRIFT`, because a runner emitting a
+ * check this build has never seen is a runner this build cannot vouch for.
  */
 export const MANDATORY_PREFLIGHT_CHECKS = [
   "trading_mode",
+  "alpaca_api_key",
+  "alpaca_secret_key",
+  "python_runtime",
+  "dependency_lock",
+  "runtime_alpaca-py",
+  "runtime_numpy",
+  "runtime_pandas",
   "frozen_v11_policy",
+  PYTHON_GATE_CHECK,
   "strategy_identity",
   "ranking_universe",
-  PYTHON_GATE_CHECK,
+  "paper_endpoint",
+  "paper_account",
+  "broker_clock",
+  "no_short_positions",
+  "open_order_snapshot",
+  "fresh_risk_snapshot",
 ] as const;
+
+const MANDATORY_PREFLIGHT_CHECK_SET: ReadonlySet<string> = new Set(
+  MANDATORY_PREFLIGHT_CHECKS,
+);
 
 /**
  * How old a preflight may be and still authorize a buy.
@@ -154,8 +185,9 @@ const REASON_DETAIL: Record<ValidationGateReason, string> = {
   PREFLIGHT_GATE_AMBIGUOUS: `The preflight report contains more than one ${PYTHON_GATE_CHECK} check, so it does not state a single verdict.`,
   PREFLIGHT_NOT_PASS:
     "The production preflight itself did not pass, so nothing it reports authorizes a buy.",
-  PREFLIGHT_CHECK_MISSING:
-    "The preflight report does not contain every check this gate reasons about.",
+  PREFLIGHT_CHECK_MISSING: `The preflight report does not contain all ${MANDATORY_PREFLIGHT_CHECKS.length} checks of the production preflight contract.`,
+  PREFLIGHT_CONTRACT_DRIFT:
+    "The preflight report contains a check this build does not recognise, so the runner it came from is not the one this gate was written against.",
   PREFLIGHT_DUPLICATE_CHECK:
     "The preflight report contains a repeated check name, so its results are ambiguous.",
   PREFLIGHT_COUNTS_INCONSISTENT:
@@ -200,12 +232,14 @@ function preflightReasons(
     reasons.push("PREFLIGHT_DUPLICATE_CHECK");
   }
 
-  for (const required of MANDATORY_PREFLIGHT_CHECKS) {
-    const entries = byName.get(required) ?? [];
-    if (entries.length === 0) {
-      reasons.push("PREFLIGHT_CHECK_MISSING");
-      break;
-    }
+  // The whole contract, exactly. Both directions matter: a subset is an
+  // authorization built on checks that never ran, and a superset is a runner
+  // this build has not been reconciled against.
+  if (MANDATORY_PREFLIGHT_CHECKS.some((required) => !byName.has(required))) {
+    reasons.push("PREFLIGHT_CHECK_MISSING");
+  }
+  if ([...byName.keys()].some((name) => !MANDATORY_PREFLIGHT_CHECK_SET.has(name))) {
+    reasons.push("PREFLIGHT_CONTRACT_DRIFT");
   }
 
   // The Python verdict specifically must be one entry saying one thing.

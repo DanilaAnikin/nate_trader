@@ -29,6 +29,8 @@ export interface BrokerSnapshotPayload {
  * GET /api/accounts/[id]/live — a fresh, read-only broker snapshot for one
  * ownership-checked account.
  *
+ * **Side-effect free**: it reads the broker and writes nothing.
+ *
  * Used by the accounts screen, which needs per-account equity without paying
  * for the full strategy read model. Credentials are decrypted server-side and
  * never appear in the response.
@@ -65,9 +67,8 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   const result = await fetchBrokerSnapshot(credentials, account.mode);
   if (!result.ok) {
-    if (result.code === "ALPACA_AUTH_FAILED") {
-      await svc.from("accounts").update({ status: "auth_failed" }).eq("id", id);
-    }
+    // No status write: see the note in the status route. A GET that persists
+    // `auth_failed` is a mutation triggered by a read.
     return NextResponse.json(
       { code: result.code, error: result.detail },
       { status: 502, headers: { "Cache-Control": "no-store" } },

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { maintenanceBlock } from "@/lib/maintenance";
 import { getSupabaseService } from "@/lib/supabase/service";
 import {
   getSessionUser,
@@ -21,6 +22,9 @@ const ALPACA_BASE: Record<string, string> = {
  * material.
  */
 export async function POST(_req: Request, { params }: Ctx) {
+  const frozen = maintenanceBlock();
+  if (frozen) return frozen;
+
   const { id } = await params;
   const user = await getSessionUser();
   if (!user) {
@@ -61,10 +65,14 @@ export async function POST(_req: Request, { params }: Ctx) {
   }
 
   if (res.status === 401 || res.status === 403) {
-    const { error } = await svc
-      .from("accounts")
-      .update({ status: "auth_failed" })
-      .eq("id", id);
+    // One transaction, one audit entry. A bare `.update()` recorded a status
+    // change with no record of who made it or why, and the same write was
+    // reachable from two GET handlers.
+    const { error } = await svc.rpc("record_account_verification", {
+      p_account: id,
+      p_owner: account.owner_id,
+      p_status: "auth_failed",
+    });
     if (error) {
       // The credentials really are rejected, and the row still says otherwise.
       return NextResponse.json(
@@ -101,14 +109,17 @@ export async function POST(_req: Request, { params }: Ctx) {
 
   // The full number is stored server-side (the production binding compares it
   // against a freshly read one) but must never be returned to the browser.
-  const { error: updateError } = await svc
-    .from("accounts")
-    .update({
-      status: "connected",
-      last_verified_at: new Date().toISOString(),
-      alpaca_account_number: accountNumber,
-    })
-    .eq("id", id);
+  // `record_account_verification` writes the status, the binding, the
+  // timestamp and the audit entry in one transaction, and bumps
+  // `credential_version` when the broker account number actually moves — so a
+  // broker refresh already in flight against the old binding is refused
+  // instead of publishing under the new one.
+  const { error: updateError } = await svc.rpc("record_account_verification", {
+    p_account: id,
+    p_owner: account.owner_id,
+    p_status: "connected",
+    p_account_number: accountNumber,
+  });
   if (updateError) {
     // Reporting "connected" here would claim a binding that was never stored:
     // the next production authorization compares against the *old* number.

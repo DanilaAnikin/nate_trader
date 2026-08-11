@@ -11,6 +11,8 @@ const OWNER_ID = "11111111-1111-1111-1111-111111111111";
 
 let currentUserId: string | null = OWNER_ID;
 const updates: Record<string, unknown>[] = [];
+/** Every RPC the route makes, so the audited command path can be asserted. */
+const rpcCalls: { name: string; args: unknown }[] = [];
 
 vi.mock("@/lib/supabase/server", () => ({
   getSupabaseServer: async () => ({
@@ -36,10 +38,13 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/supabase/service", () => ({
   getSupabaseService: () => ({
-    rpc: async () => ({
-      data: [{ api_key: "k", api_secret: "s" }],
-      error: null,
-    }),
+    rpc: async (name: string, args: unknown) => {
+      rpcCalls.push({ name, args });
+      if (name === "get_account_credentials") {
+        return { data: [{ api_key: "k", api_secret: "s" }], error: null };
+      }
+      return { data: null, error: null };
+    },
     from: () => ({
       // Since migration 0011 the account row is read with the service role and
       // the ownership check happens in code, so the service mock must answer
@@ -80,6 +85,7 @@ function request() {
 beforeEach(() => {
   currentUserId = OWNER_ID;
   updates.length = 0;
+  rpcCalls.length = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(
@@ -117,10 +123,20 @@ describe("POST /api/accounts/[id]/verify", () => {
 
   it("still stores the full number server-side for the production binding", async () => {
     await request();
-    const stored = updates.find(
-      (patch) => patch.alpaca_account_number !== undefined,
+    // The binding is written by the atomic, audited RPC — not by a bare
+    // `.update()`, which recorded a status change with no record of who made
+    // it and was reachable from two GET handlers.
+    const recorded = rpcCalls.find(
+      (call) => call.name === "record_account_verification",
     );
-    expect(stored?.alpaca_account_number).toBe(CANARY_ACCOUNT_NUMBER);
+    expect(recorded).toBeDefined();
+    expect(
+      (recorded?.args as Record<string, unknown>).p_account_number,
+    ).toBe(CANARY_ACCOUNT_NUMBER);
+    expect((recorded?.args as Record<string, unknown>).p_status).toBe(
+      "connected",
+    );
+    expect(updates).toHaveLength(0);
   });
 
   it("is no-store so a mask is never cached by a proxy", async () => {

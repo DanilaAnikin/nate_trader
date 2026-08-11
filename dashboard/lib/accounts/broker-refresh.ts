@@ -1,8 +1,9 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/lib/database.types";
+import type { Database, Json } from "@/lib/database.types";
 import { isCalendarDate } from "@/lib/calendar-date";
 import {
+  describeFetchFailure,
   fetchCashActivities,
   type CashFlowWalkResult,
 } from "./equity-backfill";
@@ -50,7 +51,10 @@ export type RefreshFailure =
   | "PORTFOLIO_HISTORY_INCOMPLETE"
   | "CASH_FLOW_INCOMPLETE"
   | "NON_CASH_EXTERNAL_TRANSFER"
+  | "BROKER_UNREACHABLE"
   | "STALE_GENERATION"
+  | "CREDENTIALS_ROTATED"
+  | "RECONCILIATION_CONFLICT"
   | "PUBLISH_REFUSED";
 
 export type RefreshResult =
@@ -67,8 +71,21 @@ export type RefreshResult =
       readonly ok: false;
       readonly reason: RefreshFailure;
       readonly detail: string;
-      /** Always true: no path below mutates before the single publish call. */
-      readonly mutated: false;
+      /**
+       * Whether either **mirror** moved. Always false: the only statement that
+       * writes `equity_snapshots` or `cash_flows` is the single publish call,
+       * and it is one transaction that either commits whole or rolls back.
+       *
+       * It is named `mirrorMutated`, not `mutated`, because reserving a
+       * refresh token *is* a database write — a row in `broker_refresh_token`
+       * and a `nextval` on the generation sequence. Neither is user-visible
+       * financial state, but calling the whole operation "no mutation" would
+       * be false, and a reader deciding whether a retry is safe needs the
+       * distinction.
+       */
+      readonly mirrorMutated: false;
+      /** True once a token was reserved, so a sequence value was consumed. */
+      readonly reservationTaken: boolean;
     };
 
 type PortfolioHistory = {
@@ -82,10 +99,19 @@ type PortfolioHistory = {
  * Read and fully validate Alpaca's `period=all` portfolio history.
  *
  * Every rejection here happens **before** any database mutation, and the
- * result is either a complete, authoritative history or nothing at all. The
- * previous version skipped unusable days with `continue`, which turned a
- * corrupt payload into a shorter one — and a shorter payload is exactly what
- * the reconciliation reads as "these days were retracted".
+ * result is either a complete, internally consistent history or nothing at
+ * all. Three classes of leniency have been removed, each of which turned a
+ * broken payload into a plausible shorter one — and a shorter payload is
+ * exactly what a reconciliation reads as "these days were retracted":
+ *
+ *   * days with an unusable equity were skipped with `continue`;
+ *   * an unusable `profit_loss` / `profit_loss_pct` entry silently became
+ *     `null`, so a corrupt column read as "this day had no P/L"; and
+ *   * rows were collected into a `Map` keyed by date, so two rows for the same
+ *     session quietly resolved last-wins. Two rows for one day means the
+ *     payload is not what it claims to be — the timestamps disagree with the
+ *     sessions, or the response splices two responses — and picking one of
+ *     them is a guess about which day's equity is real.
  */
 export async function fetchPortfolioHistory(
   apiKey: string,
@@ -95,25 +121,42 @@ export async function fetchPortfolioHistory(
   | { readonly ok: true; readonly days: EquityDay[] }
   | { readonly ok: false; readonly detail: string }
 > {
-  const res = await fetch(
-    `${ALPACA_BASE[mode]}/account/portfolio/history?period=all&timeframe=1D`,
-    {
-      headers: {
-        "APCA-API-KEY-ID": apiKey,
-        "APCA-API-SECRET-KEY": apiSecret,
+  let res: Response;
+  try {
+    res = await fetch(
+      `${ALPACA_BASE[mode]}/account/portfolio/history?period=all&timeframe=1D`,
+      {
+        headers: {
+          "APCA-API-KEY-ID": apiKey,
+          "APCA-API-SECRET-KEY": apiSecret,
+        },
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
       },
-      cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
-    },
-  );
+    );
+  } catch (caught) {
+    // Timeout, abort, DNS, TLS, dropped connection. This used to propagate out
+    // of the route as an unhandled rejection and reach the browser as a raw
+    // 500 with no named reason.
+    return {
+      ok: false,
+      detail: `Alpaca portfolio history could not be reached: ${describeFetchFailure(caught)}`,
+    };
+  }
   if (!res.ok) {
     return { ok: false, detail: `Alpaca portfolio history HTTP ${res.status}` };
   }
 
-  const body = (await res.json().catch(() => null)) as PortfolioHistory | null;
-  if (!body || typeof body !== "object") {
+  let parsed: unknown;
+  try {
+    parsed = await res.json();
+  } catch {
+    return { ok: false, detail: "Alpaca portfolio history is not valid JSON" };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return { ok: false, detail: "Alpaca portfolio history is not an object" };
   }
+  const body = parsed as PortfolioHistory;
 
   const ts = body.timestamp;
   const equity = body.equity;
@@ -137,6 +180,9 @@ export async function fetchPortfolioHistory(
       detail: `Alpaca portfolio history is inconsistent: ${ts.length} timestamps against ${equity.length} equity values`,
     };
   }
+  // An optional column is either absent, or present and exactly as long as the
+  // others. "Present but a different length" is a payload whose columns do not
+  // describe the same days.
   for (const [name, column] of [
     ["profit_loss", pl],
     ["profit_loss_pct", plpc],
@@ -145,7 +191,7 @@ export async function fetchPortfolioHistory(
     if (!Array.isArray(column)) {
       return { ok: false, detail: `Alpaca portfolio history column ${name} is not an array` };
     }
-    if (column.length > 0 && column.length !== ts.length) {
+    if (column.length !== ts.length) {
       return {
         ok: false,
         detail: `Alpaca portfolio history column ${name} has ${column.length} values against ${ts.length} timestamps`,
@@ -156,7 +202,26 @@ export async function fetchPortfolioHistory(
   const etDate = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
   });
-  const byDate = new Map<string, EquityDay>();
+  const days: EquityDay[] = [];
+  const seenDates = new Set<string>();
+  const seenStamps = new Set<number>();
+
+  /**
+   * An optional P/L entry. `null`/absent is a legitimate "not reported"; a
+   * string, a boolean, a NaN or an Infinity is a column this process does not
+   * understand, and reading it as "not reported" hides that.
+   */
+  const optional = (
+    column: unknown,
+    position: number,
+  ): { ok: true; value: number | null } | { ok: false } => {
+    if (column === undefined || column === null) return { ok: true, value: null };
+    if (!Array.isArray(column)) return { ok: false };
+    const entry = column[position];
+    if (entry === null || entry === undefined) return { ok: true, value: null };
+    if (typeof entry !== "number" || !Number.isFinite(entry)) return { ok: false };
+    return { ok: true, value: entry };
+  };
 
   for (let index = 0; index < ts.length; index++) {
     const stamp = ts[index];
@@ -166,6 +231,14 @@ export async function fetchPortfolioHistory(
         detail: `Alpaca portfolio history has a non-numeric timestamp at position ${index}`,
       };
     }
+    if (seenStamps.has(stamp)) {
+      return {
+        ok: false,
+        detail: `Alpaca portfolio history repeats the timestamp ${stamp}, so its columns do not describe distinct observations`,
+      };
+    }
+    seenStamps.add(stamp);
+
     const value = equity[index];
     // A null, non-finite or non-positive equity is not a day to skip — it is a
     // payload this process cannot understand, and understanding it partially
@@ -185,27 +258,40 @@ export async function fetchPortfolioHistory(
         detail: `Alpaca portfolio history timestamp ${stamp} is not a usable calendar date`,
       };
     }
+    if (seenDates.has(date)) {
+      return {
+        ok: false,
+        detail: `Alpaca portfolio history reports the session ${date} more than once, so which equity belongs to it cannot be determined`,
+      };
+    }
+    seenDates.add(date);
 
-    const optional = (column: unknown, position: number): number | null => {
-      if (!Array.isArray(column) || column.length === 0) return null;
-      const entry = column[position];
-      if (entry === null || entry === undefined) return null;
-      return typeof entry === "number" && Number.isFinite(entry) ? entry : null;
-    };
+    const profitLoss = optional(pl, index);
+    if (!profitLoss.ok) {
+      return {
+        ok: false,
+        detail: `Alpaca portfolio history has an unusable profit_loss value at position ${index}`,
+      };
+    }
+    const profitLossPct = optional(plpc, index);
+    if (!profitLossPct.ok) {
+      return {
+        ok: false,
+        detail: `Alpaca portfolio history has an unusable profit_loss_pct value at position ${index}`,
+      };
+    }
 
-    byDate.set(date, {
+    days.push({
       snapshot_date: date,
       equity: Math.round(value * 100) / 100,
       // Portfolio history carries no per-day cash; only equity drives the chart.
       cash: 0,
-      profit_loss: optional(pl, index),
-      profit_loss_pct: optional(plpc, index),
+      profit_loss: profitLoss.value,
+      profit_loss_pct: profitLossPct.value,
     });
   }
 
-  const days = [...byDate.values()].sort((a, b) =>
-    a.snapshot_date.localeCompare(b.snapshot_date),
-  );
+  days.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
   return { ok: true, days };
 }
 
@@ -222,43 +308,65 @@ export async function refreshBrokerDatasets(
   mode: Mode,
   options: { flowsFrom?: string } = {},
 ): Promise<RefreshResult> {
+  const failed = (
+    reason: RefreshFailure,
+    detail: string,
+    reservationTaken: boolean,
+  ): RefreshResult => ({
+    ok: false,
+    reason,
+    detail,
+    mirrorMutated: false,
+    reservationTaken,
+  });
+
   const { data: cred, error: credErr } = await svc.rpc(
     "get_account_credentials",
     { acct: accountId },
   );
   if (credErr || !cred || cred.length === 0) {
-    return {
-      ok: false,
-      reason: "NO_CREDENTIALS",
-      detail: "This account has no stored Alpaca credentials.",
-      mutated: false,
-    };
+    return failed(
+      "NO_CREDENTIALS",
+      "This account has no stored Alpaca credentials.",
+      false,
+    );
   }
   const { api_key: apiKey, api_secret: apiSecret } = cred[0];
 
-  // The generation is taken before the broker is read, so a refresh that
-  // started earlier can be recognised as older even if it finishes later.
-  const { data: generation, error: genError } = await svc.rpc(
+  // The reservation is taken before the broker is read. It carries the
+  // account, owner, mode, broker account number and credential version this
+  // refresh is about to read *with*, so a rotation landing mid-fetch can be
+  // recognised at publish time rather than silently mixing two credentials'
+  // data into one mirror.
+  const { data: reservation, error: genError } = await svc.rpc(
     "begin_broker_refresh",
     { p_account: accountId, p_owner: ownerId },
   );
-  if (genError || generation == null) {
-    return {
-      ok: false,
-      reason: "PUBLISH_REFUSED",
-      detail: `A refresh generation could not be reserved: ${genError?.message ?? "no value returned"}`,
-      mutated: false,
-    };
+  const token =
+    reservation && typeof reservation === "object" && !Array.isArray(reservation)
+      ? (reservation as Record<string, unknown>).token
+      : null;
+  const generation =
+    reservation && typeof reservation === "object" && !Array.isArray(reservation)
+      ? (reservation as Record<string, unknown>).generation
+      : null;
+  if (genError || typeof token !== "string") {
+    return failed(
+      "PUBLISH_REFUSED",
+      `A refresh could not be reserved: ${genError?.message ?? "no token returned"}`,
+      false,
+    );
   }
 
   const history = await fetchPortfolioHistory(apiKey, apiSecret, mode);
   if (!history.ok) {
-    return {
-      ok: false,
-      reason: "PORTFOLIO_HISTORY_UNREADABLE",
-      detail: `${history.detail}. Nothing was written.`,
-      mutated: false,
-    };
+    return failed(
+      /could not be reached/.test(history.detail)
+        ? "BROKER_UNREACHABLE"
+        : "PORTFOLIO_HISTORY_UNREADABLE",
+      `${history.detail}. Nothing was written.`,
+      true,
+    );
   }
 
   const walk: CashFlowWalkResult = await fetchCashActivities(
@@ -268,38 +376,44 @@ export async function refreshBrokerDatasets(
     options.flowsFrom,
   );
   if (!walk.complete) {
-    return {
-      ok: false,
-      reason:
-        walk.incompleteReason === "NON_CASH_EXTERNAL_TRANSFER"
-          ? "NON_CASH_EXTERNAL_TRANSFER"
+    return failed(
+      walk.incompleteReason === "NON_CASH_EXTERNAL_TRANSFER"
+        ? "NON_CASH_EXTERNAL_TRANSFER"
+        : walk.incompleteReason === "BROKER_UNREACHABLE"
+          ? "BROKER_UNREACHABLE"
           : "CASH_FLOW_INCOMPLETE",
-      detail: `${walk.detail ?? "The Alpaca activity walk could not be completed."} Nothing was written.`,
-      mutated: false,
-    };
+      `${walk.detail ?? "The Alpaca activity walk could not be completed."} Nothing was written.`,
+      true,
+    );
   }
 
-  // One call, one transaction, both datasets, one generation.
+  // One call, one transaction, both datasets, one reservation. The database
+  // has no code path here that deletes: a stored row the payload omits aborts
+  // the whole transaction rather than being reconciled away.
   const { data, error } = await svc.rpc("publish_broker_refresh", {
-    p_account: accountId,
-    p_owner: ownerId,
-    p_generation: generation as unknown as number,
-    p_equity: history.days as unknown as Database["public"]["Functions"]["publish_broker_refresh"]["Args"]["p_equity"],
+    p_token: token,
+    p_equity: history.days as unknown as Json,
     p_equity_complete: true,
-    p_flows: walk.rows as unknown as Database["public"]["Functions"]["publish_broker_refresh"]["Args"]["p_flows"],
+    p_flows: walk.rows as unknown as Json,
     p_flows_from: walk.windowFrom,
     p_flows_complete: true,
     p_flows_scanned: walk.scanned,
+    p_flows_saw_empty_page: walk.sawEmptyTerminalPage,
   });
   if (error) {
-    return {
-      ok: false,
-      reason: /generation .* is not newer/.test(error.message)
-        ? "STALE_GENERATION"
-        : "PUBLISH_REFUSED",
-      detail: `The refresh was refused and rolled back: ${error.message}`,
-      mutated: false,
-    };
+    const message = error.message ?? "";
+    const reason: RefreshFailure = message.includes("RECONCILIATION_CONFLICT")
+      ? "RECONCILIATION_CONFLICT"
+      : /credentials changed|account mode changed|account number changed/.test(message)
+        ? "CREDENTIALS_ROTATED"
+        : /generation .* is not newer|already been published|older than the/.test(message)
+          ? "STALE_GENERATION"
+          : "PUBLISH_REFUSED";
+    return failed(
+      reason,
+      `The refresh was refused and rolled back; the stored mirror is unchanged. ${message}`,
+      true,
+    );
   }
 
   const outcome = (data ?? {}) as Record<string, unknown>;
@@ -307,7 +421,7 @@ export async function refreshBrokerDatasets(
     typeof outcome[key] === "number" ? (outcome[key] as number) : 0;
   return {
     ok: true,
-    generation: String(generation),
+    generation: String(generation ?? ""),
     equityWritten: count("equity_written"),
     equityRemoved: count("equity_removed"),
     flowsWritten: count("flows_written"),

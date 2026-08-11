@@ -179,10 +179,22 @@ interface RawWorkflowRun {
 
 function toRunSummary(run: RawWorkflowRun): WorkflowRunSummary | null {
   if (typeof run.id !== "number" || typeof run.head_sha !== "string") return null;
+  // `run_attempt` used to default to 1 when absent. That is an invention, and
+  // it is the one field that distinguishes an original run from a re-run of
+  // the same id — the cycle binding, the attempt-scoped jobs and the step
+  // windows all key on it. A run whose attempt cannot be read is a run this
+  // model cannot reason about, so it is dropped rather than assumed.
+  if (
+    typeof run.run_attempt !== "number" ||
+    !Number.isInteger(run.run_attempt) ||
+    run.run_attempt < 1
+  ) {
+    return null;
+  }
   return {
     id: run.id,
     runNumber: typeof run.run_number === "number" ? run.run_number : 0,
-    attempt: typeof run.run_attempt === "number" ? run.run_attempt : 1,
+    attempt: run.run_attempt,
     status: typeof run.status === "string" ? run.status : "unknown",
     conclusion: typeof run.conclusion === "string" ? run.conclusion : null,
     event: typeof run.event === "string" ? run.event : "unknown",
@@ -238,6 +250,16 @@ export interface WorkflowStepSummary {
   readonly name: string;
   readonly status: string;
   readonly conclusion: string | null;
+  /**
+   * The step's own window.
+   *
+   * A report or artifact produced by a step must be datable to that step. The
+   * run's window is too wide: on a re-run it spans work from a different
+   * attempt entirely, and within one run it cannot distinguish a preflight
+   * report from anything else the job wrote.
+   */
+  readonly startedAt: string | null;
+  readonly completedAt: string | null;
 }
 
 export interface WorkflowJobSummary {
@@ -256,19 +278,29 @@ export interface WorkflowJobSummary {
 }
 
 /**
- * Jobs of one run. A completed run whose job never executed a single step
- * failed in GitHub's infrastructure (for example no hosted runner could be
- * acquired) — no strategy, preflight or broker work happened in that attempt.
+ * Jobs of **one attempt** of one run.
+ *
+ * `/runs/{id}/jobs` returns the latest attempt's jobs, which is the wrong
+ * answer whenever a run has been re-run: the artifacts, the report and the
+ * step conclusions on screen belong to a specific attempt, and reading another
+ * attempt's steps to decide whether that one's preflight ran is exactly the
+ * substitution the selector exists to prevent. The attempt is therefore
+ * required, and the attempt-scoped endpoint is used.
+ *
+ * A completed run whose job never executed a single step failed in GitHub's
+ * infrastructure (for example no hosted runner could be acquired).
  */
 export async function fetchRunJobs(
   runId: number,
+  attempt: number,
   ttlSeconds = 120,
 ): Promise<WorkflowJobSummary[] | null> {
-  const key = `run-jobs:${runId}`;
+  if (!Number.isInteger(attempt) || attempt < 1) return null;
+  const key = `run-jobs:${runId}:${attempt}`;
   const cached = cacheGet<WorkflowJobSummary[] | null>(key);
   if (cached !== undefined) return cached;
 
-  const url = `${API_ROOT}/repos/${GITHUB_REPO}/actions/runs/${runId}/jobs?per_page=50`;
+  const url = `${API_ROOT}/repos/${GITHUB_REPO}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=50`;
   const response = await request(url, "application/vnd.github+json");
   if (!response || !response.ok) {
     cacheSet(key, null, 60);
@@ -283,6 +315,8 @@ export async function fetchRunJobs(
         name?: string;
         status?: string;
         conclusion?: string | null;
+        started_at?: string | null;
+        completed_at?: string | null;
       }[];
     }[];
   } | null;
@@ -294,6 +328,10 @@ export async function fetchRunJobs(
               status: typeof step?.status === "string" ? step.status : "unknown",
               conclusion:
                 typeof step?.conclusion === "string" ? step.conclusion : null,
+              startedAt:
+                typeof step?.started_at === "string" ? step.started_at : null,
+              completedAt:
+                typeof step?.completed_at === "string" ? step.completed_at : null,
             }))
           : [];
         return {

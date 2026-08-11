@@ -388,6 +388,63 @@ describe("the preflight itself must be internally consistent", () => {
     expect(result.reasons).toContain("PREFLIGHT_DUPLICATE_CHECK");
   });
 
+  it("refuses a self-consistent report that carries only the old five checks", () => {
+    // The exact regression: before the contract was completed, these five were
+    // the whole requirement. A report with only them — every one passing, the
+    // Python gate among them, `status: PASS`, `allowed_mode: paper`, counts
+    // 5/5 and therefore internally consistent — satisfied every condition the
+    // gate had. It had established nothing about the paper endpoint, the
+    // account status, the broker clock, shorts or open orders.
+    const base = preflight();
+    const FIVE = [
+      "trading_mode",
+      "frozen_v11_policy",
+      "strategy_identity",
+      "ranking_universe",
+      "canonical_validation_gate",
+    ];
+    const truncated: PreflightInfo = {
+      ...base,
+      checks: base.checks.filter((check) => FIVE.includes(check.name)),
+      checksPassed: 5,
+      checksEvaluated: 5,
+    };
+    expect(truncated.checks).toHaveLength(5);
+    expect(truncated.checks.every((check) => check.passed)).toBe(true);
+
+    const result = gate({}, { preflight: truncated });
+    expect(result.effective).toBe("FAIL");
+    expect(result.reasons).toContain("PREFLIGHT_CHECK_MISSING");
+    // And specifically not because the counts disagree — they agree perfectly.
+    expect(result.reasons).not.toContain("PREFLIGHT_COUNTS_INCONSISTENT");
+  });
+
+  it("refuses a report carrying a check this build does not know", () => {
+    // A runner that grew a 19th check is a runner this gate has not been
+    // reconciled against, even if all 19 pass.
+    const base = preflight();
+    const drifted: PreflightInfo = {
+      ...base,
+      checks: [
+        ...base.checks,
+        { name: "some_new_runner_check", passed: true, detail: "ok" },
+      ],
+      checksPassed: 19,
+      checksEvaluated: 19,
+    };
+    const result = gate({}, { preflight: drifted });
+    expect(result.effective).toBe("FAIL");
+    expect(result.reasons).toContain("PREFLIGHT_CONTRACT_DRIFT");
+  });
+
+  it("accepts the complete 18-check contract", () => {
+    expect(MANDATORY_PREFLIGHT_CHECKS).toHaveLength(18);
+    expect(new Set(MANDATORY_PREFLIGHT_CHECKS).size).toBe(18);
+    const result = gate({}, { preflight: preflight() });
+    expect(result.reasons).not.toContain("PREFLIGHT_CHECK_MISSING");
+    expect(result.reasons).not.toContain("PREFLIGHT_CONTRACT_DRIFT");
+  });
+
   it.each(MANDATORY_PREFLIGHT_CHECKS)(
     "refuses a preflight with no %s check",
     (name) => {

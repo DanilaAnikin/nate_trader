@@ -128,34 +128,17 @@ vi.mock("@/lib/supabase/service", () => ({
 }));
 
 /**
- * Both mirrors are refreshed by one call that publishes them together, so the
- * double describes that single outcome rather than two independent backfills.
+ * This route no longer refreshes anything. The double exists only to prove
+ * that: if the handler ever calls it again, `refreshCalls` is non-zero and the
+ * side-effect test below fails.
  */
-let refreshResult: {
-  ok: boolean;
-  reason?: string;
-  detail?: string;
-  latestActivityAt?: string | null;
-} = { ok: true, latestActivityAt: "2026-08-05T20:00:00.000Z" };
+let refreshCalls = 0;
 
 vi.mock("@/lib/accounts/broker-refresh", () => ({
-  refreshBrokerDatasets: async () =>
-    refreshResult.ok
-      ? {
-          ok: true,
-          generation: "1",
-          equityWritten: equityRows.length,
-          equityRemoved: 0,
-          flowsWritten: flowRows.length,
-          flowsRemoved: 0,
-          latestActivityAt: refreshResult.latestActivityAt ?? null,
-        }
-      : {
-          ok: false,
-          reason: refreshResult.reason,
-          detail: refreshResult.detail ?? "refresh refused",
-          mutated: false,
-        },
+  refreshBrokerDatasets: async () => {
+    refreshCalls += 1;
+    throw new Error("GET /performance must not refresh the broker mirrors");
+  },
 }));
 
 let benchmarkBars: { date: string; close: number }[] | null = null;
@@ -236,7 +219,7 @@ beforeEach(() => {
   snapshotCalls = [];
   inflateSnapshotCounts = false;
   dropSnapshotToken = false;
-  refreshResult = { ok: true, latestActivityAt: "2026-08-05T20:00:00.000Z" };
+  refreshCalls = 0;
   baselineDocument = baseline();
   equityRows = [
     { snapshot_date: "2026-08-03", equity: 1_000_000 },
@@ -392,43 +375,6 @@ describe("GET /api/accounts/[id]/performance", () => {
     expect(body.reason).toBe("BASELINE_OBSERVATION_MISMATCH");
   });
 
-  it("refuses an unreadable portfolio history instead of reporting a number", async () => {
-    refreshResult = {
-      ok: false,
-      reason: "PORTFOLIO_HISTORY_UNREADABLE",
-      detail: "Alpaca portfolio history HTTP 503. Nothing was written.",
-    };
-    const { body } = await request();
-    expect(body.status).toBe("UNAVAILABLE");
-    expect(body.reason).toBe("EQUITY_REFRESH_FAILED");
-    expect(body.detail).toContain("Nothing was written");
-  });
-
-  it("refuses an incomplete cash-flow walk", async () => {
-    refreshResult = {
-      ok: false,
-      reason: "CASH_FLOW_INCOMPLETE",
-      detail: "A full page of activities produced no usable pagination id.",
-    };
-    const { body } = await request();
-    expect(body.reason).toBe("CASH_FLOW_INCOMPLETE");
-    expect(body.detail).toContain("pagination id");
-  });
-
-  it("refuses a refresh that a newer one has superseded", async () => {
-    // Two overlapping refreshes: the one that started earlier must not publish
-    // over the newer one, and the caller must not present a number from it.
-    refreshResult = {
-      ok: false,
-      reason: "STALE_GENERATION",
-      detail:
-        "The refresh was refused and rolled back: refresh generation 4 is not newer than the published generation 7",
-    };
-    const { body } = await request();
-    expect(body.status).toBe("UNAVAILABLE");
-    expect(body.reason).toBe("REFRESH_SUPERSEDED");
-  });
-
   it("refuses a database error on the history snapshot", async () => {
     snapshotError = { message: "connection reset" };
     const { body } = await request();
@@ -445,19 +391,6 @@ describe("GET /api/accounts/[id]/performance", () => {
     const { body } = await request();
     expect(body.status).toBe("UNAVAILABLE");
     expect(body.reason).toBe("HISTORY_TOO_LARGE");
-  });
-
-  it.each([
-    ["seven hours", 7 * 60 * 60 * 1000],
-    ["a year", 365 * 24 * 60 * 60 * 1000],
-  ])("refuses a broker activity %s in the future", async (_label, aheadMs) => {
-    refreshResult = {
-      ok: true,
-      latestActivityAt: new Date(Date.now() + aheadMs).toISOString(),
-    };
-    const { body } = await request();
-    expect(body.reason).toBe("FUTURE_DATED");
-    expect(body.provenance.freshness).toBe("MISMATCH");
   });
 
   it("marks an old last-shared session STALE at the root, not CURRENT", async () => {
@@ -501,11 +434,19 @@ describe("GET /api/accounts/[id]/performance", () => {
     // 16:00Z is midday in New York on the same date, the ordinary case. The
     // activity timestamp has to be in the past too, now that a future one is
     // held to five minutes rather than a day.
-    refreshResult = { ok: true, latestActivityAt: "2026-08-05T13:45:00.000Z" };
     vi.setSystemTime(new Date("2026-08-05T16:00:00Z"));
     const { body } = await request();
     expect(body.status).toBe("CURRENT");
     expect(body.performance.endDate).toBe("2026-08-05");
+  });
+
+  it("is a read: it refreshes nothing and writes nothing", async () => {
+    // This handler used to republish both broker mirrors on every call, so a
+    // page that polled wrote four tables per poll and two open tabs raced
+    // each other. Refreshing is `POST /api/accounts/[id]/refresh` now.
+    const { body } = await request();
+    expect(refreshCalls).toBe(0);
+    expect(body.status).not.toBe("UNAVAILABLE");
   });
 
   it("never leaks the broker account number", async () => {
@@ -514,19 +455,6 @@ describe("GET /api/accounts/[id]/performance", () => {
     expect(JSON.stringify(body)).not.toContain("PA-PERF-CANARY");
   });
 
-  it("refuses an external securities transfer instead of reporting alpha", async () => {
-    refreshResult = {
-      ok: false,
-      reason: "NON_CASH_EXTERNAL_TRANSFER",
-      detail:
-        "An external securities transfer (ACATS, 2026-08-04) settled in this account after the V11 epoch baseline.",
-    };
-    const { body } = await request();
-    expect(body.status).toBe("UNAVAILABLE");
-    expect(body.reason).toBe("NON_CASH_EXTERNAL_TRANSFER");
-    expect(body.performance).toBeNull();
-    expect(body.detail).toContain("ACATS");
-  });
 });
 
 /* ---------------------------------------------------------------------------

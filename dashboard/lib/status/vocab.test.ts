@@ -64,6 +64,66 @@ describe("normalizeInstant", () => {
     expect(normalizeInstant(12345)).toBeNull();
     expect(normalizeInstant("")).toBeNull();
   });
+
+  // `Date.parse` used to be the fallback for anything carrying an offset,
+  // which made this function exactly as lenient as the engine underneath it.
+  // Every case below produced a number there, and therefore an instant here.
+  it.each([
+    ["2026-02-30T12:00:00Z", "a February day that does not exist"],
+    ["2026-02-29T12:00:00Z", "29 February in a non-leap year"],
+    ["2026-04-31T12:00:00Z", "a 31st in a 30-day month"],
+    ["2026-13-01T12:00:00Z", "a 13th month"],
+    ["2026-08-11T25:00:00Z", "hour 25"],
+    ["2026-08-11T12:60:00Z", "minute 60"],
+    ["2026-08-11T12:00:60Z", "second 60"],
+    ["2026-08-11T12:00:00+25:00", "an offset of 25 hours"],
+    ["2026-08-11T12:00:00+00:60", "an offset of 60 minutes"],
+    ["2026", "a bare year"],
+    ["2026-08", "a year and month"],
+    ["2026-08-11", "a date with no time"],
+    ["Mar 3 2026 12:00:00 GMT", "a locale string"],
+    ["2026-08-11T12:00Z", "no seconds"],
+  ])("refuses %s (%s)", (value) => {
+    expect(normalizeInstant(value)).toBeNull();
+  });
+
+  it("does not roll 2026-02-30 forward into 2 March", () => {
+    // Documents the platform behaviour being defended against: this is what
+    // the old implementation returned.
+    expect(new Date(Date.parse("2026-02-30T12:00:00Z")).toISOString()).toBe(
+      "2026-03-02T12:00:00.000Z",
+    );
+    expect(normalizeInstant("2026-02-30T12:00:00Z")).toBeNull();
+  });
+
+  it("reads a T-separated naive stamp as the runner's format, not as UTC", () => {
+    // Python's `datetime.isoformat()` on a naive datetime emits exactly this,
+    // and the runner's naive datetimes are New York wall time.
+    expect(normalizeInstant("2026-08-11T12:00:00")).toBe(
+      "2026-08-11T16:00:00.000Z",
+    );
+  });
+
+  it("refuses an impossible calendar day in the runner's naive format too", () => {
+    expect(normalizeInstant("2026-02-30 12:00:00")).toBeNull();
+    expect(normalizeInstant("2026-08-11 25:00:00")).toBeNull();
+  });
+
+  it("still accepts every real shape the runner and GitHub emit", () => {
+    // Guards against over-tightening: these are the live formats.
+    expect(normalizeInstant("2026-08-10T16:07:45.128936+00:00")).toBe(
+      "2026-08-10T16:07:45.128Z",
+    );
+    expect(normalizeInstant("2026-08-10T16:07:58Z")).toBe(
+      "2026-08-10T16:07:58.000Z",
+    );
+    expect(normalizeInstant("2026-08-10T16:07:56.299351+00:00")).toBe(
+      "2026-08-10T16:07:56.299Z",
+    );
+    expect(normalizeInstant("2024-02-29T12:00:00Z")).toBe(
+      "2024-02-29T12:00:00.000Z",
+    );
+  });
 });
 
 describe("classifyAge", () => {
