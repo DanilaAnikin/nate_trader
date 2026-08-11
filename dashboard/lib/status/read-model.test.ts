@@ -2157,6 +2157,103 @@ describe("preflight selection follows completion, not conclusion", () => {
     expect(payload.validationGate.effective).toBe("PASS");
   });
 
+  it.each([
+    ["recorded FAIL", { status: "FAIL", market_entry_allowed: false }],
+    ["recorded DEGRADED", { status: "DEGRADED" }],
+    ["market_entry_allowed false", { market_entry_allowed: false }],
+    ["market_entry_allowed null", { market_entry_allowed: null }],
+    ["market_entry_allowed absent", { market_entry_allowed: undefined }],
+    [
+      "a blocking action",
+      { blocking_actions: [{ action: "SHORT_DETECTED", symbol: "AAPL" }] },
+    ],
+  ])(
+    "REPRO 1: the gate must not report PASS for a cycle that %s",
+    async (_label, runPatch) => {
+      // The gate proves the evidence documents are *readable*. It never reads
+      // what they say. A cycle that ran, wrote a perfectly well-formed runtime
+      // artifact, and recorded `status: "FAIL"` with `market_entry_allowed:
+      // false` satisfies every existing condition.
+      stubGithub({
+        runs: [
+          {
+            id: 900,
+            runNumber: 43,
+            conclusion: "success",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:06:00Z",
+            runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+            runtimeZip: runtimeZipBuffer(performanceJson(), {
+              ...lastRunJson(),
+              ...runPatch,
+            }),
+            diagnostics: DEFAULT_DIAGNOSTICS,
+          },
+        ],
+      });
+      const payload = await buildStrategyStatus({
+        viewer: OWNER,
+        account: PRODUCTION_ACCOUNT,
+        broker: OK_BROKER,
+        now: NOW,
+      });
+      expect(payload.validationGate.effective).not.toBe("PASS");
+    },
+  );
+
+  it("REPRO 1b: a present but unusable frozen plan invalidates the runtime", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(
+            performanceJson({ adaptive_rebalance_pending: { not: "a plan" } }),
+          ),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("REPRO 1c: performance.json from another day is a mixed artifact", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(
+            performanceJson({ updated_at: "2026-07-01T16:05:05+00:00" }),
+          ),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
   it("fails closed on a corrupt newest diagnostics instead of searching back", async () => {
     stubGithub({
       runs: [

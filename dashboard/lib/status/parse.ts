@@ -293,9 +293,13 @@ export function parsePerformanceRuntime(
 ): PerformanceRuntimeSnapshot | null {
   if (!isRecord(value)) return null;
 
-  const dailyHistory: { date: string; equity: number }[] = [];
+  // `daily_history` is mandatory. It is the series the rolling drawdown and
+  // the risk tier are computed from; a runtime state without it cannot answer
+  // the question the risk view exists to ask, and an empty screen is a better
+  // answer than a confident one built on nothing.
   const raw = value.daily_history;
-  if (raw !== undefined && raw !== null) {
+  const dailyHistory: { date: string; equity: number }[] = [];
+  {
     if (!Array.isArray(raw)) return null;
     if (raw.length > MAX_DAILY_HISTORY_ROWS) return null;
     let previousDate: string | null = null;
@@ -303,7 +307,10 @@ export function parsePerformanceRuntime(
       if (!isRecord(entry)) return null;
       const date = str(entry.date);
       const equity = num(entry.equity);
+      // A session's equity is a market value: it cannot be negative, and a
+      // zero is the runner failing to read it rather than an observation.
       if (!isCalendarDate(date) || equity === null) return null;
+      if (!Number.isFinite(equity) || equity <= 0) return null;
       if (previousDate !== null && date <= previousDate) return null;
       previousDate = date;
       dailyHistory.push({ date, equity });
@@ -320,6 +327,46 @@ export function parsePerformanceRuntime(
   const updatedAt = normalizeInstant(value.updated_at);
   if (equity === null || cash === null || numPositions === null) return null;
   if (updatedAt === null) return null;
+  // Ranges, not just types. A negative equity, a fractional position count or
+  // a negative one are each a document this build does not understand, and
+  // each renders on screen as an ordinary observation.
+  if (!Number.isFinite(equity) || equity <= 0) return null;
+  if (!Number.isFinite(cash)) return null;
+  if (!Number.isInteger(numPositions) || numPositions < 0) return null;
+
+  // The risk tier drives what the strategy is allowed to do next. An
+  // unrecognised one is not a tier.
+  const tier = riskTier(value.risk_tier);
+  if (tier === null) return null;
+
+  // Present-but-unreadable optional metrics are refused too: `null` beside a
+  // parsed document reads as "not measured", which is a different claim from
+  // "measured and unintelligible".
+  for (const key of [
+    "rolling_drawdown_pct",
+    "rolling_peak_equity",
+    "risk_lookback_sessions",
+  ] as const) {
+    if (value[key] !== undefined && value[key] !== null && num(value[key]) === null) {
+      return null;
+    }
+  }
+  if (
+    value.risk_tier_updated !== undefined &&
+    value.risk_tier_updated !== null &&
+    normalizeInstant(value.risk_tier_updated) === null
+  ) {
+    return null;
+  }
+
+  // A frozen plan that is *present* must be usable. `parseFrozenPlan` returns
+  // null both for "absent" and for "present and unreadable", and treating the
+  // second as the first published a runtime state claiming there is no pending
+  // rebalance when there is one nobody can read.
+  const rawPlan = value.adaptive_rebalance_pending;
+  const planPresent = rawPlan !== undefined && rawPlan !== null;
+  const plan = planPresent ? parseFrozenPlan(rawPlan) : null;
+  if (planPresent && plan === null) return null;
 
   const recoveryLatchArmed =
     typeof value.adaptive_risk_off_latched === "boolean"
@@ -334,14 +381,14 @@ export function parsePerformanceRuntime(
     equity,
     cash,
     numPositions,
-    riskTier: riskTier(value.risk_tier),
+    riskTier: tier,
     riskTierUpdated: normalizeInstant(value.risk_tier_updated),
     riskTierReason: str(value.risk_tier_reason),
     rollingDrawdownPct: num(value.rolling_drawdown_pct),
     rollingPeakEquity: num(value.rolling_peak_equity),
     riskLookbackSessions: num(value.risk_lookback_sessions),
     recoveryLatchArmed,
-    plan: parseFrozenPlan(value.adaptive_rebalance_pending),
+    plan,
     dailyHistory,
   };
 }

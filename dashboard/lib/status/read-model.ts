@@ -541,6 +541,26 @@ function validationSection(
 /* ------------------------------------------------------------- assembly */
 
 /** Assemble the complete, sanitized read model for one viewer and account. */
+/**
+ * How far apart `performance.json` and `last_run.json` may be stamped.
+ *
+ * The executor writes both at the end of one cycle, milliseconds to seconds
+ * apart. An hour is generous enough to absorb a slow shutdown and tight enough
+ * that yesterday's performance file cannot travel inside today's artifact.
+ */
+const SAME_CYCLE_TOLERANCE_MS = 60 * 60 * 1000;
+
+function withinSameCycle(
+  performanceAt: string | null,
+  completedAt: string | null,
+): boolean {
+  if (performanceAt === null || completedAt === null) return false;
+  const a = Date.parse(performanceAt);
+  const b = Date.parse(completedAt);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(a - b) <= SAME_CYCLE_TOLERANCE_MS;
+}
+
 export async function buildStrategyStatus(input: {
   viewer: StatusViewer;
   account: StatusAccount;
@@ -871,6 +891,18 @@ export async function buildStrategyStatus(input: {
             ? {
                 runId: executionSelection.run.id,
                 attempt: executionSelection.run.attempt,
+                status: executionSelection.lastRun.status,
+                marketEntryAllowed: executionSelection.lastRun.marketEntryAllowed,
+                blockingActionCount:
+                  executionSelection.lastRun.blockingActions.length,
+                // Both files are written by the same cycle seconds apart. A
+                // `performance.json` from another day inside one artifact
+                // means the artifact is a mixture, and the equity on screen is
+                // not the equity the recorded cycle ended with.
+                performanceInCycle: withinSameCycle(
+                  executionSelection.performance.updatedAt,
+                  executionSelection.lastRun.completedAt,
+                ),
               }
             : null,
         now,

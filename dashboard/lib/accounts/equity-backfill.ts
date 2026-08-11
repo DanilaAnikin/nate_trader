@@ -288,11 +288,15 @@ export function resolveActivityDate(
   // books the record's *creation* day rather than its settlement day. Those
   // differ across a boundary, and the boundary is where corrections happen.
   // A malformed present date is now a refusal, never a fallback.
+  //
+  // "Present" means the property exists — not that it holds something usable.
+  // `null`, `""` and `"   "` are all a `date` the feed *tried* to give and
+  // could not, and treating them as absent falls back to `transaction_time`,
+  // which is the record's creation day rather than its settlement day.
   let date: string | null = null;
-  const rawDate = activity.date;
-  const hasDateField =
-    rawDate !== undefined && rawDate !== null && String(rawDate).trim() !== "";
+  const hasDateField = "date" in activity;
   if (hasDateField) {
+    const rawDate = activity.date;
     if (!isCalendarDate(rawDate)) return null;
     date = rawDate;
   } else if (hasRealInstant) {
@@ -578,16 +582,19 @@ export async function fetchCashActivities(
           pagesRead,
         );
       }
-      // A row carrying instrument fields is describing an instrument, whatever
-      // its type says — and a zero `net_amount` beside a symbol and a quantity
-      // is a securities movement with no cash leg, not a $0 cash event.
-      if (looksLikeSecurities(activity)) {
-        return incomplete(
-          "NON_CASH_EXTERNAL_TRANSFER",
-          `Alpaca activity ${id} (${type}) carries instrument fields (symbol/qty) and no cash amount, so it moves positions without a cash flow. No return can be attributed across it.`,
-          pagesRead,
-        );
-      }
+      // **Order matters here.** An *internal* type is fully classified by its
+      // type, and `FILL` is the clearest case: Alpaca's documented shape
+      // carries `symbol`, `qty`, `price`, `side` and **no** `net_amount` —
+      // exactly the shape `looksLikeSecurities` was written to catch. Running
+      // the heuristic first turned every ordinary trade into a fatal
+      // NON_CASH_EXTERNAL_TRANSFER, which made the refresh impossible for any
+      // account that had actually traded.
+      //
+      // The heuristic exists to disambiguate rows whose *type* leaves the
+      // question open. A known internal P/L event is already answered, so it
+      // never reaches the heuristic; the check itself lives below, after the
+      // dedup bookkeeping, next to the other classification outcomes.
+      // https://docs.alpaca.markets/us/docs/account-activities
 
       const occurred = resolveActivityDate(activity, etDate);
       if (!occurred) {
@@ -649,8 +656,20 @@ export async function fetchCashActivities(
       freshOnThisPage++;
 
       // An internal P/L event — a fill, a dividend, interest — is already
-      // inside the equity curve. It is understood, and deliberately not a flow.
+      // inside the equity curve. It is understood, and deliberately not a
+      // flow, and it never reaches the securities heuristic below.
       if (activityClass === "internal") continue;
+
+      // Only for the types whose classification leaves the question open. A
+      // `cash` or transfer row carrying instrument fields and no cash amount
+      // is describing an instrument, whatever it calls itself.
+      if (looksLikeSecurities(activity)) {
+        return incomplete(
+          "NON_CASH_EXTERNAL_TRANSFER",
+          `Alpaca activity ${id} (${type}) carries instrument fields (symbol/qty) and no cash amount, so it moves positions without a cash flow. No return can be attributed across it.`,
+          pagesRead,
+        );
+      }
 
       // Activities before the baseline are read (they prove nothing was
       // re-dated across the boundary) but belong to the pre-V11 era, so they

@@ -159,11 +159,52 @@ describe("parsePerformanceRuntime", () => {
     ).toBeNull();
   });
 
-  it("does not invent a plan when the persisted plan is malformed", () => {
-    const runtime = parsePerformanceRuntime(
-      performanceJson({ adaptive_rebalance_pending: { schema_version: 2 } }),
-    );
-    expect(runtime?.plan).toBeNull();
+  it("refuses the runtime when a *present* plan cannot be read", () => {
+    // `parseFrozenPlan` returns null both for "absent" and for "present and
+    // unreadable". Publishing the second as the first claimed there was no
+    // pending rebalance when there was one nobody could read — and the
+    // rebalance is what the next cycle acts on.
+    expect(
+      parsePerformanceRuntime(
+        performanceJson({ adaptive_rebalance_pending: { schema_version: 2 } }),
+      ),
+    ).toBeNull();
+    expect(
+      parsePerformanceRuntime(
+        performanceJson({ adaptive_rebalance_pending: { not: "a plan" } }),
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts a genuinely absent plan, which is normal between rebalances", () => {
+    const absent = { ...performanceJson() };
+    delete (absent as Record<string, unknown>).adaptive_rebalance_pending;
+    expect(parsePerformanceRuntime(absent)?.plan).toBeNull();
+    expect(
+      parsePerformanceRuntime(
+        performanceJson({ adaptive_rebalance_pending: null }),
+      )?.plan,
+    ).toBeNull();
+  });
+
+  it.each([
+    ["a negative equity", { equity: -1 }],
+    ["a zero equity", { equity: 0 }],
+    ["a fractional position count", { num_positions: 2.5 }],
+    ["a negative position count", { num_positions: -1 }],
+    ["an unrecognised risk tier", { risk_tier: "SPICY" }],
+    ["an unreadable rolling drawdown", { rolling_drawdown_pct: "n/a" }],
+    ["an unreadable risk_tier_updated", { risk_tier_updated: "2026-02-30T00:00:00Z" }],
+    ["a missing daily_history", { daily_history: undefined }],
+    ["a null daily_history", { daily_history: null }],
+    ["a non-positive session equity", { daily_history: [{ date: "2026-08-03", equity: 0 }] }],
+  ])("refuses a runtime document with %s", (_label, patch) => {
+    const doc = { ...performanceJson(), ...patch };
+    if ((patch as Record<string, unknown>).daily_history === undefined
+        && "daily_history" in patch) {
+      delete (doc as Record<string, unknown>).daily_history;
+    }
+    expect(parsePerformanceRuntime(doc)).toBeNull();
   });
 
   it("refuses a document that cannot state its own equity, cash or positions", () => {

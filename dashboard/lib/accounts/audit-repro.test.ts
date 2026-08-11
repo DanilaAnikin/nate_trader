@@ -296,3 +296,113 @@ describe("a present activity date must be usable, never a fallback", () => {
     expect(result.rows[0].flow_date).toBe("2026-08-05");
   });
 });
+
+
+describe("the official FILL shape is an ordinary trade, not a transfer", () => {
+  /**
+   * Verbatim from Alpaca's account-activities documentation: a trade activity
+   * carries `symbol`, `qty`, `price` and `side`, and **no** `net_amount`.
+   * That is exactly the shape the securities heuristic was written to catch,
+   * so running the heuristic before the type classification made every
+   * ordinary trade a fatal NON_CASH_EXTERNAL_TRANSFER — and therefore made
+   * the refresh impossible for any account that had actually traded.
+   * https://docs.alpaca.markets/us/docs/account-activities
+   */
+  const ALPACA_FILL = {
+    id: "20220706000000000::7bb0e2d6-b1f2-4b1c-bd07-4b0c5a0bd0d5",
+    activity_type: "FILL",
+    transaction_time: "2026-08-04T13:31:04.123456Z",
+    type: "fill",
+    price: "185.23",
+    qty: "12",
+    side: "buy",
+    symbol: "AAPL",
+    leaves_qty: "0",
+    order_id: "9b0dbf2f-1a1d-4a3e-9f3e-1f4c1c8e2b3a",
+    cum_qty: "12",
+    order_status: "filled",
+  };
+
+  it("classifies it as internal and lets the walk finish", async () => {
+    stubPages({ "": [ALPACA_FILL], [ALPACA_FILL.id]: [] });
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(true);
+    expect(result.incompleteReason).toBeNull();
+    expect(result.rows).toHaveLength(0);
+    expect(result.scanned).toBe(1);
+  });
+
+  it("does not stop a real cash flow arriving on the same page", async () => {
+    stubPages({
+      "": [
+        ALPACA_FILL,
+        activity({ id: "dep", activity_type: "CSD", net_amount: "2500" }),
+      ],
+      dep: [],
+    });
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(true);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].amount).toBe(2500);
+  });
+
+  it.each(["DIV", "INT", "OPEXP", "SWP"])(
+    "treats the internal type %s the same way",
+    async (type) => {
+      stubPages({
+        "": [{ ...ALPACA_FILL, id: `x-${type}`, activity_type: type }],
+        [`x-${type}`]: [],
+      });
+      const result = await fetchCashActivities(KEY, SECRET, "paper");
+      expect(result.complete).toBe(true);
+      expect(result.rows).toHaveLength(0);
+    },
+  );
+
+  it("still catches a securities-like row whose type is external", async () => {
+    // The heuristic is not removed, only ordered after classification.
+    stubPages({
+      "": [
+        {
+          id: "acats",
+          activity_type: "ACATC",
+          date: "2026-08-04",
+          symbol: "AAPL",
+          qty: "12",
+        },
+      ],
+      acats: [],
+    });
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(false);
+    expect(result.incompleteReason).toBe("NON_CASH_EXTERNAL_TRANSFER");
+  });
+});
+
+describe("a present but empty activity date is fail-closed", () => {
+  it.each([
+    ["null", null],
+    ["an empty string", ""],
+    ["whitespace", "   "],
+  ])("refuses a date that is %s rather than falling back", async (_label, date) => {
+    // The property exists, so it is the authority. Falling through to
+    // `transaction_time` books the record's creation day instead of its
+    // settlement day, and those differ across exactly the boundary where
+    // corrections happen.
+    stubPages({
+      "": [
+        {
+          id: "blank",
+          activity_type: "CSD",
+          date,
+          transaction_time: "2026-08-05T14:00:00Z",
+          net_amount: "100",
+        },
+      ],
+      blank: [],
+    });
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(false);
+    expect(result.rows).toHaveLength(0);
+  });
+});
