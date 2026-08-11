@@ -639,9 +639,13 @@ check(
 )
 print("  the retraction allowance heuristic is gone from the catalogue")
 
-# An account with mirrored history may not be pointed at a different broker
-# account: one equity curve cannot describe two of them, and nothing in the
-# rows marks the seam.
+# An account may not be pointed at a different broker account: one equity
+# curve cannot describe two of them, and nothing in the rows marks the seam.
+#
+# 0022 retired `record_account_verification` — its expected credential version
+# was nullable, and a caller that could not read it disabled the check by
+# passing null — so the first assertion is that the retired entry point is
+# unreachable for every role, service_role included.
 status, body = request(
     "/rpc/record_account_verification",
     role="service_role",
@@ -652,9 +656,49 @@ status, body = request(
     },
 )
 check(
-    status >= 400 and "fixed at creation" in body,
+    status >= 400,
+    f"the retired verification RPC still answered: {status} {body[:250]}",
+)
+
+# And the surviving path refuses the rebind on its own terms. The token pins
+# the broker number at `begin`, so the mismatch is caught against the pinned
+# snapshot before the stored column is consulted.
+# Not named `token`: that is the JWT helper this file uses everywhere else.
+verification_token = psql(
+    f"select begin_account_verification('{ACCOUNT}','{OWNER}') ->> 'token'"
+)
+status, body = request(
+    "/rpc/finish_account_verification",
+    role="service_role",
+    method="POST",
+    body={
+        "p_token": verification_token,
+        "p_status": "connected",
+        "p_account_number": "PA-A-DIFFERENT-BROKER",
+    },
+)
+check(
+    status >= 400
+    and ("fixed at creation" in body or "this token pinned" in body),
     f"an account was rebound to another broker number: {status} {body[:250]}",
 )
+
+# A client role reaches neither the retired RPC nor its replacement.
+for role in ("anon", "authenticated"):
+    for rpc in (
+        "record_account_verification",
+        "begin_account_verification",
+        "finish_account_verification",
+        "cancel_account_verification",
+        "resolve_create_operation",
+        "create_account_operation",
+    ):
+        status, body = request(f"/rpc/{rpc}", role=role, method="POST", body={})
+        check(
+            status >= 400,
+            f"{role} reached {rpc}: {status} {body[:200]}",
+        )
+print("  the retired verification RPC is closed and the new one refuses a rebind")
 print("  a broker account number cannot be changed after creation")
 status, body = request(
     "/rpc/delete_account_atomic",
