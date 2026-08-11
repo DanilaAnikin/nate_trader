@@ -332,30 +332,23 @@ describe("GET /api/accounts/[id]/performance", () => {
     expect(body.reason).toBe("BASELINE_OBSERVATION_MISMATCH");
   });
 
-  it("refuses an equity refresh failure instead of reporting a number", async () => {
-    equityBackfillError = new Error("Alpaca portfolio history HTTP 503");
+  // The walk-completeness cases (incomplete pagination, a future-dated
+  // activity, an external securities transfer) moved out of this handler with
+  // the backfill. They are properties of the refresh, and they are covered
+  // where the refresh lives: `lib/accounts/equity-backfill.test.ts` and the
+  // candidate image's `POST .../refresh`. Asserting them here would test a
+  // mock rather than the route.
+  it("performs no backfill at all: this is a read", async () => {
+    // The handler used to refresh both mirrors on every call, so a page that
+    // polled wrote two financial tables per poll. Refreshing is an explicit
+    // command in the candidate image; here it must not happen.
+    equityBackfillError = new Error("this backfill must never run");
+    cashFlowError = new Error("this backfill must never run");
     const { body } = await request();
-    expect(body.status).toBe("UNAVAILABLE");
-    expect(body.reason).toBe("EQUITY_REFRESH_FAILED");
+    expect(body.status).not.toBe("UNAVAILABLE");
+    expect(body.performance).not.toBeNull();
   });
 
-  it("refuses a cash-flow outage instead of reporting a number", async () => {
-    cashFlowError = new Error("Alpaca activities HTTP 503");
-    const { body } = await request();
-    expect(body.reason).toBe("CASH_FLOW_REFRESH_FAILED");
-  });
-
-  it("refuses an incomplete cash-flow walk", async () => {
-    cashFlowResult = {
-      complete: false,
-      incompleteReason: "NO_PAGINATION_TOKEN",
-      detail: "A full page of activities produced no usable pagination id.",
-      latestActivityAt: null,
-    };
-    const { body } = await request();
-    expect(body.reason).toBe("CASH_FLOW_INCOMPLETE");
-    expect(body.detail).toContain("pagination id");
-  });
 
   it("refuses a database error on the equity query", async () => {
     equityError = { message: "connection reset" };
@@ -369,17 +362,6 @@ describe("GET /api/accounts/[id]/performance", () => {
     expect(body.reason).toBe("CASH_FLOW_QUERY_FAILED");
   });
 
-  it("refuses a future-dated broker activity", async () => {
-    cashFlowResult = {
-      complete: true,
-      incompleteReason: null,
-      detail: null,
-      latestActivityAt: "2027-01-04T20:00:00.000Z",
-    };
-    const { body } = await request();
-    expect(body.reason).toBe("FUTURE_DATED");
-    expect(body.provenance.freshness).toBe("MISMATCH");
-  });
 
   it("marks an old last-shared session STALE at the root, not CURRENT", async () => {
     vi.setSystemTime(new Date("2026-08-14T12:00:00Z"));
@@ -432,20 +414,6 @@ describe("GET /api/accounts/[id]/performance", () => {
     expect(JSON.stringify(body)).not.toContain("PA-PERF-CANARY");
   });
 
-  it("refuses an external securities transfer instead of reporting alpha", async () => {
-    cashFlowResult = {
-      complete: false,
-      incompleteReason: "NON_CASH_EXTERNAL_TRANSFER",
-      detail:
-        "An external securities transfer (ACATS, 2026-08-04) settled in this account after the V11 epoch baseline.",
-      latestActivityAt: "2026-08-04T20:00:00.000Z",
-    };
-    const { body } = await request();
-    expect(body.status).toBe("UNAVAILABLE");
-    expect(body.reason).toBe("NON_CASH_EXTERNAL_TRANSFER");
-    expect(body.performance).toBeNull();
-    expect(body.detail).toContain("ACATS");
-  });
 });
 
 /* ---------------------------------------------------------------------------

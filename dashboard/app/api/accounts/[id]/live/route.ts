@@ -65,9 +65,8 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   const result = await fetchBrokerSnapshot(credentials, account.mode);
   if (!result.ok) {
-    if (result.code === "ALPACA_AUTH_FAILED") {
-      await svc.from("accounts").update({ status: "auth_failed" }).eq("id", id);
-    }
+    // No status write: see the note in the status route. A GET that persists
+    // `auth_failed` is a mutation triggered by a read.
     return NextResponse.json(
       { code: result.code, error: result.detail },
       { status: 502, headers: { "Cache-Control": "no-store" } },

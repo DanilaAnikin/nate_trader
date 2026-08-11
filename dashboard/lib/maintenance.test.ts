@@ -79,16 +79,18 @@ describe("every write path is behind the freeze", () => {
   });
 
   it.each([
-    ["accounts/[id]/equity/route.ts", "backfillEquity"],
-    ["accounts/[id]/performance/route.ts", "backfillEquity"],
-  ])(
-    "%s does not run %s while the freeze is on",
-    (file, writer) => {
-      // This is the half a proxy-level block would have missed: the write is
-      // inside a GET, so freezing the mutating verbs leaves it running.
-      const source = read(file);
-      expect(source).toContain(writer);
-      expect(source).toContain("backfillFrozen()");
-    },
-  );
+    "accounts/[id]/equity/route.ts",
+    "accounts/[id]/performance/route.ts",
+    "accounts/[id]/status/route.ts",
+    "accounts/[id]/live/route.ts",
+  ])("%s runs no backfill at all, frozen or not", (file) => {
+    // Freezing the backfill was the previous fix, and it closed the window
+    // that mattered most while leaving the write in place the rest of the
+    // time. A read does not write; there is nothing left here to freeze.
+    // `app/api/route-surface.test.ts` enforces this across every route.
+    const source = read(file);
+    expect(source).not.toContain("backfillEquity");
+    expect(source).not.toContain("backfillCashFlows");
+    expect(source).not.toMatch(/\.update\s*\(/);
+  });
 });

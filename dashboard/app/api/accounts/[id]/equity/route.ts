@@ -4,8 +4,6 @@ import {
   getSessionUser,
   loadOwnedAccount,
 } from "@/lib/accounts/session";
-import { backfillEquity } from "@/lib/accounts/equity-backfill";
-import { backfillFrozen } from "@/lib/maintenance";
 import { readAllRows } from "@/lib/accounts/paged";
 
 export const dynamic = "force-dynamic";
@@ -34,22 +32,18 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   const svc = getSupabaseService();
 
-  let backfilled = 0;
-  // The write freeze covers this. It is a GET, but `backfillEquity` writes
-  // `equity_snapshots`, so leaving it running during a migration would leave
-  // the largest write in the application unfrozen — moving financial rows
-  // while the schema beneath them changes. The read itself still serves: the
-  // stored curve is unchanged and still true.
-  let refreshWarning: string | null = backfillFrozen();
-  if (refreshWarning === null) {
-    try {
-      // Idempotent upsert keeps the curve current on every validated account
-      // refresh instead of freezing it after the first-ever dashboard visit.
-      backfilled = await backfillEquity(svc, id, account.mode);
-    } catch (e) {
-      refreshWarning = e instanceof Error ? e.message : "equity refresh failed";
-    }
-  }
+  // **No backfill.** This handler used to refresh the Alpaca mirror on every
+  // call, so a page that polled wrote `equity_snapshots` on every poll and two
+  // open tabs raced each other — unaudited, with no user intent behind it, and
+  // reachable by anything that could hold the page open.
+  //
+  // Freezing it during maintenance (the previous fix) closed the window that
+  // mattered most but left the write in place the rest of the time. This is
+  // the bridge: its job is to serve reads correctly on both schemas. Reads do
+  // not write. The stored curve below is unchanged and still true; refreshing
+  // it is an explicit command in the candidate image.
+  const backfilled = 0;
+  const refreshWarning: string | null = null;
 
   // Paged: PostgREST caps a response at 1000 rows silently, which would clip
   // the oldest end of a multi-year curve rather than report an error.

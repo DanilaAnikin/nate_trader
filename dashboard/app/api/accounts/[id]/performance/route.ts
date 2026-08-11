@@ -4,8 +4,6 @@ import {
   getSessionUser,
   loadOwnedAccount,
 } from "@/lib/accounts/session";
-import { backfillCashFlows, backfillEquity } from "@/lib/accounts/equity-backfill";
-import { backfillFrozen } from "@/lib/maintenance";
 import { readAllRows } from "@/lib/accounts/paged";
 import {
   authorizeProductionRuntime,
@@ -278,63 +276,12 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
-  // Under the freeze the mirrors are deliberately not refreshed, and a return
-  // computed from a mirror that was not allowed to update is not this
-  // account's current performance. UNAVAILABLE, with the reason named.
-  const frozen = backfillFrozen();
-  if (frozen !== null) {
-    return respond(id, "EQUITY_REFRESH_FAILED", frozen, baselineDto);
-  }
-
-  // Any refresh or query error is UNAVAILABLE — never a number with a warning.
-  try {
-    await backfillEquity(svc, id, account.mode);
-  } catch (caught) {
-    return respond(
-      id,
-      "EQUITY_REFRESH_FAILED",
-      caught instanceof Error
-        ? `The equity mirror could not be refreshed: ${caught.message}`
-        : "The equity mirror could not be refreshed.",
-      baselineDto,
-    );
-  }
-
-  let latestActivityAt: string | null = null;
-  try {
-    const result = await backfillCashFlows(svc, id, account.mode, {
-      since: baseline.startedAt,
-    });
-    if (!result.complete) {
-      // A securities transfer is its own named failure: nothing about it can be
-      // repaired by reading more pages, and it must never be shown as return.
-      if (result.incompleteReason === "NON_CASH_EXTERNAL_TRANSFER") {
-        return respond(
-          id,
-          "NON_CASH_EXTERNAL_TRANSFER",
-          result.detail ??
-            "An external securities transfer settled in this account after the V11 epoch baseline, so no return or alpha can be attributed to the strategy.",
-          baselineDto,
-        );
-      }
-      return respond(
-        id,
-        "CASH_FLOW_INCOMPLETE",
-        `${result.detail ?? "The Alpaca activity history could not be walked back to the epoch baseline."} A deposit or withdrawal may be missing from the return.`,
-        baselineDto,
-      );
-    }
-    latestActivityAt = result.latestActivityAt;
-  } catch (caught) {
-    return respond(
-      id,
-      "CASH_FLOW_REFRESH_FAILED",
-      caught instanceof Error
-        ? `External cash flows could not be refreshed: ${caught.message}`
-        : "External cash flows could not be refreshed.",
-      baselineDto,
-    );
-  }
+  // **No backfill.** See the note in the equity handler: a read does not
+  // write. The number below describes the mirror as last published by the
+  // candidate image's explicit refresh command; the freshness rules at the
+  // bottom of this handler are what stop it being presented as current when
+  // it is not.
+  const latestActivityAt: string | null = null;
 
   // A broker activity stamped in the future means the feed disagrees with
   // reality; that is a mismatch, not fresh data.
