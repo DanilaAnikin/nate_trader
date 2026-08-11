@@ -53,11 +53,11 @@ export async function GET(_req: Request, { params }: Ctx) {
   return NextResponse.json(
     {
       accountId: id,
-      // What the mirror holds, and when it was last published — not when this
-      // request ran. A read cannot claim freshness it did not establish.
-      lastPublishedAt: historyResult.history.capturedAt,
       // The database snapshot both series came from, so a client-side
-      // comparison can be audited back to one state.
+      // comparison can be audited back to one state. `capturedAt` is when
+      // *this read* ran — deliberately not relabelled as "last published",
+      // which it is not: `account_history_snapshot` stamps it with `now()`.
+      // The mirror's own freshness is the newest session it contains.
       snapshot,
       capturedAt,
       snapshots: equity.map((point) => ({
