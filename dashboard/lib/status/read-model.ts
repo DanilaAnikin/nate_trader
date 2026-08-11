@@ -858,8 +858,21 @@ export async function buildStrategyStatus(input: {
         preflight: preflightSelection.preflight,
         preflightRunId: preflightSelection.run?.id ?? null,
         preflightAttempt: preflightSelection.run?.attempt ?? null,
-        executionRunId: executionSelection.run?.id ?? null,
-        executionAttempt: executionSelection.run?.attempt ?? null,
+        // Only a fully readable, lineage-valid execution counts as evidence.
+        // The selector reports the run it was *looking at* even when it could
+        // not use it, so reading the run id straight off the selection let a
+        // corrupt or absent runtime artifact pass for one.
+        executionEvidence:
+          executionSelection.run &&
+          executionSelection.lastRun &&
+          executionSelection.performance &&
+          executionSelection.errors.length === 0 &&
+          !executionSelection.lineageMismatch
+            ? {
+                runId: executionSelection.run.id,
+                attempt: executionSelection.run.attempt,
+              }
+            : null,
         now,
       })
     : NOT_APPLICABLE_GATE;

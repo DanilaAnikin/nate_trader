@@ -262,41 +262,85 @@ export interface PerformanceRuntimeSnapshot {
   readonly dailyHistory: { date: string; equity: number }[];
 }
 
-/** Parse the runtime `state/performance.json` from the private artifact. */
+/**
+ * The most sessions a runtime `daily_history` may carry.
+ *
+ * The runner keeps a rolling window measured in tens of sessions; anything
+ * near this is a document that has stopped being a rolling window.
+ */
+export const MAX_DAILY_HISTORY_ROWS = 2000;
+
+/**
+ * Parse the runtime `state/performance.json` from the private artifact.
+ *
+ * **Atomic.** Either the whole document is understood or nothing is returned.
+ *
+ * `daily_history` used to be built with `continue`: a malformed row, an
+ * unusable equity or an impossible date was skipped and the *rest* was
+ * published. That is the worst available behaviour for this particular field,
+ * because it is what the rolling drawdown and the risk tier are computed from
+ * — a history quietly missing its worst day reports a smaller drawdown and a
+ * calmer tier than the account actually experienced, and nothing anywhere says
+ * a row was dropped.
+ *
+ * Duplicates and out-of-order rows are refused for the same reason: the window
+ * is a time series, and a series with two entries for one session or with
+ * yesterday after today is not one. Every consumer treats consecutive entries
+ * as consecutive sessions.
+ */
 export function parsePerformanceRuntime(
   value: unknown,
 ): PerformanceRuntimeSnapshot | null {
   if (!isRecord(value)) return null;
+
   const dailyHistory: { date: string; equity: number }[] = [];
-  if (Array.isArray(value.daily_history)) {
-    for (const entry of value.daily_history) {
-      if (!isRecord(entry)) continue;
+  const raw = value.daily_history;
+  if (raw !== undefined && raw !== null) {
+    if (!Array.isArray(raw)) return null;
+    if (raw.length > MAX_DAILY_HISTORY_ROWS) return null;
+    let previousDate: string | null = null;
+    for (const entry of raw) {
+      if (!isRecord(entry)) return null;
       const date = str(entry.date);
       const equity = num(entry.equity);
-      // Round-tripped, not shape-checked: `2026-02-30` matches the pattern,
-      // and every consumer keys risk and drawdown off these dates.
-      if (isCalendarDate(date) && equity !== null) {
-        dailyHistory.push({ date, equity });
-      }
+      if (!isCalendarDate(date) || equity === null) return null;
+      if (previousDate !== null && date <= previousDate) return null;
+      previousDate = date;
+      dailyHistory.push({ date, equity });
     }
   }
+
+  // The scalar state the risk view is built from. A document that cannot
+  // state its own equity, cash or position count is not a runtime state, and
+  // publishing it with nulls in place of numbers reads on screen as a genuine
+  // observation of zero.
+  const equity = num(value.equity);
+  const cash = num(value.cash);
+  const numPositions = num(value.num_positions);
+  const updatedAt = normalizeInstant(value.updated_at);
+  if (equity === null || cash === null || numPositions === null) return null;
+  if (updatedAt === null) return null;
+
+  const recoveryLatchArmed =
+    typeof value.adaptive_risk_off_latched === "boolean"
+      ? value.adaptive_risk_off_latched
+      : value.adaptive_risk_off_latched === undefined
+        ? false
+        : null;
+  if (recoveryLatchArmed === null) return null;
+
   return {
-    updatedAt: normalizeInstant(value.updated_at),
-    equity: num(value.equity),
-    cash: num(value.cash),
-    numPositions: num(value.num_positions),
+    updatedAt,
+    equity,
+    cash,
+    numPositions,
     riskTier: riskTier(value.risk_tier),
     riskTierUpdated: normalizeInstant(value.risk_tier_updated),
     riskTierReason: str(value.risk_tier_reason),
     rollingDrawdownPct: num(value.rolling_drawdown_pct),
     rollingPeakEquity: num(value.rolling_peak_equity),
     riskLookbackSessions: num(value.risk_lookback_sessions),
-    recoveryLatchArmed:
-      typeof value.adaptive_risk_off_latched === "boolean"
-        ? value.adaptive_risk_off_latched
-        : value.adaptive_risk_off_latched === undefined
-          ? false
-          : null,
+    recoveryLatchArmed,
     plan: parseFrozenPlan(value.adaptive_rebalance_pending),
     dailyHistory,
   };

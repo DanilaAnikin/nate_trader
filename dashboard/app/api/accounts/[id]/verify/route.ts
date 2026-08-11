@@ -37,6 +37,20 @@ export async function POST(_req: Request, { params }: Ctx) {
   }
 
   const svc = getSupabaseService();
+  // The credential version the keys about to be tested belong to. Alpaca's
+  // answer describes *these* keys; if they are rotated away while it is being
+  // asked, writing `connected` from that answer would mark the new keys
+  // verified on the strength of a test of the old ones.
+  const { data: versionRow } = await svc
+    .from("accounts")
+    .select("credential_version")
+    .eq("id", id)
+    .maybeSingle();
+  const expectedVersion =
+    typeof versionRow?.credential_version === "number"
+      ? versionRow.credential_version
+      : null;
+
   const { data: cred, error: credErr } = await svc.rpc("get_account_credentials", {
     acct: id,
   });
@@ -72,6 +86,7 @@ export async function POST(_req: Request, { params }: Ctx) {
       p_account: id,
       p_owner: account.owner_id,
       p_status: "auth_failed",
+      p_expected_version: expectedVersion,
     });
     if (error) {
       // The credentials really are rejected, and the row still says otherwise.
@@ -109,16 +124,21 @@ export async function POST(_req: Request, { params }: Ctx) {
 
   // The full number is stored server-side (the production binding compares it
   // against a freshly read one) but must never be returned to the browser.
-  // `record_account_verification` writes the status, the binding, the
-  // timestamp and the audit entry in one transaction, and bumps
-  // `credential_version` when the broker account number actually moves — so a
-  // broker refresh already in flight against the old binding is refused
-  // instead of publishing under the new one.
+  // `record_account_verification` writes the status, the timestamp and the
+  // audit entry in one transaction. It may only *confirm* the broker account
+  // number, never change it: the number is fixed at creation, because the
+  // production binding compares against it and one equity curve cannot
+  // describe two broker accounts.
+  //
+  // `p_expected_version` binds the write to the keys that were actually
+  // tested. A rotation that landed while Alpaca was being asked makes this
+  // refuse rather than certify the new keys with the old keys' result.
   const { error: updateError } = await svc.rpc("record_account_verification", {
     p_account: id,
     p_owner: account.owner_id,
     p_status: "connected",
     p_account_number: accountNumber,
+    p_expected_version: expectedVersion,
   });
   if (updateError) {
     // Reporting "connected" here would claim a binding that was never stored:

@@ -195,3 +195,104 @@ describe("a fee must reduce the reported return, not be neutralised by it", () =
     ).toBeCloseTo(0.1, 10);
   });
 });
+
+
+describe("a bare JNL does not say what moved", () => {
+  it("refuses an unqualified JNL rather than guessing cash", async () => {
+    // Booked as cash it invents a deposit that never arrived and inflates the
+    // return by its whole amount; treated as a securities transfer it blocks
+    // reporting on an ordinary journal. Alpaca's qualified forms exist so
+    // this does not have to be guessed.
+    stubPages({
+      "": [activity({ id: "j", activity_type: "JNL", net_amount: "500" })],
+      j: [],
+    });
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(false);
+    expect(result.incompleteReason).toBe("AMBIGUOUS_ACTIVITY_TYPE");
+    expect(result.rows).toHaveLength(0);
+  });
+
+  it("still books JNLC as cash and refuses JNLS as a securities transfer", async () => {
+    stubPages({
+      "": [activity({ id: "c", activity_type: "JNLC", net_amount: "500" })],
+      c: [],
+    });
+    const cash = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(cash.complete).toBe(true);
+    expect(cash.rows).toHaveLength(1);
+    expect(cash.rows[0].amount).toBe(500);
+
+    stubPages({
+      "": [activity({ id: "s", activity_type: "JNLS", net_amount: "0" })],
+      s: [],
+    });
+    const shares = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(shares.complete).toBe(false);
+    expect(shares.incompleteReason).toBe("NON_CASH_EXTERNAL_TRANSFER");
+  });
+
+  it.each([
+    ["a zero net_amount beside a symbol and qty", { net_amount: "0", symbol: "AAPL", qty: "10" }],
+    [
+      "an absent net_amount beside instrument fields",
+      { net_amount: undefined, symbol: "MSFT", qty: 5 },
+    ],
+  ])("never reports complete for %s", async (_label, over) => {
+    // A journal that *does* carry a real cash amount is a cash movement even
+    // if it names an instrument; only the amount-less rows are securities.
+    // The envelope is shared, so a share movement and a cash movement differ
+    // by which fields are populated. A $0 "cash event" carrying an instrument
+    // is an unaccounted position change inside the equity curve.
+    stubPages({
+      "": [activity({ id: "sec", activity_type: "JNLC", ...over })],
+      sec: [],
+    });
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(false);
+    expect(result.incompleteReason).toBe("NON_CASH_EXTERNAL_TRANSFER");
+  });
+});
+
+describe("a present activity date must be usable, never a fallback", () => {
+  it.each([
+    ["08/04/2026", "US order"],
+    ["2026-8-4", "unpadded"],
+    ["2026-02-30", "an impossible day"],
+    ["yesterday", "a word"],
+    ["2026-08-04T00:00:00Z", "a timestamp in the date field"],
+  ])("refuses the malformed present date %s (%s)", async (date) => {
+    // It used to fall through to `transaction_time`, which silently books the
+    // record's *creation* day instead of its settlement day. Those differ
+    // across a boundary, and the boundary is where corrections happen.
+    stubPages({
+      "": [
+        activity({
+          id: "bad",
+          date,
+          transaction_time: "2026-08-05T14:00:00Z",
+        }),
+      ],
+      bad: [],
+    });
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(false);
+    expect(result.rows).toHaveLength(0);
+  });
+
+  it("uses transaction_time only when there is no date field at all", async () => {
+    stubPages({
+      "": [
+        activity({
+          id: "ok",
+          date: undefined,
+          transaction_time: "2026-08-05T14:00:00Z",
+        }),
+      ],
+      ok: [],
+    });
+    const result = await fetchCashActivities(KEY, SECRET, "paper");
+    expect(result.complete).toBe(true);
+    expect(result.rows[0].flow_date).toBe("2026-08-05");
+  });
+});

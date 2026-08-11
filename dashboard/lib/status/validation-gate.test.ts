@@ -70,6 +70,7 @@ function gate(
     executionRunId?: number | null;
     preflightAttempt?: number | null;
     executionAttempt?: number | null;
+    executionEvidence?: { runId: number; attempt: number } | null;
   } = {},
 ) {
   return computeEffectiveValidationGate({
@@ -83,12 +84,23 @@ function gate(
       options.preflight === undefined ? preflight() : options.preflight,
     preflightRunId:
       options.preflightRunId === undefined ? RUN_ID : options.preflightRunId,
-    executionRunId:
-      options.executionRunId === undefined ? RUN_ID : options.executionRunId,
     preflightAttempt:
       options.preflightAttempt === undefined ? 1 : options.preflightAttempt,
-    executionAttempt:
-      options.executionAttempt === undefined ? 1 : options.executionAttempt,
+    // Execution *evidence*, not run metadata: null means there is no readable
+    // runtime state, which is now a refusal in its own right.
+    executionEvidence:
+      options.executionEvidence === undefined
+        ? {
+            runId:
+              options.executionRunId === undefined
+                ? RUN_ID
+                : (options.executionRunId as number),
+            attempt:
+              options.executionAttempt === undefined
+                ? 1
+                : (options.executionAttempt as number),
+          }
+        : options.executionEvidence,
     now: NOW,
   });
 }

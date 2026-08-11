@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import type { Database } from "@/lib/database.types";
 import { getSupabaseService } from "@/lib/supabase/service";
 import { maskAccountNumber } from "./mask";
@@ -101,6 +102,17 @@ export async function createAccount(
   // with no record that it was ever created — and an audit log that is
   // sometimes missing entries is worse than none, because its silence is read
   // as evidence that nothing happened.
+  // A client-generated id for *this* creation, so the database can recognise a
+  // retry. Without it a lost response is undecidable: retrying might create a
+  // second account, and compensating might destroy the credentials of one that
+  // already exists.
+  const operationId = randomUUID();
+
+  // The row and its audit entry commit together. Previously the audit was a
+  // separate round trip whose result was discarded, so an account could exist
+  // with no record that it was ever created — and an audit log that is
+  // sometimes missing entries is worse than none, because its silence is read
+  // as evidence that nothing happened.
   const { data, error } = await svc.rpc("create_account_atomic", {
     p_owner: userId,
     p_nickname: nickname,
@@ -109,25 +121,64 @@ export async function createAccount(
     p_key_secret: keyId,
     p_secret_secret: secretId,
     p_account_number: validation.accountNumber,
+    p_operation_id: operationId,
   });
 
   if (error || !data) {
-    // The row does not exist, so there is nothing to be atomic with; the two
-    // Vault secrets are compensated instead. A failed compensation is reported
-    // rather than hidden, because it leaves an orphaned secret behind.
-    const created = error?.message ?? "Account could not be created.";
+    // Read after write, before compensating anything.
+    //
+    // An error here does not mean the transaction did not commit: a dropped
+    // connection, a proxy timeout or a lost response all look identical to a
+    // refusal. Purging the Vault pair on that assumption destroys the
+    // credentials of an account that exists, which is unrecoverable.
+    //
+    // The operation id makes the question answerable. Three outcomes, and the
+    // third is not an error to be smoothed over:
+    const probe = await svc.rpc("find_account_by_operation", {
+      p_owner: userId,
+      p_operation_id: operationId,
+    });
+
+    const committed =
+      !probe.error && probe.data && (probe.data as { id?: unknown }).id;
+    if (committed) {
+      // It did commit; the response was simply lost. This *is* success.
+      return { ok: true, account: toSafe(probe.data as AccountRow) };
+    }
+
+    const reported = error?.message ?? "Account could not be created.";
+
+    if (probe.error) {
+      // The state cannot be established. Deleting the secrets might orphan a
+      // live account; leaving them might orphan a pair. Leaving them is the
+      // recoverable half, and saying so is the honest answer.
+      return {
+        ok: false,
+        reason: "indeterminate",
+        message:
+          `${reported} Whether the account was created could not be determined ` +
+          `(${probe.error.message}). Nothing was rolled back: operation id ` +
+          `${operationId}, Vault ids ${keyId} and ${secretId}. Retrying with ` +
+          `the same operation id is safe; purging those ids is not, until the ` +
+          `account's absence is confirmed.`,
+      };
+    }
+
+    // A successful probe that found nothing is proof of absence: the row and
+    // its operation id commit together. Only now is compensation safe, and it
+    // goes through the purge that refuses an assigned pair.
     try {
       await purgeCredentials(svc, keyId, secretId);
     } catch (caught) {
       return {
         ok: false,
         reason: "db_error",
-        message: `${created} The stored credentials could not be rolled back: ${
+        message: `${reported} The stored credentials could not be rolled back: ${
           caught instanceof Error ? caught.message : "unknown error"
         }`,
       };
     }
-    return { ok: false, reason: "db_error", message: created };
+    return { ok: false, reason: "db_error", message: reported };
   }
 
   return { ok: true, account: toSafe(data as AccountRow) };

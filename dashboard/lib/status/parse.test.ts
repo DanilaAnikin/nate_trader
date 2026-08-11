@@ -140,7 +140,7 @@ describe("parsePerformanceRuntime", () => {
     expect(runtime?.plan?.planId).toBe("f8756105eb63dde2");
   });
 
-  it("treats an absent recovery latch as not armed, and a junk latch as unknown", () => {
+  it("treats an absent recovery latch as not armed, and refuses a junk one", () => {
     expect(parsePerformanceRuntime(performanceJson())?.recoveryLatchArmed).toBe(
       false,
     );
@@ -149,10 +149,13 @@ describe("parsePerformanceRuntime", () => {
         performanceJson({ adaptive_risk_off_latched: true }),
       )?.recoveryLatchArmed,
     ).toBe(true);
+    // A latch that is neither armed nor disarmed is a document this build
+    // cannot read. It used to be published as `null`, which the risk view
+    // renders indistinguishably from "not armed".
     expect(
       parsePerformanceRuntime(
         performanceJson({ adaptive_risk_off_latched: "yes" }),
-      )?.recoveryLatchArmed,
+      ),
     ).toBeNull();
   });
 
@@ -163,10 +166,63 @@ describe("parsePerformanceRuntime", () => {
     expect(runtime?.plan).toBeNull();
   });
 
-  it("keeps missing numbers null rather than zero", () => {
-    const runtime = parsePerformanceRuntime({ updated_at: "2026-08-07 12:00:00" });
-    expect(runtime?.equity).toBeNull();
-    expect(runtime?.rollingDrawdownPct).toBeNull();
+  it("refuses a document that cannot state its own equity, cash or positions", () => {
+    // These used to come back as `null` beside a parsed document, and the risk
+    // view renders a null equity as an observation rather than an absence.
+    expect(parsePerformanceRuntime({ updated_at: "2026-08-07 12:00:00" })).toBeNull();
+    for (const key of ["equity", "cash", "num_positions", "updated_at"]) {
+      const broken = { ...performanceJson() };
+      delete (broken as Record<string, unknown>)[key];
+      expect(parsePerformanceRuntime(broken), `missing ${key}`).toBeNull();
+    }
+    // Optional analytics stay optional.
+    const partial = { ...performanceJson() };
+    delete (partial as Record<string, unknown>).rolling_drawdown_pct;
+    expect(parsePerformanceRuntime(partial)?.rollingDrawdownPct).toBeNull();
+  });
+
+  it("refuses the whole document for one unusable daily_history row", () => {
+    // `continue` used to drop the row and publish the rest — and this is the
+    // series the rolling drawdown and the risk tier are computed from, so a
+    // history quietly missing its worst day reports a calmer account than the
+    // one that exists.
+    const base = performanceJson();
+    const good = [
+      { date: "2026-08-03", equity: 1000 },
+      { date: "2026-08-04", equity: 1010 },
+    ];
+    expect(
+      parsePerformanceRuntime({ ...base, daily_history: good })?.dailyHistory,
+    ).toHaveLength(2);
+
+    for (const [label, history] of [
+      ["a non-object row", [...good, 42]],
+      ["a missing date", [...good, { equity: 1 }]],
+      ["a missing equity", [...good, { date: "2026-08-05" }]],
+      ["an unusable equity", [...good, { date: "2026-08-05", equity: "x" }]],
+      ["an impossible date", [...good, { date: "2026-02-30", equity: 1 }]],
+      ["a duplicate session", [...good, { date: "2026-08-04", equity: 1 }]],
+      [
+        "an out-of-order session",
+        [{ date: "2026-08-04", equity: 1 }, { date: "2026-08-03", equity: 2 }],
+      ],
+      ["a non-array history", { date: "2026-08-03", equity: 1 }],
+    ] as const) {
+      expect(
+        parsePerformanceRuntime({ ...base, daily_history: history }),
+        label,
+      ).toBeNull();
+    }
+  });
+
+  it("refuses a daily_history longer than the bounded window", () => {
+    const long = Array.from({ length: 2001 }, (_, index) => ({
+      date: new Date(Date.UTC(2020, 0, 1 + index)).toISOString().slice(0, 10),
+      equity: 1000 + index,
+    }));
+    expect(
+      parsePerformanceRuntime({ ...performanceJson(), daily_history: long }),
+    ).toBeNull();
   });
 });
 

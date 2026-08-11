@@ -80,7 +80,7 @@ read -r KEY_ID SECRET_ID <<<"$(psql "$DATABASE_URL" -tA --no-psqlrc -F' ' -c \
 select vault.create_secret('BYSTANDER-KEY','bk') as bk \\gset
 select vault.create_secret('BYSTANDER-SECRET','bs') as bs \\gset
 select create_account_atomic('$OWNER', 'Bystander', 'paper', '#111111',
-  :'bk'::uuid, :'bs'::uuid, 'PA-BYSTANDER');
+  :'bk'::uuid, :'bs'::uuid, 'PA-BYSTANDER', gen_random_uuid());
 SQL
 
 # Both sessions hold their transaction open past the RPC, which is precisely
@@ -90,7 +90,7 @@ racer() {
   psql "$DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -tA >"$out" 2>&1 <<SQL || true
 begin;
 select create_account_atomic('$OWNER', '$nick', 'paper', '#222222',
-  '$KEY_ID'::uuid, '$SECRET_ID'::uuid, 'PA-$nick') is not null as created;
+  '$KEY_ID'::uuid, '$SECRET_ID'::uuid, 'PA-$nick', gen_random_uuid()) is not null as created;
 select pg_sleep(1.5);
 commit;
 SQL
@@ -216,20 +216,29 @@ echo "==> race 3: publish serializes against a held account lock"
 TOK=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
   "select begin_broker_refresh('$ACCOUNT','$OWNER') ->> 'token';")
 
-# Session A holds the accounts row exactly as rotate/verify/delete do.
+# Session A holds the accounts row and then *rotates* it, exactly as a real
+# rotation would. The publish must not merely be slow — it must be refused, and
+# the mirror must be untouched afterwards.
+ROWS_BEFORE=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
+  "select count(*) from equity_snapshots where account_id = '$ACCOUNT';")
+VER_BEFORE=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
+  "select credential_version from accounts where id = '$ACCOUNT';")
+
 psql "$DATABASE_URL" --no-psqlrc -tA >"$WORK/holder.out" 2>&1 <<SQL &
 begin;
 select id from accounts where id = '$ACCOUNT' for update;
-select pg_sleep(8);
+select pg_sleep(3);
+select rotate_account_credentials('$ACCOUNT', '$OWNER',
+  'LOCKRACE-KEY', 'LOCKRACE-SECRET', 'PA-BYSTANDER');
 commit;
 SQL
 HOLDER=$!
-sleep 2
+sleep 1
 
 set +e
 START=$(date +%s)
 P_OUT=$(psql "$DATABASE_URL" -tA --no-psqlrc -v ON_ERROR_STOP=1 2>&1 <<SQL
-select publish_broker_refresh('$TOK'::uuid, $(payload 5), true,
+select publish_broker_refresh('$TOK'::uuid, $(payload 6), true,
   '[]'::jsonb, date '2026-05-04', true, 0, true);
 SQL
 )
@@ -238,15 +247,44 @@ ELAPSED=$(( $(date +%s) - START ))
 set -e
 wait "$HOLDER" 2>/dev/null || true
 
-# Waiting proves the lock is taken. Returning immediately proves it is not.
-if [ "$ELAPSED" -lt 3 ]; then
-  echo "FAIL: publish did not wait for the account lock (${ELAPSED}s, status $P_STATUS)"
+# 1. It must have waited: a plain SELECT would have returned immediately.
+if [ "$ELAPSED" -lt 2 ]; then
+  echo "FAIL: publish did not wait for the account lock (${ELAPSED}s)"
   echo "      it read the account with a plain SELECT, so a rotation committing"
   echo "      mid-publish would be invisible."
+  exit 1
+fi
+# 2. It must have been refused, not merely delayed. Elapsed time alone would
+#    pass even if the publish then went ahead with stale credentials.
+if [ "$P_STATUS" -eq 0 ]; then
+  echo "FAIL: publish succeeded after waiting for a rotation to commit"
   echo "$P_OUT" | head -3
   exit 1
 fi
-echo "    publish waited ${ELAPSED}s for the account lock before proceeding"
+case "$P_OUT" in
+  *"credentials changed"*|*"lock_timeout"*|*"canceling statement"*) ;;
+  *) echo "FAIL: unexpected refusal after the rotation: $P_OUT"; exit 1;;
+esac
+# 3. And the database must be exactly as it was, plus the rotation.
+ROWS_AFTER=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
+  "select count(*) from equity_snapshots where account_id = '$ACCOUNT';")
+VER_AFTER=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
+  "select credential_version from accounts where id = '$ACCOUNT';")
+if [ "$ROWS_AFTER" != "$ROWS_BEFORE" ]; then
+  echo "FAIL: the refused publish changed the mirror ($ROWS_BEFORE -> $ROWS_AFTER)"
+  exit 1
+fi
+if [ "$VER_AFTER" = "$VER_BEFORE" ]; then
+  echo "FAIL: the rotation did not commit, so the race did not happen"
+  exit 1
+fi
+CONSUMED=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
+  "select consumed_at is null from broker_refresh_token where token = '$TOK';")
+if [ "$CONSUMED" != "t" ]; then
+  echo "FAIL: the refused publish consumed its token"
+  exit 1
+fi
+echo "    publish waited ${ELAPSED}s, was refused, and left the mirror untouched"
 
 # ---------------------------------------------------------------------------
 # 5. Deleting an account frees its Vault ids for reuse, atomically.
@@ -257,7 +295,7 @@ read -r R_KEY R_SECRET <<<"$(psql "$DATABASE_URL" -tA --no-psqlrc -F' ' -c \
   "select vault.create_secret('REUSE-KEY','rk'), vault.create_secret('REUSE-SECRET','rs');")"
 "${PSQL[@]}" >/dev/null <<SQL
 select create_account_atomic('$OWNER', 'ToDelete', 'paper', '#333333',
-  '$R_KEY'::uuid, '$R_SECRET'::uuid, 'PA-TODELETE');
+  '$R_KEY'::uuid, '$R_SECRET'::uuid, 'PA-TODELETE', gen_random_uuid());
 SQL
 TO_DELETE=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
   "select id from accounts where nickname='ToDelete' and deleted_at is null;")
@@ -274,14 +312,38 @@ psql "$DATABASE_URL" --no-psqlrc -tA >"$WORK/new.out" 2>&1 <<SQL &
 begin;
 select pg_sleep(0.3);
 select create_account_atomic('$OWNER', 'Reuser', 'paper', '#444444',
-  '$R_KEY'::uuid, '$R_SECRET'::uuid, 'PA-REUSER');
+  '$R_KEY'::uuid, '$R_SECRET'::uuid, 'PA-REUSER', gen_random_uuid());
 commit;
 SQL
 N=$!
 wait "$D" "$N" 2>/dev/null || true
 
+# Exit statuses, not just the end state: exactly one of the two must have
+# failed, and the survivor must own a coherent set of rows.
+D_OUT=$(cat "$WORK/del.out"); N_OUT=$(cat "$WORK/new.out")
 LIVE=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
   "select count(*) from account_credential_assignment where secret_id in ('$R_KEY','$R_SECRET');")
+SECRETS=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
+  "select count(*) from vault.secrets where id in ('$R_KEY','$R_SECRET');")
+ORPHANS=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
+  "select count(*) from account_credential_assignment x
+    where not exists (select 1 from accounts a
+                       where a.id = x.account_id and a.deleted_at is null);")
+DANGLING=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
+  "select count(*) from account_credential_assignment x
+    where not exists (select 1 from vault.secrets v where v.id = x.secret_id);")
+if [ "$ORPHANS" != "0" ]; then
+  echo "FAIL: $ORPHANS credential assignment(s) belong to no live account"
+  echo "$D_OUT"; echo "$N_OUT"; exit 1
+fi
+if [ "$DANGLING" != "0" ]; then
+  echo "FAIL: $DANGLING credential assignment(s) point at a missing secret"
+  exit 1
+fi
+if [ "$LIVE" = "2" ] && [ "$SECRETS" != "2" ]; then
+  echo "FAIL: the pair is assigned but only $SECRETS of 2 secrets still exist"
+  exit 1
+fi
 OWNERS=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
   "select count(distinct account_id) from account_credential_assignment
     where secret_id in ('$R_KEY','$R_SECRET');")
