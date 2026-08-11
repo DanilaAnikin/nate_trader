@@ -3,9 +3,10 @@
 > Snapshot: 2026-08-11 (Europe/Prague)
 >
 > This document describes the commit tagged
-> **`v11-dashboard-prod-2026-08-11`** — the tag and the documentation are
-> published together, so `git show v11-dashboard-prod-2026-08-11:OVERVIEW.md`
-> is always the description of that exact code.
+> **`v11-dashboard-prod-2026-08-11`**, whose code is the fix commit
+> `4d097671d`. The tag and the documentation are published together, so
+> `git show v11-dashboard-prod-2026-08-11:OVERVIEW.md` is always the
+> description of that exact code.
 >
 > Preceding tags: `v11-dashboard-prod-2026-08-10d` → `17d0da20a`,
 > `v11-dashboard-prod-2026-08-10c` → `ab7145b48`,
