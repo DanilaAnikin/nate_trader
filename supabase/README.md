@@ -32,6 +32,7 @@ project shared with another application):
 | `0019_lock_order_and_vault_integrity.sql` | One canonical lock order; credentials issued in the same transaction as the token; the Vault assignment table rebuilt with every ambiguity as an abort. |
 | `0020_vault_fk_and_idempotent_create.sql` | The Vault foreign key mandatory and catalogue-asserted; `vault_delete_secret` refuses an assigned secret; idempotent creation via a client operation id; the broker account number immutable from creation; credentials never served for a deleted account. |
 | `0021_atomic_create_and_verification.sql` | `create_account_operation` writes the Vault secrets, the account, the assignments, the audit entry and the operation record in one transaction under an operation advisory lock; `resolve_create_operation` answers under the same lock; verification is `begin`/`finish` with a single-use token; owner-readable audit rows carry digests rather than identifiers. |
+| `0022_fingerprint_binding_and_token_generations.sql` | `resolve_create_operation` takes the expected request fingerprint and returns an explicit `conflict`; one active account per owner, mode and broker account number, added after auditing the existing rows; verification tokens carry an account-scoped monotonic generation, a 60-second TTL and an explicit cancel RPC; the purge reason is a closed enum; a trigger permanently refuses any audit detail carrying a forbidden key or a raw UUID; `record_account_verification`, `create_account_atomic` and the direct Vault helpers become hard failures with no executable grant. |
 
 **Which of these production has applied is not recorded here, and cannot be
 inferred from this file.** The Supabase project's own migration ledger is the
@@ -95,12 +96,15 @@ supabase/tests/run_vault_integrity.sh # 0019/0020 over legacy states that must a
 `run_postgrest.sh` proves what a browser can actually reach, and that a single
 snapshot returns everything past the server's row cap where a page walk tears.
 
-`run_concurrency.sh` runs the two races as actual races — two `psql` processes,
-two overlapping transactions. Neither is reachable from one connection: the
-bug in each case was a transaction reading state another had not committed
-yet. Exactly one of two concurrent `create_account_atomic` calls with the same
-Vault ids may commit, and an older refresh reservation may not publish over a
-newer one.
+`run_concurrency.sh` runs the races as actual races — two `psql` processes,
+two overlapping transactions. None is reachable from one connection: the bug
+in each case was a transaction reading state another had not committed yet.
+Exactly one of two concurrent creations for the same broker binding may
+commit, an older refresh reservation may not publish over a newer one, a
+publish must serialize against a rotation rather than read past it, a delete
+and a re-creation of one binding may not both leave a live account, and two
+connections running `begin`/`finish` verification in opposite arrival order
+must not deadlock — the lock order is account, then token, everywhere.
 
 Each script can also be run on its own with two existing auth users:
 
