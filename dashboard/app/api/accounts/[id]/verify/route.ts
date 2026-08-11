@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { maintenanceBlock } from "@/lib/maintenance";
 import { getSupabaseService } from "@/lib/supabase/service";
 import {
   getSessionUser,
@@ -21,6 +22,9 @@ const ALPACA_BASE: Record<string, string> = {
  * material.
  */
 export async function POST(_req: Request, { params }: Ctx) {
+  const frozen = maintenanceBlock();
+  if (frozen) return frozen;
+
   const { id } = await params;
   const user = await getSessionUser();
   if (!user) {

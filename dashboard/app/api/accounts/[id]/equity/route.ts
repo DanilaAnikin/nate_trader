@@ -5,6 +5,7 @@ import {
   loadOwnedAccount,
 } from "@/lib/accounts/session";
 import { backfillEquity } from "@/lib/accounts/equity-backfill";
+import { backfillFrozen } from "@/lib/maintenance";
 import { readAllRows } from "@/lib/accounts/paged";
 
 export const dynamic = "force-dynamic";
@@ -34,13 +35,20 @@ export async function GET(_req: Request, { params }: Ctx) {
   const svc = getSupabaseService();
 
   let backfilled = 0;
-  let refreshWarning: string | null = null;
-  try {
-    // Idempotent upsert keeps the curve current on every validated account
-    // refresh instead of freezing it after the first-ever dashboard visit.
-    backfilled = await backfillEquity(svc, id, account.mode);
-  } catch (e) {
-    refreshWarning = e instanceof Error ? e.message : "equity refresh failed";
+  // The write freeze covers this. It is a GET, but `backfillEquity` writes
+  // `equity_snapshots`, so leaving it running during a migration would leave
+  // the largest write in the application unfrozen — moving financial rows
+  // while the schema beneath them changes. The read itself still serves: the
+  // stored curve is unchanged and still true.
+  let refreshWarning: string | null = backfillFrozen();
+  if (refreshWarning === null) {
+    try {
+      // Idempotent upsert keeps the curve current on every validated account
+      // refresh instead of freezing it after the first-ever dashboard visit.
+      backfilled = await backfillEquity(svc, id, account.mode);
+    } catch (e) {
+      refreshWarning = e instanceof Error ? e.message : "equity refresh failed";
+    }
   }
 
   // Paged: PostgREST caps a response at 1000 rows silently, which would clip

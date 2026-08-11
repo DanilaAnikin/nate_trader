@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { maintenanceBlock } from "@/lib/maintenance";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { createAccount, listAccounts } from "@/lib/accounts/service";
 import type { AccountMode } from "@/lib/accounts/credentials";
@@ -24,6 +25,9 @@ export async function GET() {
 
 /** POST /api/accounts → validate keys, store in Vault, create the account. */
 export async function POST(req: Request) {
+  const frozen = maintenanceBlock();
+  if (frozen) return frozen;
+
   const supa = await getSupabaseServer();
   const {
     data: { user },

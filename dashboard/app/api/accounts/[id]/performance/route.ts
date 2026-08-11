@@ -5,6 +5,7 @@ import {
   loadOwnedAccount,
 } from "@/lib/accounts/session";
 import { backfillCashFlows, backfillEquity } from "@/lib/accounts/equity-backfill";
+import { backfillFrozen } from "@/lib/maintenance";
 import { readAllRows } from "@/lib/accounts/paged";
 import {
   authorizeProductionRuntime,
@@ -275,6 +276,14 @@ export async function GET(_req: Request, { params }: Ctx) {
       "The persisted V11 epoch baseline belongs to a different account.",
       baselineDto,
     );
+  }
+
+  // Under the freeze the mirrors are deliberately not refreshed, and a return
+  // computed from a mirror that was not allowed to update is not this
+  // account's current performance. UNAVAILABLE, with the reason named.
+  const frozen = backfillFrozen();
+  if (frozen !== null) {
+    return respond(id, "EQUITY_REFRESH_FAILED", frozen, baselineDto);
   }
 
   // Any refresh or query error is UNAVAILABLE — never a number with a warning.
