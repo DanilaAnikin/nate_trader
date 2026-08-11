@@ -47,9 +47,9 @@ const ACTIVITY_CLASSIFICATION: Readonly<Record<string, ActivityClass>> = {
   CSD: "cash", // cash deposit
   CSW: "cash", // cash withdrawal
   JNLC: "cash", // journal of cash between accounts
+  JNL: "cash", // generic journal; Alpaca uses it for cash movements between
+  //             accounts where the leg type is not further qualified
   ACATC: "cash", // ACAT cash transfer
-  CFEE: "cash", // credit/administrative fee charged to the account
-  FEE: "cash", // generic fee
   WIRE: "cash", // wire transfer in or out
 
   // --- external movement of securities, no cash leg -----------------------
@@ -66,6 +66,25 @@ const ACTIVITY_CLASSIFICATION: Readonly<Record<string, ActivityClass>> = {
   SPLIT: "non-cash-transfer", // split
 
   // --- internal: the strategy's own P/L, already inside the equity curve ---
+  //
+  // Fees belong here, not with the cash movements above. A fee is the account
+  // paying for something — it is a *cost of running the strategy*, and the
+  // return is supposed to be net of it. Booking one as an external withdrawal
+  // adds it back: `(E_t - flow) / E_{t-1}` with `flow = -25` reports the
+  // account as if the 25 had been taken out by its owner rather than consumed
+  // by the strategy, so a fee-laden account shows a better return than it
+  // earned. `DIVFEE` was already classified this way; `FEE` and `CFEE` were
+  // not, and they are the ones that actually recur.
+  FEE: "internal", // generic fee
+  CFEE: "internal", // credit/administrative fee charged to the account
+  PTC: "internal", // pass-through charge
+  PTR: "internal", // pass-through rebate
+
+  // Distributions are the strategy's own return on what it holds, received in
+  // cash. They arrive as cash but nobody outside the account moved money in,
+  // so they belong inside the return exactly as an unrealised gain would.
+  CGD: "internal", // capital gains distribution
+
   FILL: "internal",
   DIV: "internal",
   DIVCGL: "internal",
@@ -79,8 +98,6 @@ const ACTIVITY_CLASSIFICATION: Readonly<Record<string, ActivityClass>> = {
   INT: "internal",
   INTNRA: "internal",
   INTTW: "internal",
-  PTC: "internal", // pass-through charge
-  PTR: "internal", // pass-through rebate
   SC: "internal", // symbol change
   SWP: "internal", // sweep
   OPASN: "internal",
@@ -137,6 +154,7 @@ const REQUIRED_SIGN: Readonly<Record<string, 1 | -1>> = {
 
 export type CashFlowIncompleteReason =
   | "MALFORMED_ACTIVITY"
+  | "CONTRADICTORY_DUPLICATE"
   | "UNKNOWN_ACTIVITY_TYPE"
   | "NON_CASH_EXTERNAL_TRANSFER"
   | "FUTURE_DATED_ACTIVITY"
@@ -228,10 +246,15 @@ export function resolveActivityDate(
   readonly instantIsReal: boolean;
 } | null {
   // A real instant, when the record carries one.
-  const transactionTime =
-    typeof activity.transaction_time === "string" ? activity.transaction_time : "";
-  const parsedTime = transactionTime.trim() ? Date.parse(transactionTime) : NaN;
-  const hasRealInstant = Number.isFinite(parsedTime);
+  // Strict RFC 3339 only. `Date.parse` accepted `2026-02-30T12:00:00Z` and
+  // returned 2 March, which books a flow on a session that never happened —
+  // and the session it lands on gets its return adjusted by someone else's
+  // cash. A malformed timestamp is not a reason to guess.
+  const rawTime = activity.transaction_time;
+  const hasTimeField = typeof rawTime === "string" && rawTime.trim() !== "";
+  const parsedTime = hasTimeField ? parseRfc3339(rawTime.trim()) : null;
+  if (hasTimeField && parsedTime === null) return null;
+  const hasRealInstant = parsedTime !== null;
 
   // The occurrence date. `date` wins when present and a real calendar day: it
   // is the settlement day the ledger books against, and it can differ from the
@@ -368,8 +391,12 @@ export async function fetchCashActivities(
   let pagesRead = 0;
   let complete = false;
   let latestActivityAt: string | null = null;
-  /** Every activity id seen anywhere in the history, for deduplication. */
-  const seen = new Set<string>();
+  /**
+   * Every activity id seen anywhere in the history, mapped to a fingerprint
+   * of its contents, so a repeat can be checked for agreement rather than
+   * assumed to be one.
+   */
+  const seen = new Map<string, string>();
 
   const baselineDate = options.since ? boundaryDate(options.since, etDate) : null;
   if (options.since && baselineDate === null) {
@@ -526,10 +553,32 @@ export async function fetchCashActivities(
         );
       }
 
-      // Deduplicate by activity id: a correction can surface the same activity
-      // twice within one walk.
-      if (seen.has(id)) continue;
-      seen.add(id);
+      // A repeated id is only acceptable when the two copies say the same
+      // thing. `continue` on any repeat kept whichever arrived first, so a
+      // feed reporting one id with two different amounts silently booked one
+      // of them and declared the walk complete — a guess about how much money
+      // moved, made invisibly. Paging by id legitimately re-serves the cursor
+      // row, so an *identical* repeat is expected and permitted.
+      const fingerprint = JSON.stringify([
+        type,
+        occurred.date,
+        occurred.instantIsReal ? occurred.instant : null,
+        typeof activity.net_amount === "number"
+          ? activity.net_amount
+          : String(activity.net_amount ?? ""),
+      ]);
+      const previous = seen.get(id);
+      if (previous !== undefined) {
+        if (previous !== fingerprint) {
+          return incomplete(
+            "CONTRADICTORY_DUPLICATE",
+            `Alpaca reported activity ${id} twice with different contents, so how much money moved cannot be determined from this walk.`,
+            pagesRead,
+          );
+        }
+        continue;
+      }
+      seen.set(id, fingerprint);
       freshOnThisPage++;
 
       // An internal P/L event — a fill, a dividend, interest — is already

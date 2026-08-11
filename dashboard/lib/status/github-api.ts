@@ -237,11 +237,18 @@ export async function fetchWorkflowRuns(
   const body = (await response.json().catch(() => null)) as {
     workflow_runs?: RawWorkflowRun[];
   } | null;
-  const runs = Array.isArray(body?.workflow_runs)
-    ? body.workflow_runs
-        .map(toRunSummary)
-        .filter((run): run is WorkflowRunSummary => run !== null)
-    : null;
+  // Fail the whole page rather than filtering. Dropping a run this reader
+  // cannot understand makes it *disappear*: the next-oldest run becomes the
+  // newest, and the selectors happily report its PASS as current. That is the
+  // substitution the selectors exist to prevent, performed one layer beneath
+  // them where they cannot see it. An unreadable listing is UNAVAILABLE.
+  let runs: WorkflowRunSummary[] | null = null;
+  if (Array.isArray(body?.workflow_runs)) {
+    const parsed = body.workflow_runs.map(toRunSummary);
+    runs = parsed.some((run) => run === null)
+      ? null
+      : (parsed as WorkflowRunSummary[]);
+  }
   cacheSet(key, runs, runs ? (options.ttlSeconds ?? 60) : 30);
   return runs;
 }

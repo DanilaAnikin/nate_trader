@@ -26,10 +26,15 @@ function service(): SupabaseClient<Database> {
   return {
     rpc: async (name: string, args: Record<string, unknown>) => {
       rpcCalls.push({ name, args });
-      if (name === "get_account_credentials") {
-        return { data: credentials, error: null };
-      }
-      if (name === "begin_broker_refresh") {
+      if (name === "begin_broker_refresh_with_credentials") {
+        // One transaction returns both, so the double must too: a stub that
+        // served credentials separately could not exercise the property.
+        if (credentials === null || credentials.length === 0) {
+          return {
+            data: null,
+            error: { message: "account has no stored credentials" },
+          };
+        }
         nextGeneration += 1;
         const token = `tok-${nextGeneration}`;
         tokens.push(token);
@@ -40,6 +45,8 @@ function service(): SupabaseClient<Database> {
             credential_version: 1,
             mode: "paper",
             account_number: "PA-1",
+            api_key: credentials[0].api_key,
+            api_secret: credentials[0].api_secret,
           },
           error: null,
         };
@@ -136,9 +143,13 @@ describe("refreshBrokerDatasets publishes once, or not at all", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
+    // The reservation is the *first* database call. Reading credentials
+    // before it left a window in which a rotation produced a token naming a
+    // version the fetched key did not belong to.
     const order = rpcCalls.map((call) => call.name);
-    expect(order[0]).toBe("get_account_credentials");
-    expect(order.indexOf("begin_broker_refresh")).toBeLessThan(
+    expect(order[0]).toBe("begin_broker_refresh_with_credentials");
+    expect(order).not.toContain("get_account_credentials");
+    expect(order.indexOf("begin_broker_refresh_with_credentials")).toBeLessThan(
       order.indexOf("publish_broker_refresh"),
     );
 
@@ -288,7 +299,7 @@ describe("refreshBrokerDatasets publishes once, or not at all", () => {
     expect(result.reason).toBe("NO_CREDENTIALS");
     expect(result.reservationTaken).toBe(false);
     expect(rpcCalls.map((call) => call.name)).not.toContain(
-      "begin_broker_refresh",
+      "publish_broker_refresh",
     );
   });
 });

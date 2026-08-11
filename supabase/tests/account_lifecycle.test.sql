@@ -34,13 +34,29 @@ values (
 );
 
 -- --- 1. a successful rotation moves everything at once ---------------------
+-- Rotation replaces the *key material* for the same broker account. It may no
+-- longer change the account number: two broker accounts in one equity curve is
+-- not a curve, and nothing in the mirrored rows marks the seam.
 select rotate_account_credentials(
   'dddddddd-0000-0000-0000-0000000000d1',
   :'user_a',
   'NEW-KEY',
   'NEW-SECRET',
-  'PA-NEW-2222'
+  'PA-OLD-1111'
 );
+
+do $$
+declare blocked boolean := false;
+begin
+  begin
+    perform rotate_account_credentials(
+      'dddddddd-0000-0000-0000-0000000000d1', current_setting('test.user_a')::uuid,
+      'K2', 'S2', 'PA-DIFFERENT-9999');
+  exception when others then blocked := true; end;
+  if not blocked then
+    raise exception 'FAIL: a rotation changed the broker account number';
+  end if;
+end $$;
 
 do $$
 declare
@@ -59,7 +75,7 @@ begin
     raise exception 'FAIL: rotation did not replace both secrets (% / %)',
       keyval, secval;
   end if;
-  if acct.alpaca_account_number <> 'PA-NEW-2222' then
+  if acct.alpaca_account_number <> 'PA-OLD-1111' then
     raise exception 'FAIL: rotation did not rebind the broker account number';
   end if;
   if acct.status <> 'connected' or acct.last_verified_at is null then
@@ -114,7 +130,7 @@ begin
       'FAIL: a failed rotation left the key overwritten (%), which is unrecoverable',
       keyval;
   end if;
-  if acct.alpaca_account_number <> 'PA-NEW-2222' then
+  if acct.alpaca_account_number <> 'PA-OLD-1111' then
     raise exception 'FAIL: a failed rotation still rebound the broker number';
   end if;
 end $$;

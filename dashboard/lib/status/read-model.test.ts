@@ -952,6 +952,51 @@ describe("independent runtime source selection", () => {
     );
   });
 
+  it("refuses a re-run rather than attributing run-level artifacts to it", async () => {
+    // `/runs/{id}/artifacts` is run-level: a re-run serves attempt 1's
+    // artifacts alongside attempt 2's with no attempt field to tell them
+    // apart. Showing either as "this attempt's" would be a guess.
+    stubGithub({ runAttempt: 2 });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.preflight.data).toBeNull();
+    expect(payload.execution.provenance.detail ?? "").toContain("attempt 2");
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("still serves the ordinary first attempt", async () => {
+    stubGithub({ runAttempt: 1 });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).not.toBeNull();
+    expect(payload.preflight.data).not.toBeNull();
+  });
+
+  it("fails closed when the newest run is unreadable, rather than skipping it", async () => {
+    // The listing used to filter unparseable runs out, so a malformed newest
+    // run vanished and the previous run's PASS became "current".
+    stubGithub({ runAttempt: null });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.preflight.data).toBeNull();
+    expect(payload.execution.provenance.scope).not.toContain("#43");
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
   it("drops a run whose attempt GitHub did not state", async () => {
     // `run_attempt` used to default to 1. Every attempt-scoped lookup and
     // every step window keys on it, so an unstated attempt is not a run this

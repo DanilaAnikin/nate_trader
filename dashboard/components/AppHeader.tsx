@@ -1,6 +1,7 @@
 "use client";
 
 import RefreshButton from "@/components/RefreshButton";
+import SyncBrokerButton from "@/components/SyncBrokerButton";
 import SystemStatusBar from "@/components/status/SystemStatusBar";
 import { StatePill } from "@/components/status/primitives";
 import { useStrategyStatus } from "@/components/status/StatusProvider";
@@ -76,6 +77,7 @@ export default function AppHeader() {
               </span>
             )}
           </div>
+          <SyncBrokerButton accountId={selectedAccount?.id ?? null} />
           <RefreshButton />
         </div>
         <SystemStatusBar />

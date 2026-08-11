@@ -45,12 +45,30 @@ test.describe("accessibility", () => {
 
   test("interactive controls show a visible focus ring", async ({ page }) => {
     await page.goto("/");
-    const refresh = page.getByRole("button", { name: /Refresh/ });
-    await refresh.focus();
-    const outline = await refresh.evaluate(
-      (element) => getComputedStyle(element).outlineWidth,
-    );
-    expect(outline).not.toBe("0px");
+    for (const name of [/Re-read/, /Sync broker data/]) {
+      const control = page.getByRole("button", { name });
+      await control.focus();
+      const outline = await control.evaluate(
+        (element) => getComputedStyle(element).outlineWidth,
+      );
+      expect(outline).not.toBe("0px");
+    }
+  });
+
+  test("the read control and the broker write are not both called Refresh", async ({
+    page,
+  }) => {
+    // They used to be one button labelled "Refresh", and a broker refresh was
+    // a side effect of reading. An operator clicking it could reasonably
+    // believe the equity curve had just been re-fetched from Alpaca; it had
+    // not. The two are now separate controls with separate names, and only one
+    // of them writes.
+    await page.goto("/");
+    await expect(page.getByRole("button", { name: /^Re-read$/ })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Sync broker data/ }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Refresh$/ })).toHaveCount(0);
   });
 
   test("reduced motion disables decorative animation", async ({ browser }) => {
