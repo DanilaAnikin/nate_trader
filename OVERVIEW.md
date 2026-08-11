@@ -1589,10 +1589,27 @@ Configured on 2026-08-11, having previously been absent entirely:
 | `paper-production` environment | **Deployment branch policy: protected branches only.** A dispatch cannot come from an arbitrary ref |
 
 `enforce_admins: true` is the point of the exercise: on a single-maintainer
-repository, protection the maintainer can walk past is not protection. The
-practical consequence is that a direct push to `main` now fails until the
-five gate jobs are green on the pushed commit, and an emergency fix requires
-deliberately lifting the rule first:
+repository, protection the maintainer can walk past is not protection.
+
+**What was verified, and what was not.** Two of these were tested against the
+live repository rather than assumed:
+
+* the tag ruleset — a force-move of `v11-dashboard-prod-2026-08-10d` onto a
+  newer commit was **rejected** by the server (`push declined due to
+  repository rule violations`), and the tag still points at `17d0da20a`;
+* the merge gate — PR #51 reported `BLOCKED` until all five checks were green
+  and `CLEAN` immediately afterwards.
+
+A direct push to `main` was **not** fired at the live branch. GitHub documents
+that required status checks reject one, and that is the intent of the setting,
+but `git push --dry-run` does not exercise the server-side rules (it never
+sends the update, so the pre-receive checks never run) — so its output is not
+evidence either way, and a real attempt would have left an unwanted commit on
+`main` if the rule had turned out not to apply. Treat "direct pushes are
+blocked" as the configured intent, confirmed for merges and tags, unconfirmed
+for pushes.
+
+An emergency fix requires deliberately lifting the rule first:
 
 ```bash
 gh api -X DELETE repos/DanilaAnikin/nate_trader/branches/main/protection   # then restore it
