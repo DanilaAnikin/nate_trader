@@ -160,6 +160,18 @@ const RUNNER_ZONE_FORMAT = new Intl.DateTimeFormat("en-CA", {
   hour12: false,
 });
 
+/**
+ * The ET calendar date an instant falls on.
+ *
+ * The runner dates a history row with `get_today_str()` — `datetime.now(EDT)`
+ * — while stamping `updated_at` from the same moment, so this is the function
+ * that decides whether the two agree.
+ */
+export function runnerZoneDate(isoInstant: string | null): string | null {
+  const parsed = parseRfc3339(isoInstant);
+  return parsed === null ? null : inRunnerZone(parsed).slice(0, 10);
+}
+
 /** Render an instant as `YYYY-MM-DD HH:MM:SS` in the runner's zone. */
 function inRunnerZone(instantMs: number): string {
   const parts = RUNNER_ZONE_FORMAT.formatToParts(new Date(instantMs));

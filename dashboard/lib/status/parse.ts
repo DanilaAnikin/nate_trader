@@ -20,10 +20,26 @@ import type {
   ValidationInfo,
   ValidationSegmentMetric,
 } from "./types";
-import { normalizeInstant } from "./vocab";
+import { normalizeInstant, runnerZoneDate } from "./vocab";
 import { isCalendarDate } from "@/lib/calendar-date";
+import { ACTION_NAME_PATTERN, classifyAction, isBlockingAction } from "./actions";
 
 const RISK_TIERS = new Set<RiskTier>(["NORMAL", "CAUTIOUS", "HALT"]);
+
+/** The producer's own bound on how many blockers one summary may name. */
+export const MAX_BLOCKING_ACTIONS = 32;
+
+/** `YYYY-MM`, exactly — the shape a monthly rebalance identifier takes. */
+const CALENDAR_MONTH_PATTERN = /^\d{4}-\d{2}$/;
+
+/** A US equity ticker as the universe admits them, including class suffixes. */
+const SYMBOL_PATTERN = /^[A-Z][A-Z0-9.-]{0,9}$/i;
+
+/**
+ * The most order attempts one frozen plan may carry: at most ten targets, and
+ * a bounded number of retries against each.
+ */
+const MAX_ORDER_ATTEMPTS = 64;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -50,10 +66,24 @@ function round(value: number, digits = 6): number {
 
 /* ------------------------------------------------------- production run */
 
+/** Why a document's own `status` cannot be taken at face value. */
+export type LastRunContradiction =
+  /** A non-zero abort or error count, however the producer summarized it. */
+  | "BLOCKING_ACTION_COUNT"
+  /** No action says the cycle reached its end. */
+  | "NO_TERMINAL_PROOF"
+  /** More than one terminal action; a cycle completes once. */
+  | "AMBIGUOUS_TERMINAL_PROOF"
+  /** An action name this build has never classified. */
+  | "UNCLASSIFIED_ACTION"
+  /** A disabled sleeve or a dry-run marker in a production summary. */
+  | "NON_V11_ACTION";
+
 export interface LastRunSnapshot {
   readonly completedAt: string | null;
   readonly releaseSha: string | null;
   readonly strategyVersion: string;
+  /** What the document claims. Not the verdict. */
   readonly status: "PASS" | "DEGRADED" | "FAIL";
   readonly paperOnly: boolean;
   readonly marketEntryAllowed: boolean | null;
@@ -61,6 +91,18 @@ export interface LastRunSnapshot {
   readonly actionCounts: Record<string, number>;
   readonly blockingActions: { action: string; symbol: string }[];
   readonly failureType: string | null;
+  /** Blocking names derived from `action_counts`, not from the producer. */
+  readonly blockingActionNames: readonly string[];
+  /** Names no classification covers. Any of these refuses a pass. */
+  readonly unknownActions: readonly string[];
+  /** Total occurrences of terminal actions. Exactly 1 is required. */
+  readonly terminalProofCount: number;
+  readonly contradictions: readonly LastRunContradiction[];
+  /**
+   * The verdict: the document says PASS *and* the counts agree. Everything the
+   * gate is allowed to build a pass on comes from here.
+   */
+  readonly passWorthy: boolean;
 }
 
 /**
@@ -78,28 +120,87 @@ export function parseLastRun(value: unknown): LastRunSnapshot | null {
   }
   if (value.paper_only !== true) return null;
 
-  const actionCounts: Record<string, number> = {};
-  if (isRecord(value.action_counts)) {
-    for (const [key, count] of Object.entries(value.action_counts)) {
-      const parsed = num(count);
-      if (parsed !== null && /^[A-Z_]{1,64}$/.test(key)) {
-        actionCounts[key] = parsed;
-      }
-    }
+  // `failure_type` belongs to the crash path, which writes FAIL and nothing
+  // else. A PASS carrying one is a document assembled from two different
+  // outcomes, and we do not get to choose which half to believe.
+  const failureType = value.failure_type;
+  if (failureType !== undefined && failureType !== null) {
+    if (status !== "FAIL") return null;
+    if (typeof failureType !== "string" || failureType.trim() === "") return null;
   }
 
+  // Both fields are mandatory and parsed whole. Skipping a malformed entry
+  // would silently turn a document we cannot read into a shorter document we
+  // can — and the entries most likely to be malformed are the blockers.
+  if (!isRecord(value.action_counts)) return null;
+  const actionCounts: Record<string, number> = {};
+  for (const [key, count] of Object.entries(value.action_counts)) {
+    if (!ACTION_NAME_PATTERN.test(key)) return null;
+    if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) {
+      return null;
+    }
+    actionCounts[key] = count;
+  }
+
+  if (!Array.isArray(value.blocking_actions)) return null;
+  // A 33rd blocker is not a document to truncate; it is a document that does
+  // not match the producer's contract.
+  if (value.blocking_actions.length > MAX_BLOCKING_ACTIONS) return null;
   const blockingActions: { action: string; symbol: string }[] = [];
-  if (Array.isArray(value.blocking_actions)) {
-    for (const record of value.blocking_actions.slice(0, 32)) {
-      if (!isRecord(record)) continue;
-      const action = str(record.action);
-      if (!action) continue;
-      blockingActions.push({
-        action: action.slice(0, 64),
-        symbol: (str(record.symbol) ?? "V11").slice(0, 16),
-      });
+  for (const record of value.blocking_actions) {
+    if (!isRecord(record)) return null;
+    const action = str(record.action);
+    if (!action || !ACTION_NAME_PATTERN.test(action)) return null;
+    if (!isBlockingAction(action)) return null;
+    // A named blocker that the counts never recorded means the two halves of
+    // the document disagree about what happened.
+    if (!(action in actionCounts) || actionCounts[action] === 0) return null;
+    if (record.symbol !== undefined && typeof record.symbol !== "string") {
+      return null;
+    }
+    blockingActions.push({
+      action,
+      symbol: (str(record.symbol) ?? "V11").slice(0, 16),
+    });
+  }
+
+  // A run that reached a verdict computed a risk tier on the way. Only the
+  // crash path, which never got that far, may omit it.
+  const tier = riskTier(value.risk_tier);
+  if (tier === null && status !== "FAIL") return null;
+
+  const blockingActionNames: string[] = [];
+  const unknownActions: string[] = [];
+  const contradictions = new Set<LastRunContradiction>();
+  let terminalProofCount = 0;
+  for (const [action, count] of Object.entries(actionCounts)) {
+    if (count === 0) continue;
+    switch (classifyAction(action)) {
+      case "blocking":
+        blockingActionNames.push(action);
+        contradictions.add("BLOCKING_ACTION_COUNT");
+        break;
+      case "terminal":
+        terminalProofCount += count;
+        break;
+      case "non-v11":
+        contradictions.add("NON_V11_ACTION");
+        break;
+      case "unknown":
+        unknownActions.push(action);
+        contradictions.add("UNCLASSIFIED_ACTION");
+        break;
+      case "neutral":
+        break;
     }
   }
+  if (terminalProofCount === 0) contradictions.add("NO_TERMINAL_PROOF");
+  if (terminalProofCount > 1) contradictions.add("AMBIGUOUS_TERMINAL_PROOF");
+
+  // A DEGRADED with nothing in it to explain the degradation is a document we
+  // do not understand, and an unexplained downgrade is the same shape as a
+  // truncated one.
+  if (status === "DEGRADED" && contradictions.size === 0) return null;
 
   return {
     completedAt: normalizeInstant(value.completed_at),
@@ -111,10 +212,15 @@ export function parseLastRun(value: unknown): LastRunSnapshot | null {
       typeof value.market_entry_allowed === "boolean"
         ? value.market_entry_allowed
         : null,
-    riskTier: riskTier(value.risk_tier),
+    riskTier: tier,
     actionCounts,
     blockingActions,
     failureType: str(value.failure_type),
+    blockingActionNames: blockingActionNames.sort(),
+    unknownActions: unknownActions.sort(),
+    terminalProofCount,
+    contradictions: [...contradictions].sort(),
+    passWorthy: status === "PASS" && contradictions.size === 0,
   };
 }
 
@@ -122,17 +228,33 @@ export function executionFromLastRun(
   run: LastRunSnapshot,
   runUrl: string | null,
 ): ExecutionInfo {
-  const blockingReason =
+  // Prefer the producer's own named blockers, which carry symbols. Fall back
+  // to the names we derived from the counts — that is the case where the
+  // producer failed to flag its own abort, so it is exactly the one the
+  // operator most needs to see.
+  const named =
     run.blockingActions.length > 0
       ? run.blockingActions
           .map((entry) => `${entry.action} (${entry.symbol})`)
           .join(", ")
-      : run.failureType
-        ? `runner failed with ${run.failureType}`
-        : null;
+      : run.blockingActionNames.join(", ");
+  const blockingReason =
+    named ||
+    (run.failureType ? `runner failed with ${run.failureType}` : null) ||
+    (run.contradictions.length > 0 ? run.contradictions.join(", ") : null);
+
+  const hardContradiction = run.contradictions.some(
+    (reason) =>
+      reason === "BLOCKING_ACTION_COUNT" ||
+      reason === "UNCLASSIFIED_ACTION" ||
+      reason === "NON_V11_ACTION",
+  );
   return {
-    status:
-      run.status === "PASS" ? "PASS" : run.status === "DEGRADED" ? "WARN" : "FAIL",
+    status: run.passWorthy
+      ? "PASS"
+      : run.status === "FAIL" || hardContradiction
+        ? "FAIL"
+        : "WARN",
     completedAt: run.completedAt,
     releaseSha: run.releaseSha,
     strategyVersion: run.strategyVersion,
@@ -164,7 +286,6 @@ export function parseFrozenPlan(value: unknown): FrozenPlanInfo | null {
   const rankingUniverseSha256 = str(value.ranking_universe_sha256);
   if (
     !planId ||
-    !rebalanceMonth ||
     !constructionRiskTier ||
     !strategyIdentityValue ||
     !rankingUniverseSha256 ||
@@ -175,18 +296,60 @@ export function parseFrozenPlan(value: unknown): FrozenPlanInfo | null {
     return null;
   }
 
+  // The rebalance cadence is monthly, and this field is what says which month
+  // the plan belongs to. `"2026-13"` and `"August 2026"` are not months, and a
+  // full date is a different kind of value wearing the same name.
+  if (!rebalanceMonth || !CALENDAR_MONTH_PATTERN.test(rebalanceMonth)) return null;
+  const month = Number(rebalanceMonth.slice(5, 7));
+  if (month < 1 || month > 12) return null;
+
+  // A plan is bound to the completed close it read and to the moment it was
+  // frozen. Neither may be absent or unreadable: without them the D/D+1 timing
+  // rule has nothing to check against.
+  const signalDate = str(value.signal_date);
+  if (!isCalendarDate(signalDate)) return null;
+  const createdAt = normalizeInstant(value.created_at);
+  if (createdAt === null) return null;
+  // The signal is a *completed* close, so it cannot postdate the freeze.
+  if (Date.parse(`${signalDate}T00:00:00Z`) > Date.parse(createdAt)) return null;
+
+  // The count of names that survived the eligibility filters. Zero is a real
+  // observation; a missing or fractional one used to become zero, which reads
+  // identically on screen and is a different claim.
+  if (
+    typeof value.eligible_count !== "number" ||
+    !Number.isSafeInteger(value.eligible_count) ||
+    value.eligible_count < 0
+  ) {
+    return null;
+  }
+
   const sectors = value.sector_by_symbol;
   const targets: TargetHolding[] = [];
   for (const [symbol, weight] of Object.entries(value.target_weights)) {
+    if (!SYMBOL_PATTERN.test(symbol)) return null;
     const parsed = num(weight);
     if (parsed === null || parsed < 0 || parsed > 1) return null;
+    // The 20% sector cap is enforced against this map. A target with no entry
+    // used to be labelled "Unknown" — a sector that no cap can bind, which is
+    // exactly the fabricated classification the strategy rules forbid.
+    const sector = str(sectors[symbol]);
+    if (!sector) return null;
     targets.push({
       symbol: symbol.toUpperCase(),
       weightPct: round(parsed * 100, 4),
-      sector: str(sectors[symbol]) ?? "Unknown",
+      sector,
     });
   }
   targets.sort((a, b) => a.symbol.localeCompare(b.symbol));
+
+  // The two maps describe one plan. A sector for a name that is not targeted
+  // means they were built from different target sets.
+  if (Object.keys(sectors).length !== targets.length) return null;
+
+  // Only a risk-off plan legitimately holds nothing. An empty target set on a
+  // risk-on plan is an allocation that never happened.
+  if (targets.length === 0 && !value.risk_off) return null;
 
   const targetGrossPct = round(
     targets.reduce((total, target) => total + target.weightPct, 0),
@@ -194,23 +357,38 @@ export function parseFrozenPlan(value: unknown): FrozenPlanInfo | null {
   );
   if (targetGrossPct > 100.0001) return null;
 
+  // Order attempts are the record of what was submitted against this plan.
+  // Skipping an unreadable one published a plan showing fewer pending orders
+  // than exist, which reads as "nothing outstanding" — the opposite of the
+  // truth, and the state in which a replacement buy is unsafe.
   const pendingActions: PendingOrderIntent[] = [];
-  if (isRecord(value.order_attempts)) {
-    for (const record of Object.values(value.order_attempts)) {
-      if (!isRecord(record)) continue;
+  if (value.order_attempts !== undefined && value.order_attempts !== null) {
+    if (!isRecord(value.order_attempts)) return null;
+    const attempts = Object.values(value.order_attempts);
+    if (attempts.length > MAX_ORDER_ATTEMPTS) return null;
+    for (const record of attempts) {
+      if (!isRecord(record)) return null;
       const symbol = str(record.symbol);
       const side = record.side;
       const quantity = num(record.quantity);
       const targetWeight = num(record.target_weight);
       const attempt = num(record.attempt);
-      if (
-        !symbol ||
-        (side !== "buy" && side !== "sell") ||
-        quantity === null ||
-        targetWeight === null ||
-        attempt === null
-      ) {
-        continue;
+      if (!symbol || !SYMBOL_PATTERN.test(symbol)) return null;
+      if (side !== "buy" && side !== "sell") return null;
+      // A zero-quantity order is not an order, and a negative one is not a
+      // side.
+      if (quantity === null || quantity <= 0) return null;
+      if (targetWeight === null || targetWeight < 0 || targetWeight > 1) return null;
+      if (attempt === null || !Number.isSafeInteger(attempt) || attempt < 1) {
+        return null;
+      }
+      if (record.status !== undefined && str(record.status) === null) return null;
+      const submittedAt =
+        record.submitted_at === undefined || record.submitted_at === null
+          ? null
+          : normalizeInstant(record.submitted_at);
+      if (record.submitted_at !== undefined && record.submitted_at !== null && submittedAt === null) {
+        return null;
       }
       pendingActions.push({
         symbol: symbol.toUpperCase(),
@@ -219,7 +397,7 @@ export function parseFrozenPlan(value: unknown): FrozenPlanInfo | null {
         targetWeightPct: round(targetWeight * 100, 4),
         status: (str(record.status) ?? "unknown").slice(0, 32),
         attempt,
-        submittedAt: normalizeInstant(record.submitted_at),
+        submittedAt,
       });
     }
   }
@@ -228,20 +406,16 @@ export function parseFrozenPlan(value: unknown): FrozenPlanInfo | null {
   return {
     planId,
     rebalanceMonth,
-    signalDate: str(value.signal_date),
+    signalDate,
     riskOff: value.risk_off,
     constructionRiskTier,
-    eligibleCount:
-      typeof value.eligible_count === "number" &&
-      Number.isInteger(value.eligible_count)
-        ? value.eligible_count
-        : 0,
+    eligibleCount: value.eligible_count,
     targets,
     targetGrossPct,
     targetCashPct: round(100 - targetGrossPct, 4),
     strategyIdentityValue,
     rankingUniverseSha256,
-    createdAt: normalizeInstant(value.created_at),
+    createdAt,
     pendingActions,
   };
 }
@@ -269,6 +443,15 @@ export interface PerformanceRuntimeSnapshot {
  * near this is a document that has stopped being a rolling window.
  */
 export const MAX_DAILY_HISTORY_ROWS = 2000;
+
+/**
+ * How far the last history equity may sit from the scalar equity.
+ *
+ * The producer writes the same float into both, so the only legitimate
+ * difference is JSON round-tripping. One cent is far above that and far below
+ * any real change in account value.
+ */
+const EQUITY_AGREEMENT_TOLERANCE = 0.01;
 
 /**
  * Parse the runtime `state/performance.json` from the private artifact.
@@ -301,6 +484,10 @@ export function parsePerformanceRuntime(
   const dailyHistory: { date: string; equity: number }[] = [];
   {
     if (!Array.isArray(raw)) return null;
+    // Zero rows is not a quiet account. The runner appends one row per cycle,
+    // so a history with none means the series was never built — and an empty
+    // series produces a zero drawdown and a NORMAL tier out of nothing.
+    if (raw.length === 0) return null;
     if (raw.length > MAX_DAILY_HISTORY_ROWS) return null;
     let previousDate: string | null = null;
     for (const entry of raw) {
@@ -338,6 +525,18 @@ export function parsePerformanceRuntime(
   // unrecognised one is not a tier.
   const tier = riskTier(value.risk_tier);
   if (tier === null) return null;
+
+  // `update_performance_state` writes both halves of this document from one
+  // snapshot: `updated_at` from `get_now_str()`, the last history row from
+  // `get_today_str()` and `current["equity"]`. They are the same moment and
+  // the same number by construction, so any disagreement means the file is a
+  // mixture — most plausibly a restored artifact with today's scalar fields
+  // written over yesterday's series, which reads on screen as one coherent
+  // account state.
+  const last = dailyHistory[dailyHistory.length - 1];
+  const session = runnerZoneDate(updatedAt);
+  if (session === null || last.date !== session) return null;
+  if (Math.abs(last.equity - equity) >= EQUITY_AGREEMENT_TOLERANCE) return null;
 
   // Present-but-unreadable optional metrics are refused too: `null` beside a
   // parsed document reads as "not measured", which is a different claim from
@@ -538,6 +737,14 @@ export function parseValidation(
   if (value.kind !== "v11_fixed_strategy_validation") return null;
 
   const assessment = isRecord(value.assessment) ? value.assessment : {};
+  // All-or-nothing: a valid total beside an unreadable pass count is not a
+  // partial fact, it is a ratio with one half missing.
+  const rawEvaluated = nonNegativeInteger(assessment.checks_evaluated);
+  const rawPassed = nonNegativeInteger(assessment.checks_passed);
+  const assessmentCounts =
+    rawEvaluated === null || rawPassed === null
+      ? { evaluated: null, passed: null }
+      : { evaluated: rawEvaluated, passed: rawPassed };
   const evidence = isRecord(value.evidence) ? value.evidence : {};
   const strategy = isRecord(value.strategy) ? value.strategy : {};
   const identity = isRecord(strategy.identity) ? strategy.identity : {};
@@ -615,8 +822,13 @@ export function parseValidation(
     barBoundaryDate,
     expiresAt,
     expiryBasis,
-    checksPassed: num(assessment.checks_passed),
-    checksEvaluated: num(assessment.checks_evaluated),
+    // Counts, not measurements: 0.5 evaluated and 0.5 passed used to satisfy
+    // the gate's "positive and equal" test, which is how a report with no
+    // checks at all could read as fully checked. The pair is all-or-nothing —
+    // a valid total beside an unreadable pass count is not a partial fact, it
+    // is a ratio with one half missing.
+    checksPassed: assessmentCounts.passed,
+    checksEvaluated: assessmentCounts.evaluated,
     strategyIdentityValue: str(identity.value),
     rankingUniverseSha256: str(evidence.ranking_universe_sha256),
     rankingUniverseCount: num(evidence.ranking_universe_count),

@@ -246,6 +246,16 @@ export interface ExecutionSelection {
   readonly run: WorkflowRunSummary | null;
   readonly artifactName: string | null;
   readonly artifactCreatedAt: string | null;
+  /**
+   * The reported window of the step that produced this state, when it could
+   * be established. `performance.json` carries no run identifier of its own,
+   * so this is the only external reference that can place its timestamp in a
+   * specific execution rather than merely in a plausible hour.
+   */
+  readonly executeStep: {
+    readonly startedAt: string | null;
+    readonly completedAt: string | null;
+  } | null;
   readonly errors: readonly string[];
   readonly lineageMismatch: boolean;
 }
@@ -264,6 +274,7 @@ export const EMPTY_EXECUTION_SELECTION: ExecutionSelection = {
   run: null,
   artifactName: null,
   artifactCreatedAt: null,
+  executeStep: null,
   errors: [],
   lineageMismatch: false,
 };
@@ -589,6 +600,10 @@ export async function selectLatestExecution(
         run,
         artifactName: anyRuntime.name,
         artifactCreatedAt: anyRuntime.createdAt,
+        executeStep: {
+          startedAt: executeStep.startedAt,
+          completedAt: executeStep.completedAt,
+        },
         errors: [],
         lineageMismatch: false,
       };

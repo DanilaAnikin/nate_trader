@@ -128,7 +128,11 @@ export function lastRunJson(
     market_entry_allowed: true,
     risk_tier: "CAUTIOUS",
     action_counts: {
+      // Trimmed, then deferred the replacement buys to a later boundary — the
+      // ordinary shape of a completed cycle that had sells to settle first.
+      // `ADAPTIVE_PLAN_DEFERRED` is the terminal proof that it finished.
       ADAPTIVE_PLAN: 1,
+      ADAPTIVE_PLAN_DEFERRED: 1,
       ADAPTIVE_TRIM: 10,
       REBALANCE_PENDING_SELLS: 1,
     },
