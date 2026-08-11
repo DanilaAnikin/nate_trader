@@ -288,7 +288,10 @@ export async function GET(_req: Request, { params }: Ctx) {
   // is `POST /api/accounts/[id]/refresh` now; this reads what is stored.
   //
   // The consequence is stated rather than hidden: the number below describes
-  // the mirror as last published, and `mirrorPublishedAt` says when that was.
+  // the mirror as last published, not as of this request. The response's own
+  // freshness is derived from the last shared *session date*, which is the
+  // honest bound — a mirror published an hour ago whose newest session is
+  // three days old is three days old.
   const latestActivityAt: string | null = null;
 
   // A broker activity stamped in the future means the feed disagrees with
