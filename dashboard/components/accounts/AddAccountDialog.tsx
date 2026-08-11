@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Modal from "./Modal";
 import { V11_POLICY } from "@/lib/v11-policy";
 
@@ -32,6 +32,8 @@ export default function AddAccountDialog({
   const [liveConfirmed, setLiveConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Survives re-renders and retries; cleared only by `reset`. */
+  const operationIdRef = useRef<string | null>(null);
 
   function reset() {
     setNickname("");
@@ -41,6 +43,9 @@ export default function AddAccountDialog({
     setColor(COLORS[0]);
     setLiveConfirmed(false);
     setError(null);
+    // A *new* submission is a new operation. Only a retry of the same one
+    // reuses the id.
+    operationIdRef.current = null;
   }
 
   function close() {
@@ -57,11 +62,25 @@ export default function AddAccountDialog({
       return;
     }
     setBusy(true);
+    // One id for this submission, generated *before* the request goes out and
+    // reused by every retry of it. The server binds it to a digest of the
+    // payload, so a retry returns the original result and a different payload
+    // under the same id is refused. A server-generated id would be fresh on
+    // every retry, which is precisely when idempotency is needed.
+    const operationId = operationIdRef.current ?? crypto.randomUUID();
+    operationIdRef.current = operationId;
     try {
       const res = await fetch("/api/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nickname, mode, apiKey, apiSecret, color }),
+        body: JSON.stringify({
+          nickname,
+          mode,
+          apiKey,
+          apiSecret,
+          color,
+          operationId,
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {

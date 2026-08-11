@@ -1,28 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * What happens when the response to a committed write is lost.
+ * Creating an account is one transaction, keyed on an id the *client* chose.
  *
- * This is the case that has no safe default. `create_account_atomic` may have
- * committed; the error the caller sees is identical whether it did or not.
- * Retrying blindly creates a second account. Compensating blindly deletes the
- * Vault secrets of an account that exists, which is unrecoverable.
- *
- * The operation id makes the question answerable, and these assert all three
- * answers — including the one that is deliberately *not* resolved.
+ * The case with no safe default is a lost response: the call may have
+ * committed, and the error looks identical either way. Retrying blindly
+ * creates a second account; compensating blindly destroys the credentials of
+ * one that exists. Both are avoided by making the retry *be* the original —
+ * the same id blocks on that operation's lock and returns its result — and by
+ * writing the Vault secrets inside the same transaction, so there is nothing
+ * to compensate in the first place.
  */
 
 const OWNER = "99999999-9999-9999-9999-999999999999";
-const KEY_ID = "11111111-1111-1111-1111-111111111111";
-const SECRET_ID = "22222222-2222-2222-2222-222222222222";
+const OPERATION_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 
 type RpcResult = { data: unknown; error: { message: string } | null };
 
 let createResult: RpcResult;
-let probeResult: RpcResult;
-let purgeCalls: number;
-let purgeThrows: boolean;
+let resolveResult: RpcResult;
 let rpcCalls: { name: string; args: Record<string, unknown> }[];
+let vaultCalls: number;
 
 function accountRow(id = "acc-new") {
   return {
@@ -32,8 +30,8 @@ function accountRow(id = "acc-new") {
     mode: "paper",
     status: "connected",
     color: "#007aff",
-    alpaca_key_secret_id: KEY_ID,
-    alpaca_secret_secret_id: SECRET_ID,
+    alpaca_key_secret_id: "11111111-1111-1111-1111-111111111111",
+    alpaca_secret_secret_id: "22222222-2222-2222-2222-222222222222",
     alpaca_account_number: "PA-1234",
     is_active: true,
     last_verified_at: null,
@@ -42,7 +40,7 @@ function accountRow(id = "acc-new") {
     updated_at: "2026-08-11T00:00:00Z",
     deleted_at: null,
     credential_version: 1,
-    create_operation_id: "op",
+    create_operation_id: OPERATION_ID,
   };
 }
 
@@ -50,34 +48,29 @@ vi.mock("@/lib/supabase/service", () => ({
   getSupabaseService: () => ({
     rpc: async (name: string, args: Record<string, unknown>) => {
       rpcCalls.push({ name, args });
-      if (name === "create_account_atomic") return createResult;
-      if (name === "find_account_by_operation") return probeResult;
-      if (name === "vault_create_secret") {
-        return {
-          data: rpcCalls.filter((c) => c.name === "vault_create_secret").length === 1
-            ? KEY_ID
-            : SECRET_ID,
-          error: null,
-        };
-      }
-      if (name === "vault_delete_secret") {
-        purgeCalls += 1;
-        if (purgeThrows) return { data: null, error: { message: "purge failed" } };
+      if (name === "create_account_operation") return createResult;
+      if (name === "resolve_create_operation") return resolveResult;
+      if (name.startsWith("vault_")) {
+        vaultCalls += 1;
         return { data: null, error: null };
       }
       return { data: null, error: null };
     },
+    from: () => ({
+      select: () => ({
+        eq: () => ({ maybeSingle: async () => ({ data: accountRow("acc-committed") }) }),
+      }),
+    }),
   }),
 }));
 
-const { createAccount } = await import("./service");
+const { createAccount, createRequestFingerprint } = await import("./service");
 
 beforeEach(() => {
   rpcCalls = [];
-  purgeCalls = 0;
-  purgeThrows = false;
+  vaultCalls = 0;
   createResult = { data: accountRow(), error: null };
-  probeResult = { data: null, error: null };
+  resolveResult = { data: { outcome: "absent" }, error: null };
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
@@ -93,81 +86,101 @@ const input = {
   mode: "paper" as const,
   apiKey: "k",
   apiSecret: "s",
+  operationId: OPERATION_ID,
 };
 
-describe("createAccount carries an operation id", () => {
-  it("sends a fresh operation id, so a retry is recognisable", async () => {
-    await createAccount(OWNER, input);
-    const call = rpcCalls.find((c) => c.name === "create_account_atomic");
-    expect(call).toBeDefined();
-    expect(typeof call!.args.p_operation_id).toBe("string");
-    expect(String(call!.args.p_operation_id)).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+describe("one transaction, one operation id", () => {
+  it("creates everything in a single RPC and writes no Vault secret first", async () => {
+    // The secrets used to be two separate RPCs *before* the account existed.
+    // A dropped response to either orphaned one, with nothing able to prove
+    // later whether it should exist.
+    const result = await createAccount(OWNER, input);
+    expect(result.ok).toBe(true);
+    expect(vaultCalls).toBe(0);
+    const names = rpcCalls.map((c) => c.name);
+    expect(names).toEqual(["create_account_operation"]);
   });
 
-  it("uses a different id for a different creation", async () => {
+  it("passes the client's id and a fingerprint of the payload", async () => {
     await createAccount(OWNER, input);
-    await createAccount(OWNER, input);
-    const ids = rpcCalls
-      .filter((c) => c.name === "create_account_atomic")
-      .map((c) => c.args.p_operation_id);
-    expect(new Set(ids).size).toBe(2);
+    const args = rpcCalls[0].args;
+    expect(args.p_operation_id).toBe(OPERATION_ID);
+    expect(String(args.p_fingerprint)).toMatch(/^[0-9a-f]{64}$/);
+    expect(args.p_fingerprint).toBe(createRequestFingerprint(OWNER, input));
+  });
+
+  it("gives a different fingerprint to a different payload", () => {
+    const a = createRequestFingerprint(OWNER, input);
+    expect(createRequestFingerprint(OWNER, { ...input, nickname: "Other" })).not.toBe(a);
+    expect(createRequestFingerprint(OWNER, { ...input, apiKey: "k2" })).not.toBe(a);
+    expect(createRequestFingerprint("other-owner", input)).not.toBe(a);
+    // The same request, twice, is the same fingerprint — that is the point.
+    expect(createRequestFingerprint(OWNER, { ...input })).toBe(a);
+  });
+
+  it.each([
+    ["absent", ""],
+    ["not a uuid", "retry-1"],
+    ["a nil uuid", "00000000-0000-0000-0000-000000000000"],
+  ])("refuses an operation id that is %s", async (_label, operationId) => {
+    // Server-validated, so a client cannot opt out of idempotency.
+    const result = await createAccount(OWNER, { ...input, operationId });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("invalid_input");
+    expect(rpcCalls).toHaveLength(0);
   });
 });
 
-describe("a lost response after a committed create", () => {
-  it("reports success and purges nothing when the probe finds the account", async () => {
-    // The transaction committed; only the answer was lost. Compensating here
-    // would delete the credentials of a live account.
+describe("a lost response", () => {
+  it("returns the committed account when the operation resolves as created", async () => {
     createResult = { data: null, error: { message: "fetch failed" } };
-    probeResult = { data: accountRow("acc-committed"), error: null };
-
+    resolveResult = {
+      data: { outcome: "created", account_id: "acc-committed" },
+      error: null,
+    };
     const result = await createAccount(OWNER, input);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.account.id).toBe("acc-committed");
-    expect(purgeCalls).toBe(0);
+    expect(vaultCalls).toBe(0);
   });
 
-  it("purges only when the probe proves the account does not exist", async () => {
-    // A successful probe returning nothing is proof of absence: the row and
-    // its operation id commit together.
-    createResult = { data: null, error: { message: "constraint violated" } };
-    probeResult = { data: null, error: null };
-
+  it("reports a plain failure when the operation provably never ran", async () => {
+    // Proven under the operation lock. Nothing to compensate: the secrets are
+    // written inside the same transaction that failed.
+    createResult = { data: null, error: { message: "nickname is required" } };
+    resolveResult = { data: { outcome: "absent" }, error: null };
     const result = await createAccount(OWNER, input);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("db_error");
-    expect(purgeCalls).toBe(2);
+    expect(vaultCalls).toBe(0);
   });
 
-  it("purges nothing and says so when the state cannot be established", async () => {
-    // The probe itself failed. Deleting might orphan a live account; leaving
-    // them might orphan a pair. Leaving them is the recoverable half.
+  it("says so, and purges nothing, when the state cannot be established", async () => {
     createResult = { data: null, error: { message: "fetch failed" } };
-    probeResult = { data: null, error: { message: "connection reset" } };
-
+    resolveResult = { data: null, error: { message: "connection reset" } };
     const result = await createAccount(OWNER, input);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("indeterminate");
-    expect(purgeCalls).toBe(0);
-    // The operator needs the ids to finish the job by hand.
-    expect(result.message).toContain(KEY_ID);
-    expect(result.message).toContain(SECRET_ID);
+    expect(vaultCalls).toBe(0);
     expect(result.message).toContain("Retrying with the same operation id is safe");
+    // And it does not leak the ids it would have needed to purge.
+    expect(result.message).not.toMatch(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
+    );
   });
 
-  it("reports a failed compensation rather than hiding it", async () => {
-    createResult = { data: null, error: { message: "constraint violated" } };
-    probeResult = { data: null, error: null };
-    purgeThrows = true;
-
-    const result = await createAccount(OWNER, input);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.message).toMatch(/could not be rolled back/);
+  it("two retries of one request make exactly one create call each, same id", async () => {
+    // The database collapses them; the client's job is only to send the same
+    // id both times.
+    await createAccount(OWNER, input);
+    await createAccount(OWNER, input);
+    const creates = rpcCalls.filter((c) => c.name === "create_account_operation");
+    expect(creates).toHaveLength(2);
+    expect(new Set(creates.map((c) => c.args.p_operation_id)).size).toBe(1);
+    expect(new Set(creates.map((c) => c.args.p_fingerprint)).size).toBe(1);
   });
 });

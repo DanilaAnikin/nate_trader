@@ -40,8 +40,20 @@ vi.mock("@/lib/supabase/service", () => ({
   getSupabaseService: () => ({
     rpc: async (name: string, args: unknown) => {
       rpcCalls.push({ name, args });
-      if (name === "get_account_credentials") {
-        return { data: [{ api_key: "k", api_secret: "s" }], error: null };
+      if (name === "begin_account_verification") {
+        // One transaction returns the credentials, the authoritative mode and
+        // a single-use token bound to the credential version they belong to.
+        return {
+          data: {
+            token: "77777777-7777-4777-8777-777777777777",
+            mode: "paper",
+            credential_version: 1,
+            account_number: CANARY_ACCOUNT_NUMBER,
+            api_key: "k",
+            api_secret: "s",
+          },
+          error: null,
+        };
       }
       return { data: null, error: null };
     },
@@ -126,8 +138,12 @@ describe("POST /api/accounts/[id]/verify", () => {
     // The binding is written by the atomic, audited RPC — not by a bare
     // `.update()`, which recorded a status change with no record of who made
     // it and was reachable from two GET handlers.
+    // The binding is confirmed by `finish_account_verification`, which carries
+    // the single-use token rather than an expectation the caller read
+    // separately — a caller that could not read the version used to pass null,
+    // which disabled the check.
     const recorded = rpcCalls.find(
-      (call) => call.name === "record_account_verification",
+      (call) => call.name === "finish_account_verification",
     );
     expect(recorded).toBeDefined();
     expect(
@@ -135,6 +151,9 @@ describe("POST /api/accounts/[id]/verify", () => {
     ).toBe(CANARY_ACCOUNT_NUMBER);
     expect((recorded?.args as Record<string, unknown>).p_status).toBe(
       "connected",
+    );
+    expect((recorded?.args as Record<string, unknown>).p_token).toBe(
+      "77777777-7777-4777-8777-777777777777",
     );
     expect(updates).toHaveLength(0);
   });

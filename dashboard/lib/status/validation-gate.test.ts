@@ -70,7 +70,20 @@ function gate(
     executionRunId?: number | null;
     preflightAttempt?: number | null;
     executionAttempt?: number | null;
-    executionEvidence?: { runId: number; attempt: number } | null;
+    executionEvidence?: {
+      runId: number;
+      attempt: number;
+      status: "PASS" | "FAIL" | "DEGRADED";
+      marketEntryAllowed: boolean | null;
+      blockingActionCount: number;
+      performanceInCycle: boolean;
+    } | null;
+    executionOverrides?: Partial<{
+      status: "PASS" | "FAIL" | "DEGRADED";
+      marketEntryAllowed: boolean | null;
+      blockingActionCount: number;
+      performanceInCycle: boolean;
+    }>;
   } = {},
 ) {
   return computeEffectiveValidationGate({
@@ -99,6 +112,13 @@ function gate(
               options.executionAttempt === undefined
                 ? 1
                 : (options.executionAttempt as number),
+            // A healthy cycle by default, so a test that cares about one of
+            // these has to say so.
+            status: "PASS" as const,
+            marketEntryAllowed: true,
+            blockingActionCount: 0,
+            performanceInCycle: true,
+            ...(options.executionOverrides ?? {}),
           }
         : options.executionEvidence,
     now: NOW,

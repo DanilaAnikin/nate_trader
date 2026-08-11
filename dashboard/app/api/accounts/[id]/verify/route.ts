@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { maintenanceBlock } from "@/lib/maintenance";
+import { incident } from "@/lib/incident";
 import { getSupabaseService } from "@/lib/supabase/service";
 import {
   getSessionUser,
@@ -37,65 +38,87 @@ export async function POST(_req: Request, { params }: Ctx) {
   }
 
   const svc = getSupabaseService();
-  // The credential version the keys about to be tested belong to. Alpaca's
-  // answer describes *these* keys; if they are rotated away while it is being
-  // asked, writing `connected` from that answer would mark the new keys
-  // verified on the strength of a test of the old ones.
-  const { data: versionRow } = await svc
-    .from("accounts")
-    .select("credential_version")
-    .eq("id", id)
-    .maybeSingle();
-  const expectedVersion =
-    typeof versionRow?.credential_version === "number"
-      ? versionRow.credential_version
-      : null;
 
-  const { data: cred, error: credErr } = await svc.rpc("get_account_credentials", {
-    acct: id,
-  });
-  if (credErr || !cred || cred.length === 0) {
+  // Begin the verification: one transaction takes the account row, reads the
+  // credentials, and issues a single-use token recording the mode, the broker
+  // account number and the credential version they belong to.
+  //
+  // The previous shape read the version with a separate query and passed it as
+  // an *expectation*; a caller that could not read it passed null, which
+  // disabled the check entirely. There is no null path now — if the snapshot
+  // cannot be taken, the broker is never asked.
+  const { data: snapshot, error: beginError } = await svc.rpc(
+    "begin_account_verification",
+    { p_account: id, p_owner: account.owner_id },
+  );
+  const issued =
+    snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
+      ? (snapshot as Record<string, unknown>)
+      : null;
+  const token = issued?.token;
+  const apiKey = issued?.api_key;
+  const apiSecret = issued?.api_secret;
+  const mode = issued?.mode;
+
+  if (
+    beginError ||
+    typeof token !== "string" ||
+    typeof apiKey !== "string" ||
+    typeof apiSecret !== "string" ||
+    (mode !== "paper" && mode !== "live")
+  ) {
     return NextResponse.json(
-      { error: "no stored credentials" },
-      { status: 409 },
+      incident(
+        "CONFLICT",
+        `verification could not be started: ${beginError?.message ?? "incomplete snapshot"}`,
+        { route: "POST /api/accounts/[id]/verify", accountId: id },
+      ),
+      { status: 409, headers: { "Cache-Control": "no-store" } },
     );
   }
 
-  const base = ALPACA_BASE[account.mode];
+  // The broker is asked with exactly the snapshot the token describes — its
+  // mode included, rather than a mode the caller was holding.
+  const base = ALPACA_BASE[mode];
   let res: Response;
   try {
     res = await fetch(`${base}/account`, {
       headers: {
-        "APCA-API-KEY-ID": cred[0].api_key,
-        "APCA-API-SECRET-KEY": cred[0].api_secret,
+        "APCA-API-KEY-ID": apiKey,
+        "APCA-API-SECRET-KEY": apiSecret,
       },
       cache: "no-store",
     });
-  } catch {
+  } catch (caught) {
     return NextResponse.json(
-      { ok: false, error: "could not reach Alpaca" },
-      { status: 502 },
+      incident(
+        "BROKER_UNREACHABLE",
+        caught instanceof Error ? caught.message : "unknown network error",
+        { route: "POST /api/accounts/[id]/verify", accountId: id },
+      ),
+      { status: 502, headers: { "Cache-Control": "no-store" } },
     );
   }
 
-  if (res.status === 401 || res.status === 403) {
-    // One transaction, one audit entry. A bare `.update()` recorded a status
-    // change with no record of who made it or why, and the same write was
-    // reachable from two GET handlers.
-    const { error } = await svc.rpc("record_account_verification", {
-      p_account: id,
-      p_owner: account.owner_id,
-      p_status: "auth_failed",
-      p_expected_version: expectedVersion,
+  const finish = async (
+    status: "connected" | "auth_failed",
+    accountNumber: string | null,
+  ) =>
+    svc.rpc("finish_account_verification", {
+      p_token: token,
+      p_status: status,
+      p_account_number: accountNumber,
     });
+
+  if (res.status === 401 || res.status === 403) {
+    const { error } = await finish("auth_failed", null);
     if (error) {
-      // The credentials really are rejected, and the row still says otherwise.
       return NextResponse.json(
-        {
-          ok: false,
-          error: `Alpaca rejected these credentials, but the account status could not be recorded: ${error.message}`,
-        },
-        { status: 500, headers: { "Cache-Control": "no-store" } },
+        incident("CONFLICT", `auth_failed could not be recorded: ${error.message}`, {
+          route: "POST /api/accounts/[id]/verify",
+          accountId: id,
+        }),
+        { status: 409, headers: { "Cache-Control": "no-store" } },
       );
     }
     return NextResponse.json(
@@ -105,8 +128,11 @@ export async function POST(_req: Request, { params }: Ctx) {
   }
   if (!res.ok) {
     return NextResponse.json(
-      { ok: false, error: `Alpaca HTTP ${res.status}` },
-      { status: 502 },
+      incident("BROKER_ERROR", `Alpaca HTTP ${res.status}`, {
+        route: "POST /api/accounts/[id]/verify",
+        accountId: id,
+      }),
+      { status: 502, headers: { "Cache-Control": "no-store" } },
     );
   }
 
@@ -115,40 +141,27 @@ export async function POST(_req: Request, { params }: Ctx) {
   } | null;
   const accountNumber = body?.account_number ?? null;
   if (!accountNumber) {
-    // The binding compares this number; verifying without one proves nothing.
     return NextResponse.json(
-      { ok: false, error: "Alpaca returned no account number" },
+      incident("BROKER_ERROR", "Alpaca returned no account number", {
+        route: "POST /api/accounts/[id]/verify",
+        accountId: id,
+      }),
       { status: 502, headers: { "Cache-Control": "no-store" } },
     );
   }
 
-  // The full number is stored server-side (the production binding compares it
-  // against a freshly read one) but must never be returned to the browser.
-  // `record_account_verification` writes the status, the timestamp and the
-  // audit entry in one transaction. It may only *confirm* the broker account
-  // number, never change it: the number is fixed at creation, because the
-  // production binding compares against it and one equity curve cannot
-  // describe two broker accounts.
-  //
-  // `p_expected_version` binds the write to the keys that were actually
-  // tested. A rotation that landed while Alpaca was being asked makes this
-  // refuse rather than certify the new keys with the old keys' result.
-  const { error: updateError } = await svc.rpc("record_account_verification", {
-    p_account: id,
-    p_owner: account.owner_id,
-    p_status: "connected",
-    p_account_number: accountNumber,
-    p_expected_version: expectedVersion,
-  });
-  if (updateError) {
-    // Reporting "connected" here would claim a binding that was never stored:
-    // the next production authorization compares against the *old* number.
+  // `finish` requires the token and refuses if the credential version, the
+  // mode or the binding moved while Alpaca was answering. A rotation that
+  // landed mid-call makes this fail rather than certify the new keys on the
+  // strength of a test of the old.
+  const { error: finishError } = await finish("connected", accountNumber);
+  if (finishError) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: `The credentials are valid, but the verification could not be recorded: ${updateError.message}`,
-      },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
+      incident("CONFLICT", `verification could not be recorded: ${finishError.message}`, {
+        route: "POST /api/accounts/[id]/verify",
+        accountId: id,
+      }),
+      { status: 409, headers: { "Cache-Control": "no-store" } },
     );
   }
 
@@ -156,6 +169,7 @@ export async function POST(_req: Request, { params }: Ctx) {
     {
       ok: true,
       status: "connected",
+      // Masked, always: the full number is the production binding.
       brokerAccountMask: maskAccountNumber(accountNumber),
     },
     { headers: { "Cache-Control": "no-store" } },

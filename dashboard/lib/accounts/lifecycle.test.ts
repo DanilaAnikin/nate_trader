@@ -101,6 +101,8 @@ vi.mock("@/lib/supabase/service", () => ({
 function defaultFor(name: string): unknown {
   if (name === "rotate_account_credentials") return { ...ROW };
   if (name === "create_account_atomic") return { ...ROW };
+  if (name === "create_account_operation") return { ...ROW };
+  if (name === "resolve_create_operation") return { outcome: "absent" };
   if (name === "update_account_metadata") return { ...ROW };
   if (name === "delete_account_atomic") return true;
   if (name === "vault_create_secret") return "vault-uuid";
@@ -281,56 +283,63 @@ describe("deleteAccount is one transaction", () => {
 const { createAccount, updateAccount } = await import("./service");
 
 describe("createAccount is one transaction", () => {
-  beforeEach(() => {
-    rpcResults.vault_create_secret = { data: "vault-uuid", error: null };
-  });
-
-  it("creates the row and its audit entry through one RPC", async () => {
+  it("creates everything through a single RPC, with no Vault write first", async () => {
     const result = await createAccount(OWNER_ID, {
       nickname: "New paper",
       mode: "paper",
       apiKey: "k",
       apiSecret: "s",
+      operationId: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
     });
     expect(result.ok).toBe(true);
 
     const names = rpcCalls.map((call) => call.name);
-    expect(names).toContain("create_account_atomic");
-    // No separate audit write, and no direct table insert.
+    // The Vault secrets are created *inside* the transaction now. Two separate
+    // `vault_create_secret` round trips before it meant a dropped response
+    // orphaned a secret with nothing able to prove later whether it belonged.
+    expect(names).toEqual(["create_account_operation"]);
     expect(tableWrites).toEqual([]);
-    const call = rpcCalls.find((entry) => entry.name === "create_account_atomic")!;
+    const call = rpcCalls[0];
     expect(call.args).toMatchObject({
       p_owner: OWNER_ID,
       p_nickname: "New paper",
       p_mode: "paper",
       p_account_number: BROKER_NUMBER,
+      p_operation_id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
     });
+    expect(String(call.args.p_fingerprint)).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("purges the Vault secrets when the transaction rolls back", async () => {
-    rpcResults.create_account_atomic = {
+  it("compensates nothing when the transaction rolls back", async () => {
+    // There is nothing to compensate: the secrets were written inside the
+    // transaction that failed, so they rolled back with it. The old code
+    // deleted two secrets here, which is what made a lost response dangerous.
+    rpcResults.create_account_operation = {
       data: null,
       error: { message: "insert audit_log: check constraint" },
+    };
+    rpcResults.resolve_create_operation = {
+      data: { outcome: "absent" },
+      error: null,
     };
     const result = await createAccount(OWNER_ID, {
       nickname: "New paper",
       mode: "paper",
       apiKey: "k",
       apiSecret: "s",
+      operationId: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.message).toContain("check constraint");
-    // The row does not exist, so the orphaned secrets are compensated.
-    expect(rpcCalls.filter((call) => call.name === "vault_delete_secret")).toHaveLength(2);
+    expect(rpcCalls.filter((call) => call.name === "vault_delete_secret")).toHaveLength(0);
+    expect(rpcCalls.filter((call) => call.name === "vault_create_secret")).toHaveLength(0);
   });
 
-  it("reports a failed compensation rather than hiding an orphaned secret", async () => {
-    rpcResults.create_account_atomic = {
+  it("reports an indeterminate outcome rather than guessing", async () => {
+    rpcResults.create_account_operation = {
       data: null,
       error: { message: "deadlock detected" },
     };
-    rpcResults.vault_delete_secret = {
+    rpcResults.resolve_create_operation = {
       data: null,
       error: { message: "vault unreachable" },
     };
@@ -339,10 +348,12 @@ describe("createAccount is one transaction", () => {
       mode: "paper",
       apiKey: "k",
       apiSecret: "s",
+      operationId: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.message).toContain("could not be rolled back");
+    expect(result.reason).toBe("indeterminate");
+    expect(result.message).toContain("Retrying with the same operation id is safe");
   });
 });
 

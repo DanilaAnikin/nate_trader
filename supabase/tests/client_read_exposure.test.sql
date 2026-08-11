@@ -410,6 +410,39 @@ begin
 end $$;
 
 reset role;
+-- --- the audit log an owner can read carries no internal identifier --------
+--
+-- `audit_log` has a "read own audit" policy, so everything written into
+-- `detail` is owner-visible. Vault ids and the create-operation id were both
+-- there; neither is information an owner needs, and both name internals.
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  json_build_object('sub', :'user_a', 'role', 'authenticated')::text,
+  true
+);
+
+do $$
+declare
+  leaked text;
+begin
+  select string_agg(distinct action, ', ') into leaked
+    from audit_log
+   where detail ? 'operation_id'
+      or detail ? 'key_secret_id'
+      or detail ? 'secret_secret_id'
+      or detail ? 'api_key'
+      or detail ? 'alpaca_account_number'
+      or detail::text ~ '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+  if leaked is not null then
+    raise exception
+      'FAIL: an owner-readable audit row names an internal identifier (%)', leaked;
+  end if;
+end $$;
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+
 do $$ begin raise notice 'CLIENT READ EXPOSURE OK'; end $$;
 
 rollback;

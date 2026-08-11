@@ -58,6 +58,12 @@ export type ValidationGateReason =
   | "APPROVED_RELEASE_UNKNOWN"
   | "LINEAGE_MISMATCH"
   | "EXECUTION_UNAVAILABLE"
+  | "EXECUTION_STATUS_NOT_PASS"
+  | "MARKET_ENTRY_NOT_ALLOWED"
+  | "EXECUTION_BLOCKED"
+  | "PERFORMANCE_CYCLE_MISMATCH"
+  | "INVALID_FROZEN_PLAN"
+  | "RUNTIME_SCHEMA_INVALID"
   | "PREFLIGHT_UNAVAILABLE"
   | "PREFLIGHT_GATE_MISSING"
   | "PREFLIGHT_GATE_FAILED"
@@ -178,6 +184,18 @@ const REASON_DETAIL: Record<ValidationGateReason, string> = {
     "The report records no evaluated checks, so its PASS is not backed by anything.",
   EXECUTION_UNAVAILABLE:
     "No usable executor runtime state is available, so nothing establishes that the approved release actually ran. A preflight describes what a cycle intended to do; only the runtime artifact records what it did.",
+  EXECUTION_STATUS_NOT_PASS:
+    "The executor recorded a status other than PASS for its last cycle. A readable runtime artifact is not a successful one.",
+  MARKET_ENTRY_NOT_ALLOWED:
+    "The executor recorded market_entry_allowed = false for its last cycle. That is the runner's own answer to \"may this cycle buy\", and it is no.",
+  EXECUTION_BLOCKED:
+    "The executor recorded a blocking action for its last cycle — a short, an unreconciled order or a failed check — so it was not free to trade.",
+  PERFORMANCE_CYCLE_MISMATCH:
+    "The runtime artifact's performance.json and last_run.json describe different moments, so the artifact is a mixture and the equity shown is not the equity the recorded cycle ended with.",
+  INVALID_FROZEN_PLAN:
+    "The runtime state carries an adaptive_rebalance_pending that cannot be read. A plan that is present must be usable; only a genuinely absent one is normal between rebalances.",
+  RUNTIME_SCHEMA_INVALID:
+    "A runtime document failed schema validation, so nothing in it can be relied on.",
   PREFLIGHT_UNAVAILABLE:
     "No production preflight report is available, so the executor's own validation gate result is unknown.",
   PREFLIGHT_GATE_MISSING: `The preflight report does not contain the ${PYTHON_GATE_CHECK} check, so the executor's gate result was never captured.`,
@@ -315,7 +333,24 @@ export function computeEffectiveValidationGate(input: {
    *
    * Null now means exactly one thing: there is no execution to authorize.
    */
-  executionEvidence?: { readonly runId: number; readonly attempt: number } | null;
+  executionEvidence?: {
+    readonly runId: number;
+    readonly attempt: number;
+    /**
+     * What the cycle actually *recorded*, not merely that it was readable.
+     *
+     * Everything above this line establishes that the evidence documents can
+     * be parsed and belong together. None of it reads what they say — so a
+     * cycle that ran, wrote a perfectly well-formed runtime artifact, and
+     * recorded `status: "FAIL"` with `market_entry_allowed: false` satisfied
+     * every condition and took the gate green.
+     */
+    readonly status: "PASS" | "FAIL" | "DEGRADED";
+    readonly marketEntryAllowed: boolean | null;
+    readonly blockingActionCount: number;
+    /** True when `performance.json` and `last_run.json` describe one moment. */
+    readonly performanceInCycle: boolean;
+  } | null;
   now: Date;
 }): EffectiveValidationGate {
   const { report, now } = input;
@@ -379,7 +414,19 @@ export function computeEffectiveValidationGate(input: {
   // The executor's own gate, as it actually ran in production. This is the
   // authority for every condition above that TypeScript cannot recompute.
   const execution = input.executionEvidence ?? null;
-  if (!execution) reasons.push("EXECUTION_UNAVAILABLE");
+  if (!execution) {
+    reasons.push("EXECUTION_UNAVAILABLE");
+  } else {
+    // What the cycle recorded. A readable artifact is not a successful one.
+    if (execution.status !== "PASS") reasons.push("EXECUTION_STATUS_NOT_PASS");
+    // `true` and nothing else. `null`, absent, `"yes"` and `1` are all "this
+    // build cannot tell", and the safe reading of that is no.
+    if (execution.marketEntryAllowed !== true) {
+      reasons.push("MARKET_ENTRY_NOT_ALLOWED");
+    }
+    if (execution.blockingActionCount > 0) reasons.push("EXECUTION_BLOCKED");
+    if (!execution.performanceInCycle) reasons.push("PERFORMANCE_CYCLE_MISMATCH");
+  }
 
   const preflight = input.preflight ?? null;
   if (!preflight) {

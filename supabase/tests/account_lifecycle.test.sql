@@ -834,6 +834,162 @@ begin
   update accounts set deleted_at = null where id = acct.id;
 end $$;
 
+-- --- 15. creation is one transaction, keyed on an operation id -------------
+do $$
+declare
+  op    uuid := gen_random_uuid();
+  fp    text := repeat('a', 64);
+  first accounts;
+  again accounts;
+  before_secrets bigint;
+  before_accounts bigint;
+  blocked boolean;
+begin
+  select count(*) into before_secrets from vault.secrets;
+  select count(*) into before_accounts from accounts;
+
+  first := create_account_operation(
+    current_setting('test.user_a')::uuid, op, fp,
+    'Atomic', 'paper', '#123456', 'AK', 'AS', 'PA-ATOMIC-1');
+
+  if first.alpaca_key_secret_id is null or first.alpaca_secret_secret_id is null then
+    raise exception 'FAIL: the operation did not create both secrets';
+  end if;
+  if (select count(*) from vault.secrets) <> before_secrets + 2 then
+    raise exception 'FAIL: the operation created the wrong number of secrets';
+  end if;
+  if (select count(*) from account_credential_assignment
+       where account_id = first.id) <> 2 then
+    raise exception 'FAIL: the operation did not record both assignments';
+  end if;
+
+  -- The retry: same id, same payload. One account, and the original returned.
+  again := create_account_operation(
+    current_setting('test.user_a')::uuid, op, fp,
+    'Atomic', 'paper', '#123456', 'AK', 'AS', 'PA-ATOMIC-1');
+  if again.id <> first.id then
+    raise exception 'FAIL: a retry created a second account';
+  end if;
+  if (select count(*) from accounts) <> before_accounts + 1 then
+    raise exception 'FAIL: the retry changed the account count';
+  end if;
+  if (select count(*) from vault.secrets) <> before_secrets + 2 then
+    raise exception 'FAIL: the retry created more secrets';
+  end if;
+
+  -- Same id, different payload: a different request wearing a used key.
+  blocked := false;
+  begin
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, op, repeat('b', 64),
+      'Different', 'paper', '#123456', 'AK', 'AS', 'PA-ATOMIC-2');
+  exception when others then blocked := true; end;
+  if not blocked then
+    raise exception 'FAIL: one operation id served two different requests';
+  end if;
+
+  -- And the resolver answers definitely, under the same lock.
+  if (resolve_create_operation(current_setting('test.user_a')::uuid, op) ->> 'outcome')
+     <> 'created' then
+    raise exception 'FAIL: a committed operation did not resolve as created';
+  end if;
+  if (resolve_create_operation(current_setting('test.user_a')::uuid, gen_random_uuid())
+        ->> 'outcome') <> 'absent' then
+    raise exception 'FAIL: an operation that never ran did not resolve as absent';
+  end if;
+end $$;
+
+-- --- 16. a failed creation leaves no secrets behind -------------------------
+do $$
+declare
+  before_secrets bigint;
+  blocked boolean := false;
+begin
+  select count(*) into before_secrets from vault.secrets;
+  begin
+    -- No broker account number: the transaction aborts after validation and
+    -- before anything is written. The secrets are created *inside* it, so
+    -- there is nothing to compensate.
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('c', 64),
+      'Doomed', 'paper', '#123456', 'AK', 'AS', '');
+  exception when others then blocked := true; end;
+  if not blocked then
+    raise exception 'FAIL: a creation without a broker number succeeded';
+  end if;
+  if (select count(*) from vault.secrets) <> before_secrets then
+    raise exception 'FAIL: a failed creation left Vault secrets behind';
+  end if;
+end $$;
+
+-- --- 17. verification is a pinned snapshot ----------------------------------
+do $$
+declare
+  acct    accounts;
+  issued  jsonb;
+  blocked boolean := false;
+begin
+  acct := create_account_operation(
+    current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('d', 64),
+    'Verified', 'paper', '#123456', 'VK', 'VS', 'PA-VERIFY-1');
+
+  issued := begin_account_verification(acct.id, current_setting('test.user_a')::uuid);
+  if issued ->> 'api_key' <> 'VK' or issued ->> 'mode' <> 'paper' then
+    raise exception 'FAIL: the verification snapshot is wrong';
+  end if;
+
+  -- A rotation lands while the broker is being asked.
+  perform rotate_account_credentials(acct.id, current_setting('test.user_a')::uuid,
+    'VK2', 'VS2', 'PA-VERIFY-1');
+  begin
+    perform finish_account_verification(
+      (issued ->> 'token')::uuid, 'connected', 'PA-VERIFY-1');
+  exception when others then blocked := true; end;
+  if not blocked then
+    raise exception 'FAIL: a verification of rotated-away keys was recorded';
+  end if;
+
+  -- A fresh snapshot succeeds, and its token is single-use.
+  issued := begin_account_verification(acct.id, current_setting('test.user_a')::uuid);
+  perform finish_account_verification(
+    (issued ->> 'token')::uuid, 'connected', 'PA-VERIFY-1');
+  blocked := false;
+  begin
+    perform finish_account_verification(
+      (issued ->> 'token')::uuid, 'connected', 'PA-VERIFY-1');
+  exception when others then blocked := true; end;
+  if not blocked then
+    raise exception 'FAIL: a verification token was used twice';
+  end if;
+
+  -- The binding is still immutable.
+  issued := begin_account_verification(acct.id, current_setting('test.user_a')::uuid);
+  blocked := false;
+  begin
+    perform finish_account_verification(
+      (issued ->> 'token')::uuid, 'connected', 'PA-SOMETHING-ELSE');
+  exception when others then blocked := true; end;
+  if not blocked then
+    raise exception 'FAIL: verification rebound the broker account number';
+  end if;
+end $$;
+
+-- --- 18. nothing owner-readable names an internal identifier ----------------
+do $$
+declare offending text;
+begin
+  select string_agg(distinct action, ', ') into offending
+    from audit_log
+   where detail ? 'operation_id'
+      or detail ? 'key_secret_id'
+      or detail ? 'secret_secret_id'
+      or detail::text ~ '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+  if offending is not null then
+    raise exception
+      'FAIL: owner-readable audit rows name an internal identifier (%)', offending;
+  end if;
+end $$;
+
 do $$ begin raise notice 'ACCOUNT LIFECYCLE OK'; end $$;
 
 rollback;

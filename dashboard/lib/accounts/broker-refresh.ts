@@ -365,14 +365,22 @@ export async function refreshBrokerDatasets(
     );
   }
 
-  // The mode the reservation was issued against, not the one the caller was
-  // holding. They are normally the same; when they are not, the caller's copy
-  // is older, and reading the *live* broker with a stale mode would hit the
-  // wrong Alpaca host entirely.
-  const authoritativeMode: Mode =
-    issued?.mode === "paper" || issued?.mode === "live"
-      ? (issued.mode as Mode)
-      : mode;
+  // The mode the reservation was issued against — and *only* that. Falling
+  // back to the caller's copy when the reservation's is missing or unreadable
+  // is the failure mode this is meant to prevent: the caller's is the older
+  // value, and reading the live broker with a stale mode hits the wrong Alpaca
+  // host entirely. A reservation that cannot state its mode is not a
+  // reservation this refresh can use.
+  if (issued?.mode !== "paper" && issued?.mode !== "live") {
+    return failed(
+      "PUBLISH_REFUSED",
+      `The refresh reservation did not state a usable account mode (${String(
+        issued?.mode ?? "absent",
+      )}), so the broker cannot be read against a known host.`,
+      true,
+    );
+  }
+  const authoritativeMode: Mode = issued.mode;
 
   const history = await fetchPortfolioHistory(apiKey, apiSecret, authoritativeMode);
   if (!history.ok) {

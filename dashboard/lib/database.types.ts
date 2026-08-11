@@ -712,6 +712,38 @@ export type Database = {
         }
         Returns: Database["public"]["Tables"]["accounts"]["Row"]
       }
+      create_account_operation: {
+        Args: {
+          p_owner: string
+          p_operation_id: string
+          p_fingerprint: string
+          p_nickname: string
+          p_mode: Database["public"]["Enums"]["account_mode"]
+          p_color: string
+          p_api_key: string
+          p_api_secret: string
+          p_account_number: string
+        }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
+      }
+      resolve_create_operation: {
+        Args: { p_owner: string; p_operation_id: string }
+        /** `{ outcome: "created" | "absent" | "no_account", account_id? }` */
+        Returns: Json
+      }
+      begin_account_verification: {
+        Args: { p_account: string; p_owner: string }
+        /** `{ token, mode, credential_version, account_number, api_key, api_secret }` */
+        Returns: Json
+      }
+      finish_account_verification: {
+        Args: {
+          p_token: string
+          p_status: Database["public"]["Enums"]["account_status"]
+          p_account_number?: string | null
+        }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
+      }
       find_account_by_operation: {
         Args: { p_owner: string; p_operation_id: string }
         Returns: Database["public"]["Tables"]["accounts"]["Row"]
