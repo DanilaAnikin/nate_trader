@@ -1570,35 +1570,50 @@ Rendered as `UNAVAILABLE` rather than estimated, and not solvable by UI work:
 - **The production migration ledger has not been read.** Every statement here
   about which schema production is on is an inference from the running image,
   not a reading of the ledger.
-- **`main`, the `paper-production` environment and the tags carry no technical
-  protection.** There is no branch protection rule, no required status check,
-  no environment reviewer and no tag protection on this repository, and this
-  build cannot add them: they are repository-administration settings that need
-  an owner-scoped token, which the tooling here does not have. So the release
-  boundary today is a convention, not a control — a direct push to `main`, a
-  moved tag or a changed `PRODUCTION_RELEASE_SHA` would all succeed. Closing it
-  is an **external blocker**, listed in section 16.
 - **Tags are unsigned.** No signing key is configured for this repository, so
   tags are annotated but not verifiable. Do not describe a tag as signed.
+  Branch, tag and environment protection *are* now configured — section 16
+  states exactly what, and what was deliberately left off.
 
 The correct answer to a missing backend fact is a small, sanitized, well-tested
 observability contract — never frontend inference.
 
-## 16. External blockers
+## 16. Release-boundary protection, and what is still external
 
-Work this build cannot do, stated as blockers rather than left implied.
+Configured on 2026-08-11, having previously been absent entirely:
+
+| Control | State |
+|---|---|
+| `main` branch protection | **Active.** Five required status checks (`dashboard-gate`, `release-gate`, `Supabase schema and RLS integration`, `PostgREST API surface`, `Concurrency races`), strict up-to-date, force pushes and deletions blocked, `enforce_admins: true` |
+| Tag protection for `v11-*` | **Active** (repository ruleset). Deletion, non-fast-forward and update are all blocked, with no bypass actor — a historical tag can no longer be moved even by the owner |
+| `paper-production` environment | **Deployment branch policy: protected branches only.** A dispatch cannot come from an arbitrary ref |
+
+`enforce_admins: true` is the point of the exercise: on a single-maintainer
+repository, protection the maintainer can walk past is not protection. The
+practical consequence is that a direct push to `main` now fails until the
+five gate jobs are green on the pushed commit, and an emergency fix requires
+deliberately lifting the rule first:
+
+```bash
+gh api -X DELETE repos/DanilaAnikin/nate_trader/branches/main/protection   # then restore it
+```
+
+### Deliberately not configured
+
+**Required reviewers on `paper-production`.** An environment reviewer applies
+to scheduled runs as well as manual ones, so adding one would leave every
+weekday paper cycle waiting for a human approval that nobody is watching for —
+it would silently stop the trader. The protection worth having here is the
+release gate and the immutable `PRODUCTION_RELEASE_SHA`, both of which are in
+place.
+
+### Still external
 
 | Blocker | What it needs | Why it is not done here |
 |---|---|---|
-| Branch protection on `main` | An owner-scoped token or a repository admin in the GitHub UI | Repository administration; no such credential is available to this build, and inventing one would be worse than saying so |
-| Required status checks (the five release-gate jobs) | The same | A green gate is currently evidence, not an obstacle to merging |
-| `paper-production` environment reviewers | The same | Nothing technically prevents a dispatch today |
-| Tag protection | The same | Historical tags could be moved; the convention is that they are not |
-| Tag signing | A signing key trusted by the repository | Tags are annotated, never signed; this document does not claim otherwise |
+| Tag signing | A signing key trusted by the repository | No key is configured. Tags are annotated, never signed; do not describe one as verified |
 | Reading the production migration ledger | Access to the origin Supabase project | Everything in section 13 depends on it, and it has not been read |
-
-Until the first four are configured, the release boundary is enforced by
-process. Say that, rather than describing it as protected.
+| A rollback image carrying the write freeze | A build of `fc73acaae` plus `DASHBOARD_MAINTENANCE_MODE` | `fc73acaae` as tagged has no freeze, so it is a read-only rollback target (13.5) |
 
 ## 17. Repository map
 
