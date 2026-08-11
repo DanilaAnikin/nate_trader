@@ -658,6 +658,14 @@ export type Database = {
         /** `{ token, generation, credential_version, mode, account_number }` */
         Returns: Json
       }
+      begin_broker_refresh_with_credentials: {
+        Args: { p_account: string; p_owner: string }
+        /**
+         * The same reservation plus `api_key` and `api_secret`, read inside
+         * the transaction that writes the token so the two cannot disagree.
+         */
+        Returns: Json
+      }
       publish_broker_refresh: {
         Args: {
           p_token: string

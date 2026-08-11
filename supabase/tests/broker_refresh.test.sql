@@ -581,21 +581,93 @@ begin
     raise exception 'FAIL: expected a credential-change refusal, got %', msg;
   end if;
 
-  -- The same for a re-binding of the broker account number.
-  tok := test_token();
-  perform record_account_verification(
-    'ffffffff-0000-0000-0000-0000000000a1',
-    current_setting('test.user_a')::uuid,
-    'connected', 'PA-REFRESH-8888'
-  );
+  -- A rebind is refused outright once the account has mirrored history, so
+  -- the publish can never see two broker accounts in one curve.
   blocked := false;
   begin
-    perform publish_broker_refresh(
-      tok, payload, true, test_full_flows(), date '2026-03-02', true, 3, true
+    perform record_account_verification(
+      'ffffffff-0000-0000-0000-0000000000a1',
+      current_setting('test.user_a')::uuid,
+      'connected', 'PA-REFRESH-8888'
     );
-  exception when others then blocked := true; end;
+  exception when others then
+    blocked := true;
+    msg := sqlerrm;
+  end;
   if not blocked then
-    raise exception 'FAIL: a publish survived a broker account rebinding';
+    raise exception 'FAIL: an account with mirrored history was rebound';
+  end if;
+  if msg not like '%cannot describe two broker accounts%' then
+    raise exception 'FAIL: unexpected rebind refusal: %', msg;
+  end if;
+  if (select alpaca_account_number from accounts
+       where id = 'ffffffff-0000-0000-0000-0000000000a1') <> 'PA-REFRESH-7777' then
+    raise exception 'FAIL: the refused rebind still changed the binding';
+  end if;
+end $$;
+
+-- --- 11b. the publish takes part in ordinary account locking ----------------
+-- The identity re-check used to be a plain SELECT, and READ COMMITTED gives
+-- every statement inside the function its own snapshot — so a rotation
+-- committing between the check and the upserts was invisible. The lock is what
+-- makes the check mean anything.
+--
+-- One transaction cannot block itself, so the observable proof lives in the
+-- two-connection suite (`run_concurrency.sh`, race 3: the publish waits for a
+-- held account row instead of returning in a second). What is asserted here is
+-- the half that is visible from one session: the publish still succeeds while
+-- following the canonical lock order, so the ordering change did not
+-- reintroduce the self-deadlock 0018 was working around.
+do $$
+declare
+  payload jsonb := test_full_equity() || jsonb_build_array(
+    jsonb_build_object('snapshot_date', '2026-06-10', 'equity', 1000200,
+      'cash', 0, 'profit_loss', null, 'profit_loss_pct', null));
+begin
+  perform publish_broker_refresh(
+    test_token(), payload, true, test_full_flows(), date '2026-03-02', true, 3, true
+  );
+  perform 1 from accounts
+   where id = 'ffffffff-0000-0000-0000-0000000000a1' for update;
+end $$;
+
+-- The credential-carrying reservation returns the key that matches the token.
+do $$
+declare
+  issued jsonb;
+begin
+  issued := begin_broker_refresh_with_credentials(
+    'ffffffff-0000-0000-0000-0000000000a1',
+    current_setting('test.user_a')::uuid
+  );
+  if issued ->> 'api_key' is null or issued ->> 'api_secret' is null then
+    raise exception 'FAIL: the reservation returned no credentials';
+  end if;
+  if (issued ->> 'credential_version')::bigint <> (
+       select credential_version from accounts
+        where id = 'ffffffff-0000-0000-0000-0000000000a1') then
+    raise exception 'FAIL: the token records a different credential version';
+  end if;
+  -- Credentials and token from one transaction: what the token records is by
+  -- construction the key the caller holds. Reading them separately left a
+  -- window where a rotation produced a token naming the new version while the
+  -- caller held the old key — the one combination the version check misses.
+  if (issued ->> 'api_key') <> (
+       select decrypted_secret from vault.decrypted_secrets
+        where id = (select alpaca_key_secret_id from accounts
+                     where id = 'ffffffff-0000-0000-0000-0000000000a1')) then
+    raise exception 'FAIL: the reservation returned a different key';
+  end if;
+end $$;
+
+-- --- 11c. a published refresh is audited -----------------------------------
+do $$ begin
+  if not exists (
+    select 1 from audit_log
+     where account_id = 'ffffffff-0000-0000-0000-0000000000a1'
+       and action = 'broker.refresh_published'
+  ) then
+    raise exception 'FAIL: a published refresh wrote no audit entry';
   end if;
 end $$;
 

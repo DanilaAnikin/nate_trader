@@ -153,3 +153,22 @@ jobs:
           sudo apt-get install -y --no-install-recommends postgresql-client
       - name: Run the concurrency gate
         run: supabase/tests/run_concurrency.sh
+
+  # Non-trading. 0019 rebuilds the Vault assignment table, and the states it
+  # has to refuse are legacy states no clean-database run can produce. Each
+  # case is built by hand before 0019 is applied.
+  vault-integrity-gate:
+    name: Vault integrity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+      - name: Run the Vault integrity gate
+        run: supabase/tests/run_vault_integrity.sh

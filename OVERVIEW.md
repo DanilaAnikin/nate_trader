@@ -23,11 +23,13 @@
 > **Production currently runs `d11bbad8a`** (`v11-dashboard-prod-2026-08-03`).
 > None of the later tags has been deployed.
 >
-> Which migrations the production database has applied is **not known to this
-> document**. `d11bbad8a` reads `accounts` as `authenticated`, which `0011`
-> revokes, so a working production implies `0011` is *not* applied — but that
-> is an inference, not a reading of the ledger. Read the ledger before doing
-> anything (section 13.3, step 1).
+> **The production schema is UNKNOWN.** Which migrations the production
+> database has applied has never been read from its ledger, and nothing in
+> this repository can tell you. `d11bbad8a` reads `accounts` as
+> `authenticated`, which `0011` revokes, so a working production is *consistent
+> with* `0011` not being applied — that is an inference from one symptom, not a
+> fact, and every step in section 13 depends on the fact. Read the ledger
+> first (13.3, step 1).
 >
 > Approved trading release (unchanged): `0cb02c0765ebf91e60e5efd7f51334e9b538fbcb`
 >
@@ -807,11 +809,21 @@ What it does when it *can* answer:
   leaves the mirror untouched, because a partial response and a genuine
   withdrawal are the same input (section 12.7). Withdrawing a row is a
   separate, audited, one-row command.
-- **Refreshing is a command, not a side effect.** `GET /equity` and
-  `GET /performance` used to republish both mirrors on every call, so a page
-  that polled wrote four tables per poll and two open tabs raced each other.
-  `POST /api/accounts/[id]/refresh` is the only path that writes them; the
-  reads serve what is stored and say when it was published.
+- **Refreshing is a command, not a side effect, and it has an actor.**
+  `GET /equity` and `GET /performance` used to republish both mirrors on every
+  call, so a page that polled wrote four tables per poll, two open tabs raced
+  each other, and nothing recorded who caused it.
+  `POST /api/accounts/[id]/refresh` is now the only path that writes them, it
+  is reached from an explicit **Sync broker data** control, and every publish
+  writes a `broker.refresh_published` audit entry naming the account, the
+  generation and the credential version.
+
+  **Cadence: on demand only.** Nothing schedules it. The mirrors are as fresh
+  as the last Sync, the reads say so rather than implying otherwise, and the
+  header's other button is labelled **Re-read** because it re-reads stored
+  state and does not touch Alpaca. Anyone wanting a periodic refresh has to
+  add a server-side scheduler; there is deliberately no client-side timer,
+  because a browser left open is not an authorized actor.
 - The mirrors are reconciled **in the database** too, and both in the same
   call. Computing the set difference in the application needed an unpaged
   `select` of the mirrored ledger — truncated silently past the server's row
@@ -943,7 +955,7 @@ multi-account workflows must not be restored.
 
 ### 11.1 `V11 Release Gate` — `.github/workflows/v11-release.yml`
 
-Non-trading. Runs on `main` pushes, pull requests and manual dispatch. Five
+Non-trading. Runs on `main` pushes, pull requests and manual dispatch. Six
 independent jobs:
 
 | Job | What it proves |
@@ -951,7 +963,8 @@ independent jobs:
 | `dashboard-gate` | Node 22, `npm ci` from the lockfile, `npm audit --audit-level=high`, dashboard tests, ESLint, `tsc --noEmit`, production `next build`, and the Playwright end-to-end suite against that build |
 | `release-gate` | Python 3.12.11, `pip install --require-hashes -r requirements.lock`, `pip check`, the complete pytest suite, `compileall`, critical Ruff checks (E9,F63,F7,F82), and `scripts/sanity_check.py` |
 | `supabase-schema-gate` | Applies **every** migration to a real `postgres:16-alpine` service and runs the SQL assertions against it — a database test, not a grep over SQL text |
-| `concurrency-gate` | Runs the two races as actual races — two `psql` processes, two overlapping transactions. Exactly one of two concurrent `create_account_atomic` calls with the same Vault ids may commit, and an older refresh reservation may not publish over a newer one |
+| `vault-integrity-gate` | Applies `0019` over seven hand-built legacy states — a shared secret, a cross-slot share, a dangling id, a null id, a self-referential pair, a clean state and a soft-deleted account — and requires an abort naming the problem for the first five |
+| `concurrency-gate` | Runs the races as actual races — two `psql` processes, two overlapping transactions. Exactly one of two concurrent `create_account_atomic` calls with the same Vault ids may commit, and an older refresh reservation may not publish over a newer one |
 | `postgrest-gate` | Starts a real PostgREST against that database with `db-max-rows=100` and asserts the API surface: which `/rpc/` functions are reachable, that the history snapshot returns everything past the cap, that a page walk demonstrably tears where the snapshot does not, and that a function created *after* the migrations is not anonymously callable |
 
 A green gate makes a commit *approvable*. It does not place an order and it
@@ -1017,6 +1030,7 @@ be proven broker-side rather than assumed.
 | `0016_global_function_acl.sql` | Global `ALTER DEFAULT PRIVILEGES`, event trigger removed, catalogue asserted by live probes inside the migration |
 | `0017_refresh_generation_and_guards.sql` | `begin_broker_refresh` / `publish_broker_refresh`; NULL and shape guards on every destructive RPC |
 | `0018_no_delete_reconciliation.sql` | A refresh may never delete; refresh tokens bound to `credential_version`; one Vault secret per account, enforced by a primary key |
+| `0019_lock_order_and_vault_integrity.sql` | One canonical lock order; credentials issued in the same transaction as the token; a rebind refused once history exists; the Vault assignment table rebuilt with every ambiguity as an abort |
 
 **None of these is confirmed applied in production by this document.** The
 migration ledger in the Supabase project is the only authority for that, and it
@@ -1307,7 +1321,62 @@ loop — the request hung until the client gave up, while every other refusal
 returned in 30 ms. The condition is permanent: the payload really was fetched
 with the old credentials, and only re-fetching helps. It raises `P0001`.
 
-### 12.8 Application security invariants
+### 12.8 What 0019 changed and why
+
+**A re-check that is a plain read can be read past.** 0018 verified
+`credential_version`, `mode` and the broker account number with a `SELECT`.
+Under READ COMMITTED every statement inside a plpgsql function takes a fresh
+snapshot, so a rotation committing between that check and the upserts is
+invisible: the publish writes data fetched with credentials that no longer
+exist, and reports success. Reproduced by holding the account row `FOR UPDATE`
+in another session — the publish returned `{"equity_written": 6}` in one second
+instead of waiting for it.
+
+0018 had removed the lock for a real reason: it took the token row first and
+the account row second, while `record_account_verification` takes the account
+row and nothing else, which is an inversion. The fix is to order the locks, not
+to drop one. **Canonical order, everywhere:**
+
+1. `accounts`
+2. `broker_refresh_token`
+3. `broker_refresh_state`
+4. `account_credential_assignment`, via advisory locks on the two Vault ids in
+   ascending order
+
+Every routine takes a prefix of that sequence, so no cycle exists, and
+`lock_timeout = 5s` means a contended refresh fails closed rather than pinning
+a connection.
+
+**Credentials were read before the reservation existed.** The caller fetched
+`get_account_credentials` and *then* reserved, so a rotation landing between
+the two produced a token recording the new `credential_version` while the
+caller held the old key — the one combination the version re-check cannot
+catch, because the token and the account agree with each other and disagree
+only with reality. `begin_broker_refresh_with_credentials` locks the account,
+reads the Vault secrets and writes the token in one transaction.
+
+**Rebinding mixed two brokers into one curve.** Changing
+`alpaca_account_number` on an account with mirrored rows leaves one equity
+curve describing two different broker accounts, with nothing in the data
+marking the seam — every return, drawdown and benchmark comparison would then
+be computed across it. A rebind is refused once history exists, and
+`rotate_account_credentials` may no longer change the number at all: it
+rotates key material for the same broker account. A different broker account
+is a different account, and that is the epoch boundary.
+
+**The Vault backfill accepted whatever it found.** 0018 populated
+`account_credential_assignment` with `ON CONFLICT DO NOTHING` — not a
+resolution of an ambiguous legacy state but a way of not noticing one. Two
+accounts sharing a secret produced a table with one of them missing, and the
+primary key then "held" over rows it had never seen. 0019 rebuilds the table
+and aborts on a shared id, a cross-slot share (the same id as one account's
+key and another's secret, which a per-column index would miss), a dangling id,
+a null id or a self-referential pair; then it proves that every active account
+has exactly its two assignments and that every assigned secret exists.
+`run_vault_integrity.sh` builds each of those states by hand and requires the
+abort.
+
+### 12.9 Application security invariants
 
 - The application stays behind Supabase authentication; RLS account isolation
   and exact account scoping are preserved.
@@ -1332,59 +1401,51 @@ The dashboard is a container built from `dashboard/Dockerfile` and served at
 deployment has happened only when the origin host runs the new image and
 `GET /api/health` reports the expected new build SHA.
 
-### 13.2 The three images and what each schema they run on
+### 13.2 The three images, and which schema each runs on
 
-Deployment is a schema change and an image change together, and the two are not
-independent. Three builds matter:
-
-| Build | Runs on the **pre-0011** schema | Runs on the **0011–0017** schema |
+| Image | Pre-`0011` schema | Post-`0019` schema |
 |---|---|---|
-| `d11bbad8a` — what production runs today | yes | **no** — reads `accounts` as `authenticated`, which `0011` revokes |
-| `fc73acaae` — the **bridge** | yes | yes, reads and writes, but see 13.4 |
+| `d11bbad8a` (in production) | yes | **no** — it reads `accounts` as `authenticated`, which `0011` revokes |
+| the bridge, `693d53528` | yes | yes |
 | the new candidate | **reads only** | yes |
 
-`fc73acaae` is the pivot: it was the first build to move every account read to
-the service role, so it is the only existing image that works on *both* sides
-of the migration. That makes it both the safe intermediate step and the real
-image rollback target.
+The candidate's every write path calls an RPC that does not exist before
+`0011`, so on the old schema it serves reads and fails every mutation. That is
+why the bridge exists.
 
-**The candidate is not fully functional before the migrations.** Its read paths
-work on the old schema — the account reads use the service role and it touches
-none of the `*_safe` views — but every write path calls an RPC that does not
-exist yet: `create_account_atomic` and `update_account_metadata` (0014),
-`rotate_account_credentials` and `delete_account_atomic` (0013), and
-`begin_broker_refresh` / `publish_broker_refresh` (0017). On the old schema all
-of those return "function does not exist", and the equity and performance
-screens depend on the refresh, so they report `UNAVAILABLE` rather than
-rendering. That is safe — nothing is written — but it is not a working
-deployment, which is why the candidate goes in *after* the migrations.
+**The bridge is a real commit, not an environment variable.** It is
+`693d535288169a613b5c51cbc0b8706134b905ae`, built on `fc73acaae` and adding one
+thing: the write freeze, in the code. Setting `DASHBOARD_MAINTENANCE_MODE` on
+`fc73acaae` itself would do nothing, because nothing in that build reads it —
+and, more to the point, `fc73acaae`'s `GET /equity` and `GET /performance` call
+`backfillEquity` and `backfillCashFlows`, which write `equity_snapshots` and
+`cash_flows` as a *side effect of being read*. A freeze covering only the
+mutating verbs would leave the largest write in the application running on
+every page poll while the schema beneath it changed. The bridge covers both.
 
-### 13.3 Order of operations
+Side-by-side, one image, two containers:
 
-1. Access the origin host, and read the Supabase migration ledger to record
-   exactly which migrations are applied **today**. Do not assume, and do not
-   infer it from the fact that the site works: this document does not know
-   either, and every step below depends on the answer.
-2. Build the **bridge image** from `fc73acaae` with `DASHBOARD_MAINTENANCE_MODE`
-   available in its environment (13.4). Deploy it against the current schema
-   with the freeze **off** and smoke-test it authenticated: login, account
-   switch, every strategy section, the `UNAVAILABLE` states, `/api/health`.
-3. Turn the freeze **on** (`DASHBOARD_MAINTENANCE_MODE=on`) and confirm it: a
-   `POST /api/accounts` must return `503` before the freeze is trusted.
-4. Apply **every** pending migration in numeric order — `0011` through `0018`,
-   or whatever subset the ledger from step 1 says is missing. A partial
-   application leaves the RPC surface and the ACL in a state no test covers.
-5. Verify the bridge again on the migrated schema. Reads must keep working
-   throughout; if they do not, roll back (13.5) before going further.
-6. Deploy the new candidate image, still frozen.
-7. Verify the candidate's reads on the migrated schema.
-8. Lift the freeze and run the full authenticated smoke test, including the
-   paths the migrations change and one explicit
-   `POST /api/accounts/[id]/refresh`.
-9. Confirm Supabase signup is disabled.
+```
+                                  freeze=off   freeze=on
+  POST   /api/accounts                  401         503
+  PATCH  /api/accounts/[id]             401         503
+  DELETE /api/accounts/[id]             401         503
+  POST   /api/accounts/[id]/verify      401         503
+  GET    /api/accounts/[id]/equity      401         401   (read still served;
+                                                           its backfill skipped)
+```
 
-Do not change `PRODUCTION_RELEASE_SHA` in order to deploy the UI. Do not run a
-mutating paper cycle as a smoke test.
+The 401s are the unauthenticated baseline — the freeze is checked in the proxy
+*before* authentication precisely so it can be observed from outside, which is
+what makes it testable rather than asserted.
+
+Image digest, and an important qualification: the local build of `693d53528`
+is `sha256:7ac752a0533b61c86709943d903c411fd0f5d7e28c1c83f55cca94871974a4b5`.
+That is a local image ID from a build with **placeholder** `NEXT_PUBLIC_*`
+values, which Next.js bakes into the client bundle — so it is evidence that
+the commit builds and that the freeze behaves, and it is **not** the artifact
+to deploy. A real deployment rebuilds with the real values and gets a
+different digest; record that one in the deployment log.
 
 ### 13.4 The freeze is enforced in the application, not announced
 
@@ -1410,6 +1471,8 @@ database:
 | `PATCH` / `DELETE /api/accounts/[id]` | non-atomic update and deletion |
 | `POST /api/accounts/[id]/verify` | writes the status and the broker binding |
 | `POST /api/accounts/[id]/refresh` | writes `equity_snapshots`, `cash_flows`, `broker_refresh_state` and `broker_refresh_token` |
+| *(bridge only)* `GET /api/accounts/[id]/equity` | its `backfillEquity` writes `equity_snapshots`; the read still serves, the backfill is skipped |
+| *(bridge only)* `GET /api/accounts/[id]/performance` | its two backfills write both mirrors; the endpoint reports `UNAVAILABLE` rather than a number from a mirror it was not allowed to update |
 
 The last row is the one an edge-level block would have missed. A freeze that
 stopped the lifecycle endpoints while the financial mirrors kept moving would
@@ -1420,7 +1483,12 @@ It is an environment variable rather than a database flag on purpose: the
 freeze has to hold while the database is being migrated, and a flag stored in
 the thing being migrated cannot do that. **A rollback image that does not carry
 this control is not a safe rollback target** — verify `503` before trusting it,
-in both directions.
+in both directions. `fc73acaae` as tagged does not carry it; the bridge commit
+`693d53528` does, which is the whole reason that commit exists.
+
+The check runs in the proxy, before authentication, so it is observable from
+outside without a session — a control a smoke test cannot see is a control
+nobody can confirm. The per-handler guards remain as defence in depth.
 
 Reads are unaffected and stay served: they no longer write anything, so there
 is nothing to freeze, and the dashboard stays legible while the work happens.
@@ -1429,15 +1497,16 @@ is nothing to freeze, and the dashboard stays legible while the work happens.
 
 Two independent axes, and they roll back separately.
 
-**Image rollback.** `fc73acaae` reads correctly on either schema, which is what
-makes it a bridge — but as tagged it carries no write freeze, so on its own it
-is a rollback target for *reads* only. A rollback image must be built from
-`fc73acaae` **plus** the maintenance control (13.4), or the moment it starts
-serving, its non-atomic lifecycle writes are reachable again. Verify `503` on
-`POST /api/accounts` before trusting either direction of the rollback.
+**Image rollback.** The bridge commit `693d535288169a613b5c51cbc0b8706134b905ae`
+is the rollback target, on either schema. It reads correctly on both and it
+carries the write freeze, so rolling onto it does not re-open the non-atomic
+lifecycle writes the moment it starts serving. `fc73acaae` as tagged is a
+rollback target for *reads* only.
 
-If the candidate misbehaves after step 6, go back to that image without
-touching the database.
+Verify `503` on `POST /api/accounts` before trusting either direction. If the
+candidate misbehaves after step 6, roll to the bridge without touching the
+database; if the migrations themselves misbehave, the bridge is also what
+serves while the PITR runs.
 
 `d11bbad8a` is a valid target only *before* the migrations. Afterwards it reads
 `accounts` as `authenticated`, which no longer has that privilege, so it fails
@@ -1651,7 +1720,7 @@ place.
 | `scripts/strategy_identity.py` | Strategy and universe identity hashes |
 | `scripts/backtest/validate_v11.py` | Canonical fixed-policy validator |
 | `state/backtest/v11_validation.json` | Bound canonical validation evidence |
-| `.github/workflows/v11-release.yml` | Non-trading release gate (5 jobs) |
+| `.github/workflows/v11-release.yml` | Non-trading release gate (6 jobs) |
 | `.github/workflows/paper-production.yml` | The only supported paper executor |
 | `dashboard/lib/status/` | The unified server-side V11 read model |
 | `dashboard/lib/status/lineage.ts` | The one shared, fail-closed lineage verdict |

@@ -320,40 +320,47 @@ export async function refreshBrokerDatasets(
     reservationTaken,
   });
 
-  const { data: cred, error: credErr } = await svc.rpc(
-    "get_account_credentials",
-    { acct: accountId },
+  // Credentials and reservation from **one** transaction.
+  //
+  // They used to be two calls, credentials first. A rotation landing between
+  // them produced a token recording the *new* `credential_version` while the
+  // caller held the *old* key — the one combination the version re-check at
+  // publish time cannot catch, because the token and the account agree with
+  // each other and disagree only with reality. The refresh then published data
+  // fetched with a credential that no longer existed, and reported success.
+  //
+  // `begin_broker_refresh_with_credentials` locks the account row, reads the
+  // Vault secrets and writes the token in a single transaction, so what the
+  // token records is by construction the key this function holds.
+  const { data: reservation, error: genError } = await svc.rpc(
+    "begin_broker_refresh_with_credentials",
+    { p_account: accountId, p_owner: ownerId },
   );
-  if (credErr || !cred || cred.length === 0) {
+  const issued =
+    reservation && typeof reservation === "object" && !Array.isArray(reservation)
+      ? (reservation as Record<string, unknown>)
+      : null;
+  const token = issued?.token;
+  const generation = issued?.generation;
+  const apiKey = issued?.api_key;
+  const apiSecret = issued?.api_secret;
+
+  if (genError && /no stored credentials|account has no stored/i.test(genError.message ?? "")) {
     return failed(
       "NO_CREDENTIALS",
       "This account has no stored Alpaca credentials.",
       false,
     );
   }
-  const { api_key: apiKey, api_secret: apiSecret } = cred[0];
-
-  // The reservation is taken before the broker is read. It carries the
-  // account, owner, mode, broker account number and credential version this
-  // refresh is about to read *with*, so a rotation landing mid-fetch can be
-  // recognised at publish time rather than silently mixing two credentials'
-  // data into one mirror.
-  const { data: reservation, error: genError } = await svc.rpc(
-    "begin_broker_refresh",
-    { p_account: accountId, p_owner: ownerId },
-  );
-  const token =
-    reservation && typeof reservation === "object" && !Array.isArray(reservation)
-      ? (reservation as Record<string, unknown>).token
-      : null;
-  const generation =
-    reservation && typeof reservation === "object" && !Array.isArray(reservation)
-      ? (reservation as Record<string, unknown>).generation
-      : null;
-  if (genError || typeof token !== "string") {
+  if (
+    genError ||
+    typeof token !== "string" ||
+    typeof apiKey !== "string" ||
+    typeof apiSecret !== "string"
+  ) {
     return failed(
       "PUBLISH_REFUSED",
-      `A refresh could not be reserved: ${genError?.message ?? "no token returned"}`,
+      `A refresh could not be reserved: ${genError?.message ?? "no token and credentials returned"}`,
       false,
     );
   }

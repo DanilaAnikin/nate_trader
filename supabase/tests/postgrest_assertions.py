@@ -308,6 +308,13 @@ for role, sub in (("anon", None), ("authenticated", OWNER)):
             "p_account": ACCOUNT, "p_owner": OWNER, "p_rows": [],
         }),
         ("begin_broker_refresh", {"p_account": ACCOUNT, "p_owner": OWNER}),
+        ("begin_broker_refresh_with_credentials", {
+            "p_account": ACCOUNT, "p_owner": OWNER,
+        }),
+        ("lock_credential_pair", {
+            "p_a": "00000000-0000-0000-0000-000000000001",
+            "p_b": "00000000-0000-0000-0000-000000000002",
+        }),
         ("publish_broker_refresh", {
             "p_token": "00000000-0000-0000-0000-000000000000",
             "p_equity": [], "p_equity_complete": True,
@@ -580,13 +587,15 @@ check(
     f"a refresh token was published twice: {status} {body[:250]}",
 )
 
-# A binding change between reservation and publish refuses the publish. (The
-# fixture account holds no Vault secrets, so the rebind path is used; both bump
-# `credential_version`, which is what the publish re-checks.)
+# A credential change between reservation and publish refuses the publish.
+# A *rebind* is no longer available for this: an account with mirrored history
+# cannot be pointed at a different broker account, because one equity curve
+# cannot describe two of them. The version bump therefore comes from a status
+# re-verification that keeps the same number.
 stale_token = reserve()
 psql(
-    f"select record_account_verification('{ACCOUNT}','{OWNER}',"
-    "'connected','PA-PGRST-REBOUND-9999') is not null"
+    f"update accounts set credential_version = credential_version + 1 "
+    f"where id = '{ACCOUNT}'"
 )
 status, body = request(
     "/rpc/publish_broker_refresh",
@@ -629,6 +638,24 @@ check(
     "the equity retraction allowance still exists in the live catalogue",
 )
 print("  the retraction allowance heuristic is gone from the catalogue")
+
+# An account with mirrored history may not be pointed at a different broker
+# account: one equity curve cannot describe two of them, and nothing in the
+# rows marks the seam.
+status, body = request(
+    "/rpc/record_account_verification",
+    role="service_role",
+    method="POST",
+    body={
+        "p_account": ACCOUNT, "p_owner": OWNER,
+        "p_status": "connected", "p_account_number": "PA-A-DIFFERENT-BROKER",
+    },
+)
+check(
+    status >= 400 and "two broker accounts" in body,
+    f"an account with history was rebound: {status} {body[:250]}",
+)
+print("  an account with mirrored history cannot be rebound to another broker")
 status, body = request(
     "/rpc/delete_account_atomic",
     role="service_role",

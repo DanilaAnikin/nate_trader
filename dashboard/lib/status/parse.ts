@@ -21,6 +21,7 @@ import type {
   ValidationSegmentMetric,
 } from "./types";
 import { normalizeInstant } from "./vocab";
+import { isCalendarDate } from "@/lib/calendar-date";
 
 const RISK_TIERS = new Set<RiskTier>(["NORMAL", "CAUTIOUS", "HALT"]);
 
@@ -272,7 +273,9 @@ export function parsePerformanceRuntime(
       if (!isRecord(entry)) continue;
       const date = str(entry.date);
       const equity = num(entry.equity);
-      if (date && equity !== null && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      // Round-tripped, not shape-checked: `2026-02-30` matches the pattern,
+      // and every consumer keys risk and drawdown off these dates.
+      if (isCalendarDate(date) && equity !== null) {
         dailyHistory.push({ date, equity });
       }
     }
@@ -412,7 +415,9 @@ export function parsePreflight(
     universeCount: num(details.universe_count),
     universeSource,
     universeSha256,
-    barSnapshotThroughDate: str(details.bar_snapshot_through_date),
+    barSnapshotThroughDate: isCalendarDate(details.bar_snapshot_through_date)
+      ? details.bar_snapshot_through_date
+      : null,
     validationStatus: str(details.validation_status),
     riskTier: riskTier(details.risk_tier),
     riskSnapshotReason: str(details.risk_snapshot_reason),
@@ -454,7 +459,11 @@ export function parseValidation(
     rawStatus === "PASS" ? "PASS" : rawStatus === "FAIL" ? "FAIL" : "UNAVAILABLE";
 
   const generatedAt = normalizeInstant(value.generated_at);
-  const barBoundaryDate = str(evidence.bar_snapshot_through_date);
+  // A boundary that is not a real day is no boundary. Reporting it as absent
+  // makes the report expire on `generated_at` alone rather than on a date two
+  // days later than the one it states.
+  const rawBoundary = evidence.bar_snapshot_through_date;
+  const barBoundaryDate = isCalendarDate(rawBoundary) ? rawBoundary : null;
   const { expiresAt, expiryBasis } = validationExpiry(
     generatedAt,
     barBoundaryDate,
@@ -551,7 +560,10 @@ export function validationExpiry(
       candidates.push({ at: parsed + windowMs, basis: "report" });
     }
   }
-  if (barBoundaryDate && /^\d{4}-\d{2}-\d{2}$/.test(barBoundaryDate)) {
+  // The 35-day expiry is computed from this date. `2026-02-30` used to pass
+  // the shape test and become 2 March, buying the report two days it was
+  // never granted.
+  if (isCalendarDate(barBoundaryDate)) {
     const parsed = Date.parse(`${barBoundaryDate}T00:00:00Z`);
     if (Number.isFinite(parsed)) {
       candidates.push({ at: parsed + windowMs, basis: "bar-boundary" });

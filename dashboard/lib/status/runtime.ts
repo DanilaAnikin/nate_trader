@@ -349,6 +349,34 @@ function withinWindow(instant: string | null, window: OutputWindow | null): bool
 }
 
 /**
+ * Whether this run's artifacts can be attributed to the attempt on screen.
+ *
+ * They cannot, past the first attempt. GitHub's artifact listing is
+ * **run-level**: `/runs/{id}/artifacts` returns everything any attempt of that
+ * run uploaded, with no attempt field to filter on. A re-run therefore serves
+ * attempt 1's `paper-diagnostics` alongside attempt 2's, and nothing in the
+ * response says which is which. The step-window check narrows it, but a re-run
+ * started minutes later overlaps the same 15-minute slack, so it is a
+ * heuristic and not a proof.
+ *
+ * The only thing that would settle it is the artifact naming or containing its
+ * own `run_id` + `run_attempt` — and that lives in
+ * `.github/workflows/paper-production.yml`, a strategy-identity source this
+ * change may not touch. So the dashboard fails closed instead: any attempt
+ * past the first is UNAVAILABLE, with a reason that says what would fix it.
+ *
+ * Attempt 1 is the overwhelmingly common case; the paper workflow has never
+ * been re-run in the observed history.
+ */
+function attemptIsAttributable(run: WorkflowRunSummary): boolean {
+  return run.attempt === 1;
+}
+
+const RERUN_DETAIL =
+  "it is a re-run, and GitHub lists artifacts per run rather than per attempt, " +
+  "so this build cannot prove which attempt produced them";
+
+/**
  * Latest successful executor cycle whose private runtime artifact is bound to
  * the approved release.
  */
@@ -373,6 +401,16 @@ export async function selectLatestExecution(
     now,
     SUCCEEDED,
     async (run) => {
+    if (!attemptIsAttributable(run)) {
+      return {
+        ...EMPTY_EXECUTION_SELECTION,
+        run,
+        errors: [
+          `run #${run.runNumber} is attempt ${run.attempt}: ${RERUN_DETAIL}`,
+        ],
+      };
+    }
+
     const artifacts = await fetchRunArtifacts(run.id);
     if (!artifacts) {
       return {
@@ -606,6 +644,16 @@ export async function selectLatestPreflight(
     now,
     COMPLETED,
     async (run) => {
+    if (!attemptIsAttributable(run)) {
+      return {
+        ...EMPTY_PREFLIGHT_SELECTION,
+        run,
+        errors: [
+          `run #${run.runNumber} is attempt ${run.attempt}: ${RERUN_DETAIL}`,
+        ],
+      };
+    }
+
     const artifacts = await fetchRunArtifacts(run.id);
     if (!artifacts) {
       // Not knowing what this run produced is not evidence that it produced
