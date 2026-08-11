@@ -76,13 +76,21 @@ function gate(
       status: "PASS" | "FAIL" | "DEGRADED";
       marketEntryAllowed: boolean | null;
       blockingActionCount: number;
+      runtimeComplete: boolean;
+      selfConsistent: boolean;
       performanceInCycle: boolean;
+      performanceCoherent: boolean;
+      frozenPlanValid: boolean;
     } | null;
     executionOverrides?: Partial<{
       status: "PASS" | "FAIL" | "DEGRADED";
       marketEntryAllowed: boolean | null;
       blockingActionCount: number;
+      runtimeComplete: boolean;
+      selfConsistent: boolean;
       performanceInCycle: boolean;
+      performanceCoherent: boolean;
+      frozenPlanValid: boolean;
     }>;
   } = {},
 ) {
@@ -117,7 +125,11 @@ function gate(
             status: "PASS" as const,
             marketEntryAllowed: true,
             blockingActionCount: 0,
+            runtimeComplete: true,
+            selfConsistent: true,
             performanceInCycle: true,
+            performanceCoherent: true,
+            frozenPlanValid: true,
             ...(options.executionOverrides ?? {}),
           }
         : options.executionEvidence,

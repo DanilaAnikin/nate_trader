@@ -63,6 +63,7 @@ import {
   STRATEGY_STATUS_SCHEMA_VERSION,
   STRATEGY_STATUS_SOURCE,
 } from "./types";
+import { assessPerformanceCoherence } from "./coherence";
 import {
   computeEffectiveValidationGate,
   NOT_APPLICABLE_GATE,
@@ -675,6 +676,7 @@ export async function buildStrategyStatus(input: {
     run: null,
     artifactName: null,
     artifactCreatedAt: null,
+    executeStep: null,
     errors: [],
     lineageMismatch: false,
   };
@@ -895,6 +897,14 @@ export async function buildStrategyStatus(input: {
                 marketEntryAllowed: executionSelection.lastRun.marketEntryAllowed,
                 blockingActionCount:
                   executionSelection.lastRun.blockingActions.length,
+                // Reaching this branch means every document in the artifact
+                // parsed and bound to the run; the selector returns an error
+                // instead for anything less.
+                runtimeComplete: true,
+                // The producer's summary line is a claim about its own counts,
+                // and it has been wrong about them. This is what the counts
+                // say.
+                selfConsistent: executionSelection.lastRun.passWorthy,
                 // Both files are written by the same cycle seconds apart. A
                 // `performance.json` from another day inside one artifact
                 // means the artifact is a mixture, and the equity on screen is
@@ -903,6 +913,20 @@ export async function buildStrategyStatus(input: {
                   executionSelection.performance.updatedAt,
                   executionSelection.lastRun.completedAt,
                 ),
+                // And the stronger form: the stamp must fall inside the step
+                // that wrote it, before the summary written after it, and not
+                // in this server's future.
+                performanceCoherent:
+                  assessPerformanceCoherence(executionSelection.performance, {
+                    lastRunCompletedAt: executionSelection.lastRun.completedAt,
+                    executeStep: executionSelection.executeStep,
+                    now,
+                  }).length === 0,
+                // `parsePerformanceRuntime` refuses a document whose plan is
+                // present and unreadable, so reaching here with a parsed
+                // performance already establishes this. Stated explicitly
+                // because the gate must not infer it from that fact.
+                frozenPlanValid: true,
               }
             : null,
         now,

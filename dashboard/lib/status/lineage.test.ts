@@ -156,10 +156,15 @@ describe("evaluateLineage", () => {
   });
 
   it("flags a plan whose signal date is after the cycle that produced it", () => {
+    // A signal date later than the freeze is refused by `parseFrozenPlan`
+    // itself, so the case that reaches the lineage check is the narrower one:
+    // a plan frozen consistently, but *after* the run record it travelled
+    // with.
     const verdict = evaluate({
       performance: performance({
         adaptive_rebalance_pending: frozenPlanJson({
           signal_date: "2027-01-04",
+          created_at: "2027-01-05 12:05:03",
         }),
       }),
     });
@@ -267,18 +272,8 @@ describe("a present preflight must prove its own lineage", () => {
 });
 
 describe("a present frozen plan must prove its own lineage", () => {
-  it("fails when the plan has no signal date", () => {
-    const verdict = evaluate({
-      performance: performance({
-        adaptive_rebalance_pending: frozenPlanJson({ signal_date: undefined }),
-      }),
-    });
-    expect(verdict.ok).toBe(false);
-    expect(verdict.status).toBe("MISSING_EVIDENCE");
-    expect(fields(verdict)).toContain("signalDate");
-  });
-
   it.each([
+    ["absent", undefined],
     ["null", null],
     ["empty", ""],
     ["whitespace", "  "],
@@ -288,15 +283,20 @@ describe("a present frozen plan must prove its own lineage", () => {
     ["not a real date", "2026-02-30"],
     ["month 13", "2026-13-01"],
     ["garbage", "not-a-date"],
-  ])("fails when the signal date is %s", (_label, value) => {
-    const verdict = evaluate({
-      performance: performance({
-        adaptive_rebalance_pending: frozenPlanJson({ signal_date: value }),
-      }),
+  ])("refuses the runtime document when the signal date is %s", (_label, value) => {
+    // This defence moved one layer earlier and got stronger. A plan whose
+    // signal date cannot be read no longer arrives at the lineage check with
+    // a nulled field — `parseFrozenPlan` refuses it, and a present-but-
+    // unreadable plan refuses the whole `performance.json` around it. There is
+    // no runtime state to evaluate the lineage of.
+    const json = performanceJson({
+      adaptive_rebalance_pending: frozenPlanJson({ signal_date: value }),
     });
-    expect(verdict.ok).toBe(false);
-    expect(verdict.status).toBe("MISSING_EVIDENCE");
-    expect(fields(verdict)).toContain("signalDate");
+    if (value === undefined) {
+      delete (json.adaptive_rebalance_pending as Record<string, unknown>)
+        .signal_date;
+    }
+    expect(parsePerformanceRuntime(json)).toBeNull();
   });
 
   it("accepts a leap day that really exists", () => {

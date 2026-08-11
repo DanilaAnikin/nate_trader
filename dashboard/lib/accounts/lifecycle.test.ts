@@ -297,9 +297,11 @@ describe("createAccount is one transaction", () => {
     // The Vault secrets are created *inside* the transaction now. Two separate
     // `vault_create_secret` round trips before it meant a dropped response
     // orphaned a secret with nothing able to prove later whether it belonged.
-    expect(names).toEqual(["create_account_operation"]);
+    // The ledger is consulted first — before Alpaca — so a retry of an
+    // already committed request stays answerable during a broker outage.
+    expect(names).toEqual(["resolve_create_operation", "create_account_operation"]);
     expect(tableWrites).toEqual([]);
-    const call = rpcCalls[0];
+    const call = rpcCalls.find((entry) => entry.name === "create_account_operation")!;
     expect(call.args).toMatchObject({
       p_owner: OWNER_ID,
       p_nickname: "New paper",

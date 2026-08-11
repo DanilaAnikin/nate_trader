@@ -140,8 +140,23 @@ function diagnosticsZip(): Buffer {
 }
 
 function stubGithub() {
+  /**
+   * GitHub always states `total_count` on a paged listing, and the reader now
+   * reconciles the page against it. The stub does the same so it keeps
+   * mirroring the real API rather than a laxer version of it.
+   */
+  const withTotalCount = (body: unknown) => {
+    if (typeof body !== "object" || body === null) return body;
+    const record = body as Record<string, unknown>;
+    for (const field of ["workflow_runs", "artifacts", "jobs"]) {
+      if (Array.isArray(record[field]) && record.total_count === undefined) {
+        return { ...record, total_count: (record[field] as unknown[]).length };
+      }
+    }
+    return body;
+  };
   const json = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body), { status });
+    new Response(JSON.stringify(withTotalCount(body)), { status });
   const zip = (body: Buffer) =>
     new Response(new Uint8Array(body), {
       headers: { "content-length": String(body.byteLength) },

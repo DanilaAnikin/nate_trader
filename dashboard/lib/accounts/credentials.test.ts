@@ -1,11 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/lib/database.types";
-import {
-  purgeCredentials,
-  storeCredentials,
-  validateAlpacaKeys,
-} from "./credentials";
+import { validateAlpacaKeys } from "./credentials";
 
 const KEY = "PKTEST1234567890";
 const SECRET = "abcdefSECRET0987654321";
@@ -84,91 +78,5 @@ describe("validateAlpacaKeys", () => {
     const serialized = JSON.stringify(res);
     expect(serialized).not.toContain(KEY);
     expect(serialized).not.toContain(SECRET);
-  });
-});
-
-// Minimal stand-in for the service client's .rpc() surface.
-function fakeService(rpc: ReturnType<typeof vi.fn>) {
-  return { rpc } as unknown as SupabaseClient<Database>;
-}
-
-describe("storeCredentials", () => {
-  it("stores both secrets and returns their UUIDs", async () => {
-    const rpc = vi
-      .fn()
-      .mockResolvedValueOnce({ data: "key-uuid", error: null })
-      .mockResolvedValueOnce({ data: "secret-uuid", error: null });
-    const out = await storeCredentials(fakeService(rpc), KEY, SECRET);
-    expect(out).toEqual({ keyId: "key-uuid", secretId: "secret-uuid" });
-    expect(rpc).toHaveBeenNthCalledWith(1, "vault_create_secret", { p_secret: KEY });
-    expect(rpc).toHaveBeenNthCalledWith(2, "vault_create_secret", { p_secret: SECRET });
-  });
-
-  it("rolls back the first secret if the second write fails", async () => {
-    const rpc = vi
-      .fn()
-      .mockResolvedValueOnce({ data: "key-uuid", error: null })
-      .mockResolvedValueOnce({ data: null, error: { message: "vault down" } })
-      .mockResolvedValueOnce({ data: null, error: null }); // the rollback delete
-    await expect(storeCredentials(fakeService(rpc), KEY, SECRET)).rejects.toThrow();
-    expect(rpc).toHaveBeenNthCalledWith(3, "vault_delete_secret", { p_id: "key-uuid" });
-  });
-});
-
-describe("purgeCredentials", () => {
-  it("deletes each non-null secret id", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
-    await purgeCredentials(fakeService(rpc), "key-uuid", "secret-uuid");
-    expect(rpc).toHaveBeenCalledWith("vault_delete_secret", { p_id: "key-uuid" });
-    expect(rpc).toHaveBeenCalledWith("vault_delete_secret", { p_id: "secret-uuid" });
-  });
-
-  it("skips null ids", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
-    await purgeCredentials(fakeService(rpc), null, null);
-    expect(rpc).not.toHaveBeenCalled();
-  });
-});
-
-describe("a discarded Vault error is a silent credential leak", () => {
-  it("throws when the key purge fails", async () => {
-    const rpc = vi
-      .fn()
-      .mockResolvedValueOnce({ data: null, error: { message: "vault down" } })
-      .mockResolvedValueOnce({ data: null, error: null });
-    await expect(
-      purgeCredentials(fakeService(rpc), "key-uuid", "secret-uuid"),
-    ).rejects.toThrow(/key: vault down/);
-  });
-
-  it("throws when the secret purge fails", async () => {
-    const rpc = vi
-      .fn()
-      .mockResolvedValueOnce({ data: null, error: null })
-      .mockResolvedValueOnce({ data: null, error: { message: "no such id" } });
-    await expect(
-      purgeCredentials(fakeService(rpc), "key-uuid", "secret-uuid"),
-    ).rejects.toThrow(/secret: no such id/);
-  });
-
-  it("reports both failures together, and still attempts both", async () => {
-    const rpc = vi
-      .fn()
-      .mockResolvedValue({ data: null, error: { message: "vault down" } });
-    await expect(
-      purgeCredentials(fakeService(rpc), "key-uuid", "secret-uuid"),
-    ).rejects.toThrow(/key: vault down; secret: vault down/);
-    expect(rpc).toHaveBeenCalledTimes(2);
-  });
-
-  it("says so when the creation rollback itself fails", async () => {
-    const rpc = vi
-      .fn()
-      .mockResolvedValueOnce({ data: "key-uuid", error: null })
-      .mockResolvedValueOnce({ data: null, error: { message: "vault down" } })
-      .mockResolvedValueOnce({ data: null, error: { message: "delete refused" } });
-    await expect(
-      storeCredentials(fakeService(rpc), KEY, SECRET),
-    ).rejects.toThrow(/could not be rolled back: delete refused/);
   });
 });

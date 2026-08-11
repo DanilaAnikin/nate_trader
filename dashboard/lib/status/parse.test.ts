@@ -31,9 +31,11 @@ describe("parseLastRun", () => {
     expect(run?.riskTier).toBe("CAUTIOUS");
     expect(run?.actionCounts).toEqual({
       ADAPTIVE_PLAN: 1,
+      ADAPTIVE_PLAN_DEFERRED: 1,
       ADAPTIVE_TRIM: 10,
       REBALANCE_PENDING_SELLS: 1,
     });
+    expect(run?.passWorthy).toBe(true);
   });
 
   it("rejects a record that is not the paper-only V11 schema", () => {
@@ -48,12 +50,17 @@ describe("parseLastRun", () => {
     const run = parseLastRun(
       lastRunJson({
         status: "DEGRADED",
-        blocking_actions: [{ action: "ABORT_SHORT_DETECTED", symbol: "TQQQ" }],
+        action_counts: { ADAPTIVE_PLAN: 1, ABORT_SHORT_RECONCILIATION: 1 },
+        blocking_actions: [
+          { action: "ABORT_SHORT_RECONCILIATION", symbol: "TQQQ" },
+        ],
       }),
     );
     const execution = executionFromLastRun(run!, null);
-    expect(execution.status).toBe("WARN");
-    expect(execution.blockingReason).toBe("ABORT_SHORT_DETECTED (TQQQ)");
+    // A stopped cycle is a failure, not a warning, whatever the producer
+    // chose to call it.
+    expect(execution.status).toBe("FAIL");
+    expect(execution.blockingReason).toBe("ABORT_SHORT_RECONCILIATION (TQQQ)");
   });
 
   it("reports a runner crash as FAIL with its failure type", () => {
@@ -228,9 +235,11 @@ describe("parsePerformanceRuntime", () => {
     // history quietly missing its worst day reports a calmer account than the
     // one that exists.
     const base = performanceJson();
+    // The last row must be the ET session of `updated_at` and carry the same
+    // equity as the scalar field, so the "good" case is built to agree.
     const good = [
-      { date: "2026-08-03", equity: 1000 },
-      { date: "2026-08-04", equity: 1010 },
+      { date: "2026-08-06", equity: 1000 },
+      { date: "2026-08-07", equity: base.equity as number },
     ];
     expect(
       parsePerformanceRuntime({ ...base, daily_history: good })?.dailyHistory,
@@ -239,13 +248,13 @@ describe("parsePerformanceRuntime", () => {
     for (const [label, history] of [
       ["a non-object row", [...good, 42]],
       ["a missing date", [...good, { equity: 1 }]],
-      ["a missing equity", [...good, { date: "2026-08-05" }]],
-      ["an unusable equity", [...good, { date: "2026-08-05", equity: "x" }]],
+      ["a missing equity", [...good, { date: "2026-08-08" }]],
+      ["an unusable equity", [...good, { date: "2026-08-08", equity: "x" }]],
       ["an impossible date", [...good, { date: "2026-02-30", equity: 1 }]],
-      ["a duplicate session", [...good, { date: "2026-08-04", equity: 1 }]],
+      ["a duplicate session", [...good, { date: "2026-08-07", equity: 1 }]],
       [
         "an out-of-order session",
-        [{ date: "2026-08-04", equity: 1 }, { date: "2026-08-03", equity: 2 }],
+        [{ date: "2026-08-07", equity: 1 }, { date: "2026-08-06", equity: 2 }],
       ],
       ["a non-array history", { date: "2026-08-03", equity: 1 }],
     ] as const) {

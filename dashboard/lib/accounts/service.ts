@@ -145,17 +145,30 @@ export async function createAccount(
     };
   }
 
+  const svc = getSupabaseService();
+  const fingerprint = createRequestFingerprint(userId, input);
+  const operationId = input.operationId as string;
+
+  // **The ledger first, before Alpaca.**
+  //
+  // Validation used to run ahead of this, which broke idempotence in exactly
+  // the situation it exists for: a retry of an already-committed request
+  // arriving during an Alpaca outage failed at validation and never reached
+  // the ledger, so the caller was told the creation failed while the account
+  // sat committed. The ledger can answer without the broker, and a committed
+  // request needs no second opinion about keys the first call already checked.
+  const prior = await resolveOperation(svc, userId, operationId, fingerprint);
+  if (prior.kind === "created") return prior.result;
+  if (prior.kind === "conflict") return prior.result;
+
   const validation = await validateAlpacaKeys(input.mode, input.apiKey, input.apiSecret);
   if (!validation.ok) {
     return { ok: false, reason: validation.reason, message: validation.message };
   }
 
-  const svc = getSupabaseService();
-  const fingerprint = createRequestFingerprint(userId, input);
-
   const { data, error } = await svc.rpc("create_account_operation", {
     p_owner: userId,
-    p_operation_id: input.operationId,
+    p_operation_id: operationId,
     p_fingerprint: fingerprint,
     p_nickname: nickname,
     p_mode: input.mode,
@@ -172,32 +185,18 @@ export async function createAccount(
   // The response was lost, or the call was refused. Ask the database what
   // happened — *under the same operation lock*, so the answer cannot be "not
   // yet" mistaken for "never".
-  const probe = await svc.rpc("resolve_create_operation", {
-    p_owner: userId,
-    p_operation_id: input.operationId,
-  });
-
-  if (!probe.error && probe.data) {
-    const outcome = (probe.data as { outcome?: unknown; account_id?: unknown }).outcome;
-    if (outcome === "created") {
-      const accountId = (probe.data as { account_id?: unknown }).account_id;
-      const { data: row } = await svc
-        .from("accounts")
-        .select("*")
-        .eq("id", String(accountId))
-        .maybeSingle();
-      if (row) return { ok: true, account: toSafe(row as AccountRow) };
-    }
-    if (outcome === "absent") {
-      // Proven, with the lock held: nothing was created, and because the
-      // secrets are written inside the same transaction there is nothing
-      // orphaned to compensate.
-      return {
-        ok: false,
-        reason: "db_error",
-        message: error?.message ?? "Account could not be created.",
-      };
-    }
+  const after = await resolveOperation(svc, userId, operationId, fingerprint);
+  if (after.kind === "created") return after.result;
+  if (after.kind === "conflict") return after.result;
+  if (after.kind === "absent") {
+    // Proven, with the lock held: nothing was created, and because the
+    // secrets are written inside the same transaction there is nothing
+    // orphaned to compensate.
+    return {
+      ok: false,
+      reason: "db_error",
+      message: error?.message ?? "Account could not be created.",
+    };
   }
 
   return {
@@ -206,10 +205,88 @@ export async function createAccount(
     message:
       `${error?.message ?? "Account could not be created."} ` +
       `Whether it was created could not be established` +
-      `${probe.error ? ` (${probe.error.message})` : ""}. ` +
+      `${after.kind === "unknown" && after.detail ? ` (${after.detail})` : ""}. ` +
       `Retrying with the same operation id is safe and will return the ` +
       `original result; nothing was rolled back.`,
   };
+}
+
+type OperationResolution =
+  | { kind: "created"; result: AccountResult }
+  | { kind: "conflict"; result: AccountResult }
+  | { kind: "absent" }
+  | { kind: "no_account" }
+  | { kind: "unknown"; detail: string | null };
+
+/**
+ * Ask the ledger what became of one operation id, under its own lock.
+ *
+ * The fingerprint is passed, not just the id: matching the id alone reported
+ * *some* account this owner created earlier as the thing just created. A
+ * mismatch is a `conflict` and must never resolve to a success — the caller
+ * reused a spent key for a different request, and returning the original row
+ * would answer a question nobody asked.
+ */
+async function resolveOperation(
+  svc: ReturnType<typeof getSupabaseService>,
+  userId: string,
+  operationId: string,
+  fingerprint: string,
+): Promise<OperationResolution> {
+  const probe = await svc.rpc("resolve_create_operation", {
+    p_owner: userId,
+    p_operation_id: operationId,
+    p_fingerprint: fingerprint,
+  });
+  if (probe.error || !probe.data) {
+    return { kind: "unknown", detail: probe.error?.message ?? null };
+  }
+
+  const body = probe.data as { outcome?: unknown; account_id?: unknown };
+  if (body.outcome === "conflict") {
+    return {
+      kind: "conflict",
+      result: {
+        ok: false,
+        reason: "invalid_input",
+        message:
+          "This operation id was already used for a different request. " +
+          "Start a new submission rather than replaying a spent one.",
+      },
+    };
+  }
+  if (body.outcome === "absent") return { kind: "absent" };
+  if (body.outcome === "no_account") return { kind: "no_account" };
+  if (body.outcome !== "created" || typeof body.account_id !== "string") {
+    return { kind: "unknown", detail: "the ledger returned an unreadable outcome" };
+  }
+
+  // Re-read the row the ledger named, bound on every axis that makes it *this
+  // owner's account for this operation*. The previous read matched the id
+  // alone, so a ledger row naming a foreign, soft-deleted or re-pointed
+  // account would have been returned as a successful creation. The query error
+  // is checked too: a failed read used to be indistinguishable from no row.
+  const { data: row, error: readError } = await svc
+    .from("accounts")
+    .select("*")
+    .eq("id", body.account_id)
+    .eq("owner_id", userId)
+    .eq("create_operation_id", operationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (readError) {
+    return { kind: "unknown", detail: readError.message };
+  }
+  if (!row) {
+    // The ledger says an account was created and the table does not have it
+    // under this owner and operation. That is not a success and not an
+    // absence; it is a state this code cannot explain.
+    return {
+      kind: "unknown",
+      detail: "the ledger names an account that does not match this owner and operation",
+    };
+  }
+  return { kind: "created", result: { ok: true, account: toSafe(row as AccountRow) } };
 }
 
 export type UpdateAccountPatch = {

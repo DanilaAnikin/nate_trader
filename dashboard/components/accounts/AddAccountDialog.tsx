@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Modal from "./Modal";
 import { V11_POLICY } from "@/lib/v11-policy";
 
@@ -14,6 +14,49 @@ const COLORS = [
 ];
 
 type Mode = "paper" | "live";
+
+/**
+ * Where a pending create operation id lives between a lost response and the
+ * retry that resolves it.
+ *
+ * `sessionStorage`, not `localStorage`: the id must survive a reload of *this*
+ * tab and must not be shared with another one, where it would make two
+ * genuinely different submissions collapse into a single account.
+ */
+const PENDING_OPERATION_KEY = "nt.accounts.pendingCreateOperation";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function readPendingOperation(): string | null {
+  try {
+    const stored = window.sessionStorage.getItem(PENDING_OPERATION_KEY);
+    // Validated on the way out as well as in: storage is writable by anything
+    // running in the tab, and a malformed value would be rejected by the
+    // server anyway — better to mint a fresh id than to fail the submission.
+    return stored && UUID_RE.test(stored) ? stored : null;
+  } catch {
+    // Storage can be unavailable (private mode, disabled cookies). Losing the
+    // id degrades idempotence to what it was; it must not break creation.
+    return null;
+  }
+}
+
+export function writePendingOperation(operationId: string): void {
+  try {
+    window.sessionStorage.setItem(PENDING_OPERATION_KEY, operationId);
+  } catch {
+    /* see readPendingOperation */
+  }
+}
+
+export function clearPendingOperation(): void {
+  try {
+    window.sessionStorage.removeItem(PENDING_OPERATION_KEY);
+  } catch {
+    /* see readPendingOperation */
+  }
+}
 
 export default function AddAccountDialog({
   open,
@@ -32,8 +75,24 @@ export default function AddAccountDialog({
   const [liveConfirmed, setLiveConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** Survives re-renders and retries; cleared only by `reset`. */
+  /**
+   * Survives re-renders, retries *and* a reload.
+   *
+   * A `useRef` alone survives only as long as the component is mounted. The
+   * failure that most needs idempotence is the one where the answer never
+   * arrives — the tab is closed, the phone sleeps, the user reloads — and a
+   * ref is gone by then, so the resubmission arrives with a fresh id and
+   * creates a second account for the same broker credentials. The id is
+   * therefore parked in `sessionStorage`: same tab, cleared when the tab
+   * closes, and never shared with another tab (which would collapse two
+   * genuinely different submissions into one).
+   */
   const operationIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    operationIdRef.current = readPendingOperation();
+  }, [open]);
 
   function reset() {
     setNickname("");
@@ -46,6 +105,7 @@ export default function AddAccountDialog({
     // A *new* submission is a new operation. Only a retry of the same one
     // reuses the id.
     operationIdRef.current = null;
+    clearPendingOperation();
   }
 
   function close() {
@@ -67,8 +127,13 @@ export default function AddAccountDialog({
     // payload, so a retry returns the original result and a different payload
     // under the same id is refused. A server-generated id would be fresh on
     // every retry, which is precisely when idempotency is needed.
-    const operationId = operationIdRef.current ?? crypto.randomUUID();
+    const operationId =
+      operationIdRef.current ?? readPendingOperation() ?? crypto.randomUUID();
     operationIdRef.current = operationId;
+    // Written *before* the request goes out. Parking it afterwards would leave
+    // exactly the window that matters uncovered: the request that was sent and
+    // whose response never came back.
+    writePendingOperation(operationId);
     try {
       const res = await fetch("/api/accounts", {
         method: "POST",
@@ -84,6 +149,14 @@ export default function AddAccountDialog({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
+        // The id is kept only while the outcome is genuinely unknown. A
+        // definite refusal means nothing committed, so the next attempt is a
+        // new submission — and reusing a spent id for a corrected payload
+        // would be refused as a conflict.
+        if (body.code !== "INDETERMINATE") {
+          operationIdRef.current = null;
+          clearPendingOperation();
+        }
         setError(body.error ?? "Could not create the account.");
         return;
       }
@@ -91,6 +164,9 @@ export default function AddAccountDialog({
       onCreated();
       onClose();
     } catch {
+      // The request may have committed. The id stays parked so the retry —
+      // including one after a reload — resolves the original operation instead
+      // of creating a second account.
       setError("Network error. Please try again.");
     } finally {
       setBusy(false);

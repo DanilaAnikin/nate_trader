@@ -38,6 +38,8 @@
 
 import type { EffectiveValidationGate, PreflightInfo, ValidationInfo } from "./types";
 import type { CheckState } from "./vocab";
+import { isCalendarDate, parseRfc3339 } from "@/lib/calendar-date";
+import { AuthorizedExecutionEvidence } from "./authorization";
 
 export type ValidationGateReason =
   | "REPORT_UNAVAILABLE"
@@ -61,9 +63,12 @@ export type ValidationGateReason =
   | "EXECUTION_STATUS_NOT_PASS"
   | "MARKET_ENTRY_NOT_ALLOWED"
   | "EXECUTION_BLOCKED"
+  | "EXECUTION_SELF_CONTRADICTORY"
   | "PERFORMANCE_CYCLE_MISMATCH"
+  | "PERFORMANCE_INCOHERENT"
   | "INVALID_FROZEN_PLAN"
   | "RUNTIME_SCHEMA_INVALID"
+  | "AUTHORIZATION_NOT_ESTABLISHED"
   | "PREFLIGHT_UNAVAILABLE"
   | "PREFLIGHT_GATE_MISSING"
   | "PREFLIGHT_GATE_FAILED"
@@ -190,6 +195,12 @@ const REASON_DETAIL: Record<ValidationGateReason, string> = {
     "The executor recorded market_entry_allowed = false for its last cycle. That is the runner's own answer to \"may this cycle buy\", and it is no.",
   EXECUTION_BLOCKED:
     "The executor recorded a blocking action for its last cycle — a short, an unreconciled order or a failed check — so it was not free to trade.",
+  EXECUTION_SELF_CONTRADICTORY:
+    "The executor's own record disagrees with itself: its action counts contain an abort, an error, a disabled sleeve or a name this build cannot classify, whatever status line the producer wrote above them.",
+  PERFORMANCE_INCOHERENT:
+    "performance.json is not internally consistent — an empty or future-dated history, a last row that disagrees with the scalar equity, or a timestamp outside the execute step that produced it.",
+  AUTHORIZATION_NOT_ESTABLISHED:
+    "Not every mandatory proof of authorization could be established. A pass is built from the complete proof set, never from the absence of objections.",
   PERFORMANCE_CYCLE_MISMATCH:
     "The runtime artifact's performance.json and last_run.json describe different moments, so the artifact is a mixture and the equity shown is not the equity the recorded cycle ended with.",
   INVALID_FROZEN_PLAN:
@@ -286,8 +297,8 @@ function preflightReasons(
     reasons.push("PREFLIGHT_COUNTS_INCONSISTENT");
   }
 
-  const checkedAtMs = preflight.checkedAt ? Date.parse(preflight.checkedAt) : NaN;
-  if (!Number.isFinite(checkedAtMs)) {
+  const checkedAtMs = parseRfc3339(preflight.checkedAt);
+  if (checkedAtMs === null) {
     reasons.push("PREFLIGHT_CHECKED_AT_INVALID");
   } else if (checkedAtMs - now.getTime() > CLOCK_SKEW_TOLERANCE_MS) {
     reasons.push("PREFLIGHT_CHECKED_AT_INVALID");
@@ -348,8 +359,28 @@ export function computeEffectiveValidationGate(input: {
     readonly status: "PASS" | "FAIL" | "DEGRADED";
     readonly marketEntryAllowed: boolean | null;
     readonly blockingActionCount: number;
+    /**
+     * True when the runtime artifact was downloaded and *every* document in it
+     * parsed. A partially readable artifact is not a cycle record.
+     */
+    readonly runtimeComplete: boolean;
+    /**
+     * True when `last_run.json` does not contradict itself: no abort or error
+     * count, no disabled sleeve, no unclassified action name, and exactly one
+     * terminal completion. The producer's own `status` line is a claim; this
+     * is what its counts say.
+     */
+    readonly selfConsistent: boolean;
     /** True when `performance.json` and `last_run.json` describe one moment. */
     readonly performanceInCycle: boolean;
+    /**
+     * True when `performance.json` is internally coherent: a non-empty
+     * history, no future date, the last row's equity agreeing with the scalar
+     * equity, and a timestamp inside the step window that wrote it.
+     */
+    readonly performanceCoherent: boolean;
+    /** True when any `adaptive_rebalance_pending` present is fully valid. */
+    readonly frozenPlanValid: boolean;
   } | null;
   now: Date;
 }): EffectiveValidationGate {
@@ -417,6 +448,7 @@ export function computeEffectiveValidationGate(input: {
   if (!execution) {
     reasons.push("EXECUTION_UNAVAILABLE");
   } else {
+    if (!execution.runtimeComplete) reasons.push("RUNTIME_SCHEMA_INVALID");
     // What the cycle recorded. A readable artifact is not a successful one.
     if (execution.status !== "PASS") reasons.push("EXECUTION_STATUS_NOT_PASS");
     // `true` and nothing else. `null`, absent, `"yes"` and `1` are all "this
@@ -425,7 +457,14 @@ export function computeEffectiveValidationGate(input: {
       reasons.push("MARKET_ENTRY_NOT_ALLOWED");
     }
     if (execution.blockingActionCount > 0) reasons.push("EXECUTION_BLOCKED");
+    // The producer has been wrong about its own blockers before: it matched
+    // only the exact strings `ABORT` and `ERROR` while the executor emits
+    // `ABORT_SHORT_RECONCILIATION` and four other suffixed names. So the
+    // counts are read here too, independently of what the summary claimed.
+    if (!execution.selfConsistent) reasons.push("EXECUTION_SELF_CONTRADICTORY");
     if (!execution.performanceInCycle) reasons.push("PERFORMANCE_CYCLE_MISMATCH");
+    if (!execution.performanceCoherent) reasons.push("PERFORMANCE_INCOHERENT");
+    if (!execution.frozenPlanValid) reasons.push("INVALID_FROZEN_PLAN");
   }
 
   const preflight = input.preflight ?? null;
@@ -449,14 +488,17 @@ export function computeEffectiveValidationGate(input: {
   }
 
   const nowMs = now.getTime();
-  const generatedAtMs = report.generatedAt ? Date.parse(report.generatedAt) : NaN;
-  if (!Number.isFinite(generatedAtMs)) {
+  // Strict RFC 3339 throughout. `Date.parse` accepts implementation-defined
+  // junk — "2026" and "Aug 7 2026" both produce a number — and every one of
+  // these values comes from a file this process did not write.
+  const generatedAtMs = parseRfc3339(report.generatedAt);
+  if (generatedAtMs === null) {
     reasons.push("MISSING_GENERATED_AT");
   } else if (generatedAtMs > nowMs) {
     reasons.push("FUTURE_DATED");
   }
 
-  const boundaryMs = report.barBoundaryDate
+  const boundaryMs = isCalendarDate(report.barBoundaryDate)
     ? Date.parse(`${report.barBoundaryDate}T00:00:00Z`)
     : NaN;
   if (!Number.isFinite(boundaryMs)) {
@@ -465,8 +507,8 @@ export function computeEffectiveValidationGate(input: {
     reasons.push("FUTURE_DATED");
   }
 
-  const expiresAtMs = report.expiresAt ? Date.parse(report.expiresAt) : NaN;
-  if (!Number.isFinite(expiresAtMs)) {
+  const expiresAtMs = parseRfc3339(report.expiresAt);
+  if (expiresAtMs === null) {
     reasons.push("MISSING_EXPIRY");
   } else if (nowMs > expiresAtMs) {
     reasons.push("EXPIRED");
@@ -484,8 +526,83 @@ export function computeEffectiveValidationGate(input: {
     reasons.push("UNIVERSE_UNKNOWN");
   }
 
+  // ------------------------------------------------------------------------
+  // The positive object.
+  //
+  // Everything above collects *objections*, which is the right thing to show
+  // an operator and the wrong thing to authorize on: an empty objection list
+  // is also what a condition that forgot to speak produces. So the pass is
+  // built here instead, from proofs that each had to be established.
+  //
+  // The two are cross-checked below: an objection with no corresponding
+  // missing proof, or a complete proof set alongside an objection, means this
+  // function contradicts itself, and a contradiction is never a pass.
+  const preflightOk = preflight !== null && preflightReasons(preflight, now).length === 0;
+  const evidence = AuthorizedExecutionEvidence.establish({
+    runId: execution?.runId ?? 0,
+    attempt: execution?.attempt ?? 0,
+    approvedReleaseAuthoritative: Boolean(
+      input.approvedReleaseSha && input.approvedReleaseAuthoritative,
+    ),
+    canonicalReportPass: report.status === "PASS",
+    canonicalReportPaperEligible: report.allowedMode === PAPER_ELIGIBLE_MODE,
+    canonicalReportContractIntact:
+      report.contractSchemaVersion === 1 &&
+      report.contractAlgorithm === "sha256" &&
+      SHA256_RE.test(report.reportSha256 ?? ""),
+    canonicalReportEvidenceComplete:
+      SHA256_RE.test(report.strategyIdentityValue ?? "") &&
+      SHA256_RE.test(report.rankingUniverseSha256 ?? "") &&
+      SHA256_RE.test(report.barSnapshotSha256 ?? ""),
+    canonicalReportChecksCounted:
+      report.checksEvaluated !== null &&
+      report.checksEvaluated > 0 &&
+      report.checksPassed !== null &&
+      report.checksPassed > 0 &&
+      report.checksPassed === report.checksEvaluated,
+    canonicalReportFresh:
+      generatedAtMs !== null &&
+      generatedAtMs <= nowMs &&
+      Number.isFinite(boundaryMs) &&
+      boundaryMs <= nowMs &&
+      expiresAtMs !== null &&
+      nowMs <= expiresAtMs,
+    canonicalReportBoundToRuntime:
+      report.identityMatchesRuntime === "PASS" &&
+      report.universeMatchesRuntime === "PASS",
+    preflightContractComplete: preflightOk,
+    preflightCycleExact:
+      preflight !== null &&
+      execution !== null &&
+      input.preflightRunId != null &&
+      input.preflightRunId === execution.runId &&
+      input.preflightAttempt != null &&
+      input.preflightAttempt === execution.attempt,
+    lineageConsistent: input.lineageOk !== false,
+    runIdentified: execution !== null && execution.runId > 0,
+    attemptIdentified: execution !== null && execution.attempt > 0,
+    runtimeArtifactComplete: execution !== null && execution.runtimeComplete,
+    lastRunStatusPass: execution !== null && execution.status === "PASS",
+    marketEntryAllowed: execution !== null && execution.marketEntryAllowed === true,
+    noBlockingOrUnclassifiedAction:
+      execution !== null &&
+      execution.blockingActionCount === 0 &&
+      execution.selfConsistent,
+    performanceCurrentAndConsistent:
+      execution !== null && execution.performanceCoherent,
+    frozenPlanValid: execution !== null && execution.frozenPlanValid,
+    cycleTimestampsExact: execution !== null && execution.performanceInCycle,
+  });
+
+  if (evidence === null && reasons.length === 0) {
+    // A proof failed that nothing objected to. That is the exact gap the
+    // positive object exists to close, and it must never resolve to a pass.
+    reasons.push("AUTHORIZATION_NOT_ESTABLISHED");
+  }
+
   const unique = [...new Set(reasons)];
-  const effective: CheckState = unique.length === 0 ? "PASS" : "FAIL";
+  const effective: CheckState =
+    evidence !== null && unique.length === 0 ? "PASS" : "FAIL";
 
   return {
     effective,

@@ -10,17 +10,29 @@ insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000b', 'b@example.test')
 on conflict (id) do nothing;
 
+-- Real Vault secrets, not nulls. The verification RPCs decrypt the stored
+-- pair before they will issue a token, so a credential-less fixture could not
+-- exercise the path that actually guards the broker binding.
+select vault.create_secret('PGRST-KEY', 'pgrst-key') as pgrst_key \gset
+select vault.create_secret('PGRST-SECRET', 'pgrst-secret') as pgrst_secret \gset
+
 insert into accounts (
   id, owner_id, nickname, mode, status, alpaca_account_number,
-  alpaca_key_secret_id, alpaca_secret_secret_id
+  alpaca_key_secret_id, alpaca_secret_secret_id, credential_version
 )
 values (
   'eeeeeeee-0000-0000-0000-0000000000f1',
   '00000000-0000-0000-0000-00000000000a',
   'PostgREST fixture', 'paper', 'connected', 'PA-PGRST-CANARY-4242',
-  null, null
+  :'pgrst_key'::uuid, :'pgrst_secret'::uuid, 1
 )
 on conflict (id) do nothing;
+
+insert into account_credential_assignment (secret_id, account_id, role)
+values
+  (:'pgrst_key'::uuid, 'eeeeeeee-0000-0000-0000-0000000000f1', 'key'),
+  (:'pgrst_secret'::uuid, 'eeeeeeee-0000-0000-0000-0000000000f1', 'secret')
+on conflict (secret_id) do nothing;
 
 -- A second owner, so cross-tenant reachability is testable.
 insert into accounts (id, owner_id, nickname, mode, status)

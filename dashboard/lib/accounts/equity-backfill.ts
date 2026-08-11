@@ -358,6 +358,61 @@ function looksLikeSecurities(activity: Activity): boolean {
   return amount === null || amount === 0;
 }
 
+/**
+ * Every field that decides what an activity *is* or how much it moves.
+ *
+ * The fingerprint used to be four values — type, date, instant, `net_amount` —
+ * and that left the two fields the securities heuristic classifies on,
+ * `symbol` and `qty`, invisible to it. A feed could serve one id twice, once
+ * as an ordinary cash row and once carrying instrument fields, and the second
+ * copy was dropped as a permitted repeat before it was ever classified.
+ *
+ * So the comparison covers the whole record instead of an enumerated subset.
+ * Enumerating is what failed: any field added to Alpaca's payload, or any
+ * field this build starts classifying on later, would silently fall outside a
+ * list. A repeat that differs anywhere is a feed that cannot serve one id
+ * consistently, and completeness cannot be proven from it.
+ *
+ * The record is canonicalized (keys sorted, values stringified) so key order
+ * and JSON number formatting do not manufacture a difference — but a numeric
+ * `1000` and a string `"1000"` stay distinct, because a feed that cannot agree
+ * with itself on the type of an amount is not one to book money from.
+ */
+function activityFingerprint(
+  activity: Activity,
+  type: string,
+  occurred: { date: string; instant: string; instantIsReal: boolean },
+): string {
+  const record = activity as Record<string, unknown>;
+  const canonical = Object.keys(record)
+    .sort()
+    .map((key) => [key, canonicalValue(record[key])] as const);
+  return JSON.stringify([
+    type,
+    occurred.date,
+    occurred.instantIsReal ? occurred.instant : null,
+    canonical,
+  ]);
+}
+
+/** Stable, type-preserving rendering of one JSON value. */
+function canonicalValue(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "number") return `n:${value}`;
+  if (typeof value === "string") return `s:${value}`;
+  if (typeof value === "boolean") return `b:${value}`;
+  if (Array.isArray(value)) return `a:[${value.map(canonicalValue).join(",")}]`;
+  if (typeof value === "object") {
+    const nested = value as Record<string, unknown>;
+    return `o:{${Object.keys(nested)
+      .sort()
+      .map((key) => `${key}=${canonicalValue(nested[key])}`)
+      .join(",")}}`;
+  }
+  return `?:${String(value)}`;
+}
+
 export function describeFetchFailure(caught: unknown): string {
   if (caught instanceof DOMException) {
     if (caught.name === "TimeoutError") return "the request timed out";
@@ -633,14 +688,7 @@ export async function fetchCashActivities(
       // of them and declared the walk complete — a guess about how much money
       // moved, made invisibly. Paging by id legitimately re-serves the cursor
       // row, so an *identical* repeat is expected and permitted.
-      const fingerprint = JSON.stringify([
-        type,
-        occurred.date,
-        occurred.instantIsReal ? occurred.instant : null,
-        typeof activity.net_amount === "number"
-          ? activity.net_amount
-          : String(activity.net_amount ?? ""),
-      ]);
+      const fingerprint = activityFingerprint(activity, type, occurred);
       const previous = seen.get(id);
       if (previous !== undefined) {
         if (previous !== fingerprint) {

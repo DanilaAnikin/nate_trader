@@ -21,6 +21,8 @@ let createResult: RpcResult;
 let resolveResult: RpcResult;
 let rpcCalls: { name: string; args: Record<string, unknown> }[];
 let vaultCalls: number;
+let recoveryRow: { data: unknown; error: { message: string } | null };
+let alpacaCalls: number;
 
 function accountRow(id = "acc-new") {
   return {
@@ -56,11 +58,17 @@ vi.mock("@/lib/supabase/service", () => ({
       }
       return { data: null, error: null };
     },
-    from: () => ({
-      select: () => ({
-        eq: () => ({ maybeSingle: async () => ({ data: accountRow("acc-committed") }) }),
-      }),
-    }),
+    // The recovery read is bound on every axis that makes the row *this
+    // owner's account for this operation*, so the stub has to answer the same
+    // chain: id, owner_id, create_operation_id, deleted_at is null.
+    from: () => {
+      const chain: Record<string, unknown> = {
+        eq: () => chain,
+        is: () => chain,
+        maybeSingle: async () => recoveryRow,
+      };
+      return { select: () => chain };
+    },
   }),
 }));
 
@@ -71,13 +79,17 @@ beforeEach(() => {
   vaultCalls = 0;
   createResult = { data: accountRow(), error: null };
   resolveResult = { data: { outcome: "absent" }, error: null };
+  recoveryRow = { data: accountRow("acc-committed"), error: null };
+  alpacaCalls = 0;
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () =>
-      new Response(JSON.stringify({ account_number: "PA-1234", status: "ACTIVE" }), {
-        status: 200,
-      }),
-    ),
+    vi.fn(async () => {
+      alpacaCalls += 1;
+      return new Response(
+        JSON.stringify({ account_number: "PA-1234", status: "ACTIVE" }),
+        { status: 200 },
+      );
+    }),
   );
 });
 
@@ -98,12 +110,14 @@ describe("one transaction, one operation id", () => {
     expect(result.ok).toBe(true);
     expect(vaultCalls).toBe(0);
     const names = rpcCalls.map((c) => c.name);
-    expect(names).toEqual(["create_account_operation"]);
+    // The ledger is asked first — before Alpaca — so a retry of an already
+    // committed request can be answered during a broker outage.
+    expect(names).toEqual(["resolve_create_operation", "create_account_operation"]);
   });
 
   it("passes the client's id and a fingerprint of the payload", async () => {
     await createAccount(OWNER, input);
-    const args = rpcCalls[0].args;
+    const args = rpcCalls.find((c) => c.name === "create_account_operation")!.args;
     expect(args.p_operation_id).toBe(OPERATION_ID);
     expect(String(args.p_fingerprint)).toMatch(/^[0-9a-f]{64}$/);
     expect(args.p_fingerprint).toBe(createRequestFingerprint(OWNER, input));
@@ -144,6 +158,74 @@ describe("a lost response", () => {
     if (!result.ok) return;
     expect(result.account.id).toBe("acc-committed");
     expect(vaultCalls).toBe(0);
+    // Answered from the ledger, before the broker was asked at all.
+    expect(alpacaCalls).toBe(0);
+    expect(rpcCalls.map((c) => c.name)).toEqual(["resolve_create_operation"]);
+  });
+
+  it("answers a committed retry during an Alpaca outage", async () => {
+    // The validation used to run *ahead* of the ledger, so a retry that
+    // arrived while Alpaca was down failed at validation and never asked the
+    // question idempotence exists to answer. The caller was told the creation
+    // had failed while the account sat committed.
+    resolveResult = {
+      data: { outcome: "created", account_id: "acc-committed" },
+      error: null,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        alpacaCalls += 1;
+        throw new TypeError("fetch failed");
+      }),
+    );
+
+    const result = await createAccount(OWNER, input);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.account.id).toBe("acc-committed");
+    expect(alpacaCalls).toBe(0);
+  });
+
+  it("refuses a spent operation id carrying a different request", async () => {
+    // Matching the id alone reported *some* account this owner created
+    // earlier as the thing just created.
+    resolveResult = { data: { outcome: "conflict" }, error: null };
+    const result = await createAccount(OWNER, input);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("invalid_input");
+    expect(result.message).toContain("already used for a different request");
+    // Nothing was attempted: no broker call, no create.
+    expect(alpacaCalls).toBe(0);
+    expect(rpcCalls.map((c) => c.name)).toEqual(["resolve_create_operation"]);
+  });
+
+  it("passes the fingerprint to the resolver, not only the id", async () => {
+    resolveResult = { data: { outcome: "absent" }, error: null };
+    await createAccount(OWNER, input);
+    const probe = rpcCalls.find((c) => c.name === "resolve_create_operation")!;
+    expect(probe.args.p_fingerprint).toBe(createRequestFingerprint(OWNER, input));
+  });
+
+  it.each([
+    ["the row belongs to another owner or operation", { data: null, error: null }],
+    ["the recovery read itself failed", { data: null, error: { message: "reset" } }],
+  ])("does not report success when %s", async (_label, row) => {
+    // The read used to match the id alone and ignore its own error, so a
+    // ledger row naming a foreign, soft-deleted or re-pointed account came
+    // back as a successful creation — and a failed read was indistinguishable
+    // from no row.
+    createResult = { data: null, error: { message: "fetch failed" } };
+    resolveResult = {
+      data: { outcome: "created", account_id: "acc-committed" },
+      error: null,
+    };
+    recoveryRow = row as typeof recoveryRow;
+    const result = await createAccount(OWNER, input);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("indeterminate");
   });
 
   it("reports a plain failure when the operation provably never ran", async () => {

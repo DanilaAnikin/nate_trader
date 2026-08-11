@@ -1575,8 +1575,16 @@ to deploy and nothing here should be described as one.
 
 ### 13.3 Order of operations
 
-Fifteen steps. Nothing is skipped because it "should be fine": every one of
+Seventeen steps. Nothing is skipped because it "should be fine": every one of
 them exists because the step after it is unsafe without it.
+
+The ordering constraint that governs the whole sequence: **the currently
+serving image must stop being able to write before the schema changes under
+it.** An earlier draft applied the migrations while `d11bbad8a` was still
+serving the public site, on the theory that the application freeze covered it.
+It does not — `d11bbad8a` has no freeze flag, and the freeze is a property of
+the *new* images. For the length of a migration the old image would have been
+a live writer against a schema it was never built for.
 
 1. **Read the production migration ledger.** Access the origin host and record
    exactly which migrations are applied *today*, and which relations still
@@ -1589,50 +1597,101 @@ them exists because the step after it is unsafe without it.
    down-scripts, so PITR is the only database rollback there is.
 3. **Define the reversible DB/PostgREST/ingress freeze** from what step 1
    found (13.4), and write down the exact commands that apply and lift it.
-4. **Deploy the bridge as an isolated sidecar.** Build
-   `6ed46e006056e9e528960415494a52829934cf16` with the real `NEXT_PUBLIC_*`
-   values and `BUILD_SHA` set to that commit; push it; record the registry
-   digest. Run it with `DASHBOARD_SIDECAR_ONLY=on`, bound to loopback or a
-   private network. It must not be reachable by ordinary users at any point.
-5. **Freeze on** — both halves: `DASHBOARD_MAINTENANCE_MODE=on` on the sidecar
-   *and* the database-side freeze from step 3.
-6. **Read-only smoke against the sidecar**, authenticated over the tunnel:
-   login, account switch, every strategy section, the `UNAVAILABLE` states,
-   `/api/health` reporting the exact SHA. Confirm `503` from every mutating
-   endpoint, and confirm a direct PostgREST write is refused.
-7. **Apply only the pending migrations the ledger named**, in numeric order.
+4. **Build and push both images, and record their digests.** The bridge
+   (`64a6fe08d…`) and the candidate, each with the real `NEXT_PUBLIC_*` values
+   and `BUILD_SHA` set to its own commit. Record the OCI digest
+   (`repo@sha256:…`) of each. A tag is a moving pointer; the digest is what
+   makes "the image we tested" and "the image we ran" the same statement.
+5. **Run the bridge as an isolated sidecar and verify the isolation from
+   outside the host.** Publish its port on loopback only
+   (`-p 127.0.0.1:PORT:3000`), confirm the host firewall admits nothing else,
+   and reach it through an SSH tunnel. Then, *from another machine*, confirm
+   the port does not answer. This is the isolation — there is no header the
+   application can read that proves it (13.3a), so it is verified at the
+   network, not asserted by the app. Set `DASHBOARD_SIDECAR_ONLY=on`, which
+   records the assertion and arms nothing on its own.
+6. **Read-only smoke against the isolated bridge**, authenticated over the
+   tunnel: login, account switch, every strategy section, the `UNAVAILABLE`
+   states, `/api/health` reporting the exact SHA and matching the digest from
+   step 4.
+7. **Switch public traffic to the frozen bridge.** Point the origin at the
+   bridge image with `DASHBOARD_MAINTENANCE_MODE=on`, `DASHBOARD_SIDECAR_ONLY`
+   unset and no bypass list, then **stop `d11bbad8a` and disconnect its
+   database credentials.** Not "leave it running in case": a container that
+   can still reach PostgREST is still a writer.
+8. **Prove that nothing outside the freeze can write.** Three checks, all of
+   them positive evidence rather than an absence of reports:
+   - every mutating endpoint on the serving bridge returns `503`;
+   - `d11bbad8a` does not answer at all, and its credentials are rejected;
+   - a direct PostgREST write with an ordinary user JWT is refused by the
+     database-side freeze from step 3.
+   Record the responses. This is the step that makes the migration safe, and
+   it is the one that cannot be inferred.
+9. **Apply only the pending migrations the ledger named**, in numeric order.
    `0019` aborts on an ambiguous Vault credential state, `0020` on an unbound
    active account or a soft-deleted account still holding Vault references,
-   and `0021` on an audit row naming an internal identifier. Those are the
-   migrations refusing to guess: resolve by hand, audit it, re-run.
-8. **Re-smoke the bridge on the migrated schema**, still frozen and still
-   isolated.
-9. **Deploy the candidate as a second isolated sidecar**, frozen, and smoke
-   its reads.
-10. **Temporarily allow mutations for the disposable observer only** — set
+   `0021` on an audit row naming an internal identifier, and `0022` on two
+   active accounts sharing one broker binding or an existing audit row the
+   detail guard would refuse. Those are the migrations refusing to guess:
+   resolve by hand, audit it, re-run.
+10. **Re-smoke the serving bridge on the migrated schema**, still frozen.
+11. **Run the candidate as a second isolated sidecar**, frozen, isolated and
+    verified exactly as in step 5, and smoke its reads.
+12. **Temporarily allow mutations for the disposable observer only** — set
     `DASHBOARD_FREEZE_BYPASS_USERS` to the operator's user id on the candidate
-    sidecar. Both halves are required (13.4), so this cannot open writes to
-    anyone else, and it cannot happen on a publicly reachable image.
-11. **Run the mutation tests on the disposable observer account**: create,
+    sidecar. Both halves are required (13.3a): the bypass is inert unless
+    `DASHBOARD_SIDECAR_ONLY` is also set, and it is keyed on the authenticated
+    Supabase user, so it cannot be reached by anyone else — but the thing that
+    keeps the public off this image is the network isolation from step 11, not
+    this flag.
+13. **Run the mutation tests on the disposable observer account**: create,
     metadata update, rotation, verify, an explicit **Sync broker data**, and
     delete. Never on the production account — it is bound to the executor by
     `PRODUCTION_ALPACA_ACCOUNT_NUMBER`, and deletion cascades its history.
-12. **Freeze again**: clear `DASHBOARD_FREEZE_BYPASS_USERS`, confirm `503`
+14. **Freeze again**: clear `DASHBOARD_FREEZE_BYPASS_USERS`, confirm `503`
     returns for the operator too.
-13. **Cut over** to the candidate as the serving image, with
+15. **Cut over** to the candidate as the serving image, by digest, with
     `DASHBOARD_SIDECAR_ONLY` unset and the freeze still on. Confirm
     `/api/health` reports the candidate's exact SHA, not the bridge's and not
     a cached one.
-14. **Lift the freeze** — the database side first, then the application flag —
+16. **Lift the freeze** — the database side first, then the application flag —
     and run the full authenticated smoke test, including one **Sync broker
     data** and a check that the `broker.refresh_published` audit entry
     appeared.
-15. **Drill the rollback.** Freeze, roll to the bridge, confirm reads and the
-    `503`s, then roll forward again. A rollback path that has only been
+17. **Drill the rollback.** Freeze, roll to the bridge by digest, confirm reads
+    and the `503`s, then roll forward again. A rollback path that has only been
     reasoned about is not a rollback path.
 
 Do not change `PRODUCTION_RELEASE_SHA` in order to deploy the UI. Do not run a
 mutating paper cycle as a smoke test.
+
+### 13.3a Sidecar isolation is a network fact, not a header
+
+An earlier bridge decided "is this request from loopback?" from the `Host`
+header and refused everything else in the proxy. That was not isolation.
+`Host` is chosen by the caller: anything that could reach the port could send
+`Host: localhost`, so the check admitted the one attacker it was written for
+and turned away honest remote clients. The absence of `x-forwarded-*` proves
+nothing either — a direct connection to an exposed port carries neither.
+
+There is no header an application can read that proves where a connection came
+from, so the check is gone rather than tightened. What isolates a sidecar is:
+
+  1. the container publishing its port on `127.0.0.1` only;
+  2. a host firewall or private network that admits nothing else; and
+  3. an operator SSH tunnel to that loopback address.
+
+Steps 5 and 11 verify (1) and (2) *from another machine* before the sidecar is
+used. `DASHBOARD_SIDECAR_ONLY` is the operator's recorded assertion that they
+hold; it grants nothing on its own, and its only effect is to be the
+precondition without which `DASHBOARD_FREEZE_BYPASS_USERS` is inert — so a
+bypass list left behind on a public image does nothing.
+
+The bypass itself is keyed on the authenticated Supabase user precisely
+because a header cannot be trusted. The proxy therefore stands aside when a
+bypass could apply rather than refusing at the edge: it has no authenticated
+user at that point, and answering for the handler would make the bypass
+unreachable for the one session it exists for.
 
 ### 13.4 The freeze: what the application can hold, and what it cannot
 
