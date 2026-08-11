@@ -108,9 +108,29 @@ alter table storage.objects enable row level security;
 grant usage on schema storage to anon, authenticated, service_role;
 
 -- --- default privileges the platform normally grants ------------------------
+--
+-- These must match Supabase's own initial schema *exactly*, because they are
+-- the reason a migration that creates a table or view without any `grant` is
+-- still reachable through PostgREST. Getting them wrong makes the whole suite
+-- test a database that is more locked down than production.
+--
+-- Two details matter and were previously missing here:
+--   * `anon` receives the same defaults as `authenticated`. A migration that
+--     only revokes from `public` therefore leaves `anon` holding a direct
+--     grant, because revoking from `public` does not touch role grants.
+--   * The default is ALL, not just SELECT/INSERT/UPDATE/DELETE — so a new view
+--     arrives DML-capable, and a simple single-table view is auto-updatable.
+--
+-- Supabase (initial schema):
+--   ALTER DEFAULT PRIVILEGES IN SCHEMA public
+--     GRANT ALL ON TABLES    TO postgres, anon, authenticated, service_role;
+--   ALTER DEFAULT PRIVILEGES IN SCHEMA public
+--     GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role;
+--   ALTER DEFAULT PRIVILEGES IN SCHEMA public
+--     GRANT ALL ON FUNCTIONS TO postgres, anon, authenticated, service_role;
 alter default privileges in schema public
-  grant select, insert, update, delete on tables to authenticated;
+  grant all on tables to anon, authenticated, service_role;
 alter default privileges in schema public
-  grant select, insert, update, delete on tables to service_role;
+  grant all on sequences to anon, authenticated, service_role;
 alter default privileges in schema public
-  grant usage, select on sequences to authenticated, service_role;
+  grant all on functions to anon, authenticated, service_role;

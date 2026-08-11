@@ -252,6 +252,148 @@ do $$ begin
   end if;
 end $$;
 
+-- --- 10b. the sanitized views are SELECT-only, in the catalogue ------------
+-- Supabase's default ACL grants ALL on every new object directly to `anon` and
+-- `authenticated`, and revoking from `public` does not touch a role grant. The
+-- catalogue is checked before the DML attempts so a missing privilege and a
+-- blocked statement cannot be confused for one another.
+do $$
+declare
+  obj      text;
+  role_    text;
+  priv     text;
+  problems text[] := '{}';
+begin
+  foreach obj in array array['accounts_safe', 'trades_safe', 'cash_flows_safe'] loop
+    if not has_table_privilege('authenticated', obj::regclass, 'SELECT') then
+      problems := problems || format('authenticated cannot SELECT %s', obj);
+    end if;
+    foreach priv in array array['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] loop
+      if has_table_privilege('authenticated', obj::regclass, priv) then
+        problems := problems || format('authenticated has %s on %s', priv, obj);
+      end if;
+    end loop;
+    foreach priv in array array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] loop
+      if has_table_privilege('anon', obj::regclass, priv) then
+        problems := problems || format('anon has %s on %s', priv, obj);
+      end if;
+    end loop;
+  end loop;
+  if array_length(problems, 1) is not null then
+    raise exception 'FAIL: view ACL is wrong: %', array_to_string(problems, '; ');
+  end if;
+end $$;
+
+-- --- 10c. and SELECT-only when actually exercised --------------------------
+-- `accounts_safe` selects from one table with no aggregate, so PostgreSQL makes
+-- it automatically updatable, and a view executes with its owner's privileges.
+-- Before 0012 this exact UPDATE renamed the row: neither the base-table grant
+-- nor the RLS policy applies to the view owner. Only the missing privilege
+-- stops it, so the privilege is what is tested.
+do $$
+declare
+  stmt     text;
+  state    text;
+  problems text[] := '{}';
+begin
+  -- `accounts_safe` is auto-updatable, so the *only* thing standing between a
+  -- client and a write is the missing privilege. Each of these must fail with
+  -- exactly 42501 insufficient_privilege.
+  foreach stmt in array array[
+    'update accounts_safe set nickname = ''pwned''',
+    'delete from accounts_safe',
+    'insert into accounts_safe (id, nickname, mode, status, color, is_active) '
+      || 'values (gen_random_uuid(), ''forged'', ''paper'', ''connected'', ''#000'', true)'
+  ] loop
+    state := null;
+    begin
+      execute stmt;
+    exception when others then state := SQLSTATE;
+    end;
+    if state is null then
+      problems := problems || format('%s SUCCEEDED', stmt);
+    elsif state <> '42501' then
+      problems := problems
+        || format('%s was refused with %s, not insufficient_privilege', stmt, state);
+    end if;
+  end loop;
+
+  -- `trades_safe` and `cash_flows_safe` join two tables, so PostgreSQL rejects
+  -- the statement as non-updatable (55000) before it ever reaches a privilege
+  -- check. Both refusals are acceptable here — but not success, and not some
+  -- third error. The catalogue assertion above is what proves the privilege
+  -- itself is gone; this proves the write is unreachable in practice.
+  foreach stmt in array array[
+    'update trades_safe set symbol = ''PWN''',
+    'delete from trades_safe',
+    'insert into trades_safe (account_id, symbol, side, qty, price, notional, filled_at) '
+      || 'values (gen_random_uuid(), ''PWN'', ''buy'', 1, 1, 1, now())',
+    'update cash_flows_safe set amount = 999999',
+    'delete from cash_flows_safe',
+    'insert into cash_flows_safe (account_id, flow_date, amount, kind, source) '
+      || 'values (gen_random_uuid(), current_date, 999999, ''deposit'', ''forged'')'
+  ] loop
+    state := null;
+    begin
+      execute stmt;
+    exception when others then state := SQLSTATE;
+    end;
+    if state is null then
+      problems := problems || format('%s SUCCEEDED', stmt);
+    elsif state not in ('42501', '55000') then
+      problems := problems || format('%s was refused with unexpected %s', stmt, state);
+    end if;
+  end loop;
+
+  if array_length(problems, 1) is not null then
+    raise exception 'FAIL: %', array_to_string(problems, '; ');
+  end if;
+end $$;
+
+-- --- 10d. no client role may write any account-scoped table ----------------
+do $$
+declare
+  obj      text;
+  role_    text;
+  priv     text;
+  problems text[] := '{}';
+begin
+  foreach obj in array array[
+    'equity_snapshots', 'performance', 'positions', 'routine_runs', 'audit_log',
+    'strategy_params', 'market_history', 'research_snapshots',
+    'screener_snapshots', 'backtest_runs'
+  ] loop
+    foreach role_ in array array['anon', 'authenticated'] loop
+      foreach priv in array array['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] loop
+        if has_table_privilege(role_, obj::regclass, priv) then
+          problems := problems || format('%s has %s on %s', role_, priv, obj);
+        end if;
+      end loop;
+    end loop;
+  end loop;
+  -- The settings screen edits the caller's own profile; that stays.
+  if not has_table_privilege('authenticated', 'profiles'::regclass, 'UPDATE') then
+    problems := problems || 'authenticated lost UPDATE on profiles';
+  end if;
+  if array_length(problems, 1) is not null then
+    raise exception 'FAIL: %', array_to_string(problems, '; ');
+  end if;
+end $$;
+
+-- --- 10e. the write block is real, not only catalogued ---------------------
+do $$
+declare denied boolean := false;
+begin
+  begin
+    insert into equity_snapshots (account_id, snapshot_date, equity, cash)
+    values ('aaaaaaaa-0000-0000-0000-0000000000e1', current_date, 1, 1);
+  exception when insufficient_privilege then denied := true;
+  end;
+  if not denied then
+    raise exception 'FAIL: authenticated could INSERT an equity snapshot';
+  end if;
+end $$;
+
 -- --- 11. anon sees nothing at all ------------------------------------------
 set local role anon;
 select set_config('request.jwt.claims', '{"role":"anon"}', true);

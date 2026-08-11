@@ -40,6 +40,14 @@ jobs:
           npx tsc --noEmit
       - name: Build production dashboard
         run: npm run build
+      # Non-trading, and previously only ever claimed as a local result. The
+      # fail-closed suite asserts that no route serves anything without an
+      # authentication backend and that no credential reaches the browser, so
+      # it belongs in the gate rather than in a report.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end fail-closed suite
+        run: npx playwright test
 
   release-gate:
     runs-on: ubuntu-24.04
@@ -103,3 +111,64 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
         run: supabase/tests/run_integration.sh
+
+  # Non-trading. Exercises the ACL and the history snapshot through a real
+  # PostgREST, because the `/rpc/` surface, the role switching and the
+  # `db-max-rows` cap are its behaviour, not the database's — a migration can
+  # revoke perfectly and still leave a function callable. Runs with a 100-row
+  # cap so a reader that assumes 1000, or infers "short page means done",
+  # fails loudly instead of returning a plausible wrong number.
+  postgrest-gate:
+    name: PostgREST API surface
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+      - name: Run the PostgREST integration gate
+        run: supabase/tests/run_postgrest.sh
+
+  # Non-trading. The two races that a single-connection test cannot reach: two
+  # transactions that each read state the other has not committed yet. Both
+  # were real — concurrent account creation with the same Vault ids committed
+  # twice, and an older refresh could publish over a newer one.
+  concurrency-gate:
+    name: Concurrency races
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+      - name: Run the concurrency gate
+        run: supabase/tests/run_concurrency.sh
+
+  # Non-trading. 0019 rebuilds the Vault assignment table, and the states it
+  # has to refuse are legacy states no clean-database run can produce. Each
+  # case is built by hand before 0019 is applied.
+  vault-integrity-gate:
+    name: Vault integrity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+      - name: Run the Vault integrity gate
+        run: supabase/tests/run_vault_integrity.sh
