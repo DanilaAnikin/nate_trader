@@ -18,6 +18,9 @@ export default defineConfig({
       "lib/**/*.test.ts",
       "app/**/*.test.ts",
       "components/**/*.test.tsx",
+      // The proxy lives at the root and gates every request; it needs the
+      // same coverage as anything under `app/`.
+      "proxy.test.ts",
     ],
     setupFiles: ["test/setup.ts"],
   },

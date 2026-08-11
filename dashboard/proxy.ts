@@ -23,25 +23,24 @@ function maintenanceFrozen(): boolean {
   return raw !== undefined && FREEZE_VALUES.has(raw);
 }
 
-const SIDECAR_ONLY = (() => {
-  const raw = process.env.DASHBOARD_SIDECAR_ONLY?.trim().toLowerCase();
-  return raw !== undefined && FREEZE_VALUES.has(raw);
-})();
-
 /**
- * Loopback, decided from the `Host` header and the absence of proxy headers.
+ * True when this image may be carrying an operator freeze bypass.
  *
- * `x-forwarded-*` is only ever a reason to *reject*: a request carrying one
- * came through a proxy, which is what a sidecar must not be reachable
- * through. Trusting it to prove loopback would let a caller assert its own
- * address.
+ * The proxy cannot evaluate the bypass — it has no authenticated user at the
+ * point the freeze is checked. What it can do is decline to answer *for* the
+ * handler: when the image is an isolated sidecar with a non-empty allowlist,
+ * the freeze decision belongs to `maintenanceBlock(userId)` inside the
+ * authenticated handler, and refusing here would make the bypass unreachable
+ * no matter who was asking.
+ *
+ * Read at request time rather than module load so a test (and an operator
+ * restarting with a new allowlist) sees the current value.
  */
-function requestIsLoopback(request: NextRequest): boolean {
-  if (request.headers.get("x-forwarded-for") !== null) return false;
-  if (request.headers.get("x-forwarded-host") !== null) return false;
-  const host = (request.headers.get("host") ?? "").toLowerCase();
-  const bare = host.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
-  return bare === "localhost" || bare === "127.0.0.1" || bare === "::1";
+function bypassPossible(): boolean {
+  const sidecar = process.env.DASHBOARD_SIDECAR_ONLY?.trim().toLowerCase();
+  if (sidecar === undefined || !FREEZE_VALUES.has(sidecar)) return false;
+  const allowlist = process.env.DASHBOARD_FREEZE_BYPASS_USERS?.trim();
+  return Boolean(allowlist);
 }
 
 /**
@@ -58,20 +57,15 @@ export async function proxy(request: NextRequest) {
   const isPublic = PUBLIC_PREFIXES.some(
     (prefix) => path === prefix || path.startsWith(`${prefix}/`),
   );
-  // Sidecar isolation, before anything else. An image running as a smoke-test
-  // sidecar must not be reachable by ordinary users: with the freeze off, its
-  // lifecycle writes hit the real database. Enforced here so a
-  // misconfiguration fails closed rather than serving the internet.
-  if (SIDECAR_ONLY && !requestIsLoopback(request)) {
-    return NextResponse.json(
-      {
-        code: "SIDECAR_ONLY",
-        error:
-          "This instance is running as an isolated smoke-test sidecar and only accepts loopback requests.",
-      },
-      { status: 403, headers: { "Cache-Control": "no-store" } },
-    );
-  }
+  // There is deliberately no host-based sidecar check here.
+  //
+  // The previous one decided "is this loopback?" from the `Host` header, which
+  // the caller chooses: anything that could reach the port could send
+  // `Host: localhost`, so it refused honest remote clients and admitted the
+  // one attacker it was written for. A sidecar's isolation comes from binding
+  // the published port to 127.0.0.1, the host firewall, and an operator
+  // tunnel — none of which an application can observe from a request. See
+  // `lib/isolated-smoke.ts`.
 
   if (path === "/api/health") return response;
 
@@ -87,7 +81,17 @@ export async function proxy(request: NextRequest) {
   // curve; what stops there is its *backfill*, which the handler skips (see
   // `backfillFrozen`). Blocking the read as well would blank the chart for the
   // whole maintenance window without protecting anything.
-  if (isApi && MUTATING_METHODS.has(request.method) && maintenanceFrozen()) {
+  // ...unless an operator bypass could apply. The proxy has no authenticated
+  // user here, so it must not answer for the handler: refusing at the edge
+  // would make the bypass unreachable for the one session it exists for.
+  // `maintenanceBlock(userId)` in the handler is the decision point, and it
+  // still refuses everyone not on the list.
+  if (
+    isApi &&
+    MUTATING_METHODS.has(request.method) &&
+    maintenanceFrozen() &&
+    !bypassPossible()
+  ) {
     return NextResponse.json(
       {
         code: "MAINTENANCE_MODE",

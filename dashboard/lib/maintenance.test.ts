@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as smokeModule from "./isolated-smoke";
 import { backfillFrozen, maintenanceBlock, maintenanceModeEnabled } from "./maintenance";
-import { isLoopback } from "./isolated-smoke";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -129,26 +129,25 @@ describe("the isolated smoke-test sidecar", () => {
     expect(maintenanceBlock("operator-1")).not.toBeNull();
   });
 
-  it.each([
-    ["localhost:3000", null, null, true],
-    ["127.0.0.1:3000", null, null, true],
-    ["[::1]:3000", null, null, true],
-    ["dashboard.example.com", null, null, false],
-    // A request that came through a proxy is not loopback, whatever it says.
-    ["localhost:3000", "203.0.113.7", null, false],
-    ["localhost:3000", null, "dashboard.example.com", false],
-  ])(
-    "treats host=%s xff=%s xfh=%s as loopback: %s",
-    (host, xff, xfh, expected) => {
-      const headers = new Map<string, string>([["host", String(host)]]);
-      if (xff) headers.set("x-forwarded-for", String(xff));
-      if (xfh) headers.set("x-forwarded-host", String(xfh));
-      expect(
-        isLoopback({
-          headers: { get: (n: string) => headers.get(n) ?? null },
-          url: "http://x/",
-        }),
-      ).toBe(expected);
-    },
-  );
+  it("does not decide isolation from a request header", () => {
+    // There is no `isLoopback` any more, and there must not be one. It read
+    // the `Host` header, which the caller chooses: anything that could reach
+    // the port could send `Host: localhost`, so it refused honest remote
+    // clients and admitted the single attacker it was written for. Isolation
+    // is a deployment fact — a port bound to 127.0.0.1, a firewall, a tunnel —
+    // and no header can stand in for it.
+    const smoke = smokeModule as Record<string, unknown>;
+    expect(smoke.isLoopback).toBeUndefined();
+  });
+
+  it("keeps the bypass keyed on the authenticated user, not on a header", () => {
+    // The one control this module still asserts. A forged header cannot reach
+    // it: the user id comes from a Supabase session the server verified.
+    vi.stubEnv("DASHBOARD_MAINTENANCE_MODE", "on");
+    vi.stubEnv("DASHBOARD_SIDECAR_ONLY", "on");
+    vi.stubEnv("DASHBOARD_FREEZE_BYPASS_USERS", "operator-1");
+    expect(maintenanceBlock("operator-1")).toBeNull();
+    expect(maintenanceBlock("Operator-1")).not.toBeNull();
+    expect(maintenanceBlock(" operator-1 ")).not.toBeNull();
+  });
 });
