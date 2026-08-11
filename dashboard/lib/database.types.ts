@@ -701,17 +701,6 @@ export type Database = {
         }
         Returns: boolean
       }
-      record_account_verification: {
-        Args: {
-          p_account: string
-          p_owner: string
-          p_status: Database["public"]["Enums"]["account_status"]
-          p_account_number?: string | null
-          /** Refuses the write when the account has been rotated since. */
-          p_expected_version?: number | null
-        }
-        Returns: Database["public"]["Tables"]["accounts"]["Row"]
-      }
       create_account_operation: {
         Args: {
           p_owner: string
@@ -727,14 +716,39 @@ export type Database = {
         Returns: Database["public"]["Tables"]["accounts"]["Row"]
       }
       resolve_create_operation: {
-        Args: { p_owner: string; p_operation_id: string }
-        /** `{ outcome: "created" | "absent" | "no_account", account_id? }` */
+        /**
+         * The fingerprint is mandatory (0022). Matching the operation id alone
+         * reported *some* account this owner created earlier as the thing just
+         * created; a mismatch is now an explicit `conflict`.
+         */
+        Args: { p_owner: string; p_operation_id: string; p_fingerprint: string }
+        /** `{ outcome: "created" | "absent" | "no_account" | "conflict", account_id? }` */
         Returns: Json
       }
       begin_account_verification: {
         Args: { p_account: string; p_owner: string }
-        /** `{ token, mode, credential_version, account_number, api_key, api_secret }` */
+        /**
+         * `{ token, generation, expires_at, mode, credential_version,
+         *    account_number, api_key, api_secret }`
+         */
         Returns: Json
+      }
+      cancel_account_verification: {
+        /**
+         * Closes a token that concluded nothing — a network error, a timeout,
+         * a 5xx or an unreadable body. Not a status write: nothing was learned
+         * about the credentials, so nothing is recorded about them.
+         */
+        Args: {
+          p_token: string
+          p_reason:
+            | "network_error"
+            | "timeout"
+            | "broker_unavailable"
+            | "malformed_response"
+            | "abandoned"
+        }
+        Returns: boolean
       }
       finish_account_verification: {
         Args: {
@@ -753,22 +767,14 @@ export type Database = {
           p_key: string
           p_secret: string
           p_owner: string
-          p_reason: string
+          /** A closed reason code (0022): the reason lands in an owner-readable audit row. */
+          p_reason:
+            | "orphaned_after_failed_create"
+            | "orphaned_after_failed_rotation"
+            | "operator_cleanup"
+            | "integrity_repair"
         }
         Returns: number
-      }
-      create_account_atomic: {
-        Args: {
-          p_owner: string
-          p_nickname: string
-          p_mode: Database["public"]["Enums"]["account_mode"]
-          p_color: string
-          p_key_secret: string
-          p_secret_secret: string
-          p_account_number: string
-          p_operation_id: string
-        }
-        Returns: Database["public"]["Tables"]["accounts"]["Row"]
       }
       update_account_metadata: {
         Args: {
@@ -793,15 +799,6 @@ export type Database = {
           p_account_number: string
         }
         Returns: Database["public"]["Tables"]["accounts"]["Row"]
-      }
-      vault_create_secret: {
-        Args: { p_name?: string; p_secret: string }
-        Returns: string
-      }
-      vault_delete_secret: { Args: { p_id: string }; Returns: undefined }
-      vault_update_secret: {
-        Args: { p_id: string; p_secret: string }
-        Returns: undefined
       }
     }
     Enums: {

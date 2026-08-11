@@ -12,10 +12,29 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/** The closed set `cancel_account_verification` accepts. */
+type CancelReason =
+  | "network_error"
+  | "timeout"
+  | "broker_unavailable"
+  | "malformed_response"
+  | "abandoned";
+
 const ALPACA_BASE: Record<string, string> = {
   paper: "https://paper-api.alpaca.markets/v2",
   live: "https://api.alpaca.markets/v2",
 };
+
+/**
+ * How long the broker gets to answer.
+ *
+ * Strictly shorter than the token's TTL (`account_verification_ttl()`, 60s in
+ * 0022). If the fetch could outlive the token, a request still in flight when
+ * the token died would come back to a `finish` that must refuse it — and the
+ * operator would see a verification that neither succeeded nor was cancelled.
+ * Giving up first makes every outcome nameable.
+ */
+const VERIFY_BROKER_TIMEOUT_MS = 20_000;
 
 /**
  * POST /api/accounts/[id]/verify — re-check the stored credentials against
@@ -79,6 +98,34 @@ export async function POST(_req: Request, { params }: Ctx) {
 
   // The broker is asked with exactly the snapshot the token describes — its
   // mode included, rather than a mode the caller was holding.
+  /**
+   * Close the token without concluding anything.
+   *
+   * A network error, a timeout, a 5xx or an unreadable body all leave the
+   * round trip with no answer. Without this the token sat outstanding until
+   * its TTL, blocking the next `begin` and leaving an operator unable to tell
+   * "still running" from "gave up". Cancelling is deliberately not a status
+   * write: nothing was learned about the credentials, so nothing is recorded
+   * about them.
+   */
+  const cancel = async (reason: CancelReason) => {
+    const { error } = await svc.rpc("cancel_account_verification", {
+      p_token: token,
+      p_reason: reason,
+    });
+    if (error) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          message: "verification token could not be cancelled",
+          detail: error.message,
+          route: "POST /api/accounts/[id]/verify",
+          accountId: id,
+        }),
+      );
+    }
+  };
+
   const base = ALPACA_BASE[mode];
   let res: Response;
   try {
@@ -88,8 +135,13 @@ export async function POST(_req: Request, { params }: Ctx) {
         "APCA-API-SECRET-KEY": apiSecret,
       },
       cache: "no-store",
+      signal: AbortSignal.timeout(VERIFY_BROKER_TIMEOUT_MS),
     });
   } catch (caught) {
+    const timedOut =
+      caught instanceof DOMException &&
+      (caught.name === "TimeoutError" || caught.name === "AbortError");
+    await cancel(timedOut ? "timeout" : "network_error");
     return NextResponse.json(
       incident(
         "BROKER_UNREACHABLE",
@@ -127,6 +179,7 @@ export async function POST(_req: Request, { params }: Ctx) {
     );
   }
   if (!res.ok) {
+    await cancel("broker_unavailable");
     return NextResponse.json(
       incident("BROKER_ERROR", `Alpaca HTTP ${res.status}`, {
         route: "POST /api/accounts/[id]/verify",
@@ -141,6 +194,7 @@ export async function POST(_req: Request, { params }: Ctx) {
   } | null;
   const accountNumber = body?.account_number ?? null;
   if (!accountNumber) {
+    await cancel("malformed_response");
     return NextResponse.json(
       incident("BROKER_ERROR", "Alpaca returned no account number", {
         route: "POST /api/accounts/[id]/verify",

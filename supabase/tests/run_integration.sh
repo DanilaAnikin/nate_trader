@@ -60,6 +60,10 @@ echo "==> broker refresh generation and ingest guards"
 "${PSQL[@]}" -v user_a="$USER_A" -v user_b="$USER_B" \
   -f "$TESTS/broker_refresh.test.sql"
 
+echo "==> 0022 token generations, broker binding and the audit guard"
+"${PSQL[@]}" -v user_a="$USER_A" -v user_b="$USER_B" \
+  -f "$TESTS/token_and_binding.test.sql"
+
 echo "==> legacy RLS assertions"
 "${PSQL[@]}" -v user_a="$USER_A" -v user_b="$USER_B" \
   -f "$TESTS/rls.test.sql"

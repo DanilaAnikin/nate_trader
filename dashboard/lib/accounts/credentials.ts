@@ -1,10 +1,8 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 
 export type AccountMode = Database["public"]["Enums"]["account_mode"];
 
-type Service = SupabaseClient<Database>;
 
 const ALPACA_BASE: Record<AccountMode, string> = {
   paper: "https://paper-api.alpaca.markets/v2",
@@ -69,61 +67,16 @@ export async function validateAlpacaKeys(
   return { ok: true, accountNumber: body.account_number };
 }
 
-/**
- * Write both Alpaca secrets into Supabase Vault. Returns the two secret UUIDs
- * that get stored on the `accounts` row. If the second write fails, the first
- * is rolled back so Vault never holds an orphan.
- */
-export async function storeCredentials(
-  svc: Service,
-  apiKey: string,
-  apiSecret: string,
-): Promise<{ keyId: string; secretId: string }> {
-  const keyRes = await svc.rpc("vault_create_secret", { p_secret: apiKey });
-  if (keyRes.error || !keyRes.data) {
-    throw new Error(`Vault store (key) failed: ${keyRes.error?.message ?? "no id"}`);
-  }
-  const secretRes = await svc.rpc("vault_create_secret", { p_secret: apiSecret });
-  if (secretRes.error || !secretRes.data) {
-    // Compensate the first write. If that also fails, say so — an orphaned
-    // Vault secret is worth reporting, not swallowing.
-    const rollback = await svc.rpc("vault_delete_secret", { p_id: keyRes.data });
-    const orphan = rollback.error
-      ? ` (and the first secret could not be rolled back: ${rollback.error.message})`
-      : "";
-    throw new Error(
-      `Vault store (secret) failed: ${secretRes.error?.message ?? "no id"}${orphan}`,
-    );
-  }
-  return { keyId: keyRes.data, secretId: secretRes.data };
-}
-
-/**
- * Permanently delete the Vault secrets backing an account.
+/*
+ * `storeCredentials` and `purgeCredentials` used to live here.
  *
- * Used only to compensate a failed account *creation*, where the row does not
- * exist yet and there is nothing to make atomic. Rotation and deletion of a
- * real account go through the `rotate_account_credentials` and
- * `delete_account_atomic` transactions instead.
+ * Both wrote Vault directly, through `vault_create_secret` and
+ * `vault_delete_secret`, and both existed to compensate a creation whose
+ * secrets were written *before* the account row. 0021 moved that inside one
+ * transaction, so there has been nothing to compensate since — and 0022
+ * retired the underlying RPCs, because a general-purpose Vault mutation with
+ * no remaining caller is a door that only an attacker has a use for.
  *
- * Every RPC result is checked. Discarding them, as this once did, turned a
- * failed purge into a silent credential leak.
+ * Deleted rather than deprecated: a helper kept "just in case" is how the
+ * two-phase creation comes back.
  */
-export async function purgeCredentials(
-  svc: Service,
-  keyId: string | null,
-  secretId: string | null,
-): Promise<void> {
-  const failures: string[] = [];
-  if (keyId) {
-    const { error } = await svc.rpc("vault_delete_secret", { p_id: keyId });
-    if (error) failures.push(`key: ${error.message}`);
-  }
-  if (secretId) {
-    const { error } = await svc.rpc("vault_delete_secret", { p_id: secretId });
-    if (error) failures.push(`secret: ${error.message}`);
-  }
-  if (failures.length > 0) {
-    throw new Error(`Vault purge failed (${failures.join("; ")})`);
-  }
-}
