@@ -8,6 +8,7 @@ import {
   parseTournament,
   parseValidation,
   validationExpiry,
+  MAX_PREFLIGHT_CHECKS,
 } from "./parse";
 import {
   APPROVED_SHA,
@@ -272,5 +273,130 @@ describe("parseTournament", () => {
 
   it("rejects an artifact without a selection decision", () => {
     expect(parseTournament(tournamentJson({ selection: {} }), "main")).toBeNull();
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * The preflight is the document the effective validation gate defers to, so
+ * anything the parser cannot fully understand it refuses. Every case below
+ * used to produce a *parsed* report that described less than the file did.
+ * ------------------------------------------------------------------------- */
+
+describe("parsePreflight refuses what it cannot fully read", () => {
+  it("accepts the real report", () => {
+    const parsed = parsePreflight(preflightJson(), null);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.checks).toHaveLength(18);
+    expect(parsed!.checksEvaluated).toBe(18);
+    expect(parsed!.allowedMode).toBe("paper");
+  });
+
+  it.each([
+    ["a non-array checks field", { checks: "eighteen" }],
+    ["a null checks field", { checks: null }],
+    ["a missing checks field", { checks: undefined }],
+  ])("refuses %s instead of reading it as empty", (_label, override) => {
+    expect(parsePreflight({ ...preflightJson(), ...override }, null)).toBeNull();
+  });
+
+  it("refuses a malformed check rather than skipping it", () => {
+    for (const broken of [
+      { name: "x" }, // no `passed`
+      { name: "x", passed: "true" }, // not a boolean
+      { passed: true }, // no name
+      { name: "", passed: true }, // empty name
+      { name: "x", passed: true, detail: 42 }, // non-string detail
+      "not-an-object",
+      null,
+    ]) {
+      const document = {
+        ...preflightJson(),
+        checks: [...(preflightJson().checks as unknown[]), broken],
+        checks_passed: 19,
+        checks_evaluated: 19,
+      };
+      expect(parsePreflight(document, null), JSON.stringify(broken)).toBeNull();
+    }
+  });
+
+  it("refuses a 65th check rather than truncating at 64", () => {
+    // Truncation would silently discard evidence — and a failing check placed
+    // past the cut would simply disappear.
+    const filler = Array.from({ length: MAX_PREFLIGHT_CHECKS + 1 }, (_, i) => ({
+      name: `check_${i}`,
+      passed: true,
+      detail: "",
+    }));
+    expect(
+      parsePreflight(
+        {
+          ...preflightJson(),
+          checks: filler,
+          checks_passed: filler.length,
+          checks_evaluated: filler.length,
+        },
+        null,
+      ),
+    ).toBeNull();
+    // Exactly at the limit is still readable.
+    const atLimit = filler.slice(0, MAX_PREFLIGHT_CHECKS);
+    expect(
+      parsePreflight(
+        {
+          ...preflightJson(),
+          checks: atLimit,
+          checks_passed: atLimit.length,
+          checks_evaluated: atLimit.length,
+        },
+        null,
+      ),
+    ).not.toBeNull();
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["a string", "18"],
+    ["negative", -1],
+    ["fractional", 17.5],
+  ])("refuses %s check counts rather than inventing them", (_label, value) => {
+    expect(
+      parsePreflight({ ...preflightJson(), checks_passed: value }, null),
+    ).toBeNull();
+    expect(
+      parsePreflight({ ...preflightJson(), checks_evaluated: value }, null),
+    ).toBeNull();
+  });
+
+  it("requires status PASS and allowed_mode paper to agree", () => {
+    // The runner writes `paper` only when everything passed. A report claiming
+    // one and not the other describes no coherent cycle.
+    expect(
+      parsePreflight(
+        { ...preflightJson(), status: "PASS", allowed_mode: "no-execution" },
+        null,
+      ),
+    ).toBeNull();
+    expect(
+      parsePreflight(
+        { ...preflightJson(), status: "FAIL", allowed_mode: "paper" },
+        null,
+      ),
+    ).toBeNull();
+    // The two coherent combinations are accepted.
+    expect(
+      parsePreflight(
+        { ...preflightJson(), status: "FAIL", allowed_mode: "no-execution" },
+        null,
+      ),
+    ).not.toBeNull();
+  });
+
+  it("refuses an unknown allowed_mode", () => {
+    for (const mode of ["live", "", null, undefined, "PAPER"]) {
+      expect(
+        parsePreflight({ ...preflightJson(), allowed_mode: mode }, null),
+      ).toBeNull();
+    }
   });
 });

@@ -281,12 +281,18 @@ do $$
 declare
   created accounts;
   key_id  uuid;
+  sec_id  uuid;
 begin
+  -- Two *distinct*, really-existing Vault secrets, exactly as the server
+  -- creates them. Reusing one id for both was a test shortcut that the
+  -- function now refuses — sharing a secret means rotating the key would
+  -- overwrite the secret with the same value.
   select vault.create_secret('CREATE-KEY', 'create-key') into key_id;
+  select vault.create_secret('CREATE-SECRET', 'create-secret') into sec_id;
   select * into created from create_account_atomic(
     current_setting('test.user_a')::uuid,
     '  Created atomically  ', 'paper', '#123456',
-    key_id, key_id, 'PA-CREATED-3333'
+    key_id, sec_id, 'PA-CREATED-3333'
   );
   if created.nickname <> 'Created atomically' then
     raise exception 'FAIL: creation did not trim the nickname';
@@ -302,6 +308,97 @@ begin
   end if;
 end $$;
 
+-- --- 8b. every creation precondition, one at a time -----------------------
+do $$
+declare
+  key_id  uuid;
+  sec_id  uuid;
+  ghost   uuid := '00000000-0000-0000-0000-0000000000ee';
+  blocked boolean;
+  before_count bigint;
+  after_count  bigint;
+begin
+  select vault.create_secret('GUARD-KEY', 'guard-key') into key_id;
+  select vault.create_secret('GUARD-SECRET', 'guard-secret') into sec_id;
+  select count(*) into before_count from accounts;
+
+  -- null owner
+  blocked := false;
+  begin
+    perform create_account_atomic(null, 'x', 'paper', '#000', key_id, sec_id, 'PA-1');
+  exception when others then blocked := true; end;
+  if not blocked then raise exception 'FAIL: a null owner was accepted'; end if;
+
+  -- empty / null broker account number
+  foreach ghost in array array[null::uuid] loop null; end loop;
+  blocked := false;
+  begin
+    perform create_account_atomic(
+      current_setting('test.user_a')::uuid, 'x', 'paper', '#000', key_id, sec_id, '   '
+    );
+  exception when others then blocked := true; end;
+  if not blocked then
+    raise exception 'FAIL: a blank broker account number was accepted';
+  end if;
+  blocked := false;
+  begin
+    perform create_account_atomic(
+      current_setting('test.user_a')::uuid, 'x', 'paper', '#000', key_id, sec_id, null
+    );
+  exception when others then blocked := true; end;
+  if not blocked then
+    raise exception 'FAIL: a null broker account number was accepted';
+  end if;
+
+  -- null vault ids
+  blocked := false;
+  begin
+    perform create_account_atomic(
+      current_setting('test.user_a')::uuid, 'x', 'paper', '#000', null, sec_id, 'PA-1'
+    );
+  exception when others then blocked := true; end;
+  if not blocked then raise exception 'FAIL: a null key secret id was accepted'; end if;
+
+  -- identical vault ids
+  blocked := false;
+  begin
+    perform create_account_atomic(
+      current_setting('test.user_a')::uuid, 'x', 'paper', '#000', key_id, key_id, 'PA-1'
+    );
+  exception when others then blocked := true; end;
+  if not blocked then raise exception 'FAIL: one secret used for both was accepted'; end if;
+
+  -- a vault id that does not exist
+  blocked := false;
+  begin
+    perform create_account_atomic(
+      current_setting('test.user_a')::uuid, 'x', 'paper', '#000',
+      key_id, '00000000-dead-0000-0000-000000000000'::uuid, 'PA-1'
+    );
+  exception when others then blocked := true; end;
+  if not blocked then raise exception 'FAIL: a dangling Vault id was accepted'; end if;
+
+  -- a secret already in use by an active account
+  blocked := false;
+  begin
+    perform create_account_atomic(
+      current_setting('test.user_a')::uuid, 'shares', 'paper', '#000',
+      (select alpaca_key_secret_id from accounts
+        where nickname = 'Created atomically' and deleted_at is null),
+      sec_id, 'PA-2'
+    );
+  exception when others then blocked := true; end;
+  if not blocked then
+    raise exception 'FAIL: two active accounts could share a Vault secret';
+  end if;
+
+  select count(*) into after_count from accounts;
+  if after_count <> before_count then
+    raise exception 'FAIL: a refused creation still wrote % row(s)',
+      after_count - before_count;
+  end if;
+end $$;
+
 -- A failing audit insert must take the account row with it.
 do $$
 declare
@@ -311,12 +408,21 @@ declare
 begin
   select count(*) into before_count from accounts;
   -- Break the audit insert by pointing the actor at a user that cannot exist.
+  -- Everything else about the call is valid, so the *only* thing that can fail
+  -- is the audit entry — which must take the account row with it.
+  declare
+    key_id uuid;
+    sec_id uuid;
   begin
-    perform create_account_atomic(
-      '00000000-0000-0000-0000-0000000000ff'::uuid,
-      'Doomed', 'paper', '#000000', null, null, 'PA-DOOMED-0000'
-    );
-  exception when others then blocked := true;
+    select vault.create_secret('DOOMED-KEY', 'doomed-key') into key_id;
+    select vault.create_secret('DOOMED-SECRET', 'doomed-secret') into sec_id;
+    begin
+      perform create_account_atomic(
+        '00000000-0000-0000-0000-0000000000ff'::uuid,
+        'Doomed', 'paper', '#000000', key_id, sec_id, 'PA-DOOMED-0000'
+      );
+    exception when others then blocked := true;
+    end;
   end;
   select count(*) into after_count from accounts;
   if not blocked then

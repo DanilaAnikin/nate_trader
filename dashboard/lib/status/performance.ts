@@ -11,6 +11,8 @@
  *  - anything that cannot be aligned is `UNAVAILABLE`, never zero.
  */
 
+import { isCalendarDate } from "@/lib/calendar-date";
+
 export interface EquityPoint {
   readonly date: string;
   readonly equity: number;
@@ -44,7 +46,6 @@ export interface V11EpochBaseline {
   readonly note: string | null;
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Format an instant as its America/New_York calendar (session) date. */
 export function nySessionDate(instant: Date | string | number): string {
@@ -107,11 +108,11 @@ export function parseEpochBaseline(
     !startedAt ||
     !Number.isFinite(Date.parse(startedAt)) ||
     !startSessionDate ||
-    !ISO_DATE.test(startSessionDate) ||
+    !isCalendarDate(startSessionDate) ||
     startingEquity === null ||
     startingEquity <= 0 ||
     !benchmarkBaselineDate ||
-    !ISO_DATE.test(benchmarkBaselineDate) ||
+    !isCalendarDate(benchmarkBaselineDate) ||
     benchmarkBaselineClose === null ||
     benchmarkBaselineClose <= 0
   ) {
@@ -203,13 +204,13 @@ export function alignSeries(
   const from = startSessionDate ?? "";
   const portfolioByDate = new Map<string, number>();
   for (const point of portfolio) {
-    if (!ISO_DATE.test(point.date) || !(point.equity > 0)) continue;
+    if (!isCalendarDate(point.date) || !(point.equity > 0)) continue;
     if (point.date < from) continue;
     portfolioByDate.set(point.date, point.equity);
   }
   const benchmarkByDate = new Map<string, number>();
   for (const bar of benchmark) {
-    if (!ISO_DATE.test(bar.date) || !(bar.close > 0)) continue;
+    if (!isCalendarDate(bar.date) || !(bar.close > 0)) continue;
     if (bar.date < from) continue;
     benchmarkByDate.set(bar.date, bar.close);
   }
@@ -368,7 +369,7 @@ export function computeForwardPerformance(input: {
   // A malformed ledger row is not something to filter away quietly: it means
   // the ledger cannot be trusted to be complete for this window.
   const malformed = input.cashFlows.find(
-    (flow) => !ISO_DATE.test(flow.date) || !Number.isFinite(flow.amount),
+    (flow) => !isCalendarDate(flow.date) || !Number.isFinite(flow.amount),
   );
   if (malformed) {
     return {

@@ -68,6 +68,8 @@ function gate(
     preflight?: PreflightInfo | null;
     preflightRunId?: number | null;
     executionRunId?: number | null;
+    preflightAttempt?: number | null;
+    executionAttempt?: number | null;
   } = {},
 ) {
   return computeEffectiveValidationGate({
@@ -83,6 +85,10 @@ function gate(
       options.preflightRunId === undefined ? RUN_ID : options.preflightRunId,
     executionRunId:
       options.executionRunId === undefined ? RUN_ID : options.executionRunId,
+    preflightAttempt:
+      options.preflightAttempt === undefined ? 1 : options.preflightAttempt,
+    executionAttempt:
+      options.executionAttempt === undefined ? 1 : options.executionAttempt,
     now: NOW,
   });
 }
@@ -402,11 +408,20 @@ describe("the preflight itself must be internally consistent", () => {
 });
 
 describe("the preflight must be timestamped and fresh", () => {
-  it("refuses a preflight with no timestamp", () => {
-    const undated = parsePreflight(
-      { ...preflightJson(), checked_at: null },
-      null,
-    ) as PreflightInfo;
+  it("is rejected by the parser outright when it has no timestamp", () => {
+    // The timestamp anchors the freshness contract, so an undated report is
+    // not a preflight at all — the caller reports it as unreadable.
+    expect(parsePreflight({ ...preflightJson(), checked_at: null }, null)).toBeNull();
+    expect(parsePreflight({ ...preflightJson(), checked_at: "" }, null)).toBeNull();
+    expect(parsePreflight({ ...preflightJson(), checked_at: "junk" }, null)).toBeNull();
+  });
+
+  it("still refuses an undated preflight if one reaches the gate", () => {
+    // Defence in depth: the gate does not assume the parser ran.
+    const undated: PreflightInfo = {
+      ...(preflight() as PreflightInfo),
+      checkedAt: null,
+    };
     const result = gate({}, { preflight: undated });
     expect(result.effective).toBe("FAIL");
     expect(result.reasons).toContain("PREFLIGHT_CHECKED_AT_INVALID");

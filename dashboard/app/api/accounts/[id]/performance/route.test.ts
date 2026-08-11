@@ -127,29 +127,35 @@ vi.mock("@/lib/supabase/service", () => ({
   }),
 }));
 
-let equityBackfillError: Error | null = null;
-let cashFlowResult: {
-  complete: boolean;
-  incompleteReason: string | null;
-  detail: string | null;
-  latestActivityAt: string | null;
-} = {
-  complete: true,
-  incompleteReason: null,
-  detail: null,
-  latestActivityAt: "2026-08-05T20:00:00.000Z",
-};
-let cashFlowError: Error | null = null;
+/**
+ * Both mirrors are refreshed by one call that publishes them together, so the
+ * double describes that single outcome rather than two independent backfills.
+ */
+let refreshResult: {
+  ok: boolean;
+  reason?: string;
+  detail?: string;
+  latestActivityAt?: string | null;
+} = { ok: true, latestActivityAt: "2026-08-05T20:00:00.000Z" };
 
-vi.mock("@/lib/accounts/equity-backfill", () => ({
-  backfillEquity: async () => {
-    if (equityBackfillError) throw equityBackfillError;
-    return equityRows.length;
-  },
-  backfillCashFlows: async () => {
-    if (cashFlowError) throw cashFlowError;
-    return { written: 0, pagesRead: 1, refreshedAt: "", ...cashFlowResult };
-  },
+vi.mock("@/lib/accounts/broker-refresh", () => ({
+  refreshBrokerDatasets: async () =>
+    refreshResult.ok
+      ? {
+          ok: true,
+          generation: "1",
+          equityWritten: equityRows.length,
+          equityRemoved: 0,
+          flowsWritten: flowRows.length,
+          flowsRemoved: 0,
+          latestActivityAt: refreshResult.latestActivityAt ?? null,
+        }
+      : {
+          ok: false,
+          reason: refreshResult.reason,
+          detail: refreshResult.detail ?? "refresh refused",
+          mutated: false,
+        },
 }));
 
 let benchmarkBars: { date: string; close: number }[] | null = null;
@@ -230,14 +236,7 @@ beforeEach(() => {
   snapshotCalls = [];
   inflateSnapshotCounts = false;
   dropSnapshotToken = false;
-  equityBackfillError = null;
-  cashFlowError = null;
-  cashFlowResult = {
-    complete: true,
-    incompleteReason: null,
-    detail: null,
-    latestActivityAt: "2026-08-05T20:00:00.000Z",
-  };
+  refreshResult = { ok: true, latestActivityAt: "2026-08-05T20:00:00.000Z" };
   baselineDocument = baseline();
   equityRows = [
     { snapshot_date: "2026-08-03", equity: 1_000_000 },
@@ -393,29 +392,41 @@ describe("GET /api/accounts/[id]/performance", () => {
     expect(body.reason).toBe("BASELINE_OBSERVATION_MISMATCH");
   });
 
-  it("refuses an equity refresh failure instead of reporting a number", async () => {
-    equityBackfillError = new Error("Alpaca portfolio history HTTP 503");
+  it("refuses an unreadable portfolio history instead of reporting a number", async () => {
+    refreshResult = {
+      ok: false,
+      reason: "PORTFOLIO_HISTORY_UNREADABLE",
+      detail: "Alpaca portfolio history HTTP 503. Nothing was written.",
+    };
     const { body } = await request();
     expect(body.status).toBe("UNAVAILABLE");
     expect(body.reason).toBe("EQUITY_REFRESH_FAILED");
-  });
-
-  it("refuses a cash-flow outage instead of reporting a number", async () => {
-    cashFlowError = new Error("Alpaca activities HTTP 503");
-    const { body } = await request();
-    expect(body.reason).toBe("CASH_FLOW_REFRESH_FAILED");
+    expect(body.detail).toContain("Nothing was written");
   });
 
   it("refuses an incomplete cash-flow walk", async () => {
-    cashFlowResult = {
-      complete: false,
-      incompleteReason: "NO_PAGINATION_TOKEN",
+    refreshResult = {
+      ok: false,
+      reason: "CASH_FLOW_INCOMPLETE",
       detail: "A full page of activities produced no usable pagination id.",
-      latestActivityAt: null,
     };
     const { body } = await request();
     expect(body.reason).toBe("CASH_FLOW_INCOMPLETE");
     expect(body.detail).toContain("pagination id");
+  });
+
+  it("refuses a refresh that a newer one has superseded", async () => {
+    // Two overlapping refreshes: the one that started earlier must not publish
+    // over the newer one, and the caller must not present a number from it.
+    refreshResult = {
+      ok: false,
+      reason: "STALE_GENERATION",
+      detail:
+        "The refresh was refused and rolled back: refresh generation 4 is not newer than the published generation 7",
+    };
+    const { body } = await request();
+    expect(body.status).toBe("UNAVAILABLE");
+    expect(body.reason).toBe("REFRESH_SUPERSEDED");
   });
 
   it("refuses a database error on the history snapshot", async () => {
@@ -440,10 +451,8 @@ describe("GET /api/accounts/[id]/performance", () => {
     ["seven hours", 7 * 60 * 60 * 1000],
     ["a year", 365 * 24 * 60 * 60 * 1000],
   ])("refuses a broker activity %s in the future", async (_label, aheadMs) => {
-    cashFlowResult = {
-      complete: true,
-      incompleteReason: null,
-      detail: null,
+    refreshResult = {
+      ok: true,
       latestActivityAt: new Date(Date.now() + aheadMs).toISOString(),
     };
     const { body } = await request();
@@ -492,10 +501,7 @@ describe("GET /api/accounts/[id]/performance", () => {
     // 16:00Z is midday in New York on the same date, the ordinary case. The
     // activity timestamp has to be in the past too, now that a future one is
     // held to five minutes rather than a day.
-    cashFlowResult = {
-      ...cashFlowResult,
-      latestActivityAt: "2026-08-05T13:45:00.000Z",
-    };
+    refreshResult = { ok: true, latestActivityAt: "2026-08-05T13:45:00.000Z" };
     vi.setSystemTime(new Date("2026-08-05T16:00:00Z"));
     const { body } = await request();
     expect(body.status).toBe("CURRENT");
@@ -509,12 +515,11 @@ describe("GET /api/accounts/[id]/performance", () => {
   });
 
   it("refuses an external securities transfer instead of reporting alpha", async () => {
-    cashFlowResult = {
-      complete: false,
-      incompleteReason: "NON_CASH_EXTERNAL_TRANSFER",
+    refreshResult = {
+      ok: false,
+      reason: "NON_CASH_EXTERNAL_TRANSFER",
       detail:
         "An external securities transfer (ACATS, 2026-08-04) settled in this account after the V11 epoch baseline.",
-      latestActivityAt: "2026-08-04T20:00:00.000Z",
     };
     const { body } = await request();
     expect(body.status).toBe("UNAVAILABLE");

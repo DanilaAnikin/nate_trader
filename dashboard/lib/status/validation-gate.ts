@@ -67,7 +67,8 @@ export type ValidationGateReason =
   | "PREFLIGHT_DUPLICATE_CHECK"
   | "PREFLIGHT_COUNTS_INCONSISTENT"
   | "PREFLIGHT_CHECKED_AT_INVALID"
-  | "PREFLIGHT_STALE";
+  | "PREFLIGHT_STALE"
+  | "PREFLIGHT_MODE_NOT_PAPER";
 
 /** SHA-256 as the artifacts record it: 64 lower-case hex characters. */
 const SHA256_RE = /^[0-9a-f]{64}$/;
@@ -163,6 +164,8 @@ const REASON_DETAIL: Record<ValidationGateReason, string> = {
     "The preflight has no usable timestamp, or claims to have run in the future.",
   PREFLIGHT_STALE:
     "The preflight is older than its freshness contract; it describes a market and broker state that has moved on.",
+  PREFLIGHT_MODE_NOT_PAPER:
+    "The preflight did not authorize paper execution; its allowed_mode is not \"paper\".",
 };
 
 /**
@@ -181,6 +184,11 @@ function preflightReasons(
   const reasons: ValidationGateReason[] = [];
 
   if (preflight.status !== "PASS") reasons.push("PREFLIGHT_NOT_PASS");
+
+  // The runner's own verdict on whether this cycle may execute. `no-execution`
+  // is what it writes when anything refused, and the status alone is not a
+  // substitute: both are stated, so both are required.
+  if (preflight.allowedMode !== "paper") reasons.push("PREFLIGHT_MODE_NOT_PAPER");
 
   const byName = new Map<string, { passed: boolean }[]>();
   for (const check of preflight.checks) {
@@ -251,8 +259,14 @@ export function computeEffectiveValidationGate(input: {
   preflight?: PreflightInfo | null;
   /** Workflow run the preflight came from. */
   preflightRunId?: number | null;
+  /**
+   * Attempt of that run. A re-run keeps the run id and increments the attempt,
+   * and its preflight describes a different execution of the same workflow.
+   */
+  preflightAttempt?: number | null;
   /** Workflow run the displayed runtime state came from. */
   executionRunId?: number | null;
+  executionAttempt?: number | null;
   now: Date;
 }): EffectiveValidationGate {
   const { report, now } = input;
@@ -326,7 +340,11 @@ export function computeEffectiveValidationGate(input: {
     if (
       input.preflightRunId == null ||
       input.executionRunId == null ||
-      input.preflightRunId !== input.executionRunId
+      input.preflightRunId !== input.executionRunId ||
+      // A re-run keeps the id, so the attempt is part of the cycle's identity.
+      input.preflightAttempt == null ||
+      input.executionAttempt == null ||
+      input.preflightAttempt !== input.executionAttempt
     ) {
       reasons.push("PREFLIGHT_CYCLE_MISMATCH");
     }

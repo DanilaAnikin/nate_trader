@@ -307,6 +307,21 @@ for role, sub in (("anon", None), ("authenticated", OWNER)):
         ("replace_equity_snapshots", {
             "p_account": ACCOUNT, "p_owner": OWNER, "p_rows": [],
         }),
+        ("begin_broker_refresh", {"p_account": ACCOUNT, "p_owner": OWNER}),
+        ("publish_broker_refresh", {
+            "p_account": ACCOUNT, "p_owner": OWNER, "p_generation": 1,
+            "p_equity": [], "p_equity_complete": True,
+            "p_flows": [], "p_flows_from": "2020-01-01",
+            "p_flows_complete": True, "p_flows_scanned": 0,
+        }),
+        ("create_account_atomic", {
+            "p_owner": OWNER, "p_nickname": "x", "p_mode": "paper",
+            "p_color": "#000", "p_key_secret": None, "p_secret_secret": None,
+            "p_account_number": "PA-1",
+        }),
+        ("update_account_metadata", {
+            "p_account": ACCOUNT, "p_owner": OWNER, "p_nickname": "x",
+        }),
     ):
         status, body = request(
             f"/rpc/{rpc}", role=role, sub=sub, method="POST", body=payload
@@ -329,6 +344,44 @@ for role, sub in (("anon", None), ("authenticated", OWNER)):
         )
         check(result == "f", f"{role} can {statement}() on cash_flows_id_seq")
 print("  no client role can nextval() or setval() a public sequence")
+
+# ---------------- 8b. every routine kind created after the migrations is closed
+#
+# 0015's event trigger covered functions and procedures only, and aborted the
+# latter outright. 0016 replaced it with a global default privilege, so all
+# three kinds are checked here — including a procedure, which could not even be
+# created before.
+for kind, ddl, signature in (
+    ("function", "create or replace function acl_probe_fn() returns int language sql as $$ select 1 $$", "acl_probe_fn()"),
+    ("procedure", "create or replace procedure acl_probe_pr() language sql as $$ select 1 $$", "acl_probe_pr()"),
+    ("aggregate", "create aggregate acl_probe_ag(int) (sfunc=int4pl, stype=int)", "acl_probe_ag(int)"),
+):
+    psql(ddl)
+    for role in ("anon", "authenticated"):
+        check(
+            psql(f"select has_function_privilege('{role}', '{signature}', 'EXECUTE')") == "f",
+            f"{role} can execute a newly created {kind}",
+        )
+    check(
+        psql(f"select coalesce(proacl::text,'(builtin)') from pg_proc "
+             f"where oid = '{signature}'::regprocedure").find("{=X/") == -1,
+        f"PUBLIC can execute a newly created {kind}",
+    )
+    check(
+        psql(f"select has_function_privilege('service_role', '{signature}', 'EXECUTE')") == "t",
+        f"service_role cannot execute a newly created {kind}",
+    )
+print("  a new function, procedure and aggregate are all closed to clients")
+
+# CREATE OR REPLACE must preserve an explicit grant now that the trigger is gone.
+psql("grant execute on function acl_probe_fn() to authenticated")
+psql("create or replace function acl_probe_fn() returns int language sql as $$ select 2 $$")
+check(
+    psql("select has_function_privilege('authenticated','acl_probe_fn()','EXECUTE')") == "t",
+    "CREATE OR REPLACE stripped an explicit grant",
+)
+psql("drop function acl_probe_fn(); drop procedure acl_probe_pr(); drop aggregate acl_probe_ag(int)")
+print("  CREATE OR REPLACE preserves an explicit grant")
 
 # ------------------------- 9. a function created AFTER the migrations stays closed
 #
@@ -360,38 +413,111 @@ check(
 print("  a probe function created after the migrations is not anonymously callable")
 
 # ------------------------------------- 10. the service-role workflow still works
+#
+# The reconciliation now goes through `publish_broker_refresh`, which takes both
+# datasets and the evidence that each is complete. The superseded entry points
+# refuse rather than half-doing the job.
+for superseded, payload in (
+    ("reconcile_cash_flow_mirror", {
+        "p_account": ACCOUNT, "p_owner": OWNER,
+        "p_from": "2020-01-01", "p_rows": [],
+    }),
+    ("replace_equity_snapshots", {
+        "p_account": ACCOUNT, "p_owner": OWNER, "p_rows": [],
+    }),
+):
+    status, body = request(
+        f"/rpc/{superseded}", role="service_role", method="POST", body=payload
+    )
+    check(
+        status >= 400 and "superseded" in body,
+        f"{superseded} should refuse rather than delete: {status} {body[:160]}",
+    )
+
+# An empty activity walk that examined nothing must not empty the ledger.
+generation = int(psql(f"select begin_broker_refresh('{ACCOUNT}','{OWNER}')"))
+equity_now = json.loads(
+    psql(
+        "select coalesce(jsonb_agg(jsonb_build_object("
+        "'snapshot_date', snapshot_date, 'equity', equity, 'cash', cash,"
+        "'profit_loss', profit_loss, 'profit_loss_pct', profit_loss_pct)), '[]'::jsonb) "
+        f"from equity_snapshots where account_id='{ACCOUNT}' "
+        "and source='alpaca_portfolio_history'"
+    )
+)
 status, body = request(
-    "/rpc/reconcile_cash_flow_mirror",
+    "/rpc/publish_broker_refresh",
     role="service_role",
     method="POST",
     body={
-        "p_account": ACCOUNT,
-        "p_owner": OWNER,
-        "p_from": "2020-01-01",
-        "p_rows": [
-            {
-                "external_id": "act-000000",
-                "flow_date": "2020-01-01",
-                "amount": 10,
-                "kind": "deposit",
-            }
-        ],
+        "p_account": ACCOUNT, "p_owner": OWNER, "p_generation": generation,
+        "p_equity": equity_now, "p_equity_complete": True,
+        "p_flows": [], "p_flows_from": "2020-01-01",
+        "p_flows_complete": True, "p_flows_scanned": 0,
     },
 )
-check(status == 200, f"service_role reconciliation failed: {status} {body[:200]}")
+check(
+    status >= 400 and "unexamined" in body,
+    f"an unexamined empty walk should not empty the ledger: {status} {body[:200]}",
+)
+remaining = int(psql(f"select count(*) from cash_flows where account_id='{ACCOUNT}'"))
+check(remaining == total_flows, f"the refused publish still changed the ledger ({remaining})")
+
+# A walk that examined activities and reports one may reconcile the rest away.
+generation = int(psql(f"select begin_broker_refresh('{ACCOUNT}','{OWNER}')"))
+status, body = request(
+    "/rpc/publish_broker_refresh",
+    role="service_role",
+    method="POST",
+    body={
+        "p_account": ACCOUNT, "p_owner": OWNER, "p_generation": generation,
+        "p_equity": equity_now, "p_equity_complete": True,
+        "p_flows": [{
+            "external_id": "act-000000", "flow_date": "2020-01-01",
+            "amount": 10, "kind": "deposit",
+        }],
+        "p_flows_from": "2020-01-01",
+        "p_flows_complete": True, "p_flows_scanned": total_flows,
+    },
+)
+check(status == 200, f"service_role publish failed: {status} {body[:200]}")
 if status == 200:
     outcome = json.loads(body)
     check(
-        outcome["removed"] == total_flows - 1,
-        "the reconciliation did not delete the rows the broker no longer reports "
-        f"(removed {outcome['removed']} of an expected {total_flows - 1})",
+        outcome["flows_removed"] == total_flows - 1,
+        f"the reconciliation removed {outcome['flows_removed']} of an expected {total_flows - 1}",
     )
-    remaining = int(psql(f"select count(*) from cash_flows where account_id='{ACCOUNT}'"))
-    check(remaining == 1, f"expected 1 mirrored flow after reconciliation, got {remaining}")
-print("  the service-role reconciliation removes withdrawn activities atomically")
+    check(
+        outcome["equity_removed"] == 0,
+        f"the reconciliation removed {outcome['equity_removed']} equity rows it should not have",
+    )
+
+# A stale generation must be refused outright.
+status, body = request(
+    "/rpc/publish_broker_refresh",
+    role="service_role",
+    method="POST",
+    body={
+        "p_account": ACCOUNT, "p_owner": OWNER, "p_generation": generation,
+        "p_equity": equity_now, "p_equity_complete": True,
+        "p_flows": [], "p_flows_from": "2020-01-01",
+        "p_flows_complete": True, "p_flows_scanned": 5,
+    },
+)
+check(
+    status >= 400 and "not newer" in body,
+    f"a replayed generation should be refused: {status} {body[:200]}",
+)
+print("  publish_broker_refresh reconciles atomically and refuses stale generations")
 
 # RLS helpers, Vault and the lifecycle RPC must all still function.
 check(psql("select owns_account('%s')" % ACCOUNT) in ("f", ""), "owns_account is callable")
+
+# The refresh generation is service-role only and monotonic.
+gen_a = int(psql(f"select begin_broker_refresh('{ACCOUNT}','{OWNER}')"))
+gen_b = int(psql(f"select begin_broker_refresh('{ACCOUNT}','{OWNER}')"))
+check(gen_b > gen_a, f"refresh generations are not monotonic ({gen_a} then {gen_b})")
+print("  refresh generations are monotonic and service-role only")
 status, body = request(
     "/rpc/delete_account_atomic",
     role="service_role",

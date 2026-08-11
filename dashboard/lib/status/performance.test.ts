@@ -57,6 +57,23 @@ describe("parseEpochBaseline", () => {
     expect(parseEpochBaseline({ ...BASELINE_JSON, schemaVersion: 2 })).toBeNull();
     expect(parseEpochBaseline(null)).toBeNull();
   });
+
+  it.each(["startSessionDate", "benchmarkBaselineDate"])(
+    "rejects an impossible %s rather than rolling it forward",
+    (key) => {
+      // `new Date("2026-02-30")` is 2 March. Anchoring a published return to a
+      // day the baseline never named is worse than having no baseline.
+      const rolled = {
+        ...BASELINE_JSON,
+        startSessionDate: "2026-02-30",
+        benchmarkBaselineDate: "2026-02-30",
+        startedAt: "2026-02-30T13:30:00Z",
+      };
+      expect(parseEpochBaseline({ ...BASELINE_JSON, [key]: "2026-02-30" })).toBeNull();
+      expect(parseEpochBaseline(rolled)).toBeNull();
+      expect(parseEpochBaseline({ ...BASELINE_JSON, [key]: "2026-04-31" })).toBeNull();
+    },
+  );
 });
 
 describe("timeWeightedReturn", () => {

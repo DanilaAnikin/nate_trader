@@ -653,6 +653,24 @@ export type Database = {
         Args: { p_account: string; p_owner: string; p_rows: Json }
         Returns: Json
       }
+      begin_broker_refresh: {
+        Args: { p_account: string; p_owner: string }
+        Returns: number
+      }
+      publish_broker_refresh: {
+        Args: {
+          p_account: string
+          p_owner: string
+          p_generation: number
+          p_equity: Json
+          p_equity_complete: boolean
+          p_flows: Json
+          p_flows_from: string
+          p_flows_complete: boolean
+          p_flows_scanned: number
+        }
+        Returns: Json
+      }
       create_account_atomic: {
         Args: {
           p_owner: string

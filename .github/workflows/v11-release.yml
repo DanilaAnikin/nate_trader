@@ -40,6 +40,14 @@ jobs:
           npx tsc --noEmit
       - name: Build production dashboard
         run: npm run build
+      # Non-trading, and previously only ever claimed as a local result. The
+      # fail-closed suite asserts that no route serves anything without an
+      # authentication backend and that no credential reaches the browser, so
+      # it belongs in the gate rather than in a report.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end fail-closed suite
+        run: npx playwright test
 
   release-gate:
     runs-on: ubuntu-24.04

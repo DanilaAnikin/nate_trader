@@ -1,152 +1,12 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 
-type Service = SupabaseClient<Database>;
 type Mode = Database["public"]["Enums"]["account_mode"];
 
 const ALPACA_BASE: Record<Mode, string> = {
   paper: "https://paper-api.alpaca.markets/v2",
   live: "https://api.alpaca.markets/v2",
 };
-
-type PortfolioHistory = {
-  timestamp?: number[];
-  equity?: (number | null)[];
-  profit_loss?: (number | null)[];
-  profit_loss_pct?: (number | null)[];
-};
-
-/**
- * Backfill an account's equity curve from Alpaca's Portfolio History — the
- * real, retroactive daily equity. Idempotent: upserts on
- * (account_id, snapshot_date). Returns the number of days written.
- *
- * This is what makes the dashboard equity chart correct (DEF-01) without
- * waiting for the scheduled agent — the equity API route calls it lazily the
- * first time an account is charted.
- */
-export async function backfillEquity(
-  svc: Service,
-  accountId: string,
-  ownerId: string,
-  mode: Mode,
-): Promise<number> {
-  const { data: cred, error: credErr } = await svc.rpc(
-    "get_account_credentials",
-    { acct: accountId },
-  );
-  if (credErr || !cred || cred.length === 0) {
-    throw new Error("account has no stored credentials");
-  }
-
-  const res = await fetch(
-    `${ALPACA_BASE[mode]}/account/portfolio/history?period=all&timeframe=1D`,
-    {
-      headers: {
-        "APCA-API-KEY-ID": cred[0].api_key,
-        "APCA-API-SECRET-KEY": cred[0].api_secret,
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
-    },
-  );
-  if (!res.ok) {
-    throw new Error(`Alpaca portfolio history HTTP ${res.status}`);
-  }
-
-  const hist = (await res.json()) as PortfolioHistory;
-  const ts = hist.timestamp ?? [];
-  const equity = hist.equity ?? [];
-  const pl = hist.profit_loss ?? [];
-  const plpc = hist.profit_loss_pct ?? [];
-
-  // Portfolio history is column-oriented: the arrays are positional, so a
-  // length disagreement silently pairs one day's timestamp with another day's
-  // equity. An empty payload is equally not a curve — writing nothing and
-  // returning 0 would look like a successful refresh of an account that simply
-  // has no history.
-  if (!Array.isArray(ts) || !Array.isArray(equity)) {
-    throw new Error("Alpaca portfolio history is not column-oriented arrays");
-  }
-  if (ts.length === 0 || equity.length === 0) {
-    throw new Error("Alpaca portfolio history returned no observations");
-  }
-  if (equity.length !== ts.length) {
-    throw new Error(
-      `Alpaca portfolio history is inconsistent: ${ts.length} timestamps against ${equity.length} equity values`,
-    );
-  }
-  for (const [name, column] of [
-    ["profit_loss", pl],
-    ["profit_loss_pct", plpc],
-  ] as const) {
-    if (column.length > 0 && column.length !== ts.length) {
-      throw new Error(
-        `Alpaca portfolio history column ${name} has ${column.length} values against ${ts.length} timestamps`,
-      );
-    }
-  }
-
-  // Keyed by date so a duplicated day collapses to its last value.
-  const byDate = new Map<string, Database["public"]["Tables"]["equity_snapshots"]["Insert"]>();
-  // Alpaca's daily timestamps fall in the trading day's evening, which is the
-  // next calendar day in UTC — so a UTC slice mislabels Friday as Saturday and
-  // drops Mondays. Format in market time (ET) so dates match the chart's
-  // ET-dated SPY history. en-CA yields YYYY-MM-DD.
-  const etDate = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-  });
-  for (let i = 0; i < ts.length; i++) {
-    const eq = equity[i];
-    if (eq == null || !Number.isFinite(eq) || eq <= 0) continue;
-    const stamp = ts[i];
-    if (typeof stamp !== "number" || !Number.isFinite(stamp)) {
-      throw new Error("Alpaca portfolio history contains a non-numeric timestamp");
-    }
-    const date = etDate.format(new Date(stamp * 1000));
-    // `Intl` yields an empty string for an invalid Date rather than throwing.
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      throw new Error(
-        `Alpaca portfolio history timestamp ${stamp} is not a usable calendar date`,
-      );
-    }
-    byDate.set(date, {
-      account_id: accountId,
-      snapshot_date: date,
-      equity: Math.round(eq * 100) / 100,
-      // Portfolio history carries no per-day cash; only equity drives the chart.
-      cash: 0,
-      profit_loss: pl[i] ?? null,
-      profit_loss_pct: plpc[i] ?? null,
-      source: "alpaca_portfolio_history",
-    });
-  }
-
-  const rows = [...byDate.values()];
-  if (rows.length > 0) {
-    // Alpaca's portfolio history is authoritative *and* retroactive: it revises
-    // past days and can drop them entirely. An upsert-only mirror keeps a day
-    // the broker has since withdrawn, and that stale day stays in the curve and
-    // in every return computed from it. `replace_equity_snapshots` upserts and
-    // removes withdrawn days in one transaction.
-    const { error } = await svc.rpc("replace_equity_snapshots", {
-      p_account: accountId,
-      p_owner: ownerId,
-      p_rows: rows.map((row) => ({
-        snapshot_date: row.snapshot_date,
-        equity: row.equity,
-        cash: row.cash,
-        profit_loss: row.profit_loss,
-        profit_loss_pct: row.profit_loss_pct,
-      })) as unknown as Database["public"]["Functions"]["replace_equity_snapshots"]["Args"]["p_rows"],
-    });
-    if (error) {
-      throw new Error(`equity_snapshots reconciliation failed: ${error.message}`);
-    }
-  }
-  return rows.length;
-}
 
 type Activity = {
   id?: unknown;
@@ -237,15 +97,30 @@ export type CashFlowIncompleteReason =
   | "LEDGER_RECONCILE_FAILED"
   | "PAGE_LIMIT_REACHED";
 
-export interface CashFlowBackfillResult {
-  readonly written: number;
-  /** True only when every page back to the baseline boundary was read. */
+/**
+ * The activity walk's result, with **no database access of its own**.
+ *
+ * Publishing moved to `refreshBrokerDatasets`, which holds both datasets and
+ * writes them in one transaction. A walk that writes as it goes cannot be
+ * combined with anything else atomically, and its partial output is exactly
+ * what a reconciliation misreads as a retraction.
+ */
+export interface CashFlowWalkResult {
   readonly complete: boolean;
   readonly incompleteReason: CashFlowIncompleteReason | null;
   readonly detail: string | null;
   readonly pagesRead: number;
-  readonly refreshedAt: string;
-  /** Newest activity timestamp seen, for freshness reporting. */
+  /** Activities examined, including ones outside the window. */
+  readonly scanned: number;
+  /** Rows to publish, in the shape `publish_broker_refresh` expects. */
+  readonly rows: readonly {
+    external_id: string;
+    flow_date: string;
+    amount: number;
+    kind: string;
+  }[];
+  /** Inclusive market-time date the walk is authoritative for. */
+  readonly windowFrom: string;
   readonly latestActivityAt: string | null;
 }
 
@@ -351,14 +226,17 @@ function incomplete(
   reason: CashFlowIncompleteReason,
   detail: string,
   pagesRead: number,
-): CashFlowBackfillResult {
+): CashFlowWalkResult {
+  // An incomplete walk carries no rows at all. Returning what it managed to
+  // read would invite a caller to publish a partial ledger.
   return {
-    written: 0,
     complete: false,
     incompleteReason: reason,
     detail,
     pagesRead,
-    refreshedAt: new Date().toISOString(),
+    scanned: 0,
+    rows: [],
+    windowFrom: EPOCH_START,
     latestActivityAt: null,
   };
 }
@@ -377,28 +255,22 @@ function incomplete(
  * `page_token`; a full page without a usable token is also incomplete. Rows are
  * idempotent on the Alpaca activity id. Read-only against the broker.
  */
-export async function backfillCashFlows(
-  svc: Service,
-  accountId: string,
-  ownerId: string,
+export async function fetchCashActivities(
+  apiKey: string,
+  apiSecret: string,
   mode: Mode,
-  options: { since?: string } = {},
-): Promise<CashFlowBackfillResult> {
-  const { data: cred, error: credErr } = await svc.rpc(
-    "get_account_credentials",
-    { acct: accountId },
-  );
-  if (credErr || !cred || cred.length === 0) {
-    throw new Error("account has no stored credentials");
-  }
-
+  since?: string,
+): Promise<CashFlowWalkResult> {
+  const options = { since };
   const etDate = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
   });
   const rows = new Map<
     string,
-    Database["public"]["Tables"]["cash_flows"]["Insert"]
+    { external_id: string; flow_date: string; amount: number; kind: string }
   >();
+  /** Every activity the walk looked at, window or not. */
+  let scanned = 0;
 
   let pageToken: string | null = null;
   let pagesRead = 0;
@@ -437,8 +309,8 @@ export async function backfillCashFlows(
 
     const res = await fetch(`${ALPACA_BASE[mode]}/account/activities?${query}`, {
       headers: {
-        "APCA-API-KEY-ID": cred[0].api_key,
-        "APCA-API-SECRET-KEY": cred[0].api_secret,
+        "APCA-API-KEY-ID": apiKey,
+        "APCA-API-SECRET-KEY": apiSecret,
       },
       cache: "no-store",
       signal: AbortSignal.timeout(15_000),
@@ -469,6 +341,7 @@ export async function backfillCashFlows(
       // Pagination is by id, so it must advance even for a row that is skipped
       // as pre-baseline or already seen.
       lastId = id;
+      scanned++;
       if (!type) {
         return incomplete(
           "MALFORMED_ACTIVITY",
@@ -570,12 +443,10 @@ export async function backfillCashFlows(
       if (amount === 0) continue;
 
       rows.set(id, {
-        account_id: accountId,
+        external_id: id,
         flow_date: occurred.date,
         amount: Math.round(amount * 100) / 100,
         kind: amount > 0 ? "deposit" : "withdrawal",
-        source: "alpaca_activities",
-        external_id: id,
       });
     }
 
@@ -602,46 +473,19 @@ export async function backfillCashFlows(
     );
   }
 
-  // --- reconcile the mirror against the broker's current truth --------------
-  //
-  // An upsert alone only ever adds and amends. Alpaca can *withdraw* an
-  // activity — a reversed transfer, a correction re-issued under a new id, a
-  // duplicate that gets removed — and the row this mirror wrote for it would
-  // otherwise stay in the ledger forever, permanently subtracting a deposit
-  // that no longer exists from the reported return.
-  //
-  // Both halves happen inside `reconcile_cash_flow_mirror`: the upsert and the
-  // set difference against what the broker currently reports. Doing it here
-  // instead would need an unpaged `select` of the mirrored ledger, which is
-  // truncated silently past the server's row cap — and reconciling against a
-  // truncated list is worse than not reconciling at all.
-  const list = [...rows.values()];
-  const reconciled = await svc.rpc("reconcile_cash_flow_mirror", {
-    p_account: accountId,
-    p_owner: ownerId,
-    p_from: baselineDate ?? EPOCH_START,
-    p_rows: list.map((row) => ({
-      external_id: row.external_id,
-      flow_date: row.flow_date,
-      amount: row.amount,
-      kind: row.kind,
-    })) as unknown as Database["public"]["Functions"]["reconcile_cash_flow_mirror"]["Args"]["p_rows"],
-  });
-  if (reconciled.error) {
-    return incomplete(
-      "LEDGER_RECONCILE_FAILED",
-      `The mirrored cash-flow ledger could not be reconciled: ${reconciled.error.message}`,
-      pagesRead,
-    );
-  }
-
+  // The walk writes nothing. Its rows go to `publish_broker_refresh` together
+  // with the portfolio history, so both mirrors move in one transaction under
+  // one generation — a walk that wrote as it went could not be combined with
+  // anything else atomically, and its partial output is exactly what a
+  // reconciliation misreads as a retraction.
   return {
-    written: list.length,
     complete: true,
     incompleteReason: null,
     detail: null,
     pagesRead,
-    refreshedAt: new Date().toISOString(),
+    scanned,
+    rows: [...rows.values()],
+    windowFrom: baselineDate ?? EPOCH_START,
     latestActivityAt,
   };
 }

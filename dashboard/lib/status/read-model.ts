@@ -217,6 +217,26 @@ async function resolveApprovedSha(
   return { sha: null, source: null, detail: null, authoritative: false };
 }
 
+type CanonicalValidation = Omit<
+  ValidationInfo,
+  "identityMatchesRuntime" | "universeMatchesRuntime"
+>;
+
+/**
+ * The canonical promotion report at an explicit ref.
+ *
+ * Read before the preflight selection so its recorded strategy identity and
+ * ranking universe can be the authority everything else is compared against —
+ * a cycle with no frozen plan still has to describe the validated strategy.
+ */
+async function readCanonicalValidation(
+  approvedSha: string | null,
+): Promise<CanonicalValidation | null> {
+  const ref = approvedSha ?? GITHUB_STATE_REF;
+  const document = await fetchRepoJson<unknown>(VALIDATION_PATH, ref, 600);
+  return document ? parseValidation(document, ref) : null;
+}
+
 function toAttempt(
   run: WorkflowRunSummary,
   jobs: { stepCount: number }[] | null,
@@ -647,6 +667,7 @@ export async function buildStrategyStatus(input: {
   };
   let releaseGate: CheckState = "NOT_APPLICABLE";
   let gateRun: WorkflowRunSummary | null = null;
+  let canonicalReport: CanonicalValidation | null = null;
 
   if (authorized) {
     // Paged source: a long run of manual preflight-only invocations must not
@@ -665,12 +686,19 @@ export async function buildStrategyStatus(input: {
 
     approved = await resolveApprovedSha(latestSuccessfulRun);
 
+    // The canonical report is read first, because it — not the frozen plan —
+    // is the authority a preflight's identity must agree with. A cycle that
+    // produced no plan still has to describe the validated strategy.
+    canonicalReport = await readCanonicalValidation(approved.sha);
+
     // Independent selection: a manual preflight-only run must not hide an
     // older, still-valid execution, and vice versa.
     executionSelection = await selectLatestExecution(approved.sha, runPage, now);
     preflightSelection = await selectLatestPreflight(
       runPage,
-      executionSelection.performance?.plan?.strategyIdentityValue ?? null,
+      canonicalReport?.strategyIdentityValue ??
+        executionSelection.performance?.plan?.strategyIdentityValue ??
+        null,
       now,
     );
     latestJobs = latestRun ? await fetchRunJobs(latestRun.id) : null;
@@ -757,6 +785,14 @@ export async function buildStrategyStatus(input: {
         expectedRuntimeArtifactName: approved.sha
           ? `${RUNTIME_ARTIFACT_PREFIX}${approved.sha}`
           : null,
+        // The canonical report is the authority for identity and universe, and
+        // unlike the frozen plan it exists between rebalances too.
+        validated: canonicalReport
+          ? {
+              strategyIdentity: canonicalReport.strategyIdentityValue,
+              rankingUniverseSha256: canonicalReport.rankingUniverseSha256,
+            }
+          : null,
         now,
       })
     : LINEAGE_OK;
@@ -795,13 +831,13 @@ export async function buildStrategyStatus(input: {
   const validationRef = authorized
     ? (approved.sha ?? GITHUB_STATE_REF)
     : GITHUB_STATE_REF;
-  const validationDocument = await fetchRepoJson<unknown>(
-    VALIDATION_PATH,
-    validationRef,
-    600,
-  );
+  // Authorized viewers already read it above; an unauthorized viewer reads the
+  // repository default so the research page still works.
+  const parsedValidation = authorized
+    ? canonicalReport
+    : await readCanonicalValidation(null);
   const validation = validationSection(
-    validationDocument ? parseValidation(validationDocument, validationRef) : null,
+    parsedValidation,
     executionSelection,
     preflightSelection,
     validationRef,
@@ -819,7 +855,9 @@ export async function buildStrategyStatus(input: {
         // The executor's own gate result, bound to the cycle it ran in.
         preflight: preflightSelection.preflight,
         preflightRunId: preflightSelection.run?.id ?? null,
+        preflightAttempt: preflightSelection.run?.attempt ?? null,
         executionRunId: executionSelection.run?.id ?? null,
+        executionAttempt: executionSelection.run?.attempt ?? null,
         now,
       })
     : NOT_APPLICABLE_GATE;

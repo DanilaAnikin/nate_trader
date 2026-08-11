@@ -4,7 +4,7 @@ import {
   getSessionUser,
   loadOwnedAccount,
 } from "@/lib/accounts/session";
-import { backfillCashFlows, backfillEquity } from "@/lib/accounts/equity-backfill";
+import { refreshBrokerDatasets } from "@/lib/accounts/broker-refresh";
 import { readAccountHistory } from "@/lib/accounts/history";
 import {
   authorizeProductionRuntime,
@@ -44,6 +44,7 @@ export type PerformanceUnavailableReason =
   | "CASH_FLOW_QUERY_FAILED"
   | "HISTORY_TOO_LARGE"
   | "HISTORY_UNUSABLE"
+  | "REFRESH_SUPERSEDED"
   | "CASH_FLOW_INCOMPLETE"
   | "CASH_FLOW_UNUSABLE"
   | "CASH_FLOW_TIMING_UNVERIFIABLE"
@@ -282,55 +283,26 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
-  // Any refresh or query error is UNAVAILABLE — never a number with a warning.
-  try {
-    await backfillEquity(svc, id, account.owner_id, account.mode);
-  } catch (caught) {
-    return respond(
-      id,
-      "EQUITY_REFRESH_FAILED",
-      caught instanceof Error
-        ? `The equity mirror could not be refreshed: ${caught.message}`
-        : "The equity mirror could not be refreshed.",
-      baselineDto,
-    );
+  // Both broker datasets are fetched, fully validated, and published as one
+  // generation. Any failure writes nothing and produces a named UNAVAILABLE —
+  // never a number with a warning attached.
+  const refresh = await refreshBrokerDatasets(svc, id, account.owner_id, account.mode, {
+    flowsFrom: baseline.startedAt,
+  });
+  if (!refresh.ok) {
+    const reason: PerformanceUnavailableReason =
+      refresh.reason === "NON_CASH_EXTERNAL_TRANSFER"
+        ? "NON_CASH_EXTERNAL_TRANSFER"
+        : refresh.reason === "CASH_FLOW_INCOMPLETE"
+          ? "CASH_FLOW_INCOMPLETE"
+          : refresh.reason === "NO_CREDENTIALS"
+            ? "NO_CREDENTIALS"
+            : refresh.reason === "STALE_GENERATION"
+              ? "REFRESH_SUPERSEDED"
+              : "EQUITY_REFRESH_FAILED";
+    return respond(id, reason, refresh.detail, baselineDto);
   }
-
-  let latestActivityAt: string | null = null;
-  try {
-    const result = await backfillCashFlows(svc, id, account.owner_id, account.mode, {
-      since: baseline.startedAt,
-    });
-    if (!result.complete) {
-      // A securities transfer is its own named failure: nothing about it can be
-      // repaired by reading more pages, and it must never be shown as return.
-      if (result.incompleteReason === "NON_CASH_EXTERNAL_TRANSFER") {
-        return respond(
-          id,
-          "NON_CASH_EXTERNAL_TRANSFER",
-          result.detail ??
-            "An external securities transfer settled in this account after the V11 epoch baseline, so no return or alpha can be attributed to the strategy.",
-          baselineDto,
-        );
-      }
-      return respond(
-        id,
-        "CASH_FLOW_INCOMPLETE",
-        `${result.detail ?? "The Alpaca activity history could not be walked back to the epoch baseline."} A deposit or withdrawal may be missing from the return.`,
-        baselineDto,
-      );
-    }
-    latestActivityAt = result.latestActivityAt;
-  } catch (caught) {
-    return respond(
-      id,
-      "CASH_FLOW_REFRESH_FAILED",
-      caught instanceof Error
-        ? `External cash flows could not be refreshed: ${caught.message}`
-        : "External cash flows could not be refreshed.",
-      baselineDto,
-    );
-  }
+  const latestActivityAt = refresh.latestActivityAt;
 
   // A broker activity stamped in the future means the feed disagrees with
   // reality; that is a mismatch, not fresh data. The allowance is the same

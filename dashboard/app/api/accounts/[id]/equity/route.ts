@@ -4,7 +4,7 @@ import {
   getSessionUser,
   loadOwnedAccount,
 } from "@/lib/accounts/session";
-import { backfillEquity } from "@/lib/accounts/equity-backfill";
+import { refreshBrokerDatasets } from "@/lib/accounts/broker-refresh";
 import { readAccountHistory } from "@/lib/accounts/history";
 
 export const dynamic = "force-dynamic";
@@ -34,14 +34,21 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   const svc = getSupabaseService();
 
+  // Both broker datasets are fetched, validated and published as one
+  // generation. A failed refresh writes nothing at all, so the stored mirror
+  // stays exactly as it was and is served with the reason attached.
   let backfilled = 0;
   let refreshWarning: string | null = null;
-  try {
-    // Idempotent: keeps the curve current on every validated account refresh
-    // instead of freezing it after the first-ever dashboard visit.
-    backfilled = await backfillEquity(svc, id, account.owner_id, account.mode);
-  } catch (e) {
-    refreshWarning = e instanceof Error ? e.message : "equity refresh failed";
+  const refresh = await refreshBrokerDatasets(
+    svc,
+    id,
+    account.owner_id,
+    account.mode,
+  );
+  if (refresh.ok) {
+    backfilled = refresh.equityWritten;
+  } else {
+    refreshWarning = `${refresh.reason}: ${refresh.detail}`;
   }
 
   // One request, one database snapshot, both datasets. Reading them as two

@@ -3,6 +3,7 @@ import {
   artifactSizeIsAcceptable,
   downloadArtifactZip,
   fetchRunArtifacts,
+  fetchRunJobs,
   type ArtifactMeta,
   type WorkflowRunSummary,
 } from "./github-api";
@@ -116,6 +117,55 @@ const SUCCEEDED = (run: WorkflowRunSummary) =>
   run.status === "completed" && run.conclusion === "success";
 
 /**
+ * The workflow step that produces `production-preflight.json`.
+ *
+ * `.github/workflows/paper-production.yml`, step
+ * "Verify paper broker and deployment health". Its diagnostics upload runs
+ * `if: always()`, so if this step reached a conclusion a report was written
+ * and an artifact should exist.
+ */
+export const PREFLIGHT_STEP_NAME = "Verify paper broker and deployment health";
+
+/**
+ * Whether a run's preflight step actually executed.
+ *
+ * `DID_NOT_RUN` is the *only* evidence that lets an older preflight stand. A
+ * completed run with no diagnostics is not self-explanatory: the step may have
+ * run and the upload failed, in which case the newest report exists and is
+ * simply unreachable — and showing an older green one instead would be exactly
+ * the substitution this module refuses to make.
+ */
+export type PreflightStepEvidence = "RAN" | "DID_NOT_RUN" | "UNKNOWN";
+
+export async function preflightStepEvidence(
+  runId: number,
+): Promise<PreflightStepEvidence> {
+  const jobs = await fetchRunJobs(runId);
+  // Not knowing is not the same as knowing it did not run.
+  if (jobs === null) return "UNKNOWN";
+  // A completed run that reports no jobs at all is an anomaly, not evidence.
+  // Observed live: a cancelled run whose single job carried an empty step
+  // list. Neither shape proves the preflight was skipped.
+  if (jobs.length === 0) return "UNKNOWN";
+
+  let sawStepList = false;
+  for (const job of jobs) {
+    if (job.steps.length > 0) sawStepList = true;
+    const step = job.steps.find((entry) => entry.name === PREFLIGHT_STEP_NAME);
+    if (!step) continue;
+    // `skipped` and `cancelled` mean it never produced a report.
+    if (step.status === "completed" && step.conclusion !== null &&
+        step.conclusion !== "skipped" && step.conclusion !== "cancelled") {
+      return "RAN";
+    }
+    return "DID_NOT_RUN";
+  }
+  // Jobs exist and their steps are listed, but the preflight step is not among
+  // them: the run ended before reaching it. That is provable non-execution.
+  return sawStepList ? "DID_NOT_RUN" : "UNKNOWN";
+}
+
+/**
  * A preflight is meaningful from *any* completed run.
  *
  * The preflight runs before the executor and writes its report whatever
@@ -170,6 +220,46 @@ function newestUsable(
     .filter((artifact) => !artifact.expired && predicate(artifact))
     .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   return usable[0] ?? null;
+}
+
+/** The newest matching artifact *including* expired ones. */
+function newestAny(
+  artifacts: readonly ArtifactMeta[],
+  predicate: (artifact: ArtifactMeta) => boolean,
+): ArtifactMeta | null {
+  const all = [...artifacts]
+    .filter(predicate)
+    .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  return all[0] ?? null;
+}
+
+/**
+ * Slack around a run's own window for an artifact upload.
+ *
+ * An artifact is created by a step inside the run, so its timestamp must fall
+ * within the run — a few minutes either side for the upload itself and for
+ * clock differences between GitHub's services.
+ */
+const ARTIFACT_WINDOW_SLACK_MS = 15 * 60 * 1000;
+
+/**
+ * True when the artifact was created inside the run that supposedly produced
+ * it. An artifact from outside that window is not this run's output, whatever
+ * the API attached it to.
+ */
+function artifactWithinRunWindow(
+  artifact: ArtifactMeta,
+  run: WorkflowRunSummary,
+): boolean {
+  const created = artifact.createdAt ? Date.parse(artifact.createdAt) : NaN;
+  if (!Number.isFinite(created)) return false;
+  const started = run.runStartedAt ? Date.parse(run.runStartedAt) : NaN;
+  const ended = run.updatedAt ? Date.parse(run.updatedAt) : NaN;
+  if (!Number.isFinite(started) || !Number.isFinite(ended)) return false;
+  return (
+    created >= started - ARTIFACT_WINDOW_SLACK_MS &&
+    created <= ended + ARTIFACT_WINDOW_SLACK_MS
+  );
 }
 
 /**
@@ -341,16 +431,63 @@ export async function selectLatestPreflight(
     async (run) => {
     const artifacts = await fetchRunArtifacts(run.id);
     if (!artifacts) {
+      // Not knowing what this run produced is not evidence that it produced
+      // nothing, so the walk stops here rather than reaching past it.
       return {
         ...EMPTY_PREFLIGHT_SELECTION,
-        errors: ["GitHub Actions artifacts could not be listed"],
+        run,
+        errors: [
+          "GitHub Actions artifacts could not be listed for the newest completed run",
+        ],
       };
     }
-    const diagnostics = newestUsable(
+
+    // Expired artifacts are looked at too: an expired newest report is a
+    // reason to report UNAVAILABLE, never a reason to show an older one.
+    const anyDiagnostics = newestAny(
       artifacts,
       (artifact) => artifact.name === DIAGNOSTICS_ARTIFACT_NAME,
     );
-    if (!diagnostics) return null;
+
+    if (!anyDiagnostics) {
+      // The decisive question: did the preflight step run? Only provable
+      // non-execution lets an older report stand.
+      const evidence = await preflightStepEvidence(run.id);
+      if (evidence === "DID_NOT_RUN") return null;
+      return {
+        ...EMPTY_PREFLIGHT_SELECTION,
+        run,
+        errors: [
+          evidence === "RAN"
+            ? "the newest completed run ran its preflight step but uploaded no diagnostics artifact"
+            : "it could not be established whether the newest completed run reached its preflight step",
+        ],
+      };
+    }
+
+    if (anyDiagnostics.expired) {
+      return {
+        ...EMPTY_PREFLIGHT_SELECTION,
+        run,
+        artifactCreatedAt: anyDiagnostics.createdAt,
+        errors: [
+          "the newest completed run's preflight diagnostics artifact has expired",
+        ],
+      };
+    }
+
+    const diagnostics = anyDiagnostics;
+    if (!artifactWithinRunWindow(diagnostics, run)) {
+      return {
+        ...EMPTY_PREFLIGHT_SELECTION,
+        run,
+        artifactCreatedAt: diagnostics.createdAt,
+        lineageMismatch: true,
+        errors: [
+          "the preflight diagnostics artifact was not created inside the run it is attached to",
+        ],
+      };
+    }
     if (!artifactSizeIsAcceptable(diagnostics)) {
       return {
         ...EMPTY_PREFLIGHT_SELECTION,
@@ -394,7 +531,7 @@ export async function selectLatestPreflight(
           artifactCreatedAt: diagnostics.createdAt,
           lineageMismatch: true,
           errors: [
-            "the preflight strategy identity does not match the frozen plan's identity",
+            "the preflight strategy identity does not match the approved release's validated identity",
           ],
         };
       }

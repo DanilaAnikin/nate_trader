@@ -77,6 +77,12 @@ function preflightFailing(name: string): PreflightInfo {
   return parsePreflight({ ...base, checks }, null) as PreflightInfo;
 }
 
+/** The identity and universe the canonical report records. */
+const VALIDATED = {
+  strategyIdentity: STRATEGY_IDENTITY,
+  rankingUniverseSha256: UNIVERSE_HASH,
+};
+
 function evaluate(overrides: Partial<Parameters<typeof evaluateLineage>[0]> = {}) {
   return evaluateLineage({
     approvedReleaseSha: APPROVED_SHA,
@@ -85,6 +91,7 @@ function evaluate(overrides: Partial<Parameters<typeof evaluateLineage>[0]> = {}
     preflight: preflight(),
     runtimeArtifactName: EXPECTED_ARTIFACT,
     expectedRuntimeArtifactName: EXPECTED_ARTIFACT,
+    validated: VALIDATED,
     ...overrides,
   });
 }

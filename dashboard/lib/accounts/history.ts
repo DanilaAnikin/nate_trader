@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
+import { isCalendarDate } from "@/lib/calendar-date";
 
 /**
  * Read an account's equity curve and cash-flow ledger from ONE database
@@ -71,7 +72,6 @@ function num(value: unknown): number | null {
   return null;
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * @param from Inclusive lower bound on the session/flow date, or null for the
@@ -157,7 +157,7 @@ export async function readAccountHistory(
   for (const row of rawEquity as Record<string, unknown>[]) {
     const date = typeof row.date === "string" ? row.date : "";
     const value = num(row.equity);
-    if (!ISO_DATE.test(date) || value === null) {
+    if (!isCalendarDate(date) || value === null) {
       return {
         ok: false,
         reason: "MALFORMED_SNAPSHOT",
@@ -179,7 +179,7 @@ export async function readAccountHistory(
     const id = typeof row.id === "string" ? row.id : "";
     const date = typeof row.date === "string" ? row.date : "";
     const amount = num(row.amount);
-    if (!id || !ISO_DATE.test(date) || amount === null) {
+    if (!id || !isCalendarDate(date) || amount === null) {
       return {
         ok: false,
         reason: "MALFORMED_SNAPSHOT",

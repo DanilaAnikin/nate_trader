@@ -234,11 +234,25 @@ export async function fetchWorkflowRuns(
   return runs;
 }
 
+export interface WorkflowStepSummary {
+  readonly name: string;
+  readonly status: string;
+  readonly conclusion: string | null;
+}
+
 export interface WorkflowJobSummary {
   readonly name: string;
   readonly status: string;
   readonly conclusion: string | null;
   readonly stepCount: number;
+  /**
+   * The job's steps, with their own conclusions.
+   *
+   * A run's conclusion says nothing about *which* steps ran. Deciding whether
+   * a report should exist — and therefore whether its absence is "it never
+   * ran" or "the upload failed" — requires the step, not the run.
+   */
+  readonly steps: readonly WorkflowStepSummary[];
 }
 
 /**
@@ -265,16 +279,31 @@ export async function fetchRunJobs(
       name?: string;
       status?: string;
       conclusion?: string | null;
-      steps?: unknown[];
+      steps?: {
+        name?: string;
+        status?: string;
+        conclusion?: string | null;
+      }[];
     }[];
   } | null;
   const jobs = Array.isArray(body?.jobs)
-    ? body.jobs.map((job) => ({
-        name: typeof job.name === "string" ? job.name : "job",
-        status: typeof job.status === "string" ? job.status : "unknown",
-        conclusion: typeof job.conclusion === "string" ? job.conclusion : null,
-        stepCount: Array.isArray(job.steps) ? job.steps.length : 0,
-      }))
+    ? body.jobs.map((job) => {
+        const steps = Array.isArray(job.steps)
+          ? job.steps.map((step) => ({
+              name: typeof step?.name === "string" ? step.name : "",
+              status: typeof step?.status === "string" ? step.status : "unknown",
+              conclusion:
+                typeof step?.conclusion === "string" ? step.conclusion : null,
+            }))
+          : [];
+        return {
+          name: typeof job.name === "string" ? job.name : "job",
+          status: typeof job.status === "string" ? job.status : "unknown",
+          conclusion: typeof job.conclusion === "string" ? job.conclusion : null,
+          stepCount: steps.length,
+          steps,
+        };
+      })
     : null;
   cacheSet(key, jobs, jobs ? ttlSeconds : 30);
   return jobs;

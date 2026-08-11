@@ -1116,12 +1116,16 @@ describe("effective validation gate", () => {
     expect(payload.validationGate.reasons).toContain("EXPIRED");
   });
 
-  it("is FAIL on a strategy-identity mismatch", async () => {
+  it("is FAIL when the canonical report's identity disagrees with production", async () => {
+    // The canonical report is now the *authority* the preflight and plan are
+    // compared against, so a report describing a different build breaks
+    // lineage first and withholds every dependent section — a stronger outcome
+    // than the identity mismatch alone, and it must still fail the gate.
     stubGithub({
       validation: validationJson({
         strategy: {
           version: "v11-adaptive-momentum",
-          identity: { value: "a-different-identity" },
+          identity: { value: "b".repeat(64) },
         },
       }),
     });
@@ -1132,9 +1136,14 @@ describe("effective validation gate", () => {
       now: NOW,
     });
     expect(payload.validationGate.effective).toBe("FAIL");
-    expect(payload.validationGate.reasons).toContain(
-      "STRATEGY_IDENTITY_MISMATCH",
-    );
+    expect(payload.validationGate.reasons).toContain("LINEAGE_MISMATCH");
+    expect(
+      payload.validationGate.reasons.some((reason) =>
+        reason.startsWith("STRATEGY_IDENTITY_"),
+      ),
+    ).toBe(true);
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.preflight.data).toBeNull();
   });
 
   it("is FAIL when the approved SHA is only derived from an artifact name", async () => {
@@ -1656,6 +1665,53 @@ describe("preflight selection follows completion, not conclusion", () => {
     expect(payload.preflight.provenance.scope).toContain("#43");
     expect(payload.validationGate.effective).toBe("PASS");
   });
+
+  it.each([
+    ["a job whose step list is empty", [{ steps: [] }]],
+    ["a run that reports no jobs at all", []],
+  ])(
+    "does not reach past a newer run when the evidence is %s",
+    async (_label, latestRunJobs) => {
+      // Both shapes were observed on a real cancelled paper-production run.
+      // Neither proves the preflight was skipped, so neither may license an
+      // older green report.
+      stubGithub({
+        runs: [
+          {
+            id: 952,
+            runNumber: 46,
+            conclusion: "failure",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:50:00Z",
+            runtimeArtifactName: null,
+            diagnostics: null,
+          },
+          {
+            id: 900,
+            runNumber: 43,
+            conclusion: "success",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:06:00Z",
+            runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+            runtimeZip: runtimeZipBuffer(),
+            diagnostics: diagnosticsZipBuffer(),
+          },
+        ],
+        latestRunJobs,
+      });
+      const payload = await buildStrategyStatus({
+        viewer: OWNER,
+        account: PRODUCTION_ACCOUNT,
+        broker: OK_BROKER,
+        now: NOW,
+      });
+      expect(payload.preflight.data).toBeNull();
+      expect(payload.preflight.provenance.freshness).toBe("UNAVAILABLE");
+      // Crucially, it did not silently show run #43's green report instead.
+      expect(payload.preflight.provenance.scope).not.toContain("#43");
+      expect(payload.validationGate.effective).not.toBe("PASS");
+    },
+  );
 
   it("fails closed on a corrupt newest diagnostics instead of searching back", async () => {
     stubGithub({

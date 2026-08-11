@@ -301,7 +301,40 @@ export function parsePerformanceRuntime(
 
 /* ------------------------------------------------------------- preflight */
 
-/** Parse `production-preflight.json` from the diagnostics artifact. */
+/**
+ * The most checks a preflight report may contain.
+ *
+ * A bound is needed so a hostile or corrupt document cannot make the parser
+ * allocate without limit. Exceeding it rejects the **whole document**: the old
+ * code took the first 64 and carried on, which silently discarded evidence and
+ * would have hidden a failing check placed past the cut.
+ */
+export const MAX_PREFLIGHT_CHECKS = 64;
+
+/** A non-negative integer, stated explicitly. Nothing is inferred. */
+function nonNegativeInteger(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    return null;
+  }
+  return value;
+}
+
+/**
+ * Parse `production-preflight.json` from the diagnostics artifact.
+ *
+ * Strict throughout: this is the document the effective validation gate defers
+ * to, so anything it cannot fully understand it refuses. Every earlier
+ * leniency here was a way for a broken report to look healthy —
+ *
+ *   * a non-array `checks` left the list empty and the report still parsed;
+ *   * `.slice(0, 64)` truncated silently;
+ *   * a check with no name or a non-boolean `passed` was skipped with
+ *     `continue`, so the parsed report described fewer checks than the file;
+ *   * `checks_passed ?? 0` invented a count the document never stated.
+ *
+ * Every one of those now returns null, which the caller reports as an
+ * unreadable preflight rather than a passing one.
+ */
 export function parsePreflight(
   value: unknown,
   runUrl: string | null,
@@ -312,19 +345,40 @@ export function parsePreflight(
   const status = value.status;
   if (status !== "PASS" && status !== "FAIL") return null;
 
+  // The mode is part of the contract, not a free-text label, and it must agree
+  // with the status: the runner emits `paper` only when every check passed.
+  const allowedMode = str(value.allowed_mode);
+  if (allowedMode !== "paper" && allowedMode !== "no-execution") return null;
+  if ((status === "PASS") !== (allowedMode === "paper")) return null;
+
+  if (!Array.isArray(value.checks)) return null;
+  if (value.checks.length > MAX_PREFLIGHT_CHECKS) return null;
+
   const checks: PreflightCheck[] = [];
-  if (Array.isArray(value.checks)) {
-    for (const check of value.checks.slice(0, 64)) {
-      if (!isRecord(check)) continue;
-      const name = str(check.name);
-      if (!name || typeof check.passed !== "boolean") continue;
-      checks.push({
-        name,
-        passed: check.passed,
-        detail: (str(check.detail) ?? "").slice(0, 300),
-      });
+  for (const check of value.checks) {
+    if (!isRecord(check)) return null;
+    const name = str(check.name);
+    if (!name || typeof check.passed !== "boolean") return null;
+    const detail = check.detail;
+    if (detail !== undefined && detail !== null && typeof detail !== "string") {
+      return null;
     }
+    checks.push({
+      name,
+      passed: check.passed,
+      detail: (str(detail) ?? "").slice(0, 300),
+    });
   }
+
+  // Counts are stated by the document or the document is unusable. Defaulting
+  // them made a report with no counts indistinguishable from a complete one.
+  const checksPassed = nonNegativeInteger(value.checks_passed);
+  const checksEvaluated = nonNegativeInteger(value.checks_evaluated);
+  if (checksPassed === null || checksEvaluated === null) return null;
+
+  // The timestamp anchors the whole freshness contract.
+  const checkedAt = normalizeInstant(value.checked_at);
+  if (checkedAt === null) return null;
 
   const details = isRecord(value.details) ? value.details : {};
   const universeCheck = checks.find((check) => check.name === "ranking_universe");
@@ -343,10 +397,10 @@ export function parsePreflight(
   const universeSource = str(details.universe_source);
   return {
     status,
-    checkedAt: normalizeInstant(value.checked_at),
-    checksPassed: num(value.checks_passed) ?? 0,
-    checksEvaluated: num(value.checks_evaluated) ?? checks.length,
-    allowedMode: str(value.allowed_mode),
+    checkedAt,
+    checksPassed,
+    checksEvaluated,
+    allowedMode,
     marketOpen:
       typeof details.market_open === "boolean" ? details.market_open : null,
     accountStatus: str(details.account_status),

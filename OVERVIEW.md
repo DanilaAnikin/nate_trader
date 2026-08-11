@@ -1,20 +1,26 @@
 # Nate Trader — current system, V11 strategy, production and dashboard
 
-> Snapshot: 2026-08-10 (Europe/Prague)
+> Snapshot: 2026-08-11 (Europe/Prague)
 >
 > This document describes the commit tagged
-> **`v11-dashboard-prod-2026-08-10d`** — the tag and the documentation are
-> published together, so `git show v11-dashboard-prod-2026-08-10d:OVERVIEW.md`
+> **`v11-dashboard-prod-2026-08-11`** — the tag and the documentation are
+> published together, so `git show v11-dashboard-prod-2026-08-11:OVERVIEW.md`
 > is always the description of that exact code.
 >
-> Preceding tags: `v11-dashboard-prod-2026-08-10c` → `ab7145b48`,
+> Preceding tags: `v11-dashboard-prod-2026-08-10d` → `17d0da20a`,
+> `v11-dashboard-prod-2026-08-10c` → `ab7145b48`,
 > `v11-dashboard-prod-2026-08-10b` → `fc73acaae` (**the bridge**, section 13.2),
 > `v11-dashboard-prod-2026-08-10` → `5e34ca7f1`,
 > `v11-dashboard-prod-2026-08-03` → `d11bbad8a` (**currently in production**).
 >
 > **Production currently runs `d11bbad8a`** (`v11-dashboard-prod-2026-08-03`).
-> None of the later tags has been deployed. Section 13 states what deployment
-> requires and how `fc73acaae` bridges the schema change.
+> None of the later tags has been deployed.
+>
+> Which migrations the production database has applied is **not known to this
+> document**. `d11bbad8a` reads `accounts` as `authenticated`, which `0011`
+> revokes, so a working production implies `0011` is *not* applied — but that
+> is an inference, not a reading of the ledger. Read the ledger before doing
+> anything (section 13.3, step 1).
 >
 > Approved trading release (unchanged): `0cb02c0765ebf91e60e5efd7f51334e9b538fbcb`
 >
@@ -618,6 +624,12 @@ about whether production is coherent.
   or more than five minutes in the future is a conflict — it is the anchor for
   the execution section's freshness and the only thing the plan's signal date
   can be checked against.
+- The **canonical validation report** is the authority for strategy identity
+  and ranking universe, and it is compared against even when no frozen plan
+  exists. Between monthly rebalances there is no plan, which used to leave the
+  preflight's identity unchecked entirely — the ordinary state, not an edge
+  case. The report is read before the preflight is selected, so it is also what
+  the selector compares against.
 - The preflight's `ranking_universe` check must be **present and passing** in
   its own right. Its hash is scraped out of the check's detail text, which
   stays syntactically valid when the check *fails* — precisely the case where
@@ -664,10 +676,28 @@ writes its report whatever happens next — indeed a run usually fails *because*
 the preflight refused. Filtering it on `conclusion === "success"` therefore
 skipped exactly the reports that matter and fell back to an older green one, so
 the screen could show a passing preflight while production had just refused to
-trade. A newer completed run with **no** diagnostics is skipped: it ended
-before a preflight existed, so it supersedes nothing. A newest diagnostics that
-is corrupt, schema-invalid or lineage-mismatched fails closed — the selector
-does not search backwards for a greener report.
+trade. A newer completed run with no diagnostics is **not** self-explanatory, and this
+is where the rule is strictest. The step may have run and the upload failed, in
+which case the newest report exists and is merely unreachable — showing an
+older green one instead would be the exact substitution this module refuses. So
+the selector asks GitHub what the run actually did: it reads the job's steps
+and looks for `Verify paper broker and deployment health`.
+
+  * the step reached a conclusion → a report was written, so its absence is a
+    failure: `UNAVAILABLE`, and the walk stops;
+  * the step was skipped, cancelled, or is absent from a job whose steps are
+    listed → the run provably ended before it, so it supersedes nothing and the
+    walk continues;
+  * the jobs could not be listed, the run reports no jobs, or a job's step
+    list is empty → not knowing is not knowing it did not run: `UNAVAILABLE`,
+    and the walk stops. (Both empty shapes are real: paper-production run
+    `31121554054` was cancelled and its single job carried no steps.)
+
+An **expired** diagnostics artifact is treated the same way — it is a reason to
+report `UNAVAILABLE`, never a reason to reach past it. So is one created
+outside its own run's time window, which is not that run's output whatever the
+API attached it to. A newest report that is corrupt, schema-invalid or
+lineage-mismatched fails closed for the same reason.
 
 Both scans walk newest-first across pages (100 per page, up to 10 pages) and
 stop at an explicit 45-day freshness boundary.
@@ -753,11 +783,18 @@ What it does when it *can* answer:
   MVCC snapshots. The change no client-side check can see is an **UPDATE to a
   row already read**: the count is unchanged, no key repeats, nothing is
   skipped, and the walk returns a value that no longer exists while reporting
-  success. The RPC is `STABLE`, so every query in its body observes the calling
-  statement's snapshot; it returns both datasets plus the snapshot token they
-  came from, and refuses with `UNAVAILABLE` past an explicit 20 000-row ceiling
-  rather than materialising an unbounded history. The real-PostgREST gate
-  demonstrates the tear against a live server.
+  success.
+
+  The RPC is `STABLE`, so every query in its body observes the snapshot of the
+  calling statement. What that buys is **internal consistency**: the two
+  datasets it returns describe one state of the database, and its own counts
+  always match its payload. It does **not** detect or fail on a concurrent
+  write — a writer committing during the call simply is not visible to it, and
+  the next call sees the new state. There is nothing to retry and nothing to
+  report; the guarantee is that no single answer is ever a mixture. Past an
+  explicit 20 000-row ceiling it refuses rather than materialising an unbounded
+  history. The real-PostgREST gate demonstrates the tear a page walk produces
+  against a live server, and that this call does not.
 - The mirrors are reconciled **in the database** too. Computing the set
   difference in the application needed an unpaged `select` of the mirrored
   ledger — truncated silently past the server's row cap, and reconciling
@@ -811,12 +848,26 @@ So the split is explicit. Effective `PASS` requires **all** of:
    `checked_at` that is valid, not more than five minutes ahead of this server,
    and inside the 36-hour freshness contract; and
 9. the preflight's own **`canonical_validation_gate` check present exactly
-   once, passing, and from the same runtime cycle** as the state on screen.
+   once, passing, and from the same runtime cycle** as the state on screen —
+   the same workflow run id *and* the same attempt, since a re-run keeps the id
+   and its preflight describes a different execution.
 
 Condition 8 exists because a summary line is not evidence. `status: PASS` with
 17 of 18 checks passing, a count that does not match the recorded checks, or
 two contradictory `canonical_validation_gate` entries all describe a report
-that cannot be reduced to one answer — so none of them produces one.
+that cannot be reduced to one answer — so none of them produces one. The
+preflight's own `allowed_mode` must also be `paper`: it is the runner's verdict
+on whether this cycle may execute, and the status alone is not a substitute.
+
+The parser is the first line of that. It refuses any document it cannot fully
+read, because every leniency it used to have was a way for a broken report to
+look healthy: a non-array `checks` left the list empty and the report still
+parsed; `.slice(0, 64)` truncated silently, so a failing check past the cut
+disappeared; a check with no name or a non-boolean `passed` was skipped with
+`continue`, so the parsed report described fewer checks than the file; and
+`checks_passed ?? 0` invented a count the document never stated. All of those
+now return null, which the caller reports as an unreadable preflight rather
+than a passing one — along with a `status`/`allowed_mode` pair that disagree.
 
 Condition 8 is where everything TypeScript cannot recompute is answered: that
 check *is* the Python gate's verdict, captured for a specific cycle. Requiring
@@ -1075,23 +1126,79 @@ defaults cover three object classes. Two holes remained:
 and the guard trigger evaluate them in the caller's context), and narrows the
 defaults.
 
-One thing `ALTER DEFAULT PRIVILEGES` cannot do, verified directly against
-PostgreSQL 16: it cannot remove PUBLIC's built-in EXECUTE default. Revoking it
-stores no row at all (an empty ACL is not stored), and with a non-empty stored
-default the built-in survives the merge — the new function still gets
-`=X/postgres`. A stored default is merged *over* the built-in one, so it can
-add grantees but never remove PUBLIC. The only mechanism that closes this for
-objects that do not exist yet is an **event trigger**, so 0015 installs one that
-revokes client privileges from every function created in `public`. Creating an
-event trigger needs superuser; if the migration runs without it, the migration
-raises a warning saying so rather than pretending the control is in place.
+0015 concluded that `ALTER DEFAULT PRIVILEGES` could not remove PUBLIC's
+built-in EXECUTE and installed an event trigger instead. **That conclusion was
+wrong, and the trigger was harmful.** 0016 replaces it. Four findings, each
+reproduced against PostgreSQL 16 before the fix:
 
-Consequence for future migrations: a new function in `public` arrives with no
-client privileges, so every new RPC must grant explicitly — and `create or
-replace` strips grants, which is why each function here is granted after it is
-defined.
+* **The trigger aborted `CREATE PROCEDURE`.** `REVOKE … ON FUNCTION` refuses a
+  procedure (`public.pp() is not a function`), and because the trigger runs at
+  `ddl_command_end` in the same transaction, its failure rolled the `CREATE`
+  back. Any future migration adding a procedure would simply have failed.
+* **The trigger never saw `CREATE AGGREGATE`.** An aggregate is a `pg_proc` row
+  reachable through `/rpc/` like any other, and it kept the PUBLIC grant.
+* **Only the *schema-scoped* form fails.** `ALTER DEFAULT PRIVILEGES IN SCHEMA
+  public REVOKE …` stores no row when the resulting ACL would be empty, and a
+  non-empty stored default is merged *over* the built-in so PUBLIC survives.
+  The **global** form — no `IN SCHEMA` — stores the row and replaces the
+  built-in, covering functions, procedures and aggregates in one statement.
+* **`CREATE OR REPLACE` does not strip grants.** PostgreSQL preserves an
+  existing ACL. The stripping previously observed came from the trigger itself,
+  which fires on the `CREATE FUNCTION` tag that `CREATE OR REPLACE FUNCTION`
+  also emits.
 
-### 12.6 Application security invariants
+0016 therefore drops the trigger, applies the global default, re-sweeps every
+routine with `ON ROUTINE` (the spelling that covers all three kinds), restores
+the whitelist, and **fails** if the catalogue disagrees — including a live
+probe that creates a function, a procedure and an aggregate inside the
+migration and inspects them. Asserting the stored default alone is what 0015
+did, and it shipped a control that did nothing.
+
+Consequence for future migrations: a new routine in `public` arrives with no
+client privileges, so every new RPC must grant explicitly.
+
+### 12.6 What 0017 changed and why
+
+Three ways to lose real data, all closed together.
+
+**Two refreshes could interleave.** `/equity` and `/performance` each refreshed
+both mirrors independently, writing as they went. Two overlapping requests
+could publish in either order, so an older fetch could land on top of a newer
+one — and the equity curve and the ledger could come from different moments
+even though every number derived from them treats them as one observation.
+`begin_broker_refresh` issues a monotonic generation *before* the broker is
+read; `publish_broker_refresh` refuses any generation that is not newer than
+the one already published. Both datasets go in one call, in one transaction.
+
+**A partial payload was indistinguishable from a retraction.** The old
+reconciliation deleted every stored day at or after the earliest incoming day,
+which is wrong in both directions: a truncated response deletes real history,
+and a payload whose *oldest* day was retracted never deletes it, because the
+bound moves with the payload. Now the bound is gone — `period=all` describes
+the whole account, so a day it no longer reports has been withdrawn, including
+the oldest — and the protection against truncation is a size test instead: a
+shrink beyond the smaller of five rows and a tenth of the stored history is
+refused, nothing is deleted, and the caller reports `UNAVAILABLE`. An empty
+payload against a non-empty mirror is always refused.
+
+**Destructive RPCs accepted anything.** Every argument is now checked for NULL
+and shape before a row is touched. `create_account_atomic` additionally
+requires a non-empty broker account number — the value the production binding
+compares against — and two Vault secret ids that are non-null, distinct from
+each other, actually present in the vault, and not already in use by another
+live account. Sharing one id between the key and the secret would mean a
+rotation overwrites the secret with the key's value; sharing across accounts
+would mean rotating one silently breaks the other.
+
+An empty activity walk is the subtlest case: an outage and "this account really
+has no activities" produce the same payload. So the walk reports how many
+activities it *examined*, and an empty payload against a non-empty ledger is
+refused unless something was actually looked at.
+
+`reconcile_cash_flow_mirror` and `replace_equity_snapshots` are superseded and
+now raise. A shim that quietly did half the job would be worse than an error.
+
+### 12.7 Application security invariants
 
 - The application stays behind Supabase authentication; RLS account isolation
   and exact account scoping are preserved.
@@ -1121,22 +1228,34 @@ deployment has happened only when the origin host runs the new image and
 Deployment is a schema change and an image change together, and the two are not
 independent. Three builds matter:
 
-| Build | Runs on the **pre-0011** schema | Runs on the **0011–0015** schema |
+| Build | Runs on the **pre-0011** schema | Runs on the **0011–0017** schema |
 |---|---|---|
 | `d11bbad8a` — what production runs today | yes | **no** — reads `accounts` as `authenticated`, which `0011` revokes |
-| `fc73acaae` — the **bridge** | yes | yes |
-| the new candidate | yes | yes |
+| `fc73acaae` — the **bridge** | yes | yes, reads and writes, but see 13.4 |
+| the new candidate | **reads only** | yes |
 
 `fc73acaae` is the pivot: it was the first build to move every account read to
 the service role, so it is the only existing image that works on *both* sides
 of the migration. That makes it both the safe intermediate step and the real
-rollback target, which is why this section is built around it.
+image rollback target.
+
+**The candidate is not fully functional before the migrations.** Its read paths
+work on the old schema — the account reads use the service role and it touches
+none of the `*_safe` views — but every write path calls an RPC that does not
+exist yet: `create_account_atomic` and `update_account_metadata` (0014),
+`rotate_account_credentials` and `delete_account_atomic` (0013), and
+`begin_broker_refresh` / `publish_broker_refresh` (0017). On the old schema all
+of those return "function does not exist", and the equity and performance
+screens depend on the refresh, so they report `UNAVAILABLE` rather than
+rendering. That is safe — nothing is written — but it is not a working
+deployment, which is why the candidate goes in *after* the migrations.
 
 ### 13.3 Order of operations
 
 1. Access the origin host, and read the Supabase migration ledger to record
-   exactly which migrations are applied **today**. Do not assume; this document
-   does not know either.
+   exactly which migrations are applied **today**. Do not assume, and do not
+   infer it from the fact that the site works: this document does not know
+   either, and every step below depends on the answer.
 2. Deploy **`fc73acaae`** (`BUILD_SHA` set to it) against the current,
    unmigrated schema. Smoke-test it authenticated: login, account switch, every
    strategy section, the `UNAVAILABLE` states, `/api/health`.
@@ -1155,7 +1274,7 @@ rollback target, which is why this section is built around it.
 Do not change `PRODUCTION_RELEASE_SHA` in order to deploy the UI. Do not run a
 mutating paper cycle as a smoke test.
 
-### 13.4 The bridge is read-safe, not write-safe
+### 13.4 The bridge is read-safe, not write-safe — enforce the freeze
 
 `fc73acaae` reads correctly on both schemas, but its **account lifecycle
 operations are not atomic**: key rotation is a sequence of separate Vault and
@@ -1163,16 +1282,22 @@ row writes, and a failure between them leaves a new key beside the old secret
 with the previous key value already overwritten — unrecoverable. Deletion has
 the same shape, and a failed Vault purge is discarded silently.
 
-`0013` and `0014` are what make those flows transactional, and only the
-candidate image calls them.
+An important correction to what this section used to say: after the migrations
+those operations **do not fail**. `fc73acaae` never calls `0013`/`0014`'s
+transactions — it performs the same sequence of individual writes it always
+did, and every one of them still succeeds against the migrated schema. So the
+window is not self-protecting: it looks like it works, and it is exactly as
+unsafe as before.
 
-So for the whole time `fc73acaae` is serving — steps 2 to 6 — **disable key
-rotation and account deletion**. Between step 4 and step 6 they would fail
-anyway, because `fc73acaae` does not know the RPCs and the old code paths still
-run non-atomically. Announce the freeze, and do not start a rotation inside it.
+The freeze therefore has to be **enforced, not announced**. Before step 5,
+disable the mutating endpoints at the edge — return `503` for
+`POST /api/accounts`, `PATCH`/`DELETE /api/accounts/[id]`,
+`POST /api/accounts/[id]/rotate` and `POST /api/accounts/[id]/verify` — using
+whatever the origin's reverse proxy offers, so no client and no stray tab can
+start one. Lift it only in step 9, once the candidate is serving.
 
-Everything else is unaffected: reads, the strategy screens and the performance
-endpoint work on either schema with either image.
+Reads, the strategy screens and the performance endpoint are unaffected on
+either schema with either image.
 
 ### 13.5 Rollback
 
@@ -1245,7 +1370,7 @@ npm run lint
 npx tsc --noEmit
 npm run build
 npm audit --audit-level=high
-npx playwright test
+npx playwright test   # also runs in CI, in the release gate
 
 cd ..
 PYTHONPATH=scripts python3 -m pytest -q
@@ -1307,8 +1432,12 @@ Rendered as `UNAVAILABLE` rather than estimated, and not solvable by UI work:
 - **The migrations have no down-scripts.** Reverting the *schema* is a
   point-in-time restore, and it loses everything written since. Reverting the
   *image* is separate and does have a target: `fc73acaae` runs on both schemas
-  (section 13.2). Its lifecycle operations are not atomic, so they stay
-  disabled while it serves.
+  (section 13.2). Its lifecycle operations are not atomic and do **not** start
+  failing after the migrations, so the write freeze has to be enforced at the
+  edge rather than relied on (section 13.4).
+- **The production migration ledger has not been read.** Every statement here
+  about which schema production is on is an inference from the running image,
+  not a reading of the ledger.
 
 The correct answer to a missing backend fact is a small, sanitized, well-tested
 observability contract — never frontend inference.
