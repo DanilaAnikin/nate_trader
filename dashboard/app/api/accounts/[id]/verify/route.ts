@@ -4,6 +4,7 @@ import { getSupabaseService } from "@/lib/supabase/service";
 import {
   getSessionUser,
   loadOwnedAccount,
+  sessionUserId,
 } from "@/lib/accounts/session";
 import { maskAccountNumber } from "@/lib/accounts/mask";
 
@@ -22,7 +23,7 @@ const ALPACA_BASE: Record<string, string> = {
  * material.
  */
 export async function POST(_req: Request, { params }: Ctx) {
-  const frozen = maintenanceBlock();
+  const frozen = maintenanceBlock(await sessionUserId());
   if (frozen) return frozen;
 
   const { id } = await params;

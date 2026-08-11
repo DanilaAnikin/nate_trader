@@ -1,5 +1,6 @@
 import "server-only";
 import { NextResponse } from "next/server";
+import { mayBypassFreeze } from "./isolated-smoke";
 
 /**
  * The deployment write freeze, enforced inside this image.
@@ -45,8 +46,18 @@ export function maintenanceModeEnabled(): boolean {
  * The 503 a mutating handler returns during a freeze, or null when no freeze
  * is in force.
  */
-export function maintenanceBlock(): NextResponse | null {
+/**
+ * The 503, unless this user is an allowlisted operator on an isolated sidecar.
+ *
+ * The disposable-observer mutation tests need writes to work *for the
+ * operator* while staying blocked for everyone else, which one global flag
+ * cannot express. `mayBypassFreeze` requires both halves — sidecar isolation
+ * *and* a named user — so the bypass cannot exist on a publicly reachable
+ * image.
+ */
+export function maintenanceBlock(userId?: string | null): NextResponse | null {
   if (!maintenanceModeEnabled()) return null;
+  if (mayBypassFreeze(userId)) return null;
   return NextResponse.json(
     {
       code: "MAINTENANCE_MODE",

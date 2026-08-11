@@ -116,7 +116,7 @@ describe("the API surface", () => {
       const handlers =
         source.match(/export async function (POST|PATCH|PUT|DELETE)\b/g) ?? [];
       if (handlers.length === 0) return;
-      const guards = source.match(/maintenanceBlock\(\)/g) ?? [];
+      const guards = source.match(/maintenanceBlock\(/g) ?? [];
       expect(
         guards.length,
         `${name} guards ${guards.length} of ${handlers.length} mutating handlers`,

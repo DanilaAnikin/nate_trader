@@ -66,3 +66,19 @@ export async function listOwnedAccounts(userId: string): Promise<AccountRow[]> {
   if (error || !data) return [];
   return data.filter((row) => row.owner_id === userId);
 }
+
+/**
+ * The signed-in user's id, or null — without the account lookup.
+ *
+ * The maintenance guard needs it *before* anything else runs, so that an
+ * allowlisted operator on an isolated sidecar can be let through while
+ * everyone else is refused. It must not itself write or throw.
+ */
+export async function sessionUserId(): Promise<string | null> {
+  try {
+    const user = await getSessionUser();
+    return user?.id ?? null;
+  } catch {
+    return null;
+  }
+}

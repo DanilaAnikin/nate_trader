@@ -52,6 +52,14 @@ echo "==> client read exposure assertions"
 "${PSQL[@]}" -v user_a="$USER_A" -v user_b="$USER_B" \
   -f "$TESTS/client_read_exposure.test.sql"
 
+echo "==> account lifecycle transaction assertions"
+"${PSQL[@]}" -v user_a="$USER_A" -v user_b="$USER_B" \
+  -f "$TESTS/account_lifecycle.test.sql"
+
+echo "==> broker refresh generation and ingest guards"
+"${PSQL[@]}" -v user_a="$USER_A" -v user_b="$USER_B" \
+  -f "$TESTS/broker_refresh.test.sql"
+
 echo "==> legacy RLS assertions"
 "${PSQL[@]}" -v user_a="$USER_A" -v user_b="$USER_B" \
   -f "$TESTS/rls.test.sql"

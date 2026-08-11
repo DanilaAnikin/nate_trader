@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { backfillFrozen, maintenanceBlock, maintenanceModeEnabled } from "./maintenance";
+import { isLoopback } from "./isolated-smoke";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -73,7 +74,7 @@ describe("every write path is behind the freeze", () => {
     const source = read(file);
     const handlers =
       source.match(/export async function (POST|PATCH|PUT|DELETE)\b/g) ?? [];
-    const guards = source.match(/maintenanceBlock\(\)/g) ?? [];
+    const guards = source.match(/maintenanceBlock\(/g) ?? [];
     expect(handlers.length, `${label} declares no mutating handler`).toBeGreaterThan(0);
     expect(guards.length).toBeGreaterThanOrEqual(handlers.length);
   });
@@ -93,4 +94,61 @@ describe("every write path is behind the freeze", () => {
     expect(source).not.toContain("backfillCashFlows");
     expect(source).not.toMatch(/\.update\s*\(/);
   });
+});
+
+
+describe("the isolated smoke-test sidecar", () => {
+  it("lets nobody through the freeze by default", () => {
+    vi.stubEnv("DASHBOARD_MAINTENANCE_MODE", "on");
+    expect(maintenanceBlock("some-user")).not.toBeNull();
+  });
+
+  it("still refuses a named user when the image is not a sidecar", () => {
+    // Both halves are required. An allowlist on a publicly reachable image
+    // would be a way to write to production during a migration.
+    vi.stubEnv("DASHBOARD_MAINTENANCE_MODE", "on");
+    vi.stubEnv("DASHBOARD_FREEZE_BYPASS_USERS", "operator-1");
+    expect(maintenanceBlock("operator-1")).not.toBeNull();
+  });
+
+  it("lets exactly the allowlisted operator write on a sidecar", () => {
+    vi.stubEnv("DASHBOARD_MAINTENANCE_MODE", "on");
+    vi.stubEnv("DASHBOARD_SIDECAR_ONLY", "on");
+    vi.stubEnv("DASHBOARD_FREEZE_BYPASS_USERS", "operator-1, operator-2");
+    expect(maintenanceBlock("operator-1")).toBeNull();
+    expect(maintenanceBlock("operator-2")).toBeNull();
+    expect(maintenanceBlock("someone-else")).not.toBeNull();
+    expect(maintenanceBlock(null)).not.toBeNull();
+    expect(maintenanceBlock(undefined)).not.toBeNull();
+  });
+
+  it("treats an empty allowlist as nobody", () => {
+    vi.stubEnv("DASHBOARD_MAINTENANCE_MODE", "on");
+    vi.stubEnv("DASHBOARD_SIDECAR_ONLY", "on");
+    vi.stubEnv("DASHBOARD_FREEZE_BYPASS_USERS", "  ");
+    expect(maintenanceBlock("operator-1")).not.toBeNull();
+  });
+
+  it.each([
+    ["localhost:3000", null, null, true],
+    ["127.0.0.1:3000", null, null, true],
+    ["[::1]:3000", null, null, true],
+    ["dashboard.example.com", null, null, false],
+    // A request that came through a proxy is not loopback, whatever it says.
+    ["localhost:3000", "203.0.113.7", null, false],
+    ["localhost:3000", null, "dashboard.example.com", false],
+  ])(
+    "treats host=%s xff=%s xfh=%s as loopback: %s",
+    (host, xff, xfh, expected) => {
+      const headers = new Map<string, string>([["host", String(host)]]);
+      if (xff) headers.set("x-forwarded-for", String(xff));
+      if (xfh) headers.set("x-forwarded-host", String(xfh));
+      expect(
+        isLoopback({
+          headers: { get: (n: string) => headers.get(n) ?? null },
+          url: "http://x/",
+        }),
+      ).toBe(expected);
+    },
+  );
 });
