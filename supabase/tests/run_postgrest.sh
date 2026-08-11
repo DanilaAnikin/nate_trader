@@ -44,13 +44,28 @@ docker network create "$NET_NAME" >/dev/null
 docker run -d --name "$PG_NAME" --network "$NET_NAME" \
   -e POSTGRES_PASSWORD=postgres -p "$PG_PORT:5432" postgres:16-alpine >/dev/null
 
-for _ in $(seq 1 60); do
-  docker exec "$PG_NAME" pg_isready -U postgres >/dev/null 2>&1 && break
-  sleep 1
-done
-
 DATABASE_URL="postgres://postgres:postgres@localhost:$PG_PORT/postgres"
 PSQL=(psql "$DATABASE_URL" --quiet --no-psqlrc -v ON_ERROR_STOP=1)
+
+# Wait on the connection this script will actually use, not on `pg_isready`
+# inside the container. `pg_isready` defaults to the local socket, and the
+# postgres image runs a *temporary* socket-only server during initdb — so it
+# reports ready roughly a second in, that server is then shut down, and the
+# first real query races the restart. Observed as a hard gate failure:
+# "server closed the connection unexpectedly" at ==> platform scaffolding.
+ready=0
+for _ in $(seq 1 90); do
+  if psql "$DATABASE_URL" --quiet --no-psqlrc -tAc 'select 1' >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+  sleep 1
+done
+if [ "$ready" -ne 1 ]; then
+  echo "postgres did not accept a connection on $PG_PORT"
+  docker logs "$PG_NAME" 2>&1 | tail -20
+  exit 1
+fi
 
 echo "==> platform scaffolding"
 "${PSQL[@]}" -f "$TESTS/bootstrap_local.sql" >/dev/null
