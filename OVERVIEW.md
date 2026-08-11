@@ -3,12 +3,13 @@
 > Snapshot: 2026-08-11 (Europe/Prague)
 >
 > This document describes the commit tagged
-> **`v11-dashboard-prod-2026-08-11`**, whose code is the fix commit
+> **`v11-dashboard-prod-2026-08-11b`**, whose code is the fix commit
 > `4d097671d`. The tag and the documentation are published together, so
-> `git show v11-dashboard-prod-2026-08-11:OVERVIEW.md` is always the
+> `git show v11-dashboard-prod-2026-08-11b:OVERVIEW.md` is always the
 > description of that exact code.
 >
-> Preceding tags: `v11-dashboard-prod-2026-08-10d` → `17d0da20a`,
+> Preceding tags: `v11-dashboard-prod-2026-08-11` → `7f1b9d647` (same code,
+> earlier documentation), `v11-dashboard-prod-2026-08-10d` → `17d0da20a`,
 > `v11-dashboard-prod-2026-08-10c` → `ab7145b48`,
 > `v11-dashboard-prod-2026-08-10b` → `fc73acaae` (**the bridge**, section 13.2),
 > `v11-dashboard-prod-2026-08-10` → `5e34ca7f1`,
@@ -796,13 +797,26 @@ What it does when it *can* answer:
   explicit 20 000-row ceiling it refuses rather than materialising an unbounded
   history. The real-PostgREST gate demonstrates the tear a page walk produces
   against a live server, and that this call does not.
-- The mirrors are reconciled **in the database** too. Computing the set
-  difference in the application needed an unpaged `select` of the mirrored
-  ledger — truncated silently past the server's row cap, and reconciling
-  against a truncated list is worse than not reconciling. `reconcile_cash_flow_mirror`
-  and `replace_equity_snapshots` upsert and delete in one transaction, so a
-  withdrawn activity and a retracted Alpaca equity day both disappear instead
-  of outliving the authoritative history.
+- The mirrors are reconciled **in the database** too, and both in the same
+  call. Computing the set difference in the application needed an unpaged
+  `select` of the mirrored ledger — truncated silently past the server's row
+  cap, and reconciling against a truncated list is worse than not reconciling.
+  `publish_broker_refresh` upserts and deletes both datasets in one
+  transaction, so a withdrawn activity and a retracted Alpaca equity day
+  disappear instead of outliving the authoritative history, and the two
+  mirrors can never be published from different moments.
+- The refresh carries a **generation**, taken from a sequence before the broker
+  is read. `publish_broker_refresh` refuses any generation that is not newer
+  than the one already published, so two overlapping refreshes cannot land out
+  of order and the caller reports `REFRESH_SUPERSEDED` rather than retrying.
+- Nothing is written unless **both** datasets validated completely. A
+  portfolio-history payload with a null, non-finite or non-positive equity, or
+  an unreadable date, fails the whole refresh before the first mutation — the
+  earlier version skipped bad days, which turned a corrupt payload into a
+  shorter one, and a shorter payload is exactly what reconciliation reads as a
+  retraction. The database refuses a shrink beyond the smaller of five rows and
+  a tenth of the stored history, and refuses an empty payload against a
+  non-empty mirror outright.
 - A cash movement dated **on the baseline session** is refused. The recorded
   starting equity may be the value before it or after it and nothing says
   which, so the safe contract is a flow-free baseline session; otherwise the
@@ -966,12 +980,19 @@ be proven broker-side rather than assumed.
 | `0009_accounts_server_managed.sql` | Removed client **writes** to `accounts`; server-managed column guard |
 | `0010_accounts_guard_authz_fix.sql` | Made that guard `SECURITY INVOKER` so a client role cannot be mistaken for its owner |
 | `0011_revoke_client_reads.sql` | Removed client **reads** (below) |
+| `0012_view_and_write_acl.sql` | Closed the `accounts_safe` view and the remaining table-level write grants |
+| `0013_account_lifecycle_rpc.sql` | `create_account_atomic` / `delete_account_atomic` / `update_account_metadata` — account lifecycle in one transaction |
+| `0014_history_snapshot_rpc.sql` | `account_history_snapshot` — one `STABLE` call returns equity and flows from a single MVCC snapshot |
+| `0015_sequence_and_function_acl.sql` | Revoked sequence privileges; first attempt at closing routine execute (superseded below) |
+| `0016_global_function_acl.sql` | Global `ALTER DEFAULT PRIVILEGES`, event trigger removed, catalogue asserted by live probes inside the migration |
+| `0017_refresh_generation_and_guards.sql` | `begin_broker_refresh` / `publish_broker_refresh`; NULL and shape guards on every destructive RPC |
 
 **None of these is confirmed applied in production by this document.** The
 migration ledger in the Supabase project is the only authority for that, and it
 must be read before every deployment (section 13.2). What *is* fixed is the
 rule: a migration that has been applied anywhere is never edited afterwards —
-`0010` corrects `0009`, `0012` corrects `0011`, and so on.
+`0010` corrects `0009`, `0012` corrects `0011`, `0016` corrects `0015`, and so
+on. Nothing above `0011` has been applied to production either.
 
 ### 12.2 What 0011 changed and why
 
