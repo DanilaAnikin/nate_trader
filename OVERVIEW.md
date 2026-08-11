@@ -3,12 +3,16 @@
 > Snapshot: 2026-08-11 (Europe/Prague)
 >
 > This document describes the commit tagged
-> **`v11-dashboard-prod-2026-08-11c`** — the tag and the documentation are
-> published together, so `git show v11-dashboard-prod-2026-08-11c:OVERVIEW.md`
+> **`v11-dashboard-prod-2026-08-11d`** — the tag and the documentation are
+> published together, so `git show v11-dashboard-prod-2026-08-11d:OVERVIEW.md`
 > is always the description of that exact code. The audit fix itself is
-> `4d097671d`; `7876a0b06` repairs a race in the PostgREST gate harness.
+> `38493eb89`.
 >
-> Preceding tags: `v11-dashboard-prod-2026-08-11b` → `57c40d23d`,
+> Tags are **annotated, not signed**: no signing key is configured for this
+> repository. Do not describe one as verified (section 16).
+>
+> Preceding tags: `v11-dashboard-prod-2026-08-11c` → `f8a170ca2`,
+> `v11-dashboard-prod-2026-08-11b` → `57c40d23d`,
 > `v11-dashboard-prod-2026-08-11` → `7f1b9d647`,
 > `v11-dashboard-prod-2026-08-10d` → `17d0da20a`,
 > `v11-dashboard-prod-2026-08-10c` → `ab7145b48`,
