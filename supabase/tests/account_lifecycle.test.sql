@@ -308,6 +308,112 @@ begin
   end if;
 end $$;
 
+-- --- 8a. a failing audit insert rolls the whole creation back --------------
+--
+-- The reason 0013/0014 moved these flows into functions was that the row and
+-- its audit entry used to be two round trips, the second of which could fail
+-- unnoticed. Asserting that the entry *exists* on the happy path does not test
+-- that. This forces the audit insert to fail and asserts the account does not
+-- survive it — an audit log that is sometimes missing entries is worse than
+-- none, because its silence is read as evidence.
+-- A dedicated account, created before the trigger is armed, for the update and
+-- delete cases below.
+do $$
+declare
+  key_id uuid;
+  sec_id uuid;
+  made   accounts;
+begin
+  select vault.create_secret('AUDITFAIL-EXISTING-KEY', 'k') into key_id;
+  select vault.create_secret('AUDITFAIL-EXISTING-SECRET', 's') into sec_id;
+  select * into made from create_account_atomic(
+    current_setting('test.user_a')::uuid,
+    'Audit rollback subject', 'paper', '#123456',
+    key_id, sec_id, 'PA-AUDITFAIL-SUBJECT'
+  );
+  perform set_config('test.audit_subject', made.id::text, true);
+end $$;
+
+create function fail_audit_insert() returns trigger
+  language plpgsql as $fn$
+begin
+  raise exception 'forced audit failure' using errcode = 'P0001';
+end $fn$;
+create trigger fail_audit_insert_trg
+  before insert on audit_log
+  for each row execute function fail_audit_insert();
+
+do $$
+declare
+  key_id  uuid;
+  sec_id  uuid;
+  before_count bigint;
+  failed  boolean := false;
+begin
+  select vault.create_secret('AUDITFAIL-KEY', 'auditfail-key') into key_id;
+  select vault.create_secret('AUDITFAIL-SECRET', 'auditfail-secret') into sec_id;
+  select count(*) into before_count from accounts;
+
+  begin
+    perform create_account_atomic(
+      current_setting('test.user_a')::uuid,
+      'Audit failure', 'paper', '#123456',
+      key_id, sec_id, 'PA-AUDITFAIL-9999'
+    );
+  exception when others then failed := true;
+  end;
+
+  if not failed then
+    raise exception 'FAIL: creation succeeded despite a failing audit insert';
+  end if;
+  if exists (
+    select 1 from accounts where alpaca_account_number = 'PA-AUDITFAIL-9999'
+  ) then
+    raise exception 'FAIL: an unaudited account survived the rollback';
+  end if;
+  if (select count(*) from accounts) <> before_count then
+    raise exception 'FAIL: the account count changed';
+  end if;
+end $$;
+
+-- The same must hold for the other two audited flows.
+do $$
+declare
+  target uuid := current_setting('test.audit_subject')::uuid;
+  owner_ uuid := current_setting('test.user_a')::uuid;
+  before_nickname text;
+  failed boolean;
+begin
+  select nickname into before_nickname from accounts where id = target;
+
+  failed := false;
+  begin
+    perform update_account_metadata(target, owner_, 'Renamed by a doomed call', null, null);
+  exception when others then failed := true;
+  end;
+  if not failed then
+    raise exception 'FAIL: metadata update succeeded despite a failing audit insert';
+  end if;
+  if (select nickname from accounts where id = target) <> before_nickname then
+    raise exception 'FAIL: an unaudited rename survived the rollback';
+  end if;
+
+  failed := false;
+  begin
+    perform delete_account_atomic(target, owner_, false);
+  exception when others then failed := true;
+  end;
+  if not failed then
+    raise exception 'FAIL: deletion succeeded despite a failing audit insert';
+  end if;
+  if (select deleted_at from accounts where id = target) is not null then
+    raise exception 'FAIL: an unaudited soft delete survived the rollback';
+  end if;
+end $$;
+
+drop trigger fail_audit_insert_trg on audit_log;
+drop function fail_audit_insert();
+
 -- --- 8b. every creation precondition, one at a time -----------------------
 do $$
 declare

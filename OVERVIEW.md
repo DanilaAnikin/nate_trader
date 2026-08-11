@@ -3,13 +3,14 @@
 > Snapshot: 2026-08-11 (Europe/Prague)
 >
 > This document describes the commit tagged
-> **`v11-dashboard-prod-2026-08-11b`**, whose code is the fix commit
-> `4d097671d`. The tag and the documentation are published together, so
-> `git show v11-dashboard-prod-2026-08-11b:OVERVIEW.md` is always the
-> description of that exact code.
+> **`v11-dashboard-prod-2026-08-11c`** — the tag and the documentation are
+> published together, so `git show v11-dashboard-prod-2026-08-11c:OVERVIEW.md`
+> is always the description of that exact code. The audit fix itself is
+> `4d097671d`; `7876a0b06` repairs a race in the PostgREST gate harness.
 >
-> Preceding tags: `v11-dashboard-prod-2026-08-11` → `7f1b9d647` (same code,
-> earlier documentation), `v11-dashboard-prod-2026-08-10d` → `17d0da20a`,
+> Preceding tags: `v11-dashboard-prod-2026-08-11b` → `57c40d23d`,
+> `v11-dashboard-prod-2026-08-11` → `7f1b9d647`,
+> `v11-dashboard-prod-2026-08-10d` → `17d0da20a`,
 > `v11-dashboard-prod-2026-08-10c` → `ab7145b48`,
 > `v11-dashboard-prod-2026-08-10b` → `fc73acaae` (**the bridge**, section 13.2),
 > `v11-dashboard-prod-2026-08-10` → `5e34ca7f1`,
@@ -919,7 +920,7 @@ independent jobs:
 
 | Job | What it proves |
 |---|---|
-| `dashboard-gate` | Node 22, `npm ci` from the lockfile, `npm audit --audit-level=high`, dashboard tests, ESLint, `tsc --noEmit`, production `next build` |
+| `dashboard-gate` | Node 22, `npm ci` from the lockfile, `npm audit --audit-level=high`, dashboard tests, ESLint, `tsc --noEmit`, production `next build`, and the Playwright end-to-end suite against that build |
 | `release-gate` | Python 3.12.11, `pip install --require-hashes -r requirements.lock`, `pip check`, the complete pytest suite, `compileall`, critical Ruff checks (E9,F63,F7,F82), and `scripts/sanity_check.py` |
 | `supabase-schema-gate` | Applies **every** migration to a real `postgres:16-alpine` service and runs the SQL assertions against it — a database test, not a grep over SQL text |
 | `postgrest-gate` | Starts a real PostgREST against that database with `db-max-rows=100` and asserts the API surface: which `/rpc/` functions are reachable, that the history snapshot returns everything past the cap, that a page walk demonstrably tears where the snapshot does not, and that a function created *after* the migrations is not anonymously callable |
@@ -1483,7 +1484,7 @@ observability contract — never frontend inference.
 | `scripts/strategy_identity.py` | Strategy and universe identity hashes |
 | `scripts/backtest/validate_v11.py` | Canonical fixed-policy validator |
 | `state/backtest/v11_validation.json` | Bound canonical validation evidence |
-| `.github/workflows/v11-release.yml` | Non-trading release gate (3 jobs) |
+| `.github/workflows/v11-release.yml` | Non-trading release gate (4 jobs) |
 | `.github/workflows/paper-production.yml` | The only supported paper executor |
 | `dashboard/lib/status/` | The unified server-side V11 read model |
 | `dashboard/lib/status/lineage.ts` | The one shared, fail-closed lineage verdict |
