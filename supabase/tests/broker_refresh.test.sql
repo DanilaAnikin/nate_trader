@@ -597,7 +597,10 @@ begin
   if not blocked then
     raise exception 'FAIL: an account with mirrored history was rebound';
   end if;
-  if msg not like '%cannot describe two broker accounts%' then
+  -- 0020 made the number immutable from creation rather than "immutable once
+  -- history exists", so the refusal now names the binding rather than the
+  -- history. Either message is a refusal; this asserts the current one.
+  if msg not like '%fixed at creation%' then
     raise exception 'FAIL: unexpected rebind refusal: %', msg;
   end if;
   if (select alpaca_account_number from accounts

@@ -652,10 +652,10 @@ status, body = request(
     },
 )
 check(
-    status >= 400 and "two broker accounts" in body,
-    f"an account with history was rebound: {status} {body[:250]}",
+    status >= 400 and "fixed at creation" in body,
+    f"an account was rebound to another broker number: {status} {body[:250]}",
 )
-print("  an account with mirrored history cannot be rebound to another broker")
+print("  a broker account number cannot be changed after creation")
 status, body = request(
     "/rpc/delete_account_atomic",
     role="service_role",

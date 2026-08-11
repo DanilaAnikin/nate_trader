@@ -21,6 +21,10 @@ export type Database = {
           alpaca_secret_secret_id: string | null
           color: string
           created_at: string
+          /** Bumped by rotation and deletion; bound into every refresh token. */
+          credential_version: number
+          /** Client-generated, unique: makes a retried creation idempotent. */
+          create_operation_id: string | null
           deleted_at: string | null
           id: string
           is_active: boolean
@@ -703,8 +707,23 @@ export type Database = {
           p_owner: string
           p_status: Database["public"]["Enums"]["account_status"]
           p_account_number?: string | null
+          /** Refuses the write when the account has been rotated since. */
+          p_expected_version?: number | null
         }
         Returns: Database["public"]["Tables"]["accounts"]["Row"]
+      }
+      find_account_by_operation: {
+        Args: { p_owner: string; p_operation_id: string }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
+      }
+      purge_unassigned_credential_pair: {
+        Args: {
+          p_key: string
+          p_secret: string
+          p_owner: string
+          p_reason: string
+        }
+        Returns: number
       }
       create_account_atomic: {
         Args: {
@@ -715,6 +734,7 @@ export type Database = {
           p_key_secret: string
           p_secret_secret: string
           p_account_number: string
+          p_operation_id: string
         }
         Returns: Database["public"]["Tables"]["accounts"]["Row"]
       }

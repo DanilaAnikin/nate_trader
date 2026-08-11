@@ -29,6 +29,8 @@ project shared with another application):
 | `0016_global_function_acl.sql` | Global `ALTER DEFAULT PRIVILEGES`; the `CREATE PROCEDURE`-aborting event trigger removed; catalogue asserted by live probes inside the migration. |
 | `0017_refresh_generation_and_guards.sql` | Refresh generations; NULL and shape guards on the destructive RPCs. |
 | `0018_no_delete_reconciliation.sql` | A refresh may never delete; refresh tokens bound to `credential_version`; one Vault secret per account, enforced by a primary key. |
+| `0019_lock_order_and_vault_integrity.sql` | One canonical lock order; credentials issued in the same transaction as the token; the Vault assignment table rebuilt with every ambiguity as an abort. |
+| `0020_vault_fk_and_idempotent_create.sql` | The Vault foreign key mandatory and catalogue-asserted; `vault_delete_secret` refuses an assigned secret; idempotent creation via a client operation id; the broker account number immutable from creation; credentials never served for a deleted account. |
 
 **Which of these production has applied is not recorded here, and cannot be
 inferred from this file.** The Supabase project's own migration ledger is the
@@ -38,7 +40,11 @@ the ACL in a state no test covers.
 
 Migrations that have been applied anywhere are never edited; corrections go in
 a new migration. `0010` corrects `0009`, `0012` corrects `0011`, `0016`
-corrects `0015`, and `0018` corrects `0017`.
+corrects `0015`, `0018` corrects `0017`, `0019` corrects `0018` and `0020`
+corrects `0019`.
+
+**Which of them production has applied is UNKNOWN**, because the ledger has
+not been read. Do not infer it from the fact that the running image works.
 
 ### How to apply
 
@@ -80,8 +86,9 @@ in a transaction and rolls back, leaving no data.
 | `rls.test.sql` | Per-owner isolation of account-scoped data and the credential lockdown. |
 
 ```bash
-supabase/tests/run_postgrest.sh    # the real /rpc/ surface at db-max-rows=100
-supabase/tests/run_concurrency.sh  # two connections, two overlapping transactions
+supabase/tests/run_postgrest.sh       # the real /rpc/ surface at db-max-rows=100
+supabase/tests/run_concurrency.sh     # two connections, overlapping transactions
+supabase/tests/run_vault_integrity.sh # 0019/0020 over legacy states that must abort
 ```
 
 `run_postgrest.sh` proves what a browser can actually reach, and that a single

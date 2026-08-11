@@ -39,7 +39,11 @@ describe("REPRO 4c — date-only fields are shape-checked, not round-tripped", (
     }
   });
 
-  it("drops a daily_history entry dated 2026-02-30 rather than keeping it", () => {
+  it("refuses the whole document for a daily_history entry dated 2026-02-30", () => {
+    // Originally this asserted the bad row was *dropped*. Dropping is the
+    // wrong answer for this series: the drawdown and the risk tier are
+    // computed from it, so a silently shorter history reports a calmer
+    // account than the one that exists. The document is refused instead.
     const perf = parsePerformanceRuntime({
       updated_at: "2026-08-10T16:07:56+00:00",
       equity: 1000,
@@ -51,8 +55,7 @@ describe("REPRO 4c — date-only fields are shape-checked, not round-tripped", (
         { date: "2026-02-30", equity: 900 },
       ],
     });
-    expect(perf).not.toBeNull();
-    expect(perf!.dailyHistory.map((d) => d.date)).toEqual(["2026-08-03"]);
+    expect(perf).toBeNull();
   });
 });
 

@@ -57,6 +57,7 @@ export type ValidationGateReason =
   | "UNIVERSE_UNKNOWN"
   | "APPROVED_RELEASE_UNKNOWN"
   | "LINEAGE_MISMATCH"
+  | "EXECUTION_UNAVAILABLE"
   | "PREFLIGHT_UNAVAILABLE"
   | "PREFLIGHT_GATE_MISSING"
   | "PREFLIGHT_GATE_FAILED"
@@ -175,6 +176,8 @@ const REASON_DETAIL: Record<ValidationGateReason, string> = {
     "The report is missing a mandatory evidence hash (strategy identity, ranking universe or adjusted-bar prefix).",
   NO_CHECKS_RECORDED:
     "The report records no evaluated checks, so its PASS is not backed by anything.",
+  EXECUTION_UNAVAILABLE:
+    "No usable executor runtime state is available, so nothing establishes that the approved release actually ran. A preflight describes what a cycle intended to do; only the runtime artifact records what it did.",
   PREFLIGHT_UNAVAILABLE:
     "No production preflight report is available, so the executor's own validation gate result is unknown.",
   PREFLIGHT_GATE_MISSING: `The preflight report does not contain the ${PYTHON_GATE_CHECK} check, so the executor's gate result was never captured.`,
@@ -298,9 +301,21 @@ export function computeEffectiveValidationGate(input: {
    * and its preflight describes a different execution of the same workflow.
    */
   preflightAttempt?: number | null;
-  /** Workflow run the displayed runtime state came from. */
-  executionRunId?: number | null;
-  executionAttempt?: number | null;
+  /**
+   * The cycle the **runtime state** came from — and *only* when that state
+   * was read, parsed and lineage-checked successfully.
+   *
+   * This used to be filled from the selector's run metadata, which is
+   * populated even when the selection failed: the selector returns the run it
+   * was looking at alongside the reason it could not use it. So a run whose
+   * runtime artifact was missing, expired, oversized, undownloadable, corrupt
+   * or schema-invalid still supplied a run id here, the cycle check saw the
+   * preflight and the "execution" naming the same run, and a genuine 18/18
+   * preflight took the gate green with no execution evidence at all.
+   *
+   * Null now means exactly one thing: there is no execution to authorize.
+   */
+  executionEvidence?: { readonly runId: number; readonly attempt: number } | null;
   now: Date;
 }): EffectiveValidationGate {
   const { report, now } = input;
@@ -363,6 +378,9 @@ export function computeEffectiveValidationGate(input: {
 
   // The executor's own gate, as it actually ran in production. This is the
   // authority for every condition above that TypeScript cannot recompute.
+  const execution = input.executionEvidence ?? null;
+  if (!execution) reasons.push("EXECUTION_UNAVAILABLE");
+
   const preflight = input.preflight ?? null;
   if (!preflight) {
     reasons.push("PREFLIGHT_UNAVAILABLE");
@@ -373,12 +391,11 @@ export function computeEffectiveValidationGate(input: {
     // execution for *display*; it must not silently authorize it.
     if (
       input.preflightRunId == null ||
-      input.executionRunId == null ||
-      input.preflightRunId !== input.executionRunId ||
+      execution == null ||
+      input.preflightRunId !== execution.runId ||
       // A re-run keeps the id, so the attempt is part of the cycle's identity.
       input.preflightAttempt == null ||
-      input.executionAttempt == null ||
-      input.preflightAttempt !== input.executionAttempt
+      input.preflightAttempt !== execution.attempt
     ) {
       reasons.push("PREFLIGHT_CYCLE_MISMATCH");
     }

@@ -52,15 +52,20 @@ for file in "$MIGRATIONS"/*.sql; do
 done
 
 MIGRATION_0019="$WORK/0019_lock_order_and_vault_integrity.sql"
+MIGRATION_0020="$WORK/0020_vault_fk_and_idempotent_create.sql"
 
 # Apply 0001-0018 into a fresh database named after the case.
 prepare() {
   local db="$1"
+  local through="${2:-18}"
   psql "$DATABASE_URL" -q --no-psqlrc -c "drop database if exists $db" >/dev/null
   psql "$DATABASE_URL" -q --no-psqlrc -c "create database $db" >/dev/null
   local url="postgres://postgres:postgres@localhost:$PG_PORT/$db"
   psql "$url" -q --no-psqlrc -v ON_ERROR_STOP=1 -f "$TESTS/bootstrap_local.sql" >/dev/null 2>&1
-  for file in "$WORK"/00{01,02,03,04,05,06,07,08,09,10,11,12,13,14,15,16,17,18}_*.sql; do
+  for file in "$WORK"/0*.sql; do
+    local n
+    n=$(basename "$file" | cut -c1-4)
+    [ "$n" -le "00$through" ] 2>/dev/null || [ "$((10#$n))" -le "$through" ] || continue
     psql "$url" -q --no-psqlrc -v ON_ERROR_STOP=1 -f "$file" >/dev/null 2>&1
   done
   psql "$url" -q --no-psqlrc -v ON_ERROR_STOP=1 >/dev/null <<SQL
@@ -177,5 +182,64 @@ if [ "$ROWS" != "0" ]; then
   exit 1
 fi
 echo "    a soft-deleted account holds no claim on its former ids"
+
+# ---------------------------------------------------------------------------
+# 0020's own legacy refusals. Each state is legal in the pre-0020 schema and
+# needs a decision a migration cannot make.
+# ---------------------------------------------------------------------------
+expect_abort_0020() { # $1 = url, $2 = label, $3 = expected fragment
+  local out status
+  set +e
+  out=$(psql "$1" --no-psqlrc -v ON_ERROR_STOP=1 -f "$MIGRATION_0020" 2>&1)
+  status=$?
+  set -e
+  if [ "$status" -eq 0 ]; then
+    echo "FAIL: 0020 applied cleanly over $2"
+    exit 1
+  fi
+  case "$out" in
+    *"$3"*) echo "    aborted on $2" ;;
+    *) echo "FAIL: 0020 aborted on $2 for the wrong reason:"; echo "$out" | tail -4; exit 1 ;;
+  esac
+}
+
+echo "==> case 8: an active account with no broker account number"
+URL=$(prepare vault_nullbind 19)
+K1=$(secret "$URL" NB1); S1=$(secret "$URL" NB2)
+psql "$URL" -q --no-psqlrc -v ON_ERROR_STOP=1 >/dev/null <<SQL
+insert into accounts (owner_id, nickname, mode, status, alpaca_account_number,
+                      alpaca_key_secret_id, alpaca_secret_secret_id)
+values ('$OWNER', 'Unbound', 'paper', 'connected', null, '$K1', '$S1');
+SQL
+expect_abort_0020 "$URL" "an unbound active account" "no broker account number"
+
+echo "==> case 9: a soft-deleted account still holding Vault references"
+URL=$(prepare vault_deletedrefs 19)
+K1=$(secret "$URL" DR1); S1=$(secret "$URL" DR2)
+psql "$URL" -q --no-psqlrc -v ON_ERROR_STOP=1 >/dev/null <<SQL
+insert into accounts (owner_id, nickname, mode, status, alpaca_account_number,
+                      alpaca_key_secret_id, alpaca_secret_secret_id, deleted_at)
+values ('$OWNER', 'Zombie', 'paper', 'paused', 'PA-ZOMBIE', '$K1', '$S1', now());
+SQL
+expect_abort_0020 "$URL" "a soft-deleted account with live secrets" "still holding Vault references"
+
+echo "==> case 10: the Vault foreign key is created and validated as RESTRICT"
+URL=$(prepare vault_fk 19)
+K1=$(secret "$URL" FK1); S1=$(secret "$URL" FK2)
+psql "$URL" -q --no-psqlrc -v ON_ERROR_STOP=1 >/dev/null <<SQL
+insert into accounts (owner_id, nickname, mode, status, alpaca_account_number,
+                      alpaca_key_secret_id, alpaca_secret_secret_id)
+values ('$OWNER', 'FkOk', 'paper', 'connected', 'PA-FKOK', '$K1', '$S1');
+SQL
+psql "$URL" -q --no-psqlrc -v ON_ERROR_STOP=1 -f "$MIGRATION_0019" >/dev/null 2>&1
+psql "$URL" -q --no-psqlrc -v ON_ERROR_STOP=1 -f "$MIGRATION_0020" >/dev/null
+FK=$(psql "$URL" -tA --no-psqlrc -c "
+select convalidated::text || '/' || confdeltype::text from pg_constraint
+ where conname = 'account_credential_assignment_secret_fk';")
+if [ "$FK" != "true/r" ]; then
+  echo "FAIL: the Vault foreign key is '$FK', expected 'true/r' (validated, RESTRICT)"
+  exit 1
+fi
+echo "    present, validated, ON DELETE RESTRICT"
 
 echo "ALL VAULT INTEGRITY TESTS PASSED"

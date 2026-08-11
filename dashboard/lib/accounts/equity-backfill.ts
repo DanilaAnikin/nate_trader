@@ -15,6 +15,9 @@ type Activity = {
   date?: unknown;
   transaction_time?: unknown;
   net_amount?: unknown;
+  /** Present on instrument-bearing rows; see `looksLikeSecurities`. */
+  symbol?: unknown;
+  qty?: unknown;
 };
 
 /**
@@ -40,17 +43,34 @@ type Activity = {
  * the same as irrelevant, and the only safe reading of a type this build has
  * never seen is that it might move money.
  */
-type ActivityClass = "cash" | "non-cash-transfer" | "internal";
+type ActivityClass =
+  | "cash"
+  | "non-cash-transfer"
+  | "internal"
+  /**
+   * Known to exist, and known not to be self-describing.
+   *
+   * `JNL` is the unqualified journal. Alpaca's qualified forms say what moved
+   * — `JNLC` cash, `JNLS` shares — and the bare one does not. Classifying it
+   * as cash was a guess in the direction that writes a row: a share journal
+   * booked as a deposit invents money that never arrived and inflates the
+   * return by its whole amount. Classifying it as a securities transfer would
+   * be the opposite guess, blocking reporting on an ordinary cash movement.
+   *
+   * There is no safe default, so the walk refuses and says why.
+   */
+  | "ambiguous";
 
 const ACTIVITY_CLASSIFICATION: Readonly<Record<string, ActivityClass>> = {
   // --- external cash ------------------------------------------------------
   CSD: "cash", // cash deposit
   CSW: "cash", // cash withdrawal
-  JNLC: "cash", // journal of cash between accounts
-  JNL: "cash", // generic journal; Alpaca uses it for cash movements between
-  //             accounts where the leg type is not further qualified
+  JNLC: "cash", // journal of *cash* between accounts — the subtype says so
   ACATC: "cash", // ACAT cash transfer
   WIRE: "cash", // wire transfer in or out
+
+  // --- ambiguous: real, and not self-describing ---------------------------
+  JNL: "ambiguous", // an unqualified journal; JNLC/JNLS say which
 
   // --- external movement of securities, no cash leg -----------------------
   ACATS: "non-cash-transfer", // ACAT securities transfer
@@ -156,6 +176,7 @@ export type CashFlowIncompleteReason =
   | "MALFORMED_ACTIVITY"
   | "CONTRADICTORY_DUPLICATE"
   | "UNKNOWN_ACTIVITY_TYPE"
+  | "AMBIGUOUS_ACTIVITY_TYPE"
   | "NON_CASH_EXTERNAL_TRANSFER"
   | "FUTURE_DATED_ACTIVITY"
   | "NO_PAGINATION_TOKEN"
@@ -259,19 +280,21 @@ export function resolveActivityDate(
   // The occurrence date. `date` wins when present and a real calendar day: it
   // is the settlement day the ledger books against, and it can differ from the
   // record's creation time across a boundary.
+  //
+  // A *present* `date` is authoritative and must be usable. It used to be
+  // accepted only when it matched `\d{4}-\d{2}-\d{2}`, and anything else fell
+  // through to `transaction_time` — so `"08/04/2026"`, `"2026-8-4"` or
+  // `"yesterday"` silently switched the ledger to a different field, which
+  // books the record's *creation* day rather than its settlement day. Those
+  // differ across a boundary, and the boundary is where corrections happen.
+  // A malformed present date is now a refusal, never a fallback.
   let date: string | null = null;
-  if (typeof activity.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(activity.date)) {
-    const noon = Date.parse(`${activity.date}T12:00:00Z`);
-    // The shape is not enough: `2026-02-30` parses in V8 and silently rolls
-    // over to 2 March, which would book a flow on a session that never was.
-    if (
-      Number.isFinite(noon) &&
-      new Date(noon).toISOString().slice(0, 10) === activity.date
-    ) {
-      date = activity.date;
-    } else {
-      return null;
-    }
+  const rawDate = activity.date;
+  const hasDateField =
+    rawDate !== undefined && rawDate !== null && String(rawDate).trim() !== "";
+  if (hasDateField) {
+    if (!isCalendarDate(rawDate)) return null;
+    date = rawDate;
   } else if (hasRealInstant) {
     date = etDate.format(new Date(parsedTime));
   }
@@ -310,6 +333,27 @@ function boundaryDate(iso: string, etDate: Intl.DateTimeFormat): string | null {
  * `TypeError` whose real reason is on `cause`. All of them must produce a
  * named, human-readable outcome rather than an unhandled rejection.
  */
+export /**
+ * Whether a row is describing an instrument rather than a cash movement.
+ *
+ * Alpaca's non-trade activities reuse one envelope, so a share journal and a
+ * cash journal differ by which fields are populated. A row with a `symbol` and
+ * a `qty` and a zero (or absent) `net_amount` moved securities: booking it as
+ * a $0 cash event would declare the walk complete while an unaccounted
+ * position change sits inside the equity curve.
+ */
+function looksLikeSecurities(activity: Activity): boolean {
+  const symbol =
+    typeof activity.symbol === "string" ? activity.symbol.trim() : "";
+  const qty = activity.qty;
+  const hasQty =
+    (typeof qty === "number" && Number.isFinite(qty) && qty !== 0) ||
+    (typeof qty === "string" && qty.trim() !== "" && Number(qty) !== 0);
+  if (symbol === "" && !hasQty) return false;
+  const amount = parseNetAmount(activity.net_amount);
+  return amount === null || amount === 0;
+}
+
 export function describeFetchFailure(caught: unknown): string {
   if (caught instanceof DOMException) {
     if (caught.name === "TimeoutError") return "the request timed out";
@@ -518,6 +562,29 @@ export async function fetchCashActivities(
         return incomplete(
           "UNKNOWN_ACTIVITY_TYPE",
           `Alpaca returned activity type ${type}, which this build does not classify. An unrecognised type may move cash or securities, so the ledger cannot be proven complete without it.`,
+          pagesRead,
+        );
+      }
+      if (activityClass === "ambiguous") {
+        // A bare `JNL` does not say whether cash or shares moved, and both
+        // readings are wrong in a costly direction: booked as cash it invents
+        // a deposit that never arrived; treated as a securities transfer it
+        // blocks reporting on an ordinary journal. The qualified subtypes
+        // exist precisely so this does not have to be guessed.
+        return incomplete(
+          "AMBIGUOUS_ACTIVITY_TYPE",
+          `Alpaca activity ${id} is a bare ${type} journal, which does not state whether cash or securities moved. ` +
+            `Its qualified forms (JNLC, JNLS) do; without one, whether this is a cash flow cannot be determined.`,
+          pagesRead,
+        );
+      }
+      // A row carrying instrument fields is describing an instrument, whatever
+      // its type says — and a zero `net_amount` beside a symbol and a quantity
+      // is a securities movement with no cash leg, not a $0 cash event.
+      if (looksLikeSecurities(activity)) {
+        return incomplete(
+          "NON_CASH_EXTERNAL_TRANSFER",
+          `Alpaca activity ${id} (${type}) carries instrument fields (symbol/qty) and no cash amount, so it moves positions without a cash flow. No return can be attributed across it.`,
           pagesRead,
         );
       }

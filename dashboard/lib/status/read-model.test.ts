@@ -104,7 +104,7 @@ interface RunSpec {
   updatedAt: string;
   /** Artifacts attached to this run. */
   runtimeArtifactName?: string | null;
-  runtimeZip?: Buffer | "corrupt";
+  runtimeZip?: Buffer | "corrupt" | "gone";
   diagnostics?: Buffer | typeof DEFAULT_DIAGNOSTICS | null;
 }
 
@@ -372,6 +372,7 @@ function stubGithub(options: RouteOptions = {}) {
           const bad = Buffer.from("this is not a zip archive at all");
           return zipResponse(bad);
         }
+        if (run.runtimeZip === "gone") return json({ message: "gone" }, 410);
         if (!run.runtimeZip) return json({ message: "gone" }, 404);
         return zipResponse(run.runtimeZip);
       }
@@ -2046,6 +2047,115 @@ describe("preflight selection follows completion, not conclusion", () => {
       expect(payload.validationGate.effective).not.toBe("PASS");
     },
   );
+
+  it.each([
+    ["a corrupt runtime ZIP", { runtimeZip: "corrupt" as const }, {}],
+    ["a missing runtime artifact", { runtimeArtifactName: null }, {}],
+    ["a runtime download that fails", { runtimeZip: "gone" as const }, {}],
+    [
+      "a runtime artifact whose performance.json is schema-invalid",
+      { runtimeZip: runtimeZipBuffer({ ...performanceJson(), equity: "no" }) },
+      {},
+    ],
+    [
+      "a runtime artifact whose last_run.json is schema-invalid",
+      {
+        runtimeZip: runtimeZipBuffer(performanceJson(), {
+          ...lastRunJson(),
+          paper_only: false,
+        }),
+      },
+      {},
+    ],
+    [
+      "a runtime artifact recording a different release",
+      {
+        runtimeZip: runtimeZipBuffer(performanceJson(), {
+          ...lastRunJson(),
+          release_sha: "d".repeat(40),
+        }),
+      },
+      {},
+    ],
+    [
+      "an expired runtime artifact",
+      {},
+      { runtimeArtifactPatch: { runId: 900, patch: { expired: true } } },
+    ],
+    [
+      "an oversized runtime artifact",
+      {},
+      {
+        runtimeArtifactPatch: {
+          runId: 900,
+          patch: { size_in_bytes: 900_000_000 },
+        },
+      },
+    ],
+  ])(
+    "REPRO 1: does not report PASS with a valid preflight but %s",
+    async (_label, patch, stubExtras) => {
+      // The gate takes `executionRunId` from the *selector's run metadata*,
+      // which is populated even when the selection failed. So a run whose
+      // preflight is a genuine 18/18 PASS and whose runtime artifact cannot be
+      // read at all satisfies the cycle check — the preflight and the
+      // (nonexistent) execution "agree" because they name the same run — and
+      // the gate goes green with no execution evidence whatsoever.
+      stubGithub({
+        runs: [
+          {
+            id: 900,
+            runNumber: 43,
+            conclusion: "success",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:06:00Z",
+            runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+            runtimeZip: runtimeZipBuffer(),
+            diagnostics: DEFAULT_DIAGNOSTICS,
+            ...patch,
+          },
+        ],
+        ...stubExtras,
+      });
+      const payload = await buildStrategyStatus({
+        viewer: OWNER,
+        account: PRODUCTION_ACCOUNT,
+        broker: OK_BROKER,
+        now: NOW,
+      });
+      expect(payload.execution.data).toBeNull();
+      expect(payload.validationGate.effective).not.toBe("PASS");
+      expect(payload.validationGate.reasons).toContain("EXECUTION_UNAVAILABLE");
+    },
+  );
+
+  it("the same run with a readable runtime artifact does reach PASS", async () => {
+    // The control. Without it the cases above could all be passing because
+    // something unrelated in the fixture is broken.
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).not.toBeNull();
+    expect(payload.validationGate.reasons).not.toContain("EXECUTION_UNAVAILABLE");
+    expect(payload.validationGate.effective).toBe("PASS");
+  });
 
   it("fails closed on a corrupt newest diagnostics instead of searching back", async () => {
     stubGithub({

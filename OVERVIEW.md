@@ -3,20 +3,33 @@
 > Snapshot: 2026-08-11 (Europe/Prague)
 >
 > This document describes the commit tagged
-> **`v11-dashboard-prod-2026-08-11d`** — the tag and the documentation are
-> published together, so `git show v11-dashboard-prod-2026-08-11d:OVERVIEW.md`
-> is always the description of that exact code. The audit fix itself is
-> `38493eb89`.
+> **`v11-dashboard-prod-2026-08-11f`** — the tag and the documentation are
+> published together, so `git show v11-dashboard-prod-2026-08-11f:OVERVIEW.md`
+> is always the description of that exact code, this file included.
+>
+> **`v11-dashboard-prod-2026-08-11e` is DO NOT DEPLOY.** Its validation gate
+> could report `PASS` with no readable executor runtime at all: a valid 18/18
+> preflight plus a corrupt or absent runtime artifact satisfied every
+> condition, because the cycle check took its run id from the selector's run
+> metadata rather than from parsed evidence. Section 12.9. The tag is not
+> moved; it simply must not be deployed.
+>
+> Bridge and rollback image: **`v11-dashboard-bridge-2026-08-11b`**
+> (`b903ba7ca`). The earlier `v11-dashboard-bridge-2026-08-11` (`693d53528`)
+> is also DO NOT DEPLOY — four of its `GET` handlers write.
 >
 > Tags are **annotated, not signed**: no signing key is configured for this
 > repository. Do not describe one as verified (section 16).
 >
-> Preceding tags: `v11-dashboard-prod-2026-08-11c` → `f8a170ca2`,
+> Preceding tags: `v11-dashboard-prod-2026-08-11e` → `887b08491` (do not
+> deploy), `v11-dashboard-prod-2026-08-11d` → `d439b2e64`,
+> `v11-dashboard-prod-2026-08-11c` → `f8a170ca2`,
 > `v11-dashboard-prod-2026-08-11b` → `57c40d23d`,
 > `v11-dashboard-prod-2026-08-11` → `7f1b9d647`,
 > `v11-dashboard-prod-2026-08-10d` → `17d0da20a`,
 > `v11-dashboard-prod-2026-08-10c` → `ab7145b48`,
-> `v11-dashboard-prod-2026-08-10b` → `fc73acaae` (**the bridge**, section 13.2),
+> `v11-dashboard-prod-2026-08-10b` → `fc73acaae` (the bridge's *base*; not a
+> rollback target on its own, section 13.5),
 > `v11-dashboard-prod-2026-08-10` → `5e34ca7f1`,
 > `v11-dashboard-prod-2026-08-03` → `d11bbad8a` (**currently in production**).
 >
@@ -25,11 +38,10 @@
 >
 > **The production schema is UNKNOWN.** Which migrations the production
 > database has applied has never been read from its ledger, and nothing in
-> this repository can tell you. `d11bbad8a` reads `accounts` as
-> `authenticated`, which `0011` revokes, so a working production is *consistent
-> with* `0011` not being applied — that is an inference from one symptom, not a
-> fact, and every step in section 13 depends on the fact. Read the ledger
-> first (13.3, step 1).
+> this repository can tell you. This document makes no claim about which
+> migrations are or are not applied — not even about `0011`, and not even as
+> an inference from the running image. Every step in section 13 depends on the
+> answer, so reading the ledger is step 1 and nothing precedes it.
 >
 > Approved trading release (unchanged): `0cb02c0765ebf91e60e5efd7f51334e9b538fbcb`
 >
@@ -956,7 +968,7 @@ multi-account workflows must not be restored.
 ### 11.1 `V11 Release Gate` — `.github/workflows/v11-release.yml`
 
 Non-trading. Runs on `main` pushes, pull requests and manual dispatch. Six
-independent jobs:
+independent jobs, all six of them required by `main` branch protection:
 
 | Job | What it proves |
 |---|---|
@@ -1030,14 +1042,19 @@ be proven broker-side rather than assumed.
 | `0016_global_function_acl.sql` | Global `ALTER DEFAULT PRIVILEGES`, event trigger removed, catalogue asserted by live probes inside the migration |
 | `0017_refresh_generation_and_guards.sql` | `begin_broker_refresh` / `publish_broker_refresh`; NULL and shape guards on every destructive RPC |
 | `0018_no_delete_reconciliation.sql` | A refresh may never delete; refresh tokens bound to `credential_version`; one Vault secret per account, enforced by a primary key |
-| `0019_lock_order_and_vault_integrity.sql` | One canonical lock order; credentials issued in the same transaction as the token; a rebind refused once history exists; the Vault assignment table rebuilt with every ambiguity as an abort |
+| `0019_lock_order_and_vault_integrity.sql` | One canonical lock order; credentials issued in the same transaction as the token; the Vault assignment table rebuilt with every ambiguity as an abort |
+| `0020_vault_fk_and_idempotent_create.sql` | The Vault foreign key is mandatory and asserted; idempotent creation via a client operation id; the broker account number immutable from creation; credentials never served for a deleted account |
 
 **None of these is confirmed applied in production by this document.** The
 migration ledger in the Supabase project is the only authority for that, and it
 must be read before every deployment (section 13.2). What *is* fixed is the
 rule: a migration that has been applied anywhere is never edited afterwards —
-`0010` corrects `0009`, `0012` corrects `0011`, `0016` corrects `0015`, and so
-on. Nothing above `0011` has been applied to production either.
+`0010` corrects `0009`, `0012` corrects `0011`, `0016` corrects `0015`, `0019`
+corrects `0018` and `0020` corrects `0019`.
+
+**Which of them production has applied is UNKNOWN.** Not "everything up to
+`0011`", not "nothing above `0013`" — unknown, because the ledger has not been
+read. Any sentence in this repository that implies otherwise is wrong.
 
 ### 12.2 What 0011 changed and why
 
@@ -1376,7 +1393,48 @@ has exactly its two assignments and that every assigned secret exists.
 `run_vault_integrity.sh` builds each of those states by hand and requires the
 abort.
 
-### 12.9 Application security invariants
+### 12.9 What the 2026-08-11f release fixed
+
+**The validation gate could go green with no execution evidence at all.** It
+took `executionRunId` from the *selector's run metadata*, which the selector
+populates even when the selection failed — it reports the run it was looking
+at alongside the reason it could not use it. So a run whose runtime artifact
+was missing, expired, oversized, undownloadable, corrupt or schema-invalid
+still supplied a run id; the preflight and the nonexistent "execution" agreed
+because they named the same run; and a genuine 18/18 preflight took the gate to
+`PASS`. Reproduced: a corrupt runtime ZIP with everything else valid reported
+`PASS`. The gate now takes evidence only from a parsed, lineage-valid runtime
+document, and reports `EXECUTION_UNAVAILABLE` when there is none.
+
+A preflight says what a cycle *intended* to do. Only the runtime artifact
+records what it did.
+
+**`parsePerformanceRuntime` published partial history.** `daily_history` was
+built with `continue`, so a malformed row, an unusable equity or an impossible
+date was dropped and the rest published — and this is the series the rolling
+drawdown and the risk tier are computed from. A history quietly missing its
+worst day reports a calmer account than the one that exists. It is atomic now,
+and duplicates, out-of-order rows and an unbounded length are refused too,
+along with a document that cannot state its own equity, cash, position count
+or timestamp.
+
+**A malformed workflow run vanished from the listing.** `toRunSummary`
+returned null for a run it could not read and the caller filtered nulls out,
+so the next-oldest run became "newest" one layer beneath the selectors, where
+they could not see it. The whole page fails closed now.
+
+**A bare `JNL` was classified as cash.** Alpaca's qualified journals say what
+moved — `JNLC` cash, `JNLS` shares — and the unqualified one does not. Booking
+it as cash invents a deposit that never arrived and inflates the return by its
+whole amount. It is `AMBIGUOUS_ACTIVITY_TYPE` now, and a row carrying a symbol
+and a quantity with no cash amount is a securities transfer whatever its type
+says.
+
+**A malformed activity `date` fell through to `transaction_time`.** Those are
+different days across a boundary, and the boundary is where corrections
+happen. A present date must now be a real calendar date or the walk refuses.
+
+### 12.10 Application security invariants
 
 - The application stays behind Supabase authentication; RLS account isolation
   and exact account scoping are preserved.
@@ -1406,7 +1464,7 @@ deployment has happened only when the origin host runs the new image and
 | Image | Pre-`0011` schema | Post-`0019` schema |
 |---|---|---|
 | `d11bbad8a` (in production) | yes | **no** — it reads `accounts` as `authenticated`, which `0011` revokes |
-| the bridge, `693d53528` | yes | yes |
+| the bridge, `b903ba7ca` | yes | yes |
 | the new candidate | **reads only** | yes |
 
 The candidate's every write path calls an RPC that does not exist before
@@ -1414,14 +1472,17 @@ The candidate's every write path calls an RPC that does not exist before
 why the bridge exists.
 
 **The bridge is a real commit, not an environment variable.** It is
-`693d535288169a613b5c51cbc0b8706134b905ae`, built on `fc73acaae` and adding one
-thing: the write freeze, in the code. Setting `DASHBOARD_MAINTENANCE_MODE` on
+`b903ba7caf9b680b30e520ea0b66f6c4001a050a`, built on `fc73acaae`, and it adds
+two things: the write freeze in the code, and side-effect-free reads. Setting `DASHBOARD_MAINTENANCE_MODE` on
 `fc73acaae` itself would do nothing, because nothing in that build reads it —
-and, more to the point, `fc73acaae`'s `GET /equity` and `GET /performance` call
-`backfillEquity` and `backfillCashFlows`, which write `equity_snapshots` and
-`cash_flows` as a *side effect of being read*. A freeze covering only the
-mutating verbs would leave the largest write in the application running on
-every page poll while the schema beneath it changed. The bridge covers both.
+and, more to the point, four of `fc73acaae`'s `GET` handlers write. `/equity`
+and `/performance` call `backfillEquity` and `backfillCashFlows`, which write
+`equity_snapshots` and `cash_flows`; `/status` and `/live` persist
+`status: "auth_failed"` when Alpaca rejects the credentials, so a page left
+open rewrites the account on every poll, unaudited. Freezing them was the
+first fix and it was not enough — it closed the maintenance window and left
+the writes in place the rest of the time. The bridge removes them: reads serve
+stored state and write nothing, frozen or not.
 
 Side-by-side, one image, two containers:
 
@@ -1439,13 +1500,71 @@ The 401s are the unauthenticated baseline — the freeze is checked in the proxy
 *before* authentication precisely so it can be observed from outside, which is
 what makes it testable rather than asserted.
 
-Image digest, and an important qualification: the local build of `693d53528`
-is `sha256:7ac752a0533b61c86709943d903c411fd0f5d7e28c1c83f55cca94871974a4b5`.
-That is a local image ID from a build with **placeholder** `NEXT_PUBLIC_*`
-values, which Next.js bakes into the client bundle — so it is evidence that
-the commit builds and that the freeze behaves, and it is **not** the artifact
-to deploy. A real deployment rebuilds with the real values and gets a
-different digest; record that one in the deployment log.
+**No image has been published.** The builds done here produce a *local image
+ID*, which is not an OCI registry digest: it identifies a layer set on one
+machine and nothing else. They were also built with **placeholder**
+`NEXT_PUBLIC_*` values, which Next.js bakes into the client bundle, so they
+are not the artifact either. They are evidence that the commit builds and that
+the freeze behaves.
+
+A deployable image is built with the real `NEXT_PUBLIC_SUPABASE_URL`, the real
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `BUILD_SHA` set to the exact commit, pushed to
+the registry, and identified afterwards by the immutable digest the registry
+returns (`docker buildx imagetools inspect`, or the `RepoDigests` of the pushed
+tag). Record *that* in the deployment log. Until it exists, there is no image
+to deploy and nothing here should be described as one.
+
+### 13.3 Order of operations
+
+Thirteen steps. Nothing is skipped because it "should be fine": every one of
+them exists because the step after it is unsafe without it.
+
+1. **Read the production migration ledger.** Access the origin host and record
+   exactly which migrations are applied *today*. Do not assume, and do not
+   infer it from the fact that the site works. This document does not know,
+   and every step below depends on the answer.
+2. **Confirm PITR readiness, and rehearse it.** Check that the point-in-time
+   window covers the whole planned maintenance with margin, then actually
+   perform a restore to a scratch project and read a table out of it. The
+   migrations have no down-scripts, so PITR is the only database rollback
+   there is — and a rollback plan that has never been executed is not one.
+3. **Deploy the exact bridge image, freeze off.** Build
+   `b903ba7caf9b680b30e520ea0b66f6c4001a050a` with the real `NEXT_PUBLIC_*`
+   values and `BUILD_SHA` set to that commit; push it; record the registry
+   digest. Deploy it against the current schema and smoke-test it
+   authenticated: login, account switch, every strategy section, the
+   `UNAVAILABLE` states, `/api/health` reporting that exact SHA.
+4. **Turn the freeze on** (`DASHBOARD_MAINTENANCE_MODE=on`) and restart.
+5. **Prove the freeze, authenticated, on every write path.** A `503` to an
+   unauthenticated caller only exercises the proxy check; the handlers behind
+   it matter too. Signed in, confirm `503` from `POST /api/accounts`,
+   `PATCH /api/accounts/[id]`, `DELETE /api/accounts/[id]` and
+   `POST /api/accounts/[id]/verify`, and confirm the reads still serve.
+6. **Apply only the pending migrations the ledger named**, in numeric order.
+   `0019` aborts on an ambiguous Vault credential state, and `0020` on an
+   unbound active account or a soft-deleted account still holding Vault
+   references. Those are the migrations refusing to guess, not failures:
+   resolve by hand, audit the resolution, re-run.
+7. **Re-smoke the bridge on the migrated schema**, still frozen. Reads must
+   work exactly as in step 3. If they do not, roll back (13.5) before going
+   further.
+8. **Deploy the candidate image, still frozen**, and smoke-test its reads.
+9. **Run the mutation tests on a disposable observer account** — create,
+   metadata update, rotation, an explicit **Sync broker data**, deletion.
+   Never on the production account: it is bound to the executor by
+   `PRODUCTION_ALPACA_ACCOUNT_NUMBER`, and deletion cascades its history.
+10. **Cut over** to the candidate as the serving image.
+11. **Confirm `/api/health` reports the candidate's exact SHA**, not the
+    bridge's and not a cached one.
+12. **Lift the freeze** and run the full authenticated smoke test, including
+    one explicit **Sync broker data** and a check that the
+    `broker.refresh_published` audit entry appeared.
+13. **Drill the rollback.** Put the freeze back on, roll to the bridge image,
+    confirm reads and the `503`s, then roll forward again. A rollback path
+    that has only been reasoned about is not a rollback path.
+
+Do not change `PRODUCTION_RELEASE_SHA` in order to deploy the UI. Do not run a
+mutating paper cycle as a smoke test.
 
 ### 13.4 The freeze is enforced in the application, not announced
 
@@ -1484,7 +1603,7 @@ freeze has to hold while the database is being migrated, and a flag stored in
 the thing being migrated cannot do that. **A rollback image that does not carry
 this control is not a safe rollback target** — verify `503` before trusting it,
 in both directions. `fc73acaae` as tagged does not carry it; the bridge commit
-`693d53528` does, which is the whole reason that commit exists.
+`b903ba7ca` does, which is the whole reason that commit exists.
 
 The check runs in the proxy, before authentication, so it is observable from
 outside without a session — a control a smoke test cannot see is a control
@@ -1497,11 +1616,16 @@ is nothing to freeze, and the dashboard stays legible while the work happens.
 
 Two independent axes, and they roll back separately.
 
-**Image rollback.** The bridge commit `693d535288169a613b5c51cbc0b8706134b905ae`
-is the rollback target, on either schema. It reads correctly on both and it
-carries the write freeze, so rolling onto it does not re-open the non-atomic
-lifecycle writes the moment it starts serving. `fc73acaae` as tagged is a
-rollback target for *reads* only.
+**Image rollback.** The bridge commit `b903ba7caf9b680b30e520ea0b66f6c4001a050a`
+(tag `v11-dashboard-bridge-2026-08-11b`) is the rollback target, on either
+schema. It reads correctly on both, it carries the write freeze, and none of
+its `GET` handlers writes.
+
+Two earlier candidates are **not** rollback targets. `fc73acaae` has no freeze
+at all. `693d53528` has the freeze but four writing `GET`s behind it, so the
+moment the freeze is lifted — or before it is applied — a page left open
+rewrites accounts and republishes broker mirrors. Tags are never moved, so
+both still exist; neither should be deployed.
 
 Verify `503` on `POST /api/accounts` before trusting either direction. If the
 candidate misbehaves after step 6, roll to the bridge without touching the
@@ -1557,9 +1681,19 @@ says so.
 | `PRODUCTION_OWNER_USER_ID` | Binding condition 1: the Supabase user allowed to see the production runtime. |
 | `PRODUCTION_ACCOUNT_ID` | Binding condition 2: the account the executor trades. |
 | `PRODUCTION_ALPACA_ACCOUNT_NUMBER` | Binding condition 5: compared against a number read fresh from Alpaca. Mandatory — see section 10.3. |
-| `PRODUCTION_RELEASE_SHA` | Optional. Substitutes for the token's `Environments: read` scope only; it does **not** replace `GITHUB_TOKEN`, and setting it changes nothing about what the executor trades. |
+| `PRODUCTION_RELEASE_SHA` | Optional *for the dashboard*. Substitutes for the token's `Environments: read` scope only; it does **not** replace `GITHUB_TOKEN`. Note this is the dashboard's copy, not the executor's — see the note below. |
+| `DASHBOARD_MAINTENANCE_MODE` | Optional. `on` / `1` / `true` / `yes` puts the image in the deployment write freeze: every mutating handler returns `503`, checked in the proxy before authentication. Unset or anything else means off. Section 13.4. |
 | `V11_EPOCH_BASELINE` | Optional inline epoch baseline JSON, when it is not committed to `state/v11_epoch_baseline.json`. |
 | `ALLOW_LEGACY_DASHBOARD` | Optional, non-production only. Explicit opt-in to the repository-only legacy shell. |
+
+**On `PRODUCTION_RELEASE_SHA`.** The authoritative one is the
+`paper-production` GitHub environment variable, and it is *protected, not
+immutable*: it is an administrative setting a repository admin can change at
+any time, and nothing in this repository can prevent that. What the controls
+give is that changing it is deliberate and attributable, and that the paper
+workflow will refuse to run unless a release gate passed for whatever exact
+SHA it names. Describing it as immutable would overstate the protection: the
+guarantee is "cannot change by accident", not "cannot change".
 
 ### 13.8 Release commands
 
@@ -1581,6 +1715,12 @@ git diff --check
 
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
   supabase/tests/run_integration.sh
+
+# The races, run as actual races: two connections, overlapping transactions.
+supabase/tests/run_concurrency.sh
+
+# 0019 and 0020 over hand-built legacy states that must abort. Needs docker.
+supabase/tests/run_vault_integrity.sh
 
 # Real PostgREST, with a 100-row server cap. Needs docker.
 supabase/tests/run_postgrest.sh
@@ -1699,7 +1839,7 @@ place.
 |---|---|---|
 | Tag signing | A signing key trusted by the repository | No key is configured. Tags are annotated, never signed; do not describe one as verified |
 | Reading the production migration ledger | Access to the origin Supabase project | Everything in section 13 depends on it, and it has not been read |
-| A rollback image carrying the write freeze | A build of `fc73acaae` plus `DASHBOARD_MAINTENANCE_MODE` | `fc73acaae` as tagged has no freeze, so it is a read-only rollback target (13.5) |
+| A published image | Registry credentials | Nothing has been pushed. The local builds produce image *IDs*, not OCI digests, and were built with placeholder `NEXT_PUBLIC_*` values (13.2) |
 
 ## 17. Repository map
 
