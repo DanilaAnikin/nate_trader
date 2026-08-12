@@ -1,29 +1,40 @@
 # Nate Trader — current system, V11 strategy, production and dashboard
 
-> Snapshot: 2026-08-11 (Europe/Prague)
+> Snapshot: 2026-08-12 (Europe/Prague)
 >
 > This document describes the commit tagged
-> **`v11-dashboard-prod-2026-08-11g`** — the tag and the documentation are
-> published together, so `git show v11-dashboard-prod-2026-08-11g:OVERVIEW.md`
+> **`v11-dashboard-prod-2026-08-12`** — the tag and the documentation are
+> published together, so `git show v11-dashboard-prod-2026-08-12:OVERVIEW.md`
 > is always the description of that exact code, this file included.
+>
+> The production schema this build expects is **through migration `0023`**.
 >
 > **Every earlier tag is DO NOT DEPLOY.** In particular:
 >
+> * **`-11h`** (`b645cf572`) passed two authorization proofs as the literal
+>   `true`, never read the `positions.json` its own artifact contract requires
+>   — so a runtime state recording a *short* authorized a buy — and treated a
+>   deferred infrastructure cancellation and a risk-tier disagreement as
+>   authorizing. §12.11. Its migration `0022` also carried an audit guard that
+>   recursed forever on any array.
 > * **`-11f`** (`74f8436b1`) reported `PASS` for a cycle that recorded
 >   `status: "FAIL"` and `market_entry_allowed: false`. The gate proved the
 >   evidence documents were *readable* and never read what they said. §12.10.
 > * **`-11e`** (`887b08491`) reported `PASS` with no readable executor runtime
 >   at all. §12.9.
 >
-> Bridge and rollback image: **`v11-dashboard-bridge-2026-08-11c`**
-> (`6ed46e006`). The earlier bridge tags `-2026-08-11` (`693d53528`, four
-> writing `GET`s) and `-2026-08-11b` (`b903ba7ca`, no sidecar isolation) are
-> also DO NOT DEPLOY.
+> Bridge and rollback image: **`v11-dashboard-bridge-2026-08-12`**
+> (see §13.2 for its commit). The earlier bridge tags `-2026-08-11d`
+> (`64a6fe08d`), `-2026-08-11c` (`6ed46e006`), `-2026-08-11b` (`b903ba7ca`)
+> and `-2026-08-11` (`693d53528`) are also DO NOT DEPLOY: none of them was
+> gated against migration `0023`.
 >
 > Tags are **annotated, not signed**: no signing key is configured for this
 > repository. Do not describe one as verified (section 16).
 >
-> Preceding tags: `v11-dashboard-prod-2026-08-11f` → `74f8436b1`,
+> Preceding tags: `v11-dashboard-prod-2026-08-11h` → `b645cf572`,
+> `v11-dashboard-prod-2026-08-11g` → `272a63f69`,
+> `v11-dashboard-prod-2026-08-11f` → `74f8436b1`,
 > `v11-dashboard-prod-2026-08-11e` → `887b08491`,
 > `v11-dashboard-prod-2026-08-11d` → `d439b2e64`,
 > `v11-dashboard-prod-2026-08-11c` → `f8a170ca2`,
@@ -1517,18 +1528,18 @@ deployment has happened only when the origin host runs the new image and
 
 ### 13.2 The three images, and which schema each runs on
 
-| Image | Pre-`0011` schema | Post-`0021` schema |
+| Image | Pre-`0011` schema | Post-`0023` schema |
 |---|---|---|
 | `d11bbad8a` (in production) | yes | **no** — it reads `accounts` as `authenticated`, which `0011` revokes |
-| the bridge, `6ed46e006` | yes | yes |
+| the bridge (§13.2a) | yes | yes, gated against `0023` |
 | the new candidate | **reads only** | yes |
 
 The candidate's every write path calls an RPC that does not exist before
 `0011`, so on the old schema it serves reads and fails every mutation. That is
 why the bridge exists.
 
-**The bridge is a real commit, not an environment variable.** It is
-`6ed46e006056e9e528960415494a52829934cf16`, built on `fc73acaae`, and it adds
+**The bridge is a real commit, not an environment variable.** Its SHA is
+recorded in §13.2a and it is built on `fc73acaae`, adding
 three things: the write freeze in the code, side-effect-free reads, and
 sidecar isolation. Setting `DASHBOARD_MAINTENANCE_MODE` on
 `fc73acaae` itself would do nothing, because nothing in that build reads it —
@@ -1557,7 +1568,35 @@ Side-by-side, one image, two containers:
 
 The 401s are the unauthenticated baseline — the freeze is checked in the proxy
 *before* authentication precisely so it can be observed from outside, which is
-what makes it testable rather than asserted.
+what makes it testable rather than asserted. On the **bridge**, that edge check
+stands aside when an operator bypass could apply, so the bypass stays reachable
+for the one session it exists for; see §13.3a.
+
+### 13.2a Which mechanism exists in which image
+
+The two images are not symmetric, and the runbook used to assume they were.
+
+| Mechanism | Bridge | Candidate |
+|---|---|---|
+| `DASHBOARD_MAINTENANCE_MODE` write freeze | yes | yes |
+| `maintenanceBlock(userId)` operator bypass | yes | **no** |
+| `DASHBOARD_FREEZE_BYPASS_USERS` | yes | **no** — unread |
+| `DASHBOARD_SIDECAR_ONLY` | yes, as a recorded assertion | **no** — unread |
+
+The candidate's `maintenanceBlock()` takes no argument: there is no
+authenticated bypass in it, and setting the two environment variables on it
+does nothing at all. An earlier runbook told the operator to set
+`DASHBOARD_FREEZE_BYPASS_USERS` on the candidate sidecar at step 12 and then
+to run mutation tests through it — a step that would have silently done
+nothing, followed by mutation tests that could not have worked, followed by an
+operator concluding the candidate was broken.
+
+Rather than add a second bypass implementation to the candidate, the runbook
+now uses the mechanism the candidate *does* have: the freeze is simply **off**
+on the isolated candidate sidecar during the mutation smoke, and back on
+before cutover. That is the same effective outcome with one fewer mechanism,
+and it depends on the isolation being real — which is why steps 5 and 11
+verify it from another machine before the sidecar is used at all.
 
 **No image has been published.** The builds done here produce a *local image
 ID*, which is not an OCI registry digest: it identifies a layer set on one
@@ -1577,6 +1616,12 @@ to deploy and nothing here should be described as one.
 
 Seventeen steps. Nothing is skipped because it "should be fine": every one of
 them exists because the step after it is unsafe without it.
+
+A second constraint, learned the same way as the first: **the runbook may only
+use mechanisms the image it is talking to actually implements.** An earlier
+draft told the operator to set `DASHBOARD_FREEZE_BYPASS_USERS` on the candidate
+sidecar — a variable the candidate does not read (§13.2a). The step would have
+done nothing and the mutation tests after it could not have worked.
 
 The ordering constraint that governs the whole sequence: **the currently
 serving image must stop being able to write before the schema changes under
@@ -1627,31 +1672,44 @@ a live writer against a schema it was never built for.
      database-side freeze from step 3.
    Record the responses. This is the step that makes the migration safe, and
    it is the one that cannot be inferred.
-9. **Apply only the pending migrations the ledger named**, in numeric order.
-   `0019` aborts on an ambiguous Vault credential state, `0020` on an unbound
-   active account or a soft-deleted account still holding Vault references,
-   `0021` on an audit row naming an internal identifier, and `0022` on two
-   active accounts sharing one broker binding or an existing audit row the
-   detail guard would refuse. Those are the migrations refusing to guess:
-   resolve by hand, audit it, re-run.
+9. **Apply only the pending migrations the ledger named**, in numeric order,
+   **through `0023`**. `0019` aborts on an ambiguous Vault credential state,
+   `0020` on an unbound active account or a soft-deleted account still holding
+   Vault references, `0021` on an audit row naming an internal identifier,
+   `0022` on two active accounts sharing one broker binding, and `0023` on an
+   existing audit row the *corrected* detail guard would refuse — which is a
+   strictly larger set than `0022`'s, because `0022`'s guard could not read
+   past an array. Those are the migrations refusing to guess: resolve by hand,
+   audit it, re-run.
+
+   `0023` is not optional for this candidate. `0022`'s audit guard raises
+   `54001 stack depth limit exceeded` on any audit detail containing an
+   array, which rolls back the operation being audited.
 10. **Re-smoke the serving bridge on the migrated schema**, still frozen.
-11. **Run the candidate as a second isolated sidecar**, frozen, isolated and
-    verified exactly as in step 5, and smoke its reads.
-12. **Temporarily allow mutations for the disposable observer only** — set
-    `DASHBOARD_FREEZE_BYPASS_USERS` to the operator's user id on the candidate
-    sidecar. Both halves are required (13.3a): the bypass is inert unless
-    `DASHBOARD_SIDECAR_ONLY` is also set, and it is keyed on the authenticated
-    Supabase user, so it cannot be reached by anyone else — but the thing that
-    keeps the public off this image is the network isolation from step 11, not
-    this flag.
+11. **Run the candidate as a second isolated sidecar, frozen**, isolated and
+    verified exactly as in step 5 — the port on `127.0.0.1`, the firewall
+    checked from another machine, the operator on a tunnel. Smoke its reads
+    and confirm `503` from every mutating endpoint.
+12. **Lift the freeze on the candidate sidecar only.** Unset
+    `DASHBOARD_MAINTENANCE_MODE` on that container and nothing else. The
+    candidate has no authenticated bypass (§13.2a) — `maintenanceBlock()`
+    takes no argument there, and `DASHBOARD_FREEZE_BYPASS_USERS` is unread —
+    so this is the only way its writes can be exercised.
+    **What keeps the public out here is the network isolation from step 11,
+    not a flag.** Public traffic is still served by the frozen bridge from
+    step 7, and the DB-side freeze from step 3 must be lifted only for the
+    operator's role if it would otherwise block these writes; record exactly
+    what was relaxed and for how long.
 13. **Run the mutation tests on the disposable observer account**: create,
     metadata update, rotation, verify, an explicit **Sync broker data**, and
     delete. Never on the production account — it is bound to the executor by
     `PRODUCTION_ALPACA_ACCOUNT_NUMBER`, and deletion cascades its history.
-14. **Freeze again**: clear `DASHBOARD_FREEZE_BYPASS_USERS`, confirm `503`
-    returns for the operator too.
-15. **Cut over** to the candidate as the serving image, by digest, with
-    `DASHBOARD_SIDECAR_ONLY` unset and the freeze still on. Confirm
+14. **Refreeze the candidate**: set `DASHBOARD_MAINTENANCE_MODE=on` again,
+    restore anything relaxed in step 12, and confirm `503` returns from every
+    mutating endpoint before going near the cutover.
+15. **Cut over** to the candidate as the serving image, by digest, with the
+    freeze still on. (`DASHBOARD_SIDECAR_ONLY` is unread by the candidate, so
+    there is nothing to unset — §13.2a.) Confirm
     `/api/health` reports the candidate's exact SHA, not the bridge's and not
     a cached one.
 16. **Lift the freeze** — the database side first, then the application flag —
@@ -1666,6 +1724,12 @@ Do not change `PRODUCTION_RELEASE_SHA` in order to deploy the UI. Do not run a
 mutating paper cycle as a smoke test.
 
 ### 13.3a Sidecar isolation is a network fact, not a header
+
+**Applies to the bridge.** The candidate reads neither
+`DASHBOARD_SIDECAR_ONLY` nor `DASHBOARD_FREEZE_BYPASS_USERS` (§13.2a); its
+isolation is entirely the network facts below, with no application-level flag
+recording them.
+
 
 An earlier bridge decided "is this request from loopback?" from the `Host`
 header and refused everything else in the proxy. That was not isolation.
