@@ -15,7 +15,7 @@
 >   `true`, never read the `positions.json` its own artifact contract requires
 >   — so a runtime state recording a *short* authorized a buy — and treated a
 >   deferred infrastructure cancellation and a risk-tier disagreement as
->   authorizing. §12.11. Its migration `0022` also carried an audit guard that
+>   authorizing. §12.12. Its migration `0022` also carried an audit guard that
 >   recursed forever on any array.
 > * **`-11f`** (`74f8436b1`) reported `PASS` for a cycle that recorded
 >   `status: "FAIL"` and `market_entry_allowed: false`. The gate proved the
@@ -24,7 +24,7 @@
 >   at all. §12.9.
 >
 > Bridge and rollback image: **`v11-dashboard-bridge-2026-08-12`**
-> (see §13.2 for its commit). The earlier bridge tags `-2026-08-11d`
+> (`7b9c55806`). The earlier bridge tags `-2026-08-11d`
 > (`64a6fe08d`), `-2026-08-11c` (`6ed46e006`), `-2026-08-11b` (`b903ba7ca`)
 > and `-2026-08-11` (`693d53528`) are also DO NOT DEPLOY: none of them was
 > gated against migration `0023`.
@@ -1517,6 +1517,50 @@ rows carry digests. Canary tests hunt each planted value through the real
 - If a strategy-identity source changes, paper buys stop until a new canonical
   validation and release promotion complete.
 
+### 12.12 What the 2026-08-12 release fixed
+
+Four findings, all of them about the difference between *asserting* a
+condition and *deriving* it.
+
+**Two authorization proofs were the literal `true`.**
+`runtimeArtifactComplete` and `frozenPlanValid` were passed as constants, on
+the reasoning that reaching that branch already established them. The
+reasoning was correct when it was written, and the previous release said so in
+its own commit message — which is the whole problem: a literal is
+indistinguishable from a derivation right up until the code it stands in for
+changes, and the mutation matrix could not tell, because it only checked that
+a `false` was rejected. A proof now carries a symbol private to `proof.ts` and
+can only be produced by a function that takes the parsed documents.
+
+**`positions.json` was required and never read.** The runtime artifact
+contract refuses an artifact without it, so "the artifact is complete" was
+established by the file being present and parseable as JSON while its contents
+could say anything — including a short position, which is the one state the
+V11 rules treat as blocking everything else. It is parsed atomically now and
+cross-checked against `performance.num_positions`, the one number both
+documents state independently.
+
+**An ended cycle was treated as an authorizing one.**
+`ADAPTIVE_DEFERRED_INFRASTRUCTURE_CANCELLATION` is a terminal action — the
+cycle reached its own end — but what it reached the end of is a cancellation
+it could not complete. It, and any pending cancellation, no longer authorize.
+A risk-tier disagreement between `last_run` and `performance` now fails
+closed, including `NORMAL` beside `HALT`, which is the direction that
+authorizes a buy on an account the risk policy has halted.
+
+**`0022`'s audit guard recursed forever on any array.** It re-wrapped each
+array as `{"items": [...]}` and called itself with a value of the same shape,
+so every audit detail containing one died with `54001 stack depth limit
+exceeded` — and because the guard sits on `audit_log`, that rolled back the
+operation being audited. Migration `0023` replaces it with an iterative
+traversal under node and depth budgets, and also closes what it missed: a UUID
+used as a key, a broker account number under an arbitrary key, and anything
+below an array. `0023` additionally stores the verification deadline and
+compares it with `clock_timestamp()` after both locks, so a token that expires
+while `finish` waits for the account lock is refused rather than accepted on
+the other side of the wait.
+
+
 ## 13. Deployment
 
 ### 13.1 What "deployed" means here
@@ -1531,15 +1575,15 @@ deployment has happened only when the origin host runs the new image and
 | Image | Pre-`0011` schema | Post-`0023` schema |
 |---|---|---|
 | `d11bbad8a` (in production) | yes | **no** — it reads `accounts` as `authenticated`, which `0011` revokes |
-| the bridge (§13.2a) | yes | yes, gated against `0023` |
+| the bridge, `7b9c55806` | yes | yes, gated against `0023` |
 | the new candidate | **reads only** | yes |
 
 The candidate's every write path calls an RPC that does not exist before
 `0011`, so on the old schema it serves reads and fails every mutation. That is
 why the bridge exists.
 
-**The bridge is a real commit, not an environment variable.** Its SHA is
-recorded in §13.2a and it is built on `fc73acaae`, adding
+**The bridge is a real commit, not an environment variable.** It is
+`7b9c55806ec79e2f56b5831063fea4c613e62d50`, built on `fc73acaae`, adding
 three things: the write freeze in the code, side-effect-free reads, and
 sidecar isolation. Setting `DASHBOARD_MAINTENANCE_MODE` on
 `fc73acaae` itself would do nothing, because nothing in that build reads it —
@@ -1643,7 +1687,7 @@ a live writer against a schema it was never built for.
 3. **Define the reversible DB/PostgREST/ingress freeze** from what step 1
    found (13.4), and write down the exact commands that apply and lift it.
 4. **Build and push both images, and record their digests.** The bridge
-   (`64a6fe08d…`) and the candidate, each with the real `NEXT_PUBLIC_*` values
+   (`7b9c55806…`) and the candidate, each with the real `NEXT_PUBLIC_*` values
    and `BUILD_SHA` set to its own commit. Record the OCI digest
    (`repo@sha256:…`) of each. A tag is a moving pointer; the digest is what
    makes "the image we tested" and "the image we ran" the same statement.
@@ -1828,8 +1872,8 @@ is nothing to freeze, and the dashboard stays legible while the work happens.
 
 Two independent axes, and they roll back separately.
 
-**Image rollback.** The bridge commit `6ed46e006056e9e528960415494a52829934cf16`
-(tag `v11-dashboard-bridge-2026-08-11c`) is the rollback target, on either
+**Image rollback.** The bridge commit `7b9c55806ec79e2f56b5831063fea4c613e62d50`
+(tag `v11-dashboard-bridge-2026-08-12`) is the rollback target, on either
 schema. It reads correctly on both, it carries the write freeze, and none of
 its `GET` handlers writes.
 
