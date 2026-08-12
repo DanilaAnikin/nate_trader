@@ -112,6 +112,52 @@ def test_pass_requires_a_positive_terminal_completion():
     assert completed["terminal_actions"] == ["ADAPTIVE_REBALANCE_COMPLETE"]
 
 
+def test_pass_requires_exactly_one_terminal_occurrence():
+    """A cycle finishes once. Two endings in one record is not one ending."""
+
+    # The same terminal twice. `terminal` was a set of *names*, so this
+    # satisfied "a terminal action is present" — a record claiming the cycle
+    # completed, then completed again.
+    duplicated = production_run.summarize_execution(
+        {
+            "risk_tier": "NORMAL",
+            "entry_gate": {"allowed": True},
+            "first": {"action": "ADAPTIVE_REBALANCE_COMPLETE"},
+            "second": {"action": "ADAPTIVE_REBALANCE_COMPLETE"},
+        }
+    )
+    assert duplicated["terminal_action_count"] == 2
+    assert duplicated["status"] == "DEGRADED"
+
+    # Two *different* terminals: mutually exclusive endings. The cycle either
+    # rebalanced or deferred the plan; it cannot have done both.
+    conflicting = production_run.summarize_execution(
+        {
+            "risk_tier": "NORMAL",
+            "entry_gate": {"allowed": True},
+            "first": {"action": "ADAPTIVE_REBALANCE_COMPLETE"},
+            "second": {"action": "ADAPTIVE_PLAN_DEFERRED"},
+        }
+    )
+    assert conflicting["terminal_action_count"] == 2
+    assert sorted(conflicting["terminal_actions"]) == [
+        "ADAPTIVE_PLAN_DEFERRED",
+        "ADAPTIVE_REBALANCE_COMPLETE",
+    ]
+    assert conflicting["status"] == "DEGRADED"
+
+    # Exactly one still passes, so the rule bites in one direction only.
+    single = production_run.summarize_execution(
+        {
+            "risk_tier": "NORMAL",
+            "entry_gate": {"allowed": True},
+            "summary": {"action": "ADAPTIVE_REBALANCE_COMPLETE"},
+        }
+    )
+    assert single["terminal_action_count"] == 1
+    assert single["status"] == "PASS"
+
+
 def test_terminal_action_does_not_override_a_blocking_action():
     summary = production_run.summarize_execution(
         {

@@ -85,8 +85,17 @@ def summarize_execution(result: dict[str, Any]) -> dict[str, Any]:
         for record in records
         if is_blocking_action(str(record.get("action", "")))
     ]
+    # Occurrences, not names. `terminal` was a *set* of names, so a run that
+    # recorded ADAPTIVE_REBALANCE_COMPLETE twice — or completed once and then
+    # deferred as well — satisfied "a terminal action is present" with two
+    # mutually exclusive endings in one record. A cycle finishes once.
     terminal = sorted(
         name for name in action_counts if name.upper() in TERMINAL_SUCCESS_ACTIONS
+    )
+    terminal_count = sum(
+        count
+        for name, count in action_counts.items()
+        if name.upper() in TERMINAL_SUCCESS_ACTIONS
     )
     entry_gate = result.get("entry_gate", {})
     return {
@@ -95,11 +104,13 @@ def summarize_execution(result: dict[str, Any]) -> dict[str, Any]:
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "release_sha": _release_sha(),
         "strategy_version": "v11-adaptive-momentum",
-        # PASS requires both halves: nothing blocked, *and* the cycle reached a
-        # terminal state. Either alone is compatible with a run that stopped
-        # silently part-way.
-        "status": "PASS" if not blocking and terminal else "DEGRADED",
+        # PASS requires both halves: nothing blocked, *and* the cycle reached
+        # exactly one terminal state. Either alone is compatible with a run
+        # that stopped silently part-way; two terminals is a record that says
+        # the cycle ended twice.
+        "status": "PASS" if not blocking and terminal_count == 1 else "DEGRADED",
         "terminal_actions": terminal,
+        "terminal_action_count": terminal_count,
         "paper_only": True,
         "market_entry_allowed": bool(entry_gate.get("allowed", False)),
         "risk_tier": result.get("risk_tier"),
@@ -136,7 +147,7 @@ def raise_workflow_incident(summary: dict[str, Any]) -> str:
     )
     headline = (
         f"V11 paper cycle did not complete: status={summary.get('status')}"
-        f"{f'; blocked by {detail}' if detail else '; no terminal completion recorded'}"
+        f"{f'; blocked by {detail}' if detail else '; no single terminal completion recorded'}"
     )
     print(f"::error title=V11 paper production incident::{headline}")
     path = os.getenv("GITHUB_STEP_SUMMARY")
