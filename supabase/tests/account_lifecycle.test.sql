@@ -398,11 +398,9 @@ begin
   select count(*) into before_count from accounts;
 
   begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid,
-      'Audit failure', 'paper', '#123456',
-      key_id, sec_id, 'PA-AUDITFAIL-9999'
-    , gen_random_uuid());
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('a', 64),
+      'Audit failure', 'paper', '#123456', 'AK', 'AS', 'PA-AUDITFAIL-9999');
   exception when others then failed := true;
   end;
 
@@ -462,83 +460,161 @@ do $$
 declare
   key_id  uuid;
   sec_id  uuid;
-  ghost   uuid := '00000000-0000-0000-0000-0000000000ee';
   blocked boolean;
+  state   text;
+  bad_text text;
+  bad_fingerprint text;
   before_count bigint;
   after_count  bigint;
 begin
-  select vault.create_secret('GUARD-KEY', 'guard-key') into key_id;
-  select vault.create_secret('GUARD-SECRET', 'guard-secret') into sec_id;
   select count(*) into before_count from accounts;
+
+  -- Every case below runs against `create_account_operation`, which is the
+  -- only creation path 0022 leaves open. They used to call
+  -- `create_account_atomic`, and once that became a hard failure each `begin
+  -- ... exception when others` caught the retirement error instead of the
+  -- validation it was written for: nine assertions that could no longer fail.
+  --
+  -- So each one names the SQLSTATE it expects. "Some error was raised" is
+  -- exactly what made them vacuous.
 
   -- null owner
   blocked := false;
   begin
-    perform create_account_atomic(null, 'x', 'paper', '#000', key_id, sec_id, 'PA-1', gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then raise exception 'FAIL: a null owner was accepted'; end if;
-
-  -- empty / null broker account number
-  foreach ghost in array array[null::uuid] loop null; end loop;
-  blocked := false;
-  begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid, 'x', 'paper', '#000', key_id, sec_id, '   '
-    , gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then
-    raise exception 'FAIL: a blank broker account number was accepted';
-  end if;
-  blocked := false;
-  begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid, 'x', 'paper', '#000', key_id, sec_id, null
-    , gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then
-    raise exception 'FAIL: a null broker account number was accepted';
+    perform create_account_operation(
+      null, gen_random_uuid(), repeat('b', 64),
+      'x', 'paper', '#000', 'AK', 'AS', 'PA-GUARD-1');
+  exception when others then
+    blocked := true; state := sqlstate;
+  end;
+  if not blocked or state <> '22023' then
+    raise exception 'FAIL: a null owner gave % (expected 22023)', coalesce(state, 'no error');
   end if;
 
-  -- null vault ids
+  -- no operation id: without one a retry is indistinguishable from a second
+  -- request, so it may not be optional.
   blocked := false;
   begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid, 'x', 'paper', '#000', null, sec_id, 'PA-1'
-    , gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then raise exception 'FAIL: a null key secret id was accepted'; end if;
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, null, repeat('b', 64),
+      'x', 'paper', '#000', 'AK', 'AS', 'PA-GUARD-1');
+  exception when others then
+    blocked := true; state := sqlstate;
+  end;
+  if not blocked or state <> '22023' then
+    raise exception 'FAIL: a null operation id gave % (expected 22023)', coalesce(state, 'no error');
+  end if;
 
-  -- identical vault ids
+  -- a fingerprint that is not a sha256: an unverifiable request binding.
+  foreach bad_fingerprint in array array['', '  ', 'not-a-digest', repeat('A', 64), repeat('a', 63)] loop
+    blocked := false;
+    begin
+      perform create_account_operation(
+        current_setting('test.user_a')::uuid, gen_random_uuid(), bad_fingerprint,
+        'x', 'paper', '#000', 'AK', 'AS', 'PA-GUARD-1');
+    exception when others then
+      blocked := true; state := sqlstate;
+    end;
+    if not blocked or state <> '22023' then
+      raise exception 'FAIL: fingerprint %L gave % (expected 22023)',
+        bad_fingerprint, coalesce(state, 'no error');
+    end if;
+  end loop;
   blocked := false;
   begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid, 'x', 'paper', '#000', key_id, key_id, 'PA-1'
-    , gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then raise exception 'FAIL: one secret used for both was accepted'; end if;
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, gen_random_uuid(), null,
+      'x', 'paper', '#000', 'AK', 'AS', 'PA-GUARD-1');
+  exception when others then blocked := true; state := sqlstate; end;
+  if not blocked or state <> '22023' then
+    raise exception 'FAIL: a null fingerprint gave % (expected 22023)', coalesce(state, 'no error');
+  end if;
 
-  -- a vault id that does not exist
-  blocked := false;
-  begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid, 'x', 'paper', '#000',
-      key_id, '00000000-dead-0000-0000-000000000000'::uuid, 'PA-1'
-    , gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then raise exception 'FAIL: a dangling Vault id was accepted'; end if;
+  -- blank / null nickname
+  foreach bad_text in array array['', '   '] loop
+    blocked := false;
+    begin
+      perform create_account_operation(
+        current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+        bad_text, 'paper', '#000', 'AK', 'AS', 'PA-GUARD-1');
+    exception when others then blocked := true; state := sqlstate; end;
+    if not blocked or state <> '22023' then
+      raise exception 'FAIL: nickname %L gave % (expected 22023)',
+        bad_text, coalesce(state, 'no error');
+    end if;
+  end loop;
 
-  -- a secret already in use by an active account
+  -- blank / null broker account number: the binding the account *is*.
+  foreach bad_text in array array['', '   '] loop
+    blocked := false;
+    begin
+      perform create_account_operation(
+        current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+        'x', 'paper', '#000', 'AK', 'AS', bad_text);
+    exception when others then blocked := true; state := sqlstate; end;
+    if not blocked or state <> '22023' then
+      raise exception 'FAIL: broker number %L gave % (expected 22023)',
+        bad_text, coalesce(state, 'no error');
+    end if;
+  end loop;
   blocked := false;
   begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid, 'shares', 'paper', '#000',
-      (select alpaca_key_secret_id from accounts
-        where nickname = 'Created atomically' and deleted_at is null),
-      sec_id, 'PA-2'
-    , gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then
-    raise exception 'FAIL: two active accounts could share a Vault secret';
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+      'x', 'paper', '#000', 'AK', 'AS', null);
+  exception when others then blocked := true; state := sqlstate; end;
+  if not blocked or state <> '22023' then
+    raise exception 'FAIL: a null broker number gave % (expected 22023)', coalesce(state, 'no error');
+  end if;
+
+  -- blank / null credentials: the secrets are made inside the transaction,
+  -- so an empty one would be a Vault row holding nothing.
+  foreach bad_text in array array['', '   '] loop
+    blocked := false;
+    begin
+      perform create_account_operation(
+        current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+        'x', 'paper', '#000', bad_text, 'AS', 'PA-GUARD-1');
+    exception when others then blocked := true; state := sqlstate; end;
+    if not blocked or state <> '22023' then
+      raise exception 'FAIL: api key %L gave % (expected 22023)',
+        bad_text, coalesce(state, 'no error');
+    end if;
+    blocked := false;
+    begin
+      perform create_account_operation(
+        current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+        'x', 'paper', '#000', 'AK', bad_text, 'PA-GUARD-1');
+    exception when others then blocked := true; state := sqlstate; end;
+    if not blocked or state <> '22023' then
+      raise exception 'FAIL: api secret %L gave % (expected 22023)',
+        bad_text, coalesce(state, 'no error');
+    end if;
+  end loop;
+
+  -- null mode
+  blocked := false;
+  begin
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+      'x', null, '#000', 'AK', 'AS', 'PA-GUARD-1');
+  exception when others then blocked := true; state := sqlstate; end;
+  if not blocked or state <> '22023' then
+    raise exception 'FAIL: a null mode gave % (expected 22023)', coalesce(state, 'no error');
+  end if;
+
+  -- a broker binding this owner already holds in this mode (0022).
+  blocked := false;
+  begin
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+      'duplicate binding', 'paper', '#000', 'AK', 'AS',
+      (select alpaca_account_number from accounts
+        where nickname = 'Created atomically' and deleted_at is null));
+  exception when others then blocked := true; state := sqlstate; end;
+  if not blocked or state <> '23505' then
+    raise exception 'FAIL: a duplicate broker binding gave % (expected 23505)',
+      coalesce(state, 'no error');
   end if;
 
   select count(*) into after_count from accounts;
@@ -560,18 +636,20 @@ begin
   -- Everything else about the call is valid, so the *only* thing that can fail
   -- is the audit entry — which must take the account row with it.
   declare
-    key_id uuid;
-    sec_id uuid;
+    state text;
   begin
-    select vault.create_secret('DOOMED-KEY', 'doomed-key') into key_id;
-    select vault.create_secret('DOOMED-SECRET', 'doomed-secret') into sec_id;
     begin
-      perform create_account_atomic(
-        '00000000-0000-0000-0000-0000000000ff'::uuid,
-        'Doomed', 'paper', '#000000', key_id, sec_id, 'PA-DOOMED-0000'
-      , gen_random_uuid());
-    exception when others then blocked := true;
+      perform create_account_operation(
+        '00000000-0000-0000-0000-0000000000ff'::uuid, gen_random_uuid(),
+        repeat('c', 64),
+        'Doomed', 'paper', '#000000', 'AK', 'AS', 'PA-DOOMED-0000');
+    exception when others then blocked := true; state := sqlstate;
     end;
+    -- A foreign key violation on `audit_log.actor_id`: the audit entry is what
+    -- fails, and it must take the account and both Vault secrets with it.
+    if blocked and state <> '23503' then
+      raise exception 'FAIL: an unusable actor gave % (expected 23503)', state;
+    end if;
   end;
   select count(*) into after_count from accounts;
   if not blocked then

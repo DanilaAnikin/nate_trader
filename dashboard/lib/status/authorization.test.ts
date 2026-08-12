@@ -17,12 +17,61 @@ import {
   AuthorizedExecutionEvidence,
   REQUIRED_AUTHORIZATION_PROOFS,
 } from "./authorization";
+import { deriveAuthorizationClaims } from "./proof";
+import { parseLastRun, parsePerformanceRuntime } from "./parse";
+import { parsePositionsRuntime } from "./positions";
+import {
+  APPROVED_SHA,
+  healthyValidationInfo,
+  healthyPreflightInfo,
+  lastRunJson,
+  performanceJson,
+  positionsJson,
+} from "@/test/fixtures";
 
-/** A complete, honest claim set. Every mutation below starts from this. */
+const RUN_ID = 31407157501;
+const NOW = new Date("2026-08-07T17:00:00Z");
+
+/**
+ * A complete, honest claim set — built the only way one can be built.
+ *
+ * There is no way to hand-write this any more, which is the point. Two proofs
+ * used to be passed as the literal `true`, and a literal is indistinguishable
+ * from a derivation right up until the code it stands in for changes.
+ */
 function completeClaims(): Record<string, unknown> {
-  const claims: Record<string, unknown> = { runId: 31407157501, attempt: 1 };
-  for (const proof of REQUIRED_AUTHORIZATION_PROOFS) claims[proof] = true;
-  return claims;
+  const lastRun = parseLastRun(lastRunJson());
+  const performance = parsePerformanceRuntime(performanceJson());
+  const positions = parsePositionsRuntime(positionsJson());
+  if (!lastRun || !performance || !positions) {
+    throw new Error("the runtime fixtures must parse for this test to mean anything");
+  }
+  return deriveAuthorizationClaims({
+    report: healthyValidationInfo(),
+    paperEligibleMode: "paper-validation-eligible",
+    approvedReleaseSha: APPROVED_SHA,
+    approvedReleaseAuthoritative: true,
+    lineageOk: true,
+    preflight: healthyPreflightInfo(),
+    preflightProblems: [],
+    preflightRunId: RUN_ID,
+    preflightAttempt: 1,
+    executionRunId: RUN_ID,
+    executionAttempt: 1,
+    lastRun,
+    performance,
+    positions,
+    cycle: {
+      lastRunCompletedAt: lastRun.completedAt,
+      executeStep: {
+        startedAt: "2026-08-07T16:04:00.000Z",
+        completedAt: "2026-08-07T16:06:00.000Z",
+      },
+      now: NOW,
+    },
+    sameCycleToleranceMs: 60 * 60 * 1000,
+    now: NOW,
+  });
 }
 
 describe("REQUIRED_AUTHORIZATION_PROOFS", () => {
@@ -50,6 +99,8 @@ describe("REQUIRED_AUTHORIZATION_PROOFS", () => {
       "performanceCurrentAndConsistent",
       "frozenPlanValid",
       "cycleTimestampsExact",
+      "positionsInCycle",
+      "riskTierAgrees",
     ]);
   });
 
@@ -64,7 +115,7 @@ describe("AuthorizedExecutionEvidence", () => {
   it("is established when every mandatory proof holds", () => {
     const evidence = AuthorizedExecutionEvidence.establish(completeClaims());
     expect(evidence).not.toBeNull();
-    expect(evidence!.runId).toBe(31407157501);
+    expect(evidence!.runId).toBe(RUN_ID);
     expect(evidence!.attempt).toBe(1);
   });
 
@@ -114,6 +165,39 @@ describe("AuthorizedExecutionEvidence", () => {
       }
     },
   );
+
+  it.each([...REQUIRED_AUTHORIZATION_PROOFS])(
+    "is refused when the %s proof is the literal true",
+    (proof) => {
+      // The specific regression. `runtimeArtifactComplete` and
+      // `frozenPlanValid` were passed exactly like this, and no mutation test
+      // could see it: the matrix only checked that a `false` was rejected.
+      const claims = completeClaims();
+      claims[proof] = true;
+      expect(AuthorizedExecutionEvidence.establish(claims)).toBeNull();
+    },
+  );
+
+  it("is refused when a proof is a hand-built object wearing the right shape", () => {
+    // The brand is a module-private symbol, not `Symbol.for`, so a forgery
+    // cannot carry it. This is what stops a caller re-implementing `mint`.
+    const claims = completeClaims();
+    claims.runtimeArtifactComplete = {
+      tag: Symbol("nate-trader.authorization-proof"),
+      name: "runtimeArtifactComplete",
+      held: true,
+      detail: null,
+    };
+    expect(AuthorizedExecutionEvidence.establish(claims)).toBeNull();
+  });
+
+  it("is refused when a held proof carries someone else's name", () => {
+    // A real proof, moved to the wrong key. Without the name check a single
+    // genuine proof could satisfy every slot.
+    const claims = completeClaims();
+    claims.frozenPlanValid = claims.runtimeArtifactComplete;
+    expect(AuthorizedExecutionEvidence.establish(claims)).toBeNull();
+  });
 
   it("is refused when an unrecognised proof key is added", () => {
     // An extra key means the caller and this module disagree about what is

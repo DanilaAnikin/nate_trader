@@ -5,12 +5,16 @@ import {
   NOT_APPLICABLE_GATE,
 } from "./validation-gate";
 import type { PreflightInfo, ValidationInfo } from "./types";
-import { parsePreflight } from "./parse";
+import { parseLastRun, parsePerformanceRuntime, parsePreflight } from "./parse";
+import { parsePositionsRuntime } from "./positions";
 import {
   APPROVED_SHA,
   STRATEGY_IDENTITY,
   UNIVERSE_HASH,
   failedPreflightJson,
+  lastRunJson,
+  performanceJson,
+  positionsJson,
   preflightJson,
 } from "@/test/fixtures";
 
@@ -31,6 +35,10 @@ function preflight(
 }
 
 const NOW = new Date("2026-08-07T17:00:00Z");
+
+/** The execute step that produced the runtime fixture (12:05:05 ET = 16:05:05Z). */
+const EXECUTE_STARTED_AT = "2026-08-07T16:04:00.000Z";
+const EXECUTE_COMPLETED_AT = "2026-08-07T16:06:00.000Z";
 
 function report(overrides: Partial<ValidationInfo> = {}): ValidationInfo {
   return {
@@ -60,38 +68,64 @@ function report(overrides: Partial<ValidationInfo> = {}): ValidationInfo {
   };
 }
 
+/**
+ * A healthy runtime artifact, built from the real parsers.
+ *
+ * The gate takes *documents* now, not a caller's booleans about them — two of
+ * which used to be the literal `true`. Every test below therefore mutates a
+ * fixture and re-parses it, which is the same path production takes.
+ */
+function runtime(overrides: {
+  lastRun?: Record<string, unknown>;
+  performance?: Record<string, unknown>;
+  positions?: Record<string, unknown> | null;
+} = {}) {
+  const lastRun = parseLastRun(lastRunJson(overrides.lastRun ?? {}));
+  const performance = parsePerformanceRuntime(
+    performanceJson(overrides.performance ?? {}),
+  );
+  const positions =
+    overrides.positions === null
+      ? null
+      : parsePositionsRuntime(positionsJson(overrides.positions ?? {}));
+  return { lastRun, performance, positions };
+}
+
+function executionEvidence(
+  overrides: Parameters<typeof runtime>[0] = {},
+  cycle: { runId?: number; attempt?: number; executeStep?: unknown } = {},
+) {
+  const { lastRun, performance, positions } = runtime(overrides);
+  if (!lastRun || !performance) {
+    throw new Error("the runtime fixture must parse for these tests to mean anything");
+  }
+  return {
+    runId: cycle.runId === undefined ? RUN_ID : cycle.runId,
+    attempt: cycle.attempt === undefined ? 1 : cycle.attempt,
+    lastRun,
+    performance,
+    positions,
+    executeStep:
+      cycle.executeStep === undefined
+        ? { startedAt: EXECUTE_STARTED_AT, completedAt: EXECUTE_COMPLETED_AT }
+        : (cycle.executeStep as { startedAt: string | null; completedAt: string | null } | null),
+  };
+}
+
 function gate(
   overrides: Partial<ValidationInfo> = {},
   options: {
     approvedReleaseSha?: string | null;
     authoritative?: boolean;
+    lineageOk?: boolean;
     preflight?: PreflightInfo | null;
     preflightRunId?: number | null;
     executionRunId?: number | null;
     preflightAttempt?: number | null;
     executionAttempt?: number | null;
-    executionEvidence?: {
-      runId: number;
-      attempt: number;
-      status: "PASS" | "FAIL" | "DEGRADED";
-      marketEntryAllowed: boolean | null;
-      blockingActionCount: number;
-      runtimeComplete: boolean;
-      selfConsistent: boolean;
-      performanceInCycle: boolean;
-      performanceCoherent: boolean;
-      frozenPlanValid: boolean;
-    } | null;
-    executionOverrides?: Partial<{
-      status: "PASS" | "FAIL" | "DEGRADED";
-      marketEntryAllowed: boolean | null;
-      blockingActionCount: number;
-      runtimeComplete: boolean;
-      selfConsistent: boolean;
-      performanceInCycle: boolean;
-      performanceCoherent: boolean;
-      frozenPlanValid: boolean;
-    }>;
+    executionEvidence?: ReturnType<typeof executionEvidence> | null;
+    runtimeOverrides?: Parameters<typeof runtime>[0];
+    executeStep?: unknown;
   } = {},
 ) {
   return computeEffectiveValidationGate({
@@ -101,17 +135,18 @@ function gate(
         ? APPROVED_SHA
         : options.approvedReleaseSha,
     approvedReleaseAuthoritative: options.authoritative ?? true,
+    // Required, not optional: a caller that forgets it no longer gets
+    // "consistent" by default.
+    lineageOk: options.lineageOk ?? true,
     preflight:
       options.preflight === undefined ? preflight() : options.preflight,
     preflightRunId:
       options.preflightRunId === undefined ? RUN_ID : options.preflightRunId,
     preflightAttempt:
       options.preflightAttempt === undefined ? 1 : options.preflightAttempt,
-    // Execution *evidence*, not run metadata: null means there is no readable
-    // runtime state, which is now a refusal in its own right.
     executionEvidence:
       options.executionEvidence === undefined
-        ? {
+        ? executionEvidence(options.runtimeOverrides ?? {}, {
             runId:
               options.executionRunId === undefined
                 ? RUN_ID
@@ -120,18 +155,8 @@ function gate(
               options.executionAttempt === undefined
                 ? 1
                 : (options.executionAttempt as number),
-            // A healthy cycle by default, so a test that cares about one of
-            // these has to say so.
-            status: "PASS" as const,
-            marketEntryAllowed: true,
-            blockingActionCount: 0,
-            runtimeComplete: true,
-            selfConsistent: true,
-            performanceInCycle: true,
-            performanceCoherent: true,
-            frozenPlanValid: true,
-            ...(options.executionOverrides ?? {}),
-          }
+            executeStep: options.executeStep,
+          })
         : options.executionEvidence,
     now: NOW,
   });
@@ -216,6 +241,7 @@ describe("computeEffectiveValidationGate", () => {
 
   it("is UNAVAILABLE, not FAIL, when there is no report", () => {
     const result = computeEffectiveValidationGate({
+      lineageOk: true,
       report: null,
       approvedReleaseSha: APPROVED_SHA,
       approvedReleaseAuthoritative: true,
@@ -232,7 +258,13 @@ describe("computeEffectiveValidationGate", () => {
       identityMatchesRuntime: "FAIL",
     });
     expect(result.reasons.length).toBeGreaterThanOrEqual(3);
-    expect(result.details.length).toBe(result.reasons.length);
+    // One detail per reason, plus one per unmet proof. The proof-level lines
+    // name the document that failed, which the reason codes deliberately do
+    // not — an operator needs both.
+    expect(result.details.length).toBeGreaterThanOrEqual(result.reasons.length);
+    // The proof-level lines name the *document* that failed, which the reason
+    // codes deliberately do not.
+    expect(result.details.some((detail) => detail.includes(":"))).toBe(true);
   });
 
   it("offers a NOT_APPLICABLE gate for a non-production viewer", () => {

@@ -121,10 +121,11 @@ const DEFAULT_DIAGNOSTICS = "default-diagnostics" as const;
 function runtimeZipBuffer(
   perf: Record<string, unknown> = performanceJson(),
   run: Record<string, unknown> = lastRunJson(),
+  positions: Record<string, unknown> = positionsJson(),
 ): Buffer {
   return buildZip([
     { name: "performance.json", content: JSON.stringify(perf) },
-    { name: "positions.json", content: JSON.stringify(positionsJson()) },
+    { name: "positions.json", content: JSON.stringify(positions) },
     { name: "production/last_run.json", content: JSON.stringify(run) },
   ]);
 }
@@ -2301,5 +2302,236 @@ describe("preflight selection follows completion, not conclusion", () => {
     });
     expect(payload.preflight.data).toBeNull();
     expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+});
+
+/**
+ * Fifth audit round: the runtime authorization holes, end to end.
+ *
+ * Each of these builds a real payload through `buildStrategyStatus` with a
+ * mutated runtime artifact, so what is asserted is what the page would show —
+ * not what a unit test of the gate says in isolation. Every one of them
+ * reaches `PASS` on `b645cf572`.
+ */
+describe("REPRO 5: positions.json was required but never read", () => {
+  function withPositions(positions: Record<string, unknown>) {
+    return {
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success" as const,
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(performanceJson(), lastRunJson(), positions),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    };
+  }
+
+  async function build() {
+    return buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+  }
+
+  it("refuses a runtime state recording a short position", async () => {
+    // A short is *the* blocking reconciliation state in V11: every manager
+    // stops until the account is flat. An artifact recording one, presented
+    // as evidence that the cycle was healthy, is the inversion the gate
+    // exists to prevent — and the file was required by the contract and then
+    // never opened.
+    const shorted = positionsJson();
+    const rows = (shorted.positions as Record<string, unknown>[]).map((row, index) =>
+      index === 0 ? { ...row, qty: -100, side: "PositionSide.SHORT" } : row,
+    );
+    stubGithub(withPositions({ ...shorted, positions: rows }));
+    const payload = await build();
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.details.join(" ")).toContain("short position");
+  });
+
+  it("refuses a position count that contradicts performance.num_positions", async () => {
+    // Two documents written from one broker snapshot. The count is the one
+    // number both state independently, so a disagreement means the artifact
+    // is a mixture of two cycles.
+    const short = positionsJson();
+    stubGithub(
+      withPositions({
+        ...short,
+        positions: (short.positions as unknown[]).slice(0, 3),
+      }),
+    );
+    const payload = await build();
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.details.join(" ")).toContain("num_positions");
+  });
+
+  it.each([
+    ["a zero quantity", { qty: 0 }],
+    ["a negative price", { current_price: -1 }],
+    ["a zero entry price", { avg_entry_price: 0 }],
+    ["an unclassifiable side", { side: "PositionSide.SIDEWAYS" }],
+    ["a long marked with a negative quantity", { qty: -5, side: "long" }],
+    ["a non-finite market value", { market_value: null }],
+    ["a malformed symbol", { symbol: "not a ticker" }],
+  ])("refuses a position list with %s", async (_label, patch) => {
+    const base = positionsJson();
+    const rows = (base.positions as Record<string, unknown>[]).map((row, index) =>
+      index === 0 ? { ...row, ...patch } : row,
+    );
+    stubGithub(withPositions({ ...base, positions: rows }));
+    const payload = await build();
+    expect(payload.validationGate.effective).toBe("FAIL");
+  });
+
+  it("refuses a positions file stamped in a different cycle", async () => {
+    const base = positionsJson();
+    stubGithub(withPositions({ ...base, updated_at: "2026-08-05 12:05:05" }));
+    const payload = await build();
+    expect(payload.validationGate.effective).toBe("FAIL");
+  });
+
+  it("refuses a positions file with no usable timestamp", async () => {
+    const base = positionsJson();
+    stubGithub(withPositions({ ...base, updated_at: "recently" }));
+    const payload = await build();
+    expect(payload.validationGate.effective).toBe("FAIL");
+  });
+
+  it("accepts the healthy artifact, so the refusals above mean something", async () => {
+    stubGithub(withPositions(positionsJson()));
+    const payload = await build();
+    expect(payload.validationGate.effective).toBe("PASS");
+  });
+});
+
+describe("REPRO 6: an ended cycle is not an authorizing one", () => {
+  function withLastRun(patch: Record<string, unknown>) {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(performanceJson(), {
+            ...lastRunJson(),
+            ...patch,
+          }),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    return buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+  }
+
+  it("refuses a cycle that ended on a deferred infrastructure cancellation", async () => {
+    // It *is* a terminal action — the cycle reached its own end — but what it
+    // says it reached the end of is a cancellation it could not complete. It
+    // ends a cycle; it does not authorize the next one.
+    const payload = await withLastRun({
+      action_counts: {
+        ADAPTIVE_PLAN: 1,
+        ADAPTIVE_DEFERRED_INFRASTRUCTURE_CANCELLATION: 1,
+      },
+    });
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.details.join(" ")).toContain(
+      "deferred infrastructure cancellation",
+    );
+  });
+
+  it.each([
+    "REBALANCE_PENDING_CANCELLATIONS",
+    "ORDER_BOOK_RECONCILIATION_PENDING_CANCELLATIONS",
+    "SHORT_RECONCILIATION_PENDING_CANCELLATIONS",
+    "SELL_CAPACITY_RECONCILIATION_PENDING_CANCELLATIONS",
+    "POSITION_SNAPSHOT_RECONCILIATION_PENDING_CANCELLATIONS",
+    "PENDING_CANCELLATION",
+  ])("refuses a cycle that left %s outstanding", async (action) => {
+    const payload = await withLastRun({
+      action_counts: { ADAPTIVE_PLAN_DEFERRED: 1, [action]: 1 },
+    });
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.details.join(" ")).toContain("cancellation");
+  });
+
+  it("still accepts an ordinary deferred plan", async () => {
+    // The distinction has to bite in one direction only: deferring the
+    // replacement buys to a later boundary is the monthly V11 path.
+    const payload = await withLastRun({
+      action_counts: { ADAPTIVE_PLAN: 1, ADAPTIVE_PLAN_DEFERRED: 1 },
+    });
+    expect(payload.validationGate.effective).toBe("PASS");
+  });
+});
+
+describe("REPRO 7: the two documents must agree about the risk tier", () => {
+  async function withTiers(runTier: string, perfTier: string) {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(
+            performanceJson({ risk_tier: perfTier }),
+            lastRunJson({ risk_tier: runTier }),
+          ),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    return buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+  }
+
+  it.each([
+    ["NORMAL", "HALT"],
+    ["HALT", "NORMAL"],
+    ["NORMAL", "CAUTIOUS"],
+    ["CAUTIOUS", "NORMAL"],
+    ["CAUTIOUS", "HALT"],
+  ])("refuses last_run=%s beside performance=%s", async (runTier, perfTier) => {
+    // Written from one snapshot seconds apart, so a disagreement is not a
+    // race — it is two cycles in one artifact. `NORMAL` beside `HALT` is the
+    // dangerous direction: it authorizes a buy on an account the risk policy
+    // has halted.
+    const payload = await withTiers(runTier, perfTier);
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.details.join(" ")).toMatch(
+      /riskTierAgrees|HALT/,
+    );
+  });
+
+  it("refuses a consistent HALT, which is agreement about a stop", async () => {
+    const payload = await withTiers("HALT", "HALT");
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.details.join(" ")).toContain("HALT");
+  });
+
+  it("accepts a consistent CAUTIOUS, which is agreement about trading on", async () => {
+    const payload = await withTiers("CAUTIOUS", "CAUTIOUS");
+    expect(payload.validationGate.effective).toBe("PASS");
   });
 });

@@ -6,6 +6,9 @@
  * rather than a production screen.
  */
 
+import { parsePreflight } from "@/lib/status/parse";
+import type { PreflightInfo, ValidationInfo } from "@/lib/status/types";
+
 export const APPROVED_SHA = "0cb02c0765ebf91e60e5efd7f51334e9b538fbcb";
 export const OTHER_SHA = "1111111111111111111111111111111111111111";
 export const DASHBOARD_SHA = "d11bbad8aad7ec98596b0d290cb938706982d069";
@@ -141,7 +144,9 @@ export function lastRunJson(
   };
 }
 
-export function positionsJson(): Record<string, unknown> {
+export function positionsJson(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     updated_at: "2026-08-07 12:05:05",
     positions: TARGET_SYMBOLS.map((symbol) => ({
@@ -154,6 +159,7 @@ export function positionsJson(): Record<string, unknown> {
       unrealized_plpc: 0,
       side: "PositionSide.LONG",
     })),
+    ...overrides,
   };
 }
 
@@ -442,4 +448,38 @@ export function tournamentJson(
     ],
     ...overrides,
   };
+}
+
+/* --------------------------------------------- parsed, gate-ready shapes */
+
+/**
+ * A canonical report in the shape the gate consumes, already bound to the
+ * runtime. Used where a test needs a *healthy* report and does not care how
+ * the fields got there.
+ */
+export function healthyValidationInfo(): ValidationInfo {
+  return {
+    status: "PASS",
+    allowedMode: "paper-validation-eligible",
+    generatedAt: "2026-08-02T15:56:49Z",
+    barBoundaryDate: "2026-07-10",
+    expiresAt: "2026-09-06T15:56:49Z",
+    strategyIdentityValue: STRATEGY_IDENTITY,
+    rankingUniverseSha256: UNIVERSE_HASH,
+    barSnapshotSha256: "b".repeat(64),
+    reportSha256: "c".repeat(64),
+    contractSchemaVersion: 1,
+    contractAlgorithm: "sha256",
+    checksEvaluated: 8,
+    checksPassed: 8,
+    identityMatchesRuntime: "PASS",
+    universeMatchesRuntime: "PASS",
+    segments: [],
+    warnings: [],
+  } as unknown as ValidationInfo;
+}
+
+/** The complete 18-check preflight, parsed. */
+export function healthyPreflightInfo(): PreflightInfo {
+  return parsePreflight(preflightJson(), null) as PreflightInfo;
 }
