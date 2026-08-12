@@ -292,6 +292,37 @@ reset role;
 -- writes below. Impersonation is cleared explicitly.
 select set_config('request.jwt.claims', '', true);
 
+
+-- ---------------------------------------------------------------------------
+-- Fixture: make an account through the path production actually uses.
+--
+-- `create_account_atomic` was retired by 0022 — it bypassed the operation
+-- ledger, so it was a second door into account creation with none of the
+-- idempotence. Tests that merely *need an account* now build one the way the
+-- application does. This is a fixture, not a wrapper the application may call:
+-- it lives in the test file and exists only to shorten the setup.
+-- ---------------------------------------------------------------------------
+create or replace function test_make_account(
+  p_owner    uuid,
+  p_nickname text,
+  p_mode     account_mode,
+  p_color    text,
+  p_number   text
+)
+returns accounts
+language sql
+as $$
+  select create_account_operation(
+    p_owner,
+    gen_random_uuid(),
+    encode(sha256(convert_to(coalesce(p_nickname, '') || coalesce(p_number, ''), 'UTF8')), 'hex'),
+    p_nickname, p_mode, p_color,
+    'KEY-' || coalesce(p_number, 'x'),
+    'SECRET-' || coalesce(p_number, 'x'),
+    p_number
+  );
+$$;
+
 -- --- 8. creation is atomic with its audit entry ----------------------------
 do $$
 declare
@@ -303,13 +334,11 @@ begin
   -- creates them. Reusing one id for both was a test shortcut that the
   -- function now refuses — sharing a secret means rotating the key would
   -- overwrite the secret with the same value.
-  select vault.create_secret('CREATE-KEY', 'create-key') into key_id;
-  select vault.create_secret('CREATE-SECRET', 'create-secret') into sec_id;
-  select * into created from create_account_atomic(
+  select * into created from test_make_account(
     current_setting('test.user_a')::uuid,
-    '  Created atomically  ', 'paper', '#123456',
-    key_id, sec_id, 'PA-CREATED-3333'
-  , gen_random_uuid());
+    '  Created atomically  ', 'paper', '#123456', 'PA-CREATED-3333');
+  key_id := created.alpaca_key_secret_id;
+  sec_id := created.alpaca_secret_secret_id;
   if created.nickname <> 'Created atomically' then
     raise exception 'FAIL: creation did not trim the nickname';
   end if;
@@ -340,13 +369,11 @@ declare
   sec_id uuid;
   made   accounts;
 begin
-  select vault.create_secret('AUDITFAIL-EXISTING-KEY', 'k') into key_id;
-  select vault.create_secret('AUDITFAIL-EXISTING-SECRET', 's') into sec_id;
-  select * into made from create_account_atomic(
+  select * into made from test_make_account(
     current_setting('test.user_a')::uuid,
-    'Audit rollback subject', 'paper', '#123456',
-    key_id, sec_id, 'PA-AUDITFAIL-SUBJECT'
-  , gen_random_uuid());
+    'Audit rollback subject', 'paper', '#123456', 'PA-AUDITFAIL-SUBJECT');
+  key_id := made.alpaca_key_secret_id;
+  sec_id := made.alpaca_secret_secret_id;
   perform set_config('test.audit_subject', made.id::text, true);
 end $$;
 
@@ -371,11 +398,9 @@ begin
   select count(*) into before_count from accounts;
 
   begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid,
-      'Audit failure', 'paper', '#123456',
-      key_id, sec_id, 'PA-AUDITFAIL-9999'
-    , gen_random_uuid());
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('a', 64),
+      'Audit failure', 'paper', '#123456', 'AK', 'AS', 'PA-AUDITFAIL-9999');
   exception when others then failed := true;
   end;
 
@@ -435,83 +460,161 @@ do $$
 declare
   key_id  uuid;
   sec_id  uuid;
-  ghost   uuid := '00000000-0000-0000-0000-0000000000ee';
   blocked boolean;
+  state   text;
+  bad_text text;
+  bad_fingerprint text;
   before_count bigint;
   after_count  bigint;
 begin
-  select vault.create_secret('GUARD-KEY', 'guard-key') into key_id;
-  select vault.create_secret('GUARD-SECRET', 'guard-secret') into sec_id;
   select count(*) into before_count from accounts;
+
+  -- Every case below runs against `create_account_operation`, which is the
+  -- only creation path 0022 leaves open. They used to call
+  -- `create_account_atomic`, and once that became a hard failure each `begin
+  -- ... exception when others` caught the retirement error instead of the
+  -- validation it was written for: nine assertions that could no longer fail.
+  --
+  -- So each one names the SQLSTATE it expects. "Some error was raised" is
+  -- exactly what made them vacuous.
 
   -- null owner
   blocked := false;
   begin
-    perform create_account_atomic(null, 'x', 'paper', '#000', key_id, sec_id, 'PA-1', gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then raise exception 'FAIL: a null owner was accepted'; end if;
-
-  -- empty / null broker account number
-  foreach ghost in array array[null::uuid] loop null; end loop;
-  blocked := false;
-  begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid, 'x', 'paper', '#000', key_id, sec_id, '   '
-    , gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then
-    raise exception 'FAIL: a blank broker account number was accepted';
-  end if;
-  blocked := false;
-  begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid, 'x', 'paper', '#000', key_id, sec_id, null
-    , gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then
-    raise exception 'FAIL: a null broker account number was accepted';
+    perform create_account_operation(
+      null, gen_random_uuid(), repeat('b', 64),
+      'x', 'paper', '#000', 'AK', 'AS', 'PA-GUARD-1');
+  exception when others then
+    blocked := true; state := sqlstate;
+  end;
+  if not blocked or state <> '22023' then
+    raise exception 'FAIL: a null owner gave % (expected 22023)', coalesce(state, 'no error');
   end if;
 
-  -- null vault ids
+  -- no operation id: without one a retry is indistinguishable from a second
+  -- request, so it may not be optional.
   blocked := false;
   begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid, 'x', 'paper', '#000', null, sec_id, 'PA-1'
-    , gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then raise exception 'FAIL: a null key secret id was accepted'; end if;
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, null, repeat('b', 64),
+      'x', 'paper', '#000', 'AK', 'AS', 'PA-GUARD-1');
+  exception when others then
+    blocked := true; state := sqlstate;
+  end;
+  if not blocked or state <> '22023' then
+    raise exception 'FAIL: a null operation id gave % (expected 22023)', coalesce(state, 'no error');
+  end if;
 
-  -- identical vault ids
+  -- a fingerprint that is not a sha256: an unverifiable request binding.
+  foreach bad_fingerprint in array array['', '  ', 'not-a-digest', repeat('A', 64), repeat('a', 63)] loop
+    blocked := false;
+    begin
+      perform create_account_operation(
+        current_setting('test.user_a')::uuid, gen_random_uuid(), bad_fingerprint,
+        'x', 'paper', '#000', 'AK', 'AS', 'PA-GUARD-1');
+    exception when others then
+      blocked := true; state := sqlstate;
+    end;
+    if not blocked or state <> '22023' then
+      raise exception 'FAIL: fingerprint %L gave % (expected 22023)',
+        bad_fingerprint, coalesce(state, 'no error');
+    end if;
+  end loop;
   blocked := false;
   begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid, 'x', 'paper', '#000', key_id, key_id, 'PA-1'
-    , gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then raise exception 'FAIL: one secret used for both was accepted'; end if;
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, gen_random_uuid(), null,
+      'x', 'paper', '#000', 'AK', 'AS', 'PA-GUARD-1');
+  exception when others then blocked := true; state := sqlstate; end;
+  if not blocked or state <> '22023' then
+    raise exception 'FAIL: a null fingerprint gave % (expected 22023)', coalesce(state, 'no error');
+  end if;
 
-  -- a vault id that does not exist
-  blocked := false;
-  begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid, 'x', 'paper', '#000',
-      key_id, '00000000-dead-0000-0000-000000000000'::uuid, 'PA-1'
-    , gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then raise exception 'FAIL: a dangling Vault id was accepted'; end if;
+  -- blank / null nickname
+  foreach bad_text in array array['', '   '] loop
+    blocked := false;
+    begin
+      perform create_account_operation(
+        current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+        bad_text, 'paper', '#000', 'AK', 'AS', 'PA-GUARD-1');
+    exception when others then blocked := true; state := sqlstate; end;
+    if not blocked or state <> '22023' then
+      raise exception 'FAIL: nickname %L gave % (expected 22023)',
+        bad_text, coalesce(state, 'no error');
+    end if;
+  end loop;
 
-  -- a secret already in use by an active account
+  -- blank / null broker account number: the binding the account *is*.
+  foreach bad_text in array array['', '   '] loop
+    blocked := false;
+    begin
+      perform create_account_operation(
+        current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+        'x', 'paper', '#000', 'AK', 'AS', bad_text);
+    exception when others then blocked := true; state := sqlstate; end;
+    if not blocked or state <> '22023' then
+      raise exception 'FAIL: broker number %L gave % (expected 22023)',
+        bad_text, coalesce(state, 'no error');
+    end if;
+  end loop;
   blocked := false;
   begin
-    perform create_account_atomic(
-      current_setting('test.user_a')::uuid, 'shares', 'paper', '#000',
-      (select alpaca_key_secret_id from accounts
-        where nickname = 'Created atomically' and deleted_at is null),
-      sec_id, 'PA-2'
-    , gen_random_uuid());
-  exception when others then blocked := true; end;
-  if not blocked then
-    raise exception 'FAIL: two active accounts could share a Vault secret';
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+      'x', 'paper', '#000', 'AK', 'AS', null);
+  exception when others then blocked := true; state := sqlstate; end;
+  if not blocked or state <> '22023' then
+    raise exception 'FAIL: a null broker number gave % (expected 22023)', coalesce(state, 'no error');
+  end if;
+
+  -- blank / null credentials: the secrets are made inside the transaction,
+  -- so an empty one would be a Vault row holding nothing.
+  foreach bad_text in array array['', '   '] loop
+    blocked := false;
+    begin
+      perform create_account_operation(
+        current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+        'x', 'paper', '#000', bad_text, 'AS', 'PA-GUARD-1');
+    exception when others then blocked := true; state := sqlstate; end;
+    if not blocked or state <> '22023' then
+      raise exception 'FAIL: api key %L gave % (expected 22023)',
+        bad_text, coalesce(state, 'no error');
+    end if;
+    blocked := false;
+    begin
+      perform create_account_operation(
+        current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+        'x', 'paper', '#000', 'AK', bad_text, 'PA-GUARD-1');
+    exception when others then blocked := true; state := sqlstate; end;
+    if not blocked or state <> '22023' then
+      raise exception 'FAIL: api secret %L gave % (expected 22023)',
+        bad_text, coalesce(state, 'no error');
+    end if;
+  end loop;
+
+  -- null mode
+  blocked := false;
+  begin
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+      'x', null, '#000', 'AK', 'AS', 'PA-GUARD-1');
+  exception when others then blocked := true; state := sqlstate; end;
+  if not blocked or state <> '22023' then
+    raise exception 'FAIL: a null mode gave % (expected 22023)', coalesce(state, 'no error');
+  end if;
+
+  -- a broker binding this owner already holds in this mode (0022).
+  blocked := false;
+  begin
+    perform create_account_operation(
+      current_setting('test.user_a')::uuid, gen_random_uuid(), repeat('b', 64),
+      'duplicate binding', 'paper', '#000', 'AK', 'AS',
+      (select alpaca_account_number from accounts
+        where nickname = 'Created atomically' and deleted_at is null));
+  exception when others then blocked := true; state := sqlstate; end;
+  if not blocked or state <> '23505' then
+    raise exception 'FAIL: a duplicate broker binding gave % (expected 23505)',
+      coalesce(state, 'no error');
   end if;
 
   select count(*) into after_count from accounts;
@@ -533,18 +636,20 @@ begin
   -- Everything else about the call is valid, so the *only* thing that can fail
   -- is the audit entry — which must take the account row with it.
   declare
-    key_id uuid;
-    sec_id uuid;
+    state text;
   begin
-    select vault.create_secret('DOOMED-KEY', 'doomed-key') into key_id;
-    select vault.create_secret('DOOMED-SECRET', 'doomed-secret') into sec_id;
     begin
-      perform create_account_atomic(
-        '00000000-0000-0000-0000-0000000000ff'::uuid,
-        'Doomed', 'paper', '#000000', key_id, sec_id, 'PA-DOOMED-0000'
-      , gen_random_uuid());
-    exception when others then blocked := true;
+      perform create_account_operation(
+        '00000000-0000-0000-0000-0000000000ff'::uuid, gen_random_uuid(),
+        repeat('c', 64),
+        'Doomed', 'paper', '#000000', 'AK', 'AS', 'PA-DOOMED-0000');
+    exception when others then blocked := true; state := sqlstate;
     end;
+    -- A foreign key violation on `audit_log.actor_id`: the audit entry is what
+    -- fails, and it must take the account and both Vault secrets with it.
+    if blocked and state <> '23503' then
+      raise exception 'FAIL: an unusable actor gave % (expected 23503)', state;
+    end if;
   end;
   select count(*) into after_count from accounts;
   if not blocked then
@@ -637,58 +742,51 @@ end $$;
 reset role;
 select set_config('request.jwt.claims', '', true);
 
--- --- 11. idempotent creation, and answering "did it commit?" ---------------
+-- --- 11. the retired creation path refuses, and writes nothing -------------
+--
+-- `create_account_atomic` was the pre-0021 door: not idempotent, and its Vault
+-- secrets were created outside the transaction that used them. 0022 turns it
+-- into a hard failure rather than dropping it, so the definition stays in the
+-- history these migrations preserve while the path itself is closed.
+--
+-- Idempotent creation is covered against the surviving function in section 15.
 do $$
 declare
-  op    uuid := gen_random_uuid();
-  k     uuid;
-  sec   uuid;
-  first accounts;
-  again accounts;
-  before_count bigint;
+  before_accounts bigint;
+  before_secrets  bigint;
+  blocked         boolean := false;
+  msg             text;
+  k               uuid;
+  sec             uuid;
 begin
-  select vault.create_secret('IDEM-KEY', 'ik') into k;
-  select vault.create_secret('IDEM-SECRET', 'is') into sec;
-  select count(*) into before_count from accounts;
+  select vault.create_secret('RETIRED-KEY', 'rk') into k;
+  select vault.create_secret('RETIRED-SECRET', 'rs') into sec;
+  select count(*) into before_accounts from accounts;
+  select count(*) into before_secrets from vault.secrets;
 
-  first := create_account_atomic(current_setting('test.user_a')::uuid,
-    'Idempotent', 'paper', '#123456', k, sec, 'PA-IDEM-1', op);
-
-  -- The retry a caller makes after losing its HTTP response. It must return
-  -- the committed row, not create a second account and not fail.
-  again := create_account_atomic(current_setting('test.user_a')::uuid,
-    'Idempotent', 'paper', '#123456', k, sec, 'PA-IDEM-1', op);
-
-  if first.id <> again.id then
-    raise exception 'FAIL: a repeated operation id created a second account';
-  end if;
-  if (select count(*) from accounts) <> before_count + 1 then
-    raise exception 'FAIL: the retry changed the account count';
-  end if;
-
-  -- And the caller can ask directly, which is what makes the lost-response
-  -- path decidable rather than a guess.
-  if (find_account_by_operation(current_setting('test.user_a')::uuid, op)).id
-     <> first.id then
-    raise exception 'FAIL: the committed operation could not be found';
-  end if;
-  if (find_account_by_operation(current_setting('test.user_a')::uuid,
-        gen_random_uuid())).id is not null then
-    raise exception 'FAIL: an operation that never ran was reported as found';
-  end if;
-
-  -- An operation id is required: without one a retry is indistinguishable
-  -- from a second request.
-  declare blocked boolean := false;
   begin
-    begin
-      perform create_account_atomic(current_setting('test.user_a')::uuid,
-        'NoOp', 'paper', '#123456', k, sec, 'PA-NOOP', null);
-    exception when others then blocked := true; end;
-    if not blocked then
-      raise exception 'FAIL: creation without an operation id was accepted';
-    end if;
-  end;
+    perform create_account_atomic(current_setting('test.user_a')::uuid,
+      'Retired', 'paper', '#123456', k, sec, 'PA-RETIRED-1', gen_random_uuid());
+  exception when others then blocked := true; msg := sqlerrm; end;
+  if not blocked then
+    raise exception 'FAIL: the retired creation path still created an account';
+  end if;
+  if msg not like '%superseded%' then
+    raise exception 'FAIL: unexpected refusal from the retired path: %', msg;
+  end if;
+  if (select count(*) from accounts) <> before_accounts then
+    raise exception 'FAIL: the retired path wrote an account row';
+  end if;
+  if (select count(*) from vault.secrets) <> before_secrets then
+    raise exception 'FAIL: the retired path wrote a Vault secret';
+  end if;
+
+  -- No role may reach it, service_role included.
+  if has_function_privilege('service_role',
+       'create_account_atomic(uuid, text, account_mode, text, uuid, uuid, text, uuid)',
+       'EXECUTE') then
+    raise exception 'FAIL: service_role can still execute the retired path';
+  end if;
 end $$;
 
 -- --- 12. a Vault secret assigned to an account cannot be deleted ------------
@@ -700,19 +798,21 @@ declare
   blocked  int := 0;
   msg      text;
 begin
-  select vault.create_secret('FKGUARD-KEY', 'k') into k;
-  select vault.create_secret('FKGUARD-SECRET', 's') into sec;
-  acct := create_account_atomic(current_setting('test.user_a')::uuid,
-    'FkGuard', 'paper', '#123456', k, sec, 'PA-FKGUARD', gen_random_uuid());
+  acct := test_make_account(current_setting('test.user_a')::uuid,
+    'FkGuard', 'paper', '#123456', 'PA-FKGUARD');
+  k := acct.alpaca_key_secret_id;
+  sec := acct.alpaca_secret_secret_id;
 
-  -- Through the wrapper the application uses.
+  -- The wrapper the application *used to* call. 0022 retired it: the current
+  -- code creates and destroys secrets only inside the RPCs that own their
+  -- lifetime, so a general-purpose delete is a door with no remaining use.
   begin
     perform vault_delete_secret(k);
   exception when others then blocked := blocked + 1; msg := sqlerrm; end;
   if blocked <> 1 then
-    raise exception 'FAIL: vault_delete_secret removed an assigned secret';
+    raise exception 'FAIL: vault_delete_secret is still callable';
   end if;
-  if msg not like '%assigned to account%' then
+  if msg not like '%superseded%' then
     raise exception 'FAIL: unexpected refusal: %', msg;
   end if;
 
@@ -732,7 +832,7 @@ begin
   blocked := 0;
   begin
     perform purge_unassigned_credential_pair(k, sec,
-      current_setting('test.user_a')::uuid, 'test');
+      current_setting('test.user_a')::uuid, 'operator_cleanup');
   exception when others then blocked := 1; end;
   if blocked <> 1 then
     raise exception 'FAIL: an assigned pair was purged';
@@ -748,8 +848,11 @@ begin
   begin
     select vault.create_secret('ORPHAN-KEY', 'k') into ok;
     select vault.create_secret('ORPHAN-SECRET', 's') into ok2;
+    -- A reason *code*, not prose. 0022 closed the set: the reason lands in an
+    -- owner-readable audit row, and free text is how an id or an account
+    -- number ends up published there.
     n := purge_unassigned_credential_pair(ok, ok2,
-      current_setting('test.user_a')::uuid, 'creation lost its response');
+      current_setting('test.user_a')::uuid, 'orphaned_after_failed_create');
     if n <> 2 then
       raise exception 'FAIL: the orphan purge removed % secrets, expected 2', n;
     end if;
@@ -762,23 +865,39 @@ begin
   perform acct;
 end $$;
 
--- --- 13. the broker account number never moves ------------------------------
+-- --- 13. the broker account number never moves, via begin/finish -----------
+--
+-- `record_account_verification` took the expected credential version as a
+-- *nullable* argument, and a caller that could not read it passed null, which
+-- disabled the check. 0022 retired it. Verification is begin/finish: the
+-- snapshot is pinned under the account lock and the write is refused if
+-- anything moved while the broker was answering.
 do $$
 declare
-  acct    accounts;
-  k       uuid;
-  sec     uuid;
-  blocked boolean := false;
+  acct     accounts;
+  snapshot jsonb;
+  blocked  boolean := false;
+  msg      text;
 begin
-  select vault.create_secret('BIND-KEY', 'k') into k;
-  select vault.create_secret('BIND-SECRET', 's') into sec;
-  -- No history at all: 0019 would have allowed this rebind.
-  acct := create_account_atomic(current_setting('test.user_a')::uuid,
-    'Binding', 'paper', '#123456', k, sec, 'PA-BIND-1', gen_random_uuid());
+  acct := test_make_account(current_setting('test.user_a')::uuid,
+    'Binding', 'paper', '#123456', 'PA-BIND-1');
 
+  -- The retired entry point refuses, whatever it is asked.
   begin
     perform record_account_verification(acct.id,
-      current_setting('test.user_a')::uuid, 'connected', 'PA-BIND-2');
+      current_setting('test.user_a')::uuid, 'connected', 'PA-BIND-1');
+  exception when others then blocked := true; msg := sqlerrm; end;
+  if not blocked or msg not like '%superseded%' then
+    raise exception 'FAIL: the retired verification path still answered: %', msg;
+  end if;
+
+  -- A different broker number is refused, and changes nothing.
+  snapshot := begin_account_verification(acct.id,
+    current_setting('test.user_a')::uuid);
+  blocked := false;
+  begin
+    perform finish_account_verification(
+      (snapshot ->> 'token')::uuid, 'connected', 'PA-BIND-2');
   exception when others then blocked := true; end;
   if not blocked then
     raise exception 'FAIL: a fresh account was rebound to another broker number';
@@ -788,26 +907,38 @@ begin
     raise exception 'FAIL: the refused rebind still changed the binding';
   end if;
 
-  -- Confirming the *same* number is what verification is for.
-  perform record_account_verification(acct.id,
-    current_setting('test.user_a')::uuid, 'connected', 'PA-BIND-1');
+  -- Confirming the *same* number is what verification is for. The refused
+  -- attempt above did not consume the token, so this is the same generation.
+  perform finish_account_verification(
+    (snapshot ->> 'token')::uuid, 'connected', 'PA-BIND-1');
+  if (select status from accounts where id = acct.id) <> 'connected' then
+    raise exception 'FAIL: a confirmed verification did not record connected';
+  end if;
 
-  -- A verification carrying a stale credential version is refused: the answer
-  -- in hand describes keys that were rotated away while Alpaca was asked.
-  blocked := false;
+  -- A token whose credentials were rotated away describes keys that are no
+  -- longer stored. Writing `connected` from it would certify the new pair on
+  -- the strength of a test of the old.
+  snapshot := begin_account_verification(acct.id,
+    current_setting('test.user_a')::uuid);
   perform rotate_account_credentials(acct.id,
     current_setting('test.user_a')::uuid, 'K2', 'S2', 'PA-BIND-1');
+  blocked := false;
   begin
-    perform record_account_verification(acct.id,
-      current_setting('test.user_a')::uuid, 'connected', 'PA-BIND-1', 1::bigint);
-  exception when others then blocked := true; end;
+    perform finish_account_verification(
+      (snapshot ->> 'token')::uuid, 'connected', 'PA-BIND-1');
+  exception when others then blocked := true; msg := sqlerrm; end;
   if not blocked then
     raise exception 'FAIL: a verification of rotated-away keys was recorded';
   end if;
-  -- The current version is accepted.
-  perform record_account_verification(acct.id,
-    current_setting('test.user_a')::uuid, 'connected', 'PA-BIND-1',
-    (select credential_version from accounts where id = acct.id));
+  if msg not like '%credentials changed%' then
+    raise exception 'FAIL: unexpected refusal after rotation: %', msg;
+  end if;
+
+  -- A fresh token against the current version is accepted.
+  snapshot := begin_account_verification(acct.id,
+    current_setting('test.user_a')::uuid);
+  perform finish_account_verification(
+    (snapshot ->> 'token')::uuid, 'connected', 'PA-BIND-1');
 end $$;
 
 -- --- 14. credentials are never served for a deleted account -----------------
@@ -818,10 +949,10 @@ declare
   sec     uuid;
   blocked boolean := false;
 begin
-  select vault.create_secret('DEL-KEY', 'k') into k;
-  select vault.create_secret('DEL-SECRET', 's') into sec;
-  acct := create_account_atomic(current_setting('test.user_a')::uuid,
-    'ToRead', 'paper', '#123456', k, sec, 'PA-TOREAD', gen_random_uuid());
+  acct := test_make_account(current_setting('test.user_a')::uuid,
+    'ToRead', 'paper', '#123456', 'PA-TOREAD');
+  k := acct.alpaca_key_secret_id;
+  sec := acct.alpaca_secret_secret_id;
   perform get_account_credentials(acct.id);
 
   update accounts set deleted_at = now() where id = acct.id;
@@ -888,15 +1019,36 @@ begin
     raise exception 'FAIL: one operation id served two different requests';
   end if;
 
-  -- And the resolver answers definitely, under the same lock.
-  if (resolve_create_operation(current_setting('test.user_a')::uuid, op) ->> 'outcome')
-     <> 'created' then
+  -- And the resolver answers definitely, under the same lock — but only when
+  -- the caller can show the *same request*. 0022 made the fingerprint an
+  -- argument: matching the id alone reported someone's earlier, different row
+  -- as the thing just created.
+  if (resolve_create_operation(current_setting('test.user_a')::uuid, op, fp)
+        ->> 'outcome') <> 'created' then
     raise exception 'FAIL: a committed operation did not resolve as created';
   end if;
-  if (resolve_create_operation(current_setting('test.user_a')::uuid, gen_random_uuid())
-        ->> 'outcome') <> 'absent' then
+  if (resolve_create_operation(current_setting('test.user_a')::uuid,
+        gen_random_uuid(), fp) ->> 'outcome') <> 'absent' then
     raise exception 'FAIL: an operation that never ran did not resolve as absent';
   end if;
+  if (resolve_create_operation(current_setting('test.user_a')::uuid, op,
+        repeat('c', 64)) ->> 'outcome') <> 'conflict' then
+    raise exception 'FAIL: a spent operation id with a different request did not conflict';
+  end if;
+  if (resolve_create_operation(current_setting('test.user_b')::uuid, op, fp)
+        ->> 'outcome') <> 'conflict' then
+    raise exception 'FAIL: another owner resolved someone else''s operation';
+  end if;
+  -- The two-argument form is closed, not merely unused.
+  declare superseded boolean := false;
+  begin
+    begin
+      perform resolve_create_operation(current_setting('test.user_a')::uuid, op);
+    exception when others then superseded := true; end;
+    if not superseded then
+      raise exception 'FAIL: the fingerprint-free resolver still answered';
+    end if;
+  end;
 end $$;
 
 -- --- 16. a failed creation leaves no secrets behind -------------------------

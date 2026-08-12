@@ -585,9 +585,14 @@ begin
   -- the publish can never see two broker accounts in one curve.
   blocked := false;
   begin
-    perform record_account_verification(
-      'ffffffff-0000-0000-0000-0000000000a1',
-      current_setting('test.user_a')::uuid,
+    -- Through begin/finish, which is the only verification path 0022 leaves
+    -- open. `record_account_verification` is retired: its expected credential
+    -- version was nullable, and a caller that could not read it disabled the
+    -- check by passing null.
+    perform finish_account_verification(
+      (begin_account_verification(
+         'ffffffff-0000-0000-0000-0000000000a1',
+         current_setting('test.user_a')::uuid) ->> 'token')::uuid,
       'connected', 'PA-REFRESH-8888'
     );
   exception when others then
@@ -598,9 +603,12 @@ begin
     raise exception 'FAIL: an account with mirrored history was rebound';
   end if;
   -- 0020 made the number immutable from creation rather than "immutable once
-  -- history exists", so the refusal now names the binding rather than the
-  -- history. Either message is a refusal; this asserts the current one.
-  if msg not like '%fixed at creation%' then
+  -- history exists", so the refusal names the binding rather than the history.
+  -- 0022 tightened it once more: the token pins the number at `begin`, so the
+  -- mismatch is caught against the pinned snapshot before the stored column is
+  -- even consulted. Either message is a refusal of the same thing.
+  if msg not like '%fixed at creation%'
+     and msg not like '%different account than the one this token pinned%' then
     raise exception 'FAIL: unexpected rebind refusal: %', msg;
   end if;
   if (select alpaca_account_number from accounts
@@ -816,12 +824,18 @@ begin
   exception when insufficient_privilege then denied := denied + 1;
     when others then null; end;
   begin
+    -- The retired entry point plus the one that replaced it: a client role
+    -- must reach neither.
     perform record_account_verification(gen_random_uuid(), gen_random_uuid(),
       'connected', 'PA-1');
   exception when insufficient_privilege then denied := denied + 1;
     when others then null; end;
-  if denied <> 4 then
-    raise exception 'FAIL: only % of 4 refresh RPCs refused a client role', denied;
+  begin
+    perform begin_account_verification(gen_random_uuid(), gen_random_uuid());
+  exception when insufficient_privilege then denied := denied + 1;
+    when others then null; end;
+  if denied <> 5 then
+    raise exception 'FAIL: only % of 5 refresh RPCs refused a client role', denied;
   end if;
 end $$;
 
