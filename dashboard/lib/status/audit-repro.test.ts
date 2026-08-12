@@ -87,6 +87,7 @@ describe("REPRO 4d — a report timestamp is parsed by Date.parse", () => {
 
   it("does not let an impossible generated_at authorize a buy", () => {
     const result = computeEffectiveValidationGate({
+      lineageOk: true,
       report: {
         status: "PASS",
         generatedAt: "2026-02-30T15:56:49+00:00",

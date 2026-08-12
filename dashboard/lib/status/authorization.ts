@@ -24,6 +24,8 @@
  * established. The set is pinned by a test, so adding or removing one is a
  * deliberate change to what the dashboard claims to have verified.
  */
+import { isHeldProof } from "./proof";
+
 export const REQUIRED_AUTHORIZATION_PROOFS = [
   /** The approved release SHA came from an authoritative source. */
   "approvedReleaseAuthoritative",
@@ -65,12 +67,30 @@ export const REQUIRED_AUTHORIZATION_PROOFS = [
   "frozenPlanValid",
   /** Performance, run and step timestamps place one cycle, not a mixture. */
   "cycleTimestampsExact",
+  /** positions.json is stamped in the same cycle as performance.json. */
+  "positionsInCycle",
+  /** last_run and performance state the same tier, and it is not HALT. */
+  "riskTierAgrees",
 ] as const;
 
 export type AuthorizationProof = (typeof REQUIRED_AUTHORIZATION_PROOFS)[number];
 
-/** The claim set a caller assembles. Every value must be literally `true`. */
-export type AuthorizationClaims = Record<AuthorizationProof, boolean> & {
+/**
+ * The claim set a caller assembles.
+ *
+ * The values are **not** booleans. Two proofs used to be passed as the literal
+ * `true` — `runtimeArtifactComplete` and `frozenPlanValid` — on the reasoning
+ * that reaching that branch already established them. That reasoning was
+ * correct when written and is exactly the kind that rots: relax an upstream
+ * guard and the literal keeps saying `true`, with no test able to notice.
+ *
+ * A proof is now a branded value carrying a symbol private to `proof.ts`, and
+ * the only functions that produce one take the parsed documents as arguments.
+ * `true` does not type-check, and cannot be forged at runtime either.
+ */
+export type AuthorizationClaims = {
+  readonly [K in AuthorizationProof]: unknown;
+} & {
   readonly runId: number;
   readonly attempt: number;
 };
@@ -137,9 +157,10 @@ export class AuthorizedExecutionEvidence {
 
     for (const proof of PROOF_SET) {
       if (!Object.prototype.hasOwnProperty.call(record, proof)) return null;
-      // Literally `true`. `1`, `"true"` and `"PASS"` are all "the caller had
-      // something other than a decided boolean", and the safe reading is no.
-      if (record[proof] !== true) return null;
+      // A held proof of *this* name, minted by `proof.ts` from the documents.
+      // A boolean — even `true` — is refused: it is an assertion, and the
+      // whole point is that an assertion is not evidence.
+      if (!isHeldProof(record[proof], proof as AuthorizationProof)) return null;
     }
 
     if (!isPositiveInteger(record.runId)) return null;

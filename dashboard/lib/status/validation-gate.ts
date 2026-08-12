@@ -40,6 +40,18 @@ import type { EffectiveValidationGate, PreflightInfo, ValidationInfo } from "./t
 import type { CheckState } from "./vocab";
 import { isCalendarDate, parseRfc3339 } from "@/lib/calendar-date";
 import { AuthorizedExecutionEvidence } from "./authorization";
+import { deriveAuthorizationClaims, unmetProofs } from "./proof";
+import type { LastRunSnapshot, PerformanceRuntimeSnapshot } from "./parse";
+import type { PositionsRuntimeSnapshot } from "./positions";
+
+/**
+ * How far apart two documents from one cycle may be stamped.
+ *
+ * The executor writes them milliseconds to seconds apart. An hour absorbs a
+ * slow shutdown and is far too tight for yesterday's file to travel inside
+ * today's artifact.
+ */
+const SAME_CYCLE_TOLERANCE_MS = 60 * 60 * 1000;
 
 export type ValidationGateReason =
   | "REPORT_UNAVAILABLE"
@@ -319,8 +331,14 @@ export function computeEffectiveValidationGate(input: {
   approvedReleaseSha: string | null;
   /** True when the approved SHA came from an authoritative source. */
   approvedReleaseAuthoritative: boolean;
-  /** False when the shared lineage verdict found any conflict. */
-  lineageOk?: boolean;
+  /**
+   * The shared lineage verdict. **Required.**
+   *
+   * It used to be `lineageOk?: boolean`, tested with `!== false`, so a caller
+   * that forgot the field got "consistent" — a safety condition whose default
+   * was safe. A missing lineage verdict is now a compile error.
+   */
+  lineageOk: boolean;
   /** The persisted Python verdict for a cycle, or null when unavailable. */
   preflight?: PreflightInfo | null;
   /** Workflow run the preflight came from. */
@@ -348,39 +366,22 @@ export function computeEffectiveValidationGate(input: {
     readonly runId: number;
     readonly attempt: number;
     /**
-     * What the cycle actually *recorded*, not merely that it was readable.
+     * The parsed documents themselves, not a caller's summary of them.
      *
-     * Everything above this line establishes that the evidence documents can
-     * be parsed and belong together. None of it reads what they say — so a
-     * cycle that ran, wrote a perfectly well-formed runtime artifact, and
-     * recorded `status: "FAIL"` with `market_entry_allowed: false` satisfied
-     * every condition and took the gate green.
+     * This used to be a set of booleans the read model computed and passed
+     * down — and two of them were the literal `true`. The gate now hands the
+     * documents to `proof.ts`, which is the only module that can mint a proof,
+     * so every condition is derived from a document rather than asserted about
+     * one.
      */
-    readonly status: "PASS" | "FAIL" | "DEGRADED";
-    readonly marketEntryAllowed: boolean | null;
-    readonly blockingActionCount: number;
-    /**
-     * True when the runtime artifact was downloaded and *every* document in it
-     * parsed. A partially readable artifact is not a cycle record.
-     */
-    readonly runtimeComplete: boolean;
-    /**
-     * True when `last_run.json` does not contradict itself: no abort or error
-     * count, no disabled sleeve, no unclassified action name, and exactly one
-     * terminal completion. The producer's own `status` line is a claim; this
-     * is what its counts say.
-     */
-    readonly selfConsistent: boolean;
-    /** True when `performance.json` and `last_run.json` describe one moment. */
-    readonly performanceInCycle: boolean;
-    /**
-     * True when `performance.json` is internally coherent: a non-empty
-     * history, no future date, the last row's equity agreeing with the scalar
-     * equity, and a timestamp inside the step window that wrote it.
-     */
-    readonly performanceCoherent: boolean;
-    /** True when any `adaptive_rebalance_pending` present is fully valid. */
-    readonly frozenPlanValid: boolean;
+    readonly lastRun: LastRunSnapshot;
+    readonly performance: PerformanceRuntimeSnapshot;
+    readonly positions: PositionsRuntimeSnapshot | null;
+    /** The execute step's window, for placing the cycle in time. */
+    readonly executeStep: {
+      readonly startedAt: string | null;
+      readonly completedAt: string | null;
+    } | null;
   } | null;
   now: Date;
 }): EffectiveValidationGate {
@@ -447,31 +448,16 @@ export function computeEffectiveValidationGate(input: {
   const execution = input.executionEvidence ?? null;
   if (!execution) {
     reasons.push("EXECUTION_UNAVAILABLE");
-  } else {
-    if (!execution.runtimeComplete) reasons.push("RUNTIME_SCHEMA_INVALID");
-    // What the cycle recorded. A readable artifact is not a successful one.
-    if (execution.status !== "PASS") reasons.push("EXECUTION_STATUS_NOT_PASS");
-    // `true` and nothing else. `null`, absent, `"yes"` and `1` are all "this
-    // build cannot tell", and the safe reading of that is no.
-    if (execution.marketEntryAllowed !== true) {
-      reasons.push("MARKET_ENTRY_NOT_ALLOWED");
-    }
-    if (execution.blockingActionCount > 0) reasons.push("EXECUTION_BLOCKED");
-    // The producer has been wrong about its own blockers before: it matched
-    // only the exact strings `ABORT` and `ERROR` while the executor emits
-    // `ABORT_SHORT_RECONCILIATION` and four other suffixed names. So the
-    // counts are read here too, independently of what the summary claimed.
-    if (!execution.selfConsistent) reasons.push("EXECUTION_SELF_CONTRADICTORY");
-    if (!execution.performanceInCycle) reasons.push("PERFORMANCE_CYCLE_MISMATCH");
-    if (!execution.performanceCoherent) reasons.push("PERFORMANCE_INCOHERENT");
-    if (!execution.frozenPlanValid) reasons.push("INVALID_FROZEN_PLAN");
   }
 
   const preflight = input.preflight ?? null;
+  const preflightProblems: string[] = [];
   if (!preflight) {
     reasons.push("PREFLIGHT_UNAVAILABLE");
   } else {
-    reasons.push(...preflightReasons(preflight, now));
+    const problems = preflightReasons(preflight, now);
+    preflightProblems.push(...problems);
+    reasons.push(...problems);
     // A preflight from a different cycle answered a different question. The
     // read model deliberately lets a newer preflight sit beside an older
     // execution for *display*; it must not silently authorize it.
@@ -537,63 +523,35 @@ export function computeEffectiveValidationGate(input: {
   // The two are cross-checked below: an objection with no corresponding
   // missing proof, or a complete proof set alongside an objection, means this
   // function contradicts itself, and a contradiction is never a pass.
-  const preflightOk = preflight !== null && preflightReasons(preflight, now).length === 0;
-  const evidence = AuthorizedExecutionEvidence.establish({
-    runId: execution?.runId ?? 0,
-    attempt: execution?.attempt ?? 0,
-    approvedReleaseAuthoritative: Boolean(
-      input.approvedReleaseSha && input.approvedReleaseAuthoritative,
-    ),
-    canonicalReportPass: report.status === "PASS",
-    canonicalReportPaperEligible: report.allowedMode === PAPER_ELIGIBLE_MODE,
-    canonicalReportContractIntact:
-      report.contractSchemaVersion === 1 &&
-      report.contractAlgorithm === "sha256" &&
-      SHA256_RE.test(report.reportSha256 ?? ""),
-    canonicalReportEvidenceComplete:
-      SHA256_RE.test(report.strategyIdentityValue ?? "") &&
-      SHA256_RE.test(report.rankingUniverseSha256 ?? "") &&
-      SHA256_RE.test(report.barSnapshotSha256 ?? ""),
-    canonicalReportChecksCounted:
-      report.checksEvaluated !== null &&
-      report.checksEvaluated > 0 &&
-      report.checksPassed !== null &&
-      report.checksPassed > 0 &&
-      report.checksPassed === report.checksEvaluated,
-    canonicalReportFresh:
-      generatedAtMs !== null &&
-      generatedAtMs <= nowMs &&
-      Number.isFinite(boundaryMs) &&
-      boundaryMs <= nowMs &&
-      expiresAtMs !== null &&
-      nowMs <= expiresAtMs,
-    canonicalReportBoundToRuntime:
-      report.identityMatchesRuntime === "PASS" &&
-      report.universeMatchesRuntime === "PASS",
-    preflightContractComplete: preflightOk,
-    preflightCycleExact:
-      preflight !== null &&
-      execution !== null &&
-      input.preflightRunId != null &&
-      input.preflightRunId === execution.runId &&
-      input.preflightAttempt != null &&
-      input.preflightAttempt === execution.attempt,
-    lineageConsistent: input.lineageOk !== false,
-    runIdentified: execution !== null && execution.runId > 0,
-    attemptIdentified: execution !== null && execution.attempt > 0,
-    runtimeArtifactComplete: execution !== null && execution.runtimeComplete,
-    lastRunStatusPass: execution !== null && execution.status === "PASS",
-    marketEntryAllowed: execution !== null && execution.marketEntryAllowed === true,
-    noBlockingOrUnclassifiedAction:
-      execution !== null &&
-      execution.blockingActionCount === 0 &&
-      execution.selfConsistent,
-    performanceCurrentAndConsistent:
-      execution !== null && execution.performanceCoherent,
-    frozenPlanValid: execution !== null && execution.frozenPlanValid,
-    cycleTimestampsExact: execution !== null && execution.performanceInCycle,
+  const claims = deriveAuthorizationClaims({
+    report,
+    paperEligibleMode: PAPER_ELIGIBLE_MODE,
+    approvedReleaseSha: input.approvedReleaseSha,
+    approvedReleaseAuthoritative: input.approvedReleaseAuthoritative,
+    lineageOk: input.lineageOk,
+    preflight,
+    preflightProblems,
+    preflightRunId: input.preflightRunId ?? null,
+    preflightAttempt: input.preflightAttempt ?? null,
+    executionRunId: execution?.runId ?? null,
+    executionAttempt: execution?.attempt ?? null,
+    lastRun: execution?.lastRun ?? null,
+    performance: execution?.performance ?? null,
+    positions: execution?.positions ?? null,
+    cycle: {
+      lastRunCompletedAt: execution?.lastRun.completedAt ?? null,
+      executeStep: execution?.executeStep ?? null,
+      now,
+    },
+    sameCycleToleranceMs: SAME_CYCLE_TOLERANCE_MS,
+    now,
   });
+  const evidence = AuthorizedExecutionEvidence.establish(claims);
 
+  // Every unmet proof becomes an objection, named by the document that failed.
+  // Reasons and proofs are two views of one decision, and a proof that fails
+  // with nothing objecting is the gap the positive object exists to close.
+  const unmet = unmetProofs(claims);
   if (evidence === null && reasons.length === 0) {
     // A proof failed that nothing objected to. That is the exact gap the
     // positive object exists to close, and it must never resolve to a pass.
@@ -608,7 +566,9 @@ export function computeEffectiveValidationGate(input: {
     effective,
     reportAssessment,
     reasons: unique,
-    details: unique.map((reason) => REASON_DETAIL[reason]),
+    // The proof-level detail first: it names the document that failed, which
+    // the reason codes deliberately do not.
+    details: [...unmet, ...unique.map((reason) => REASON_DETAIL[reason])],
     expiresAt: report.expiresAt,
   };
 }

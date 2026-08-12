@@ -14,6 +14,7 @@ import {
   type LastRunSnapshot,
   type PerformanceRuntimeSnapshot,
 } from "./parse";
+import { parsePositionsRuntime, type PositionsRuntimeSnapshot } from "./positions";
 import type { PreflightInfo } from "./types";
 import { readJsonEntries, ZipError } from "./zip";
 
@@ -242,6 +243,14 @@ const COMPLETED = (run: WorkflowRunSummary) => run.status === "completed";
 
 export interface ExecutionSelection {
   readonly performance: PerformanceRuntimeSnapshot | null;
+  /**
+   * The runtime position list.
+   *
+   * The artifact contract has always *required* `positions.json` — the
+   * artifact is refused without it — but nothing read it, so "complete" meant
+   * "present and parseable as JSON" while its contents could record a short.
+   */
+  readonly positions: PositionsRuntimeSnapshot | null;
   readonly lastRun: LastRunSnapshot | null;
   readonly run: WorkflowRunSummary | null;
   readonly artifactName: string | null;
@@ -270,6 +279,7 @@ export interface PreflightSelection {
 
 export const EMPTY_EXECUTION_SELECTION: ExecutionSelection = {
   performance: null,
+  positions: null,
   lastRun: null,
   run: null,
   artifactName: null,
@@ -594,8 +604,19 @@ export async function selectLatestExecution(
           errors: ["the runtime performance state failed schema validation"],
         };
       }
+      const positions = parsePositionsRuntime(entries["positions.json"]);
+      if (!positions) {
+        return {
+          ...EMPTY_EXECUTION_SELECTION,
+          run,
+          artifactName: anyRuntime.name,
+          artifactCreatedAt: anyRuntime.createdAt,
+          errors: ["the runtime position list failed schema validation"],
+        };
+      }
       return {
         performance,
+        positions,
         lastRun,
         run,
         artifactName: anyRuntime.name,

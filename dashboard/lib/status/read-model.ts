@@ -63,7 +63,6 @@ import {
   STRATEGY_STATUS_SCHEMA_VERSION,
   STRATEGY_STATUS_SOURCE,
 } from "./types";
-import { assessPerformanceCoherence } from "./coherence";
 import {
   computeEffectiveValidationGate,
   NOT_APPLICABLE_GATE,
@@ -542,25 +541,6 @@ function validationSection(
 /* ------------------------------------------------------------- assembly */
 
 /** Assemble the complete, sanitized read model for one viewer and account. */
-/**
- * How far apart `performance.json` and `last_run.json` may be stamped.
- *
- * The executor writes both at the end of one cycle, milliseconds to seconds
- * apart. An hour is generous enough to absorb a slow shutdown and tight enough
- * that yesterday's performance file cannot travel inside today's artifact.
- */
-const SAME_CYCLE_TOLERANCE_MS = 60 * 60 * 1000;
-
-function withinSameCycle(
-  performanceAt: string | null,
-  completedAt: string | null,
-): boolean {
-  if (performanceAt === null || completedAt === null) return false;
-  const a = Date.parse(performanceAt);
-  const b = Date.parse(completedAt);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
-  return Math.abs(a - b) <= SAME_CYCLE_TOLERANCE_MS;
-}
 
 export async function buildStrategyStatus(input: {
   viewer: StatusViewer;
@@ -672,6 +652,7 @@ export async function buildStrategyStatus(input: {
   let latestJobs: { stepCount: number }[] | null = null;
   let executionSelection: ExecutionSelection = {
     performance: null,
+    positions: null,
     lastRun: null,
     run: null,
     artifactName: null,
@@ -875,7 +856,6 @@ export async function buildStrategyStatus(input: {
         report: validation.data,
         approvedReleaseSha: approved.sha,
         approvedReleaseAuthoritative: approved.authoritative,
-        lineageOk: !lineageBroken,
         // The executor's own gate result, bound to the cycle it ran in.
         preflight: preflightSelection.preflight,
         preflightRunId: preflightSelection.run?.id ?? null,
@@ -884,6 +864,9 @@ export async function buildStrategyStatus(input: {
         // The selector reports the run it was *looking at* even when it could
         // not use it, so reading the run id straight off the selection let a
         // corrupt or absent runtime artifact pass for one.
+        // The parsed documents, not a summary of them. The gate hands these
+        // to `proof.ts`, which is the only module that can mint a proof — so
+        // no condition here can be asserted, only derived.
         executionEvidence:
           executionSelection.run &&
           executionSelection.lastRun &&
@@ -893,42 +876,13 @@ export async function buildStrategyStatus(input: {
             ? {
                 runId: executionSelection.run.id,
                 attempt: executionSelection.run.attempt,
-                status: executionSelection.lastRun.status,
-                marketEntryAllowed: executionSelection.lastRun.marketEntryAllowed,
-                blockingActionCount:
-                  executionSelection.lastRun.blockingActions.length,
-                // Reaching this branch means every document in the artifact
-                // parsed and bound to the run; the selector returns an error
-                // instead for anything less.
-                runtimeComplete: true,
-                // The producer's summary line is a claim about its own counts,
-                // and it has been wrong about them. This is what the counts
-                // say.
-                selfConsistent: executionSelection.lastRun.passWorthy,
-                // Both files are written by the same cycle seconds apart. A
-                // `performance.json` from another day inside one artifact
-                // means the artifact is a mixture, and the equity on screen is
-                // not the equity the recorded cycle ended with.
-                performanceInCycle: withinSameCycle(
-                  executionSelection.performance.updatedAt,
-                  executionSelection.lastRun.completedAt,
-                ),
-                // And the stronger form: the stamp must fall inside the step
-                // that wrote it, before the summary written after it, and not
-                // in this server's future.
-                performanceCoherent:
-                  assessPerformanceCoherence(executionSelection.performance, {
-                    lastRunCompletedAt: executionSelection.lastRun.completedAt,
-                    executeStep: executionSelection.executeStep,
-                    now,
-                  }).length === 0,
-                // `parsePerformanceRuntime` refuses a document whose plan is
-                // present and unreadable, so reaching here with a parsed
-                // performance already establishes this. Stated explicitly
-                // because the gate must not infer it from that fact.
-                frozenPlanValid: true,
+                lastRun: executionSelection.lastRun,
+                performance: executionSelection.performance,
+                positions: executionSelection.positions,
+                executeStep: executionSelection.executeStep,
               }
             : null,
+        lineageOk: !lineageBroken,
         now,
       })
     : NOT_APPLICABLE_GATE;
