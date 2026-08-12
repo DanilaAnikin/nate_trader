@@ -213,22 +213,27 @@ begin
   -- Thirty days old. The token carries one broker round trip; a month later it
   -- describes a snapshot nothing has held since.
   issued := begin_account_verification(acct.id, current_setting('test.user_a')::uuid);
+  -- 0023 stores the deadline rather than deriving it from `issued_at` plus
+  -- whatever the TTL function currently says, so the age is moved by moving
+  -- both: a token issued a month ago that died a month ago.
   update account_verification_token
-     set issued_at = now() - interval '30 days'
+     set issued_at = clock_timestamp() - interval '30 days',
+         expires_at = clock_timestamp() - interval '30 days' + account_verification_ttl()
    where token = (issued ->> 'token')::uuid;
 
   begin
     perform finish_account_verification(
       (issued ->> 'token')::uuid, 'connected', 'PA-TOKEN-AGE');
   exception when others then blocked := true; msg := sqlerrm; end;
-  if not blocked or msg not like '%expired%' then
+  if not blocked or msg not like '%expired at%' then
     raise exception 'FAIL: a thirty-day-old token was accepted (%)', msg;
   end if;
 
   -- A token dated in the future cannot have carried a completed round trip.
   issued := begin_account_verification(acct.id, current_setting('test.user_a')::uuid);
   update account_verification_token
-     set issued_at = now() + interval '1 hour'
+     set issued_at = clock_timestamp() + interval '1 hour',
+         expires_at = clock_timestamp() + interval '2 hours'
    where token = (issued ->> 'token')::uuid;
   blocked := false;
   begin

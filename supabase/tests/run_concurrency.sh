@@ -40,6 +40,78 @@ docker run -d --name "$PG_NAME" \
 DATABASE_URL="postgres://postgres:postgres@localhost:$PG_PORT/postgres"
 PSQL=(psql "$DATABASE_URL" --quiet --no-psqlrc -v ON_ERROR_STOP=1)
 
+# ---------------------------------------------------------------------------
+# Concurrent workers, with their exit status kept.
+#
+# The workers used to run without ON_ERROR_STOP and with `|| true`, which is
+# two ways of throwing the same information away: psql exits 0 after a failed
+# statement unless told otherwise, and `|| true` discards even that. A worker
+# that died on the *wrong* error — a syntax mistake, a missing function, a
+# connection drop — looked exactly like one that lost a race, and the
+# end-state assertions ("exactly one account exists") were satisfied by both.
+#
+# Every worker now stops on the first error and records its status next to its
+# output, and every race asserts what each worker's status was, not only what
+# the table looks like afterwards.
+# ---------------------------------------------------------------------------
+worker() {
+  local out="$1" status=0
+  # `set +e` for exactly this call. The script runs under `set -e`, and a
+  # backgrounded worker is a subshell — so a losing racer's non-zero psql
+  # aborted the subshell *before* it could record why, which reads downstream
+  # as "the worker never ran" rather than "the worker was refused".
+  set +e
+  psql "$DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -tA >"$out" 2>&1
+  status=$?
+  set -e
+  printf '%s\n' "$status" > "$out.status"
+  return 0
+}
+
+worker_status() {
+  cat "$1.status" 2>/dev/null || echo "no-status"
+}
+
+# `expect_worker <label> <out> <ok|fail>` — assert one worker's exit status.
+expect_worker() {
+  local label="$1" out="$2" want="$3" status
+  status="$(worker_status "$out")"
+  case "$want" in
+    ok)
+      if [ "$status" != "0" ]; then
+        echo "FAIL: $label exited $status, expected success"
+        cat "$out"; exit 1
+      fi;;
+    fail)
+      if [ "$status" = "0" ]; then
+        echo "FAIL: $label exited 0, expected a refusal"
+        cat "$out"; exit 1
+      fi
+      if [ "$status" = "no-status" ]; then
+        echo "FAIL: $label never recorded an exit status"; exit 1
+      fi;;
+    any)
+      if [ "$status" = "no-status" ]; then
+        echo "FAIL: $label never recorded an exit status"; exit 1
+      fi;;
+  esac
+}
+
+# Exactly one of two workers succeeded and the other did not.
+expect_exactly_one_winner() {
+  local a="$1" b="$2" sa sb
+  sa="$(worker_status "$a")"; sb="$(worker_status "$b")"
+  if [ "$sa" = "no-status" ] || [ "$sb" = "no-status" ]; then
+    echo "FAIL: a racer never recorded an exit status ($sa / $sb)"; exit 1
+  fi
+  if [ "$sa" = "0" ] && [ "$sb" = "0" ]; then
+    echo "FAIL: both racers succeeded ($sa / $sb)"; cat "$a" "$b"; exit 1
+  fi
+  if [ "$sa" != "0" ] && [ "$sb" != "0" ]; then
+    echo "FAIL: both racers failed ($sa / $sb)"; cat "$a" "$b"; exit 1
+  fi
+}
+
 # Wait on the connection this script will actually use. `pg_isready` inside the
 # container answers from the temporary initdb server and races the restart.
 ready=0
@@ -92,7 +164,7 @@ SQL
 # the window a `SELECT EXISTS` guard could not see across.
 racer() {
   local nick="$1" out="$2" fp="$3"
-  psql "$DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1 -tA >"$out" 2>&1 <<SQL || true
+  worker "$out" <<SQL
 begin;
 select create_account_operation('$OWNER', gen_random_uuid(), '$fp',
   '$nick', 'paper', '#222222', 'AK', 'AS', 'PA-RACE-BINDING') is not null as created;
@@ -106,6 +178,10 @@ A=$!
 racer "RacerB" "$WORK/b.out" "$(printf 'b%.0s' $(seq 64))" &
 B=$!
 wait "$A" "$B"
+
+# Exit statuses first: the end state alone cannot distinguish "one lost the
+# race" from "both died for an unrelated reason and neither wrote".
+expect_exactly_one_winner "$WORK/a.out" "$WORK/b.out"
 
 WINNERS=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
   "select count(*) from accounts where nickname in ('RacerA','RacerB') and deleted_at is null;")
@@ -234,7 +310,7 @@ ROWS_BEFORE=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
 VER_BEFORE=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
   "select credential_version from accounts where id = '$ACCOUNT';")
 
-psql "$DATABASE_URL" --no-psqlrc -tA >"$WORK/holder.out" 2>&1 <<SQL &
+worker "$WORK/holder.out" <<SQL &
 begin;
 select id from accounts where id = '$ACCOUNT' for update;
 select pg_sleep(3);
@@ -316,14 +392,14 @@ SQL
 TO_DELETE=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
   "select id from accounts where nickname='ToDelete' and deleted_at is null;")
 
-psql "$DATABASE_URL" --no-psqlrc -tA >"$WORK/del.out" 2>&1 <<SQL &
+worker "$WORK/del.out" <<SQL &
 begin;
 select delete_account_atomic('$TO_DELETE', '$OWNER', false);
 select pg_sleep(1.5);
 commit;
 SQL
 D=$!
-psql "$DATABASE_URL" --no-psqlrc -tA >"$WORK/new.out" 2>&1 <<SQL &
+worker "$WORK/new.out" <<SQL &
 begin;
 select pg_sleep(0.3);
 select create_account_operation('$OWNER', gen_random_uuid(), repeat('d', 64),
@@ -332,6 +408,12 @@ commit;
 SQL
 N=$!
 wait "$D" "$N" 2>/dev/null || true
+
+# The delete holds the account for 1.5s, so the re-creation either waits for it
+# and succeeds, or is refused by the binding index. Both statuses are recorded
+# and both must be a definite answer, never a crash.
+expect_worker "the delete" "$WORK/del.out" ok
+expect_worker "the re-creation" "$WORK/new.out" any
 
 LIVE=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
   "select count(*) from accounts
@@ -380,7 +462,7 @@ DL=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
   "select id from accounts where nickname='Deadlock' and deleted_at is null;")
 
 # Session A: begin, hold the transaction, then finish.
-psql "$DATABASE_URL" --no-psqlrc -tA >"$WORK/dlA.out" 2>&1 <<SQL &
+worker "$WORK/dlA.out" <<SQL &
 set deadlock_timeout = '200ms';
 set statement_timeout = '10s';
 begin;
@@ -393,7 +475,7 @@ DA=$!
 
 # Session B: the opposite arrival order — it begins while A holds the account,
 # so it queues on the account rather than on A's token.
-psql "$DATABASE_URL" --no-psqlrc -tA >"$WORK/dlB.out" 2>&1 <<SQL &
+worker "$WORK/dlB.out" <<SQL &
 set deadlock_timeout = '200ms';
 set statement_timeout = '10s';
 begin;
@@ -404,6 +486,12 @@ commit;
 SQL
 DB=$!
 wait "$DA" "$DB" 2>/dev/null || true
+
+# Both verification sessions must *complete*. A deadlock, a lock timeout or a
+# statement timeout would show up here as a non-zero status; without checking
+# it, "no deadlock in the log" was satisfied by a worker that never ran.
+expect_worker "verification session A" "$WORK/dlA.out" ok
+expect_worker "verification session B" "$WORK/dlB.out" ok
 
 if grep -qi "deadlock detected" "$WORK/dlA.out" "$WORK/dlB.out"; then
   echo "FAIL: begin/finish deadlocked across two connections"
@@ -424,6 +512,89 @@ if [ "$OUTSTANDING" -gt 1 ]; then
   exit 1
 fi
 echo "    both verification sessions completed with at most one token outstanding"
+
+# ---------------------------------------------------------------------------
+# 5c. A verification token that expires while `finish` waits for the lock.
+#
+# 0022 checked the TTL with `now()`, which is the transaction's *start* time
+# and does not advance. A `finish` that queued on the account lock for longer
+# than the token's life still measured its age from before the wait, so the
+# token was accepted on the other side of it — a write authorized by a
+# snapshot that had already been released.
+#
+# This is the only shape that reproduces it: the wait has to be a real lock
+# wait on another connection, and the deadline has to fall during the wait.
+# ---------------------------------------------------------------------------
+echo "==> race 4c: a token that expires while finish waits for the lock"
+
+"${PSQL[@]}" >/dev/null <<SQL
+select create_account_operation('$OWNER', gen_random_uuid(), repeat('9', 64),
+  'Deadline race', 'paper', '#666666', 'WK', 'WS', 'PA-DEADLINE-RACE');
+SQL
+DR=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
+  "select id from accounts where nickname='Deadline race' and deleted_at is null;")
+"${PSQL[@]}" >/dev/null <<SQL
+update accounts set status = 'unverified' where id = '$DR';
+SQL
+
+# Issue a token and give it a two-second life, so the deadline lands squarely
+# inside the holder's window.
+DR_TOKEN=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
+  "select begin_account_verification('$DR','$OWNER') ->> 'token';")
+"${PSQL[@]}" >/dev/null <<SQL
+update account_verification_token
+   set expires_at = clock_timestamp() + interval '2 seconds'
+ where token = '$DR_TOKEN';
+SQL
+
+# Session A holds the account row for three seconds. Deliberately *shorter*
+# than the function's 5s `lock_timeout` and *longer* than the token's 2s life:
+# session B must actually acquire the lock and then find the token dead. If
+# the holder outlasted the timeout, a lock-timeout refusal would satisfy this
+# test without the deadline ever being consulted — which is exactly the bug
+# passing itself off as a fix.
+worker "$WORK/hold.out" <<SQL &
+begin;
+select id from accounts where id = '$DR' for update;
+select pg_sleep(3);
+commit;
+SQL
+HOLD=$!
+
+sleep 0.5
+worker "$WORK/late.out" <<SQL
+select finish_account_verification('$DR_TOKEN'::uuid, 'connected', 'PA-DEADLINE-RACE');
+SQL
+wait "$HOLD" 2>/dev/null || true
+
+expect_worker "the lock holder" "$WORK/hold.out" ok
+expect_worker "the late finish" "$WORK/late.out" fail
+
+# The deadline, specifically. A lock-timeout refusal here would mean the wait
+# never completed and the temporal check was never reached.
+LATE_OUT=$(cat "$WORK/late.out")
+case "$LATE_OUT" in
+  *expired\ at*) ;;
+  *lock\ timeout*|*canceling\ statement*)
+    echo "FAIL: the late finish timed out on the lock instead of reaching the deadline check: $LATE_OUT"
+    exit 1;;
+  *) echo "FAIL: unexpected refusal for the late finish: $LATE_OUT"; exit 1;;
+esac
+
+DR_STATUS=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
+  "select status from accounts where id = '$DR';")
+if [ "$DR_STATUS" != "unverified" ]; then
+  echo "FAIL: a token that expired during the lock wait still wrote '$DR_STATUS'"
+  echo "$LATE_OUT"
+  exit 1
+fi
+DR_CONSUMED=$(psql "$DATABASE_URL" -tA --no-psqlrc -c \
+  "select consumed_at is not null from account_verification_token where token = '$DR_TOKEN';")
+if [ "$DR_CONSUMED" != "f" ]; then
+  echo "FAIL: the expired token was consumed by the refused finish"
+  exit 1
+fi
+echo "    the expired token was refused after the wait and wrote nothing"
 
 # ---------------------------------------------------------------------------
 # 6. A rotation between reservation and publish refuses the publish.
