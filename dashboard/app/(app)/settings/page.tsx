@@ -42,14 +42,11 @@ export default function SettingsPage() {
         return;
       }
       setEmail(user.email ?? "");
-      const { data } = await supabase
-        .from("profiles")
-        .select("display_name, default_account_id")
-        .eq("id", user.id)
-        .single();
+      const profRes = await fetch("/api/profile", { cache: "no-store" });
+      const profBody = await profRes.json().catch(() => ({ profile: null }));
       if (!active) return;
-      setDisplayName(data?.display_name ?? "");
-      setDefaultAccountId(data?.default_account_id ?? "");
+      setDisplayName(profBody.profile?.display_name ?? "");
+      setDefaultAccountId(profBody.profile?.default_account_id ?? "");
       const accRes = await fetch("/api/accounts", { cache: "no-store" });
       const accBody = await accRes.json().catch(() => ({ accounts: [] }));
       if (!active) return;
@@ -66,16 +63,12 @@ export default function SettingsPage() {
     setProfileStatus(null);
     setSavingProfile(true);
     try {
-      const supabase = getSupabaseBrowser();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("not signed in");
-      const { error } = await supabase
-        .from("profiles")
-        .update({ display_name: displayName.trim() || null })
-        .eq("id", user.id);
-      if (error) throw error;
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ display_name: displayName.trim() || null }),
+      });
+      if (!res.ok) throw new Error("save failed");
       setProfileStatus({ kind: "ok", text: "Profile saved." });
     } catch {
       setProfileStatus({ kind: "err", text: "Could not save profile." });
@@ -118,16 +111,12 @@ export default function SettingsPage() {
     setDefaultStatus(null);
     setSavingDefault(true);
     try {
-      const supabase = getSupabaseBrowser();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("not signed in");
-      const { error } = await supabase
-        .from("profiles")
-        .update({ default_account_id: defaultAccountId || null })
-        .eq("id", user.id);
-      if (error) throw error;
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ default_account_id: defaultAccountId || null }),
+      });
+      if (!res.ok) throw new Error("save failed");
       setDefaultStatus({ kind: "ok", text: "Default account saved." });
     } catch {
       setDefaultStatus({

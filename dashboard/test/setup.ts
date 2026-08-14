@@ -8,6 +8,10 @@ import { afterEach, vi } from "vitest";
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://test.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "test-anon-key";
 process.env.SUPABASE_SERVICE_ROLE_KEY ??= "test-service-key";
+// Server-side Supabase origin. Deliberately a DIFFERENT host from the public
+// one above, so any test that accidentally sends server traffic to the public
+// origin — or derives the auth cookie name from the internal host — fails.
+process.env.SUPABASE_SERVER_URL ??= "http://test-internal-kong:8000";
 process.env.GITHUB_REPO ??= "DanilaAnikin/nate_trader";
 process.env.GITHUB_STATE_REF ??= "main";
 

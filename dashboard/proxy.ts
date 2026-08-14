@@ -1,6 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { LEGACY_DASHBOARD_ALLOWED } from "@/lib/supabase/config";
+import {
+  getAuthCookieName,
+  getSupabaseServerUrl,
+  LEGACY_DASHBOARD_ALLOWED,
+} from "@/lib/supabase/config";
 
 // Paths reachable without a session.
 const PUBLIC_PREFIXES = ["/login", "/auth", "/api/health"];
@@ -105,9 +109,24 @@ export async function proxy(request: NextRequest) {
     );
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  // The proxy validates sessions server-side, so it reads Supabase over the
+  // internal network like every other server path, and pins the same cookie
+  // name the browser writes. A missing internal URL is treated exactly like
+  // missing auth configuration: fail closed.
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) {
+  let url: string;
+  let cookieName: string;
+  try {
+    url = getSupabaseServerUrl();
+    cookieName = getAuthCookieName();
+  } catch {
+    if (LEGACY_DASHBOARD_ALLOWED || isPublic) return response;
+    return NextResponse.json(
+      { error: "Dashboard authentication is not configured." },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  if (!anon) {
     if (LEGACY_DASHBOARD_ALLOWED || isPublic) return response;
     return NextResponse.json(
       { error: "Dashboard authentication is not configured." },
@@ -116,6 +135,7 @@ export async function proxy(request: NextRequest) {
   }
 
   const supabase = createServerClient(url, anon, {
+    cookieOptions: { name: cookieName },
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll: (cookiesToSet) => {
