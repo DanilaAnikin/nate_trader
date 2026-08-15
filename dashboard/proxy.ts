@@ -163,7 +163,34 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Everything except Next internals and static image assets.
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    // The API surface, unconditionally, listed FIRST and on its own.
+    //
+    // This entry exists because the pattern below did not cover it. That
+    // pattern's negative lookahead ends in `.*\.(?:svg|png|...)$`, and `.*`
+    // spans the WHOLE path rather than a leading asset directory — so any
+    // request whose path merely ENDS in one of those extensions was excluded
+    // from the proxy entirely. `DELETE /api/accounts/abc.png` routes to
+    // app/api/accounts/[id]/route.ts with id="abc.png" and never invoked
+    // proxy() at all: no edge freeze, no authentication.
+    //
+    // Confirmed against Next's own compiled matcher rather than by reading the
+    // regex — .next/server/functions-config-manifest.json, evaluated on real
+    // paths, reported PROXY SKIP for /api/accounts/abc.{png,ico,svg,webp}.
+    //
+    // No write was reachable, because the handlers are constant refusals and
+    // that is the layer that actually stops it. But the artifact claims two
+    // independent layers, and on those paths there was one. The pre-auth
+    // refusal Phase 1E was written to guarantee did not exist there, and the
+    // hole would have become a live unauthenticated read the moment anyone
+    // added a GET to a dynamic segment.
+    //
+    // An exclusion list is the wrong shape for a security boundary: it is a
+    // claim about everything you did not think of. /api is stated positively
+    // and separately so no future addition to the list below can silently
+    // carve a hole in it.
+    "/api/:path*",
+    // Everything else except Next internals and static image assets. `api` is
+    // excluded here only to avoid matching those paths twice.
+    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
