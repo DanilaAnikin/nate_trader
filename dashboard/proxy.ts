@@ -58,11 +58,7 @@ export async function proxy(request: NextRequest) {
   // curve; what stops there is its *backfill*, which the handler skips (see
   // `backfillFrozen`). Blocking the read as well would blank the chart for the
   // whole maintenance window without protecting anything.
-  // ...unless an operator bypass could apply. The proxy has no authenticated
-  // user here, so it must not answer for the handler: refusing at the edge
-  // would make the bypass unreachable for the one session it exists for.
-  // `maintenanceBlock(userId)` in the handler is the decision point, and it
-  // still refuses everyone not on the list.
+  //
   // UNCONDITIONAL in this artifact. No flag, no bypass, no sidecar mode.
   //
   // This used to be gated on `maintenanceFrozen() && !bypassPossible()`, so with
