@@ -219,6 +219,47 @@ def test_containment_verdict_is_always_evaluated_and_needs_every_job():
     assert mandatory <= declared, f"verdict does not depend on {mandatory - declared}"
 
 
+def test_attestation_digests_are_locale_independent():
+    """Every sort feeding a digest must be LC_ALL=C.
+
+    Collation is locale-dependent, so a digest computed over a locale-sorted
+    list is a property of the machine, not of the tree. Measured: the
+    changed-file manifest digest came out 722c768a… on the development machine
+    and efb3e11c… on the CI runner for the identical candidate, because paths
+    like dashboard/app/(app)/settings/page.tsx collate differently under
+    en_US.UTF-8 than under C. An attestation digest that cannot be reproduced
+    elsewhere is worse than none, because it looks authoritative.
+    """
+    policy = WORKFLOWS.parent / "containment" / "trusted-policy.sh"
+    body = policy.read_text()
+    code = "\n".join(
+        line for line in body.splitlines() if not line.lstrip().startswith("#")
+    )
+    # Match a piped sort in EITHER form. The obvious pattern, r"\|\s*sort\b",
+    # only matches the UNPINNED spelling — once every sort is pinned it finds
+    # nothing, and the non-vacuity guard below then fires on a correct file.
+    # That happened. The pattern has to see `| sort` and `| LC_ALL=C sort` alike.
+    sorts = [ln for ln in code.splitlines() if re.search(r"\|[^|]*\bsort\b", ln)]
+    # non-vacuity: if the policy stopped sorting at all this would pass emptily
+    assert sorts, "no sort pipelines found in the policy — has it been rewritten?"
+    unpinned = [ln.strip() for ln in sorts if "LC_ALL=C sort" not in ln]
+    assert unpinned == [], (
+        "these sort pipelines are locale-dependent and feed a digest: " + "; ".join(unpinned)
+    )
+
+
+def test_attestation_is_written_with_a_trailing_newline():
+    """Without it, a $GITHUB_OUTPUT heredoc delimiter lands on the JSON's last
+    line and Actions rejects the step with "Matching delimiter not found" —
+    after the policy has already passed, which is the most confusing possible
+    way to fail a security gate."""
+    policy = WORKFLOWS.parent / "containment" / "trusted-policy.sh"
+    body = policy.read_text()
+    assert 'fh.write("\\n")' in body, (
+        "the policy no longer terminates the attestation with a newline"
+    )
+
+
 def test_identity_boundary_runs_the_trusted_policy_from_main():
     text = CONTAINMENT.read_text()
     assert "refs/heads/main" in text, (

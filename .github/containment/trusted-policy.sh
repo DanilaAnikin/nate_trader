@@ -129,7 +129,15 @@ done
 # The tree check above already covers this, but a per-file digest is what the
 # attestation records, and it localises a failure to one migration.
 MIG_MANIFEST=""
-for m in $(git ls-tree --name-only "$CANDIDATE" supabase/migrations/ | sort); do
+# LC_ALL=C throughout. Collation is locale-dependent, and a digest computed over
+# a locale-sorted list is not a property of the tree — it is a property of the
+# machine that computed it. Measured: the changed-file manifest digest below
+# came out 722c768a… locally and efb3e11c… on the CI runner for the identical
+# candidate, because paths like dashboard/app/(app)/settings/page.tsx collate
+# differently under en_US.UTF-8 than under C. An attestation digest that cannot
+# be reproduced on another host is worse than no digest, because it looks like
+# one.
+for m in $(git ls-tree --name-only "$CANDIDATE" supabase/migrations/ | LC_ALL=C sort); do
   a="$(git rev-parse "$BRIDGE_BASE:$m" 2>/dev/null || echo absent)"
   b="$(git rev-parse "$CANDIDATE:$m" 2>/dev/null || echo absent)"
   [[ "$a" == "$b" ]] || fail "migration changed: $m"
@@ -145,7 +153,7 @@ PAPER_WF_BASE="$(git rev-parse "$BRIDGE_BASE:.github/workflows/paper-production.
   || fail "paper-production workflow CHANGED: base=$PAPER_WF_BASE candidate=$PAPER_WF_DIGEST"
 
 # ── 6. the changed-file manifest, digested ──────────────────────────────────
-CHANGED_MANIFEST="$(printf '%s\n' "${CHANGED[@]}" | sort | sha256sum | cut -d' ' -f1)"
+CHANGED_MANIFEST="$(printf '%s\n' "${CHANGED[@]}" | LC_ALL=C sort | sha256sum | cut -d' ' -f1)"
 CANDIDATE_TREE="$(git rev-parse "$CANDIDATE^{tree}")"
 
 # ── 7. verdict ──────────────────────────────────────────────────────────────
@@ -178,6 +186,11 @@ doc = {
 }
 with open(out, "w") as fh:
     json.dump(doc, fh, indent=2, sort_keys=True)
+    # Trailing newline, deliberately. Without it a $GITHUB_OUTPUT heredoc puts
+    # its delimiter on the same line as the closing brace and Actions rejects
+    # the whole step with "Matching delimiter not found" — after the policy has
+    # already passed, which is the most confusing possible way to fail.
+    fh.write("\n")
 print(json.dumps(doc, indent=2, sort_keys=True))
 PY
 
