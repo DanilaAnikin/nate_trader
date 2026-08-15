@@ -1,0 +1,115 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+/**
+ * Nothing decides anything before the freeze.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * A proof-honesty audit inserted one line immediately above the freeze block:
+ *
+ *     if (request.headers.get("x-nt-operator") === "let-me-write") return response;
+ *
+ * A caller-controlled, unauthenticated bypass of the entire write freeze. The
+ * Phase 1E harness reported `PHASE 1E GREEN — the unconditional freeze is
+ * load-bearing`, and all 504 tests passed.
+ *
+ * Every existing check looks at the freeze block itself, or at what happens
+ * when it is removed. None of them looked at what runs FIRST. The freeze can
+ * be perfect and still never be reached, and "unconditional" is a claim about
+ * position as much as about the condition — a word that appeared in the source
+ * comment, in the harness banner and in three commit messages while being
+ * asserted by nothing.
+ *
+ * The one denylist that came close (`proxy.test.ts`) named three identifiers —
+ * bypassPossible, DASHBOARD_FREEZE_BYPASS_USERS, maintenanceFrozen — so any
+ * bypass spelled differently walked through it. This asserts the shape of the
+ * prologue instead of enumerating the names of things that must not be in it.
+ */
+
+const SRC = readFileSync(join(__dirname, "..", "..", "proxy.ts"), "utf8")
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+const FN = "export async function proxy(";
+const FREEZE = "if (isApi && MUTATING_METHODS.has(request.method))";
+
+/**
+ * Everything that runs before the freeze can possibly be evaluated.
+ *
+ * Sliced from just after the function's own opening brace, not from the
+ * signature: including it would leave the region permanently unbalanced and
+ * the brace check below would have to be written as `opens === closes + 1`,
+ * which is an assertion about this function's slicing rather than about the
+ * code it is inspecting.
+ */
+function prologue(): string {
+  const sig = SRC.indexOf(FN);
+  expect(sig, "proxy() not found").toBeGreaterThan(-1);
+  const open = SRC.indexOf("{", SRC.indexOf(")", sig));
+  const freeze = SRC.indexOf(FREEZE);
+  expect(freeze, "the freeze block is not in its expected form").toBeGreaterThan(open);
+  return SRC.slice(open + 1, freeze);
+}
+
+describe("the write freeze is the first decision the proxy makes", () => {
+  it("the freeze condition has exactly its two conjuncts", () => {
+    // An extra `&& something` is how the flag gate came back the first time.
+    // Matching the whole condition, not a substring of it, is what makes an
+    // addition visible.
+    expect(SRC).toContain(`${FREEZE} {`);
+  });
+
+  it("only one thing returns before the freeze, and it is the health check", () => {
+    const returns = prologue().match(/\breturn\b/g) ?? [];
+    expect(
+      returns.length,
+      "something returns before the write freeze — the freeze is not the first decision",
+    ).toBe(1);
+    expect(prologue()).toContain('if (path === "/api/health") return response;');
+  });
+
+  it("nothing caller-controlled is consulted before the freeze", () => {
+    // A bypass needs an input. The prologue may read the path and the method;
+    // headers, cookies, body, query and search params are all attacker-chosen
+    // and have no business influencing whether a write is refused.
+    const forbidden = [
+      "request.headers",
+      "request.cookies",
+      "req.headers",
+      "headers.get",
+      "cookies.get",
+      "nextUrl.searchParams",
+      "request.json",
+      "request.text",
+      "request.body",
+    ];
+    const found = forbidden.filter((f) => prologue().includes(f));
+    expect(found, "the prologue consults caller-controlled input before the freeze").toEqual([]);
+  });
+
+  it("no environment variable is consulted before the freeze", () => {
+    // This is what "unconditional" means operationally: no deployment-time
+    // value can decide whether the refusal happens.
+    expect(prologue()).not.toContain("process.env");
+  });
+
+  it("the prologue declares and does not branch", () => {
+    // `if` appears exactly once in the prologue: the health short-circuit.
+    // Any other branch is a decision taken before the freeze, which is the
+    // shape every bypass has.
+    const ifs = prologue().match(/\bif\s*\(/g) ?? [];
+    expect(ifs.length, "there is a branch before the write freeze").toBe(1);
+  });
+
+  it("the freeze is not inside a conditional block", () => {
+    // Position is not enough on its own — the freeze could sit first and still
+    // be nested inside something that never runs. Between the health check and
+    // the freeze there must be no unclosed `{`.
+    const p = prologue();
+    const opens = (p.match(/\{/g) ?? []).length;
+    const closes = (p.match(/\}/g) ?? []).length;
+    expect(opens, "the freeze appears to be nested inside a block").toBe(closes);
+  });
+});

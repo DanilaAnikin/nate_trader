@@ -14,19 +14,27 @@ export default defineConfig({
     // Data/contract modules run in Node. Component tests opt into jsdom with
     // an `@vitest-environment jsdom` docblock at the top of the file.
     environment: "node",
-    include: [
-      "lib/**/*.test.ts",
-      "app/**/*.test.ts",
-      "components/**/*.test.tsx",
-      // The proxy lives at the root and gates every request; it needs the
-      // same coverage as anything under `app/`.
-      "proxy.test.ts",
-      // Containment proofs live outside the source tree because they are
-      // about the artifact rather than about a module. Without this entry
-      // they are collected by nothing and pass by not running — the exact
-      // vacuity this suite exists to prevent.
-      "test/**/*.test.ts",
-    ],
+    // ONE pattern, every root, every extension.
+    //
+    // This used to be a list of root/extension pairs — lib/**/*.test.ts,
+    // app/**/*.test.ts, components/**/*.test.tsx, test/**/*.test.ts — and the
+    // pairs did not cover the grid. A proof-honesty audit added four files
+    // each containing `expect(1).toBe(2)` and watched all four be silently
+    // ignored: test/**/*.test.tsx, lib/**/*.test.tsx, app/**/*.test.tsx and
+    // components/**/*.test.ts. The file count did not move and the suite
+    // stayed green.
+    //
+    // A per-directory allowlist for test COLLECTION is the same mistake as an
+    // exclusion list for a security boundary: it silently converts "I did not
+    // think of this" into "this passed". Collect everything that names itself
+    // a test, and let the exclusions below be the only narrowing — they are
+    // about where tests cannot live, not about which ones count.
+    //
+    // test/containment/collection-completeness.test.ts asserts that every
+    // *.test.* file on disk is covered by this pattern, so the grid cannot
+    // reopen.
+    include: ["**/*.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"],
+    exclude: ["node_modules/**", ".next/**", "dist/**", "e2e/**"],
     setupFiles: ["test/setup.ts"],
   },
 });

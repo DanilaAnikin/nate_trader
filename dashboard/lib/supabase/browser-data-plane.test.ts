@@ -20,6 +20,24 @@ const SEARCH_ROOTS = ["app", "components", "lib", "hooks"];
 const SKIP_DIRS = new Set(["node_modules", ".next", "dist", "build", "coverage", ".turbo"]);
 const CODE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 
+/**
+ * Match code, not prose.
+ *
+ * This guard used to read the raw file, so a docblock explaining that browser
+ * code must never call `.from()` was itself reported as a call to `.from()`.
+ * A comment describing a rule is not a violation of it, and a guard that
+ * cannot tell the difference punishes the documentation that makes it
+ * understandable — the surest way to get the documentation deleted.
+ *
+ * Stripping is also the safe direction here: comments can only ever produce
+ * FALSE POSITIVES for these patterns, never false negatives, so removing them
+ * costs no coverage. The positive control below proves the patterns still fire
+ * on a real call after stripping.
+ */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
 /** Files that are allowed to reach the data plane, with the reason. */
 const ALLOWED = new Map<string, string>([
   // The server-side boundary itself: these run in Node, over the internal
@@ -90,14 +108,37 @@ describe("browser code never reaches the Supabase data plane", () => {
     const offences: string[] = [];
     for (const file of ALL_FILES) {
       const rel = relative(DASHBOARD, file).split("\\").join("/");
-      const src = readFileSync(file, "utf8");
-      if (isServerOnly(rel, src)) continue;
+      const raw = readFileSync(file, "utf8");
+      const src = stripComments(raw);
+      if (isServerOnly(rel, raw)) continue;
       if (ALLOWED.has(rel)) continue;
       for (const { pattern, what } of DATA_PLANE_CALLS) {
         if (pattern.test(src)) offences.push(`${rel}: ${what}`);
       }
     }
     expect(offences).toEqual([]);
+  });
+
+  it("still detects a real call after comments are stripped", () => {
+    // Positive control for the stripping above. If removing comments also
+    // removed the patterns' ability to fire, every green result would be an
+    // artefact of the fix rather than a fact about the code.
+    const real = stripComments(`
+      /* this comment mentions .from( and .rpc( and /rest/v1 */
+      // and so does this one: .storage
+      const rows = await supabase.from("accounts").select("*");
+    `);
+    const hits = DATA_PLANE_CALLS.filter(({ pattern }) => pattern.test(real)).map((d) => d.what);
+    expect(hits).toEqual(["PostgREST table access (.from)"]);
+  });
+
+  it("does not fire on a comment alone", () => {
+    const proseOnly = stripComments(`
+      /** Browser code must never call .from(), .rpc(), .storage or /rest/v1. */
+      export const x = 1;
+    `);
+    const hits = DATA_PLANE_CALLS.filter(({ pattern }) => pattern.test(proseOnly));
+    expect(hits).toEqual([]);
   });
 
   it("keeps the settings page off the data plane specifically", () => {
