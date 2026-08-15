@@ -140,6 +140,22 @@ jobs:
           npx tsc --noEmit
       - name: Production build
         run: npm run build
+      # After the build, because it reads Next's COMPILED matcher rather than
+      # the source string. An audit found that config.matcher's negative
+      # lookahead ended in `.*\.(?:svg|png|...)$`, where the `.*` spans the
+      # whole path — so DELETE /api/accounts/abc.png skipped the proxy
+      # entirely: no edge freeze, no authentication, on a route that exists.
+      # Nothing tested the matcher, which is why 504 tests were green with the
+      # hole open. This check FAILS rather than skips when there is no build.
+      - name: The proxy runs on every API path
+        run: node test/containment/proxy-matcher.mjs
+      # Reverts ONLY the unconditional proxy freeze and requires the original
+      # defect back in its original shape — 401 with a Supabase client
+      # constructed, instead of 503 with none. A control that passes while
+      # being redundant with some other control proves nothing about the line
+      # it protects.
+      - name: The write freeze is load-bearing
+        run: bash test/containment/phase1e-freeze-revert.sh
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
       - name: End-to-end fail-closed suite
@@ -277,7 +293,18 @@ jobs:
       - name: No production entrypoint reaches a tombstoned routine
         working-directory: dashboard
         run: node test/containment/reachability.mjs
-      - name: The proof can go red — 14 mutations, on a green baseline
+      # 24 mutations on a baseline proven green first. Ten of them are
+      # written in forms that used to walk straight past the analyzer —
+      # import(), require(), .rpc<T>(), an aliased .rpc, a .js route, a
+      # directive past byte 200, a function-level "use server" — because a
+      # falsification suite whose mutations are all drawn from inside the
+      # parser's competence measures the parser's diligence, not its coverage.
+      #
+      # The previous step name said 14 and three commit messages said 15/15.
+      # There were 14 expect_red calls, two of them duplicates, and the 15th
+      # `ok` was the baseline control being counted as a mutant. The honest
+      # figure was 13.
+      - name: The proof can go red — 24 mutations, on a green baseline
         working-directory: dashboard
         run: bash test/containment/reachability-mutants.sh
 
