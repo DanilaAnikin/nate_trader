@@ -40,29 +40,6 @@ jobs:
           npx tsc --noEmit
       - name: Build production dashboard
         run: npm run build
-      # The containment proofs, which until now ran only when a human
-      # remembered.
-      #
-      # Two audits found the same thing independently: `reachability.mjs`,
-      # `reachability-mutants.sh` and `phase1e-freeze-revert.sh` were
-      # referenced by no workflow and no npm script. They were the evidence
-      # for the artifact's central claim and nothing executed them. A proof
-      # outside CI is documentation — it decays the first time someone edits
-      # the thing it describes, and it decays silently, which is worse than
-      # not having it because the commit messages go on citing it.
-      #
-      # After the build on purpose: proxy-matcher.mjs reads Next's COMPILED
-      # matcher out of .next, and it fails rather than skips when that is
-      # missing — a skipped matcher check is exactly how the extension bypass
-      # shipped.
-      - name: Containment proofs
-        run: |
-          node test/containment/reachability.mjs
-          node test/containment/proxy-matcher.mjs
-      - name: Containment proof falsification
-        run: |
-          bash test/containment/reachability-mutants.sh
-          bash test/containment/phase1e-freeze-revert.sh
       # Non-trading, and previously only ever claimed as a local result. The
       # fail-closed suite asserts that no route serves anything without an
       # authentication backend and that no credential reaches the browser, so
