@@ -47,8 +47,31 @@ if (typeof window !== "undefined") {
 // data/contract tests do not pay for jsdom tooling.
 if (typeof window !== "undefined") {
   await import("@testing-library/jest-dom/vitest");
-  const { cleanup } = await import("@testing-library/react");
+  const { cleanup, configure } = await import("@testing-library/react");
   afterEach(cleanup);
+
+  /**
+   * `waitFor` defaults to a one-second bound, which under a full parallel run
+   * partly measures how busy the machine is rather than whether the component
+   * rendered. Five seconds weakens no assertion — each is still "this
+   * eventually appears", and a component that never renders still fails, five
+   * seconds later — so this is a small robustness improvement worth having.
+   *
+   * IT IS NOT A FIX FOR THE KNOWN FLAKE, and should not be read as one.
+   *
+   * A proof-honesty audit reported PortfolioClient.test.tsx failing roughly
+   * twice in ten FULL-SUITE runs while passing every time in isolation. A
+   * timeout competing with fifteen other workers was the obvious explanation,
+   * so this bound was raised — and the failure then reproduced anyway, once in
+   * eighteen full-suite runs with the change already in place. The hypothesis
+   * is falsified; the cause is still unknown, and the failure message has not
+   * been captured (twelve consecutive runs after the reproduction were clean).
+   *
+   * It fails rather than false-greens, so it is not dangerous. It is still
+   * worth chasing, because an intermittently red gate teaches people to re-run
+   * a gate, and a gate people re-run is not a gate.
+   */
+  configure({ asyncUtilTimeout: 5000 });
 }
 
 afterEach(() => {
