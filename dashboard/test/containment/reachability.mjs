@@ -68,6 +68,9 @@ function walkFiles(dir, out = []) {
  * Production entrypoints, enumerated from disk. Anything Next.js will execute
  * on the server: route handlers, pages, layouts, the proxy, instrumentation.
  */
+/** Populated during entrypoint discovery; folded into the hard-error list. */
+const errorsAtScan = [];
+
 function entrypoints() {
   const eps = [];
   for (const f of walkFiles(join(DASH, "app"))) {
@@ -77,8 +80,29 @@ function entrypoints() {
     const p = join(DASH, name);
     if (existsSync(p)) eps.push(p);
   }
+  // Server Actions are production entrypoints too, and they were missing.
+  //
+  // A "use server" module is invoked by a POST to a PAGE path carrying a
+  // Next-Action header — not by anything under /api — so it is reached by
+  // neither the route enumeration above nor the proxy's `isApi` freeze. An
+  // adversarial verifier found the gap: the harness claimed to drive "every
+  // mutating method" while three action modules sat outside the surface
+  // entirely. They are enumerated here so their closures are proven like any
+  // other entrypoint; whether each is ALLOWED to exist is a separate,
+  // explicit judgement asserted in server-actions.test.ts.
+  for (const root of ["app", "lib", "components"]) {
+    for (const f of walkFiles(join(DASH, root))) {
+      try {
+        const head = readFileSync(f, "utf8").slice(0, 200);
+        if (/^\s*["']use server["']/m.test(head) && !eps.includes(f)) eps.push(f);
+      } catch {
+        errorsAtScan.push(`${relative(DASH, f)}: unreadable while scanning for "use server"`);
+      }
+    }
+  }
   return eps.sort();
 }
+
 
 /** Resolve an import specifier to a real file, or return null (a hard error). */
 function resolveSpec(spec, fromFile) {
@@ -103,6 +127,7 @@ const BARE_IMPORT_RE = /(?:^|\n)\s*import\s*["']([^"']+)["']/g;
 const RPC_RE = /\.rpc\s*\(\s*([^)]*?)(?:,|\))/g;
 
 const errors = [];
+errors.push(...errorsAtScan);
 const closures = new Map();
 
 function closureOf(entry) {
