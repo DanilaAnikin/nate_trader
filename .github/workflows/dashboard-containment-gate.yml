@@ -253,6 +253,34 @@ jobs:
       - name: Run the schema-compatibility harness
         run: dashboard/test/schema-compat/run.sh
 
+  # ── the tombstone reachability proof ──────────────────────────────────────
+  # Migration 0022 deliberately tombstones vault_create_secret,
+  # vault_update_secret and vault_delete_secret and revokes EXECUTE from every
+  # role including service_role. The frozen bridge may accept that only if no
+  # production entrypoint can reach them — a property of the module graph, which
+  # is decidable, rather than of control flow, which is not.
+  #
+  # The mutant suite runs alongside the proof itself, because a static analyzer
+  # that never goes red is indistinguishable from no analyzer.
+  reachability:
+    name: tombstone reachability
+    needs: identity-boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: No production entrypoint reaches a tombstoned routine
+        working-directory: dashboard
+        run: node test/containment/reachability.mjs
+      - name: The proof can go red — 14 mutations, on a green baseline
+        working-directory: dashboard
+        run: bash test/containment/reachability-mutants.sh
+
   # ── the aggregator ────────────────────────────────────────────────────────
   containment-verdict:
     name: containment verdict
@@ -260,7 +288,7 @@ jobs:
     # than a silently absent status. A gate that can be satisfied by a job not
     # running is not a gate.
     if: always()
-    needs: [identity-boundary, dashboard-suite, bundle-scan, schema-compatibility]
+    needs: [identity-boundary, dashboard-suite, bundle-scan, schema-compatibility, reachability]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -272,7 +300,7 @@ jobs:
           echo "$RESULTS" > results.json
           python3 - <<'PY'
           import json, sys
-          need = ["identity-boundary", "dashboard-suite", "bundle-scan", "schema-compatibility"]
+          need = ["identity-boundary", "dashboard-suite", "bundle-scan", "schema-compatibility", "reachability"]
           got = json.load(open("results.json"))
           bad = []
           for job in need:
