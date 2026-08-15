@@ -88,8 +88,75 @@ const FORBIDDEN_ROUTINES = forbiddenRoutines();
 /**
  * Modules whose mere presence in an entrypoint closure is a finding, because
  * they are the mutation surface even when no routine name appears.
+ *
+ * DERIVED, NOT PINNED.
+ *
+ * This was a two-entry hardcoded list — credentials.ts and service.ts — and an
+ * auditor was right to call it out: renaming or copying either one defeats it,
+ * and only the routine-name rule would remain. Two adversarial audits landed on
+ * the same shape the same day, in two other components: a verdict that
+ * certifies a subset as whole, and an expectation catalogue naming three of the
+ * five routines its own migration tombstones. A hand-pinned list is narrower
+ * than the contract it claims to enforce, and nothing checks the two against
+ * each other.
+ *
+ * So the set is computed: a module is mutation surface if it performs a
+ * PostgREST TABLE WRITE. `.from("x")` followed by insert/update/upsert/delete.
+ *
+ * `.from(` is required in the chain deliberately. A bare `.delete(` matches
+ * `cache.delete(key)` on a Map — measured, in lib/status/github-api.ts, which
+ * is legitimately inside a closure and writes nothing. A rule that cannot tell
+ * a Map from a table would fail this proof for a false reason, and a proof that
+ * fails for false reasons gets relaxed.
+ *
+ * An `.rpc()` call is NOT sufficient on its own either: lib/status/broker.ts
+ * calls get_account_credentials, a read, and is legitimately reachable. RPCs
+ * are covered by the routine-name rule below, which is about which routine, not
+ * about the call.
+ *
+ * A module is ALSO mutation surface if it names a tombstoned routine, because
+ * that is how credentials.ts mutates — through the vault_* wrappers, never
+ * through `.from()`. The first version of this derivation used table writes
+ * alone and did not find it; the non-vacuity guard below caught that
+ * immediately, which is the whole reason the guard is there. A derivation you
+ * cannot see failing is not better than the list it replaced.
+ *
+ * Measured on this tree: three modules qualify — credentials.ts (tombstoned
+ * RPCs), service.ts (table writes), and equity-backfill.ts (table writes),
+ * which the old two-entry list MISSED.
  */
-const FORBIDDEN_MODULES = ["lib/accounts/credentials.ts", "lib/accounts/service.ts"];
+const TABLE_WRITE_RE =
+  /\.from\s*\(\s*["'`][^"'`]+["'`]\s*\)[\s\S]{0,300}?\.(insert|update|upsert|delete)\s*\(/;
+
+function forbiddenModules() {
+  const found = [];
+  for (const root of ["app", "lib", "components"]) {
+    for (const f of walkFiles(join(DASH, root))) {
+      let src;
+      try {
+        src = stripComments(readFileSync(f, "utf8"));
+      } catch {
+        errors.push(`${relative(DASH, f)}: unreadable while deriving the mutation surface`);
+        continue;
+      }
+      const writesTable = TABLE_WRITE_RE.test(src);
+      const namesTombstone = FORBIDDEN_ROUTINES.some((r) =>
+        new RegExp(`["'\`]${r}["'\`]`).test(src),
+      );
+      if (writesTable || namesTombstone) found.push(relative(DASH, f));
+    }
+  }
+  // Non-vacuity: a derivation that finds nothing would make the whole rule
+  // silently inert, which is exactly the failure being repaired. These two are
+  // known to write and must always be in the derived set; if they are not, the
+  // derivation is broken rather than the tree being clean.
+  for (const known of ["lib/accounts/credentials.ts", "lib/accounts/service.ts"]) {
+    if (!found.includes(known)) {
+      errors.push(`mutation-surface derivation did not find ${known} — the rule is not working`);
+    }
+  }
+  return found.sort();
+}
 
 const SKIP_DIRS = new Set(["node_modules", ".next", "dist", "e2e"]);
 const SOURCE_RE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
@@ -281,6 +348,8 @@ function closureOf(entry) {
   return seen;
 }
 
+const FORBIDDEN_MODULES = forbiddenModules();
+
 const eps = entrypoints();
 
 // Enumeration must not silently degrade. A floor of 5 against a population of
@@ -336,6 +405,7 @@ if (!probe) {
 console.log(`entrypoints: ${eps.length} (route files on disk: ${routeFileCount})`);
 console.log(`modules walked (with repeats): ${modulesWalked}`);
 console.log(`forbidden routines (read from migration 0022): ${FORBIDDEN_ROUTINES.join(", ")}`);
+console.log(`mutation surface (derived: table writes + tombstoned-routine names): ${FORBIDDEN_MODULES.join(", ")}`);
 
 if (errors.length) {
   console.error("\nFAIL-CLOSED ERRORS:");

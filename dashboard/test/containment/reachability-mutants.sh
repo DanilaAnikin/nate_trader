@@ -284,6 +284,36 @@ PY
 }
 expect_red "24 a shrunken tombstone list is not accepted" m24 "expected at least 5"
 
+# ── III. the module the hand-pinned list used to miss ───────────────────────
+m25(){ sed -i '1i import { backfillEquity } from "@/lib/accounts/equity-backfill";' "$1/app/api/accounts/route.ts"; }
+expect_red "25 equity-backfill in a closure (the old list missed it)" m25 "mutation surface"
+
+m26(){ python3 - "$1" <<'PYX'
+import pathlib,sys,shutil
+d=pathlib.Path(sys.argv[1])
+# a renamed copy of the mutation surface: the hand-pinned list was defeated by
+# exactly this, which is why the set is derived rather than listed
+shutil.copy(d/"lib/accounts/credentials.ts", d/"lib/accounts/creds2.ts")
+p=d/"app/api/accounts/route.ts"
+p.write_text('import * as c2 from "@/lib/accounts/creds2";\nvoid c2;\n'+p.read_text())
+PYX
+}
+expect_red "26 a RENAMED copy of the mutation surface" m26 "mutation surface"
+
+m27(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+d=pathlib.Path(sys.argv[1])
+# break the derivation itself. If it finds nothing the rule is inert, and that
+# must be an ERROR rather than a clean tree — the failure mode the two blockers
+# of the day both had.
+p=d/"test/containment/reachability.mjs"; s=p.read_text()
+s=s.replace("if (writesTable || namesTombstone) found.push(relative(DASH, f));",
+            "if (false) found.push(relative(DASH, f));")
+p.write_text(s)
+PYX
+}
+expect_red "27 a broken derivation is an error, not a clean tree" m27 "the rule is not working"
+
 echo
 echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed"
 [[ $BAD -eq 0 ]] && { echo "FALSIFICATION GREEN — every mutation is detected, each for its own reason"; exit 0; } \
