@@ -5,7 +5,7 @@ import StatusProvider from "@/components/status/StatusProvider";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { getSelectedAccount } from "@/lib/account-context";
 import { SUPABASE_CONFIGURED } from "@/lib/supabase/config";
-import type { SafeAccount } from "@/lib/accounts/service";
+import type { SafeAccount } from "@/lib/accounts/read";
 
 /**
  * Authenticated shell for every dashboard screen.

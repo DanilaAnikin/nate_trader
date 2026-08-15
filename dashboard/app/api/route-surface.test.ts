@@ -109,18 +109,29 @@ describe("the API surface", () => {
     },
   );
 
+  // SUPERSEDED and strengthened. The old assertion counted maintenanceBlock()
+  // calls, which a handler can make and then write anyway. The bridge now has
+  // no flag to consult: every mutating handler is a constant refusal, so the
+  // guard count is zero and the old test would fail on strictly safer code.
   it.each(FILES.map((file) => [routeName(file), file] as const))(
-    "%s guards every mutating handler with the freeze",
+    "%s refuses every mutating handler unconditionally",
     (name, file) => {
       const source = code(file);
       const handlers =
         source.match(/export async function (POST|PATCH|PUT|DELETE)\b/g) ?? [];
       if (handlers.length === 0) return;
-      const guards = source.match(/maintenanceBlock\(/g) ?? [];
+      const refusals = source.match(/return frozenResponse\(\);/g) ?? [];
       expect(
-        guards.length,
-        `${name} guards ${guards.length} of ${handlers.length} mutating handlers`,
+        refusals.length,
+        `${name} refuses ${refusals.length} of ${handlers.length} mutating handlers`,
       ).toBeGreaterThanOrEqual(handlers.length);
+      // no mutating handler may accept a parameter: one that cannot see the
+      // request provably cannot read its body
+      const params =
+        source.match(/export async function (?:POST|PATCH|PUT|DELETE)\s*\(([^)]*)\)/g) ?? [];
+      for (const decl of params) {
+        expect(decl, `${name}: a mutating handler accepts a request`).toMatch(/\(\s*\)/);
+      }
     },
   );
 });

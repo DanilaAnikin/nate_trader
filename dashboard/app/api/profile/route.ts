@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { maintenanceBlock } from "@/lib/maintenance";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { getSupabaseService } from "@/lib/supabase/service";
+import { frozenResponse } from "@/lib/frozen";
 
 export const dynamic = "force-dynamic";
 
@@ -32,33 +32,9 @@ const READABLE = "display_name, default_account_id" as const;
  * absent from this map is rejected rather than ignored: silently dropping an
  * unknown field is how a typo becomes "the save worked" in the UI.
  */
-const WRITABLE = {
-  display_name: (v: unknown): string | null => {
-    if (v === null) return null;
-    if (typeof v !== "string") throw new Error("display_name must be a string");
-    const t = v.trim();
-    if (t.length > 120) throw new Error("display_name too long");
-    return t.length ? t : null;
-  },
-  default_account_id: (v: unknown): string | null => {
-    if (v === null || v === "") return null;
-    if (typeof v !== "string") throw new Error("default_account_id must be a string");
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) {
-      throw new Error("default_account_id must be a uuid");
-    }
-    return v;
-  },
-} as const;
-
-type Writable = keyof typeof WRITABLE;
-
-/**
- * The update payload, typed as the exact columns rather than a loose record:
- * the generated Supabase types reject an index signature, and that rejection
- * is useful — it means a new writable key has to be added here deliberately.
- */
-type ProfilePatch = { display_name?: string | null; default_account_id?: string | null };
-
+// The PATCH allowlist and its types are gone with the handler that used
+// them. Keeping dead validation scaffolding beside a constant refusal
+// invites someone to wire it back up.
 /** GET /api/profile → the signed-in user's own profile fields. */
 export async function GET() {
   const supa = await getSupabaseServer();
@@ -87,74 +63,20 @@ export async function GET() {
   });
 }
 
-/** PATCH /api/profile → update only the allowlisted fields, on your own row. */
-export async function PATCH(req: Request) {
-  const frozen = maintenanceBlock();
-  if (frozen) return frozen;
-
-  const supa = await getSupabaseServer();
-  const {
-    data: { user },
-  } = await supa.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
-  }
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await req.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
-  }
-  if (body === null || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
-  }
-
-  const patch: ProfilePatch = {};
-  for (const key of Object.keys(body)) {
-    if (!Object.prototype.hasOwnProperty.call(WRITABLE, key)) {
-      return NextResponse.json({ error: `field not writable: ${key}` }, { status: 400 });
-    }
-    const k = key as Writable;
-    try {
-      patch[k] = WRITABLE[k](body[k]);
-    } catch (e) {
-      return NextResponse.json(
-        { error: e instanceof Error ? e.message : "invalid field" },
-        { status: 400 },
-      );
-    }
-  }
-  if (Object.keys(patch).length === 0) {
-    return NextResponse.json({ error: "no writable fields supplied" }, { status: 400 });
-  }
-
-  const svc = getSupabaseService();
-
-  // Ownership: a default account must be one of *this user's* accounts that is
-  // still live. Without this check the field is an arbitrary uuid write that
-  // happens to be displayed back as the user's default.
-  if (patch.default_account_id) {
-    const { data: owned, error: ownErr } = await svc
-      .from("accounts")
-      .select("id")
-      .eq("id", patch.default_account_id)
-      .eq("owner_id", user.id)
-      .is("deleted_at", null)
-      .maybeSingle();
-    if (ownErr) {
-      return NextResponse.json({ error: "could not verify account" }, { status: 500 });
-    }
-    if (!owned) {
-      // Deliberately the same shape whether the account belongs to someone
-      // else or does not exist: the response must not be an existence oracle.
-      return NextResponse.json({ error: "unknown account" }, { status: 400 });
-    }
-  }
-
-  const { error } = await svc.from("profiles").update(patch).eq("id", user.id);
-  if (error) {
-    return NextResponse.json({ error: "could not save profile" }, { status: 500 });
-  }
-  return NextResponse.json({ ok: true });
+/**
+ * Profile update is disabled in this artifact.
+ *
+ * This one never touched Vault or the account lifecycle — it writes
+ * `display_name` and `default_account_id` on the caller's own `profiles` row,
+ * both created by migration 0002 and therefore present on the pre-migration
+ * schema. It is frozen anyway, because the containment property is "this image
+ * performs no writes", not "this image performs only the writes we currently
+ * believe are safe". A per-route judgement about which writes are harmless is
+ * exactly the thing that erodes.
+ *
+ * The body is not read and the caller is not authenticated: the refusal is
+ * unconditional, so there is nothing to decide.
+ */
+export async function PATCH(): Promise<Response> {
+  return frozenResponse();
 }

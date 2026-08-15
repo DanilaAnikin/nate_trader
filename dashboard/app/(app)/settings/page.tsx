@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
-import type { SafeAccount } from "@/lib/accounts/service";
+import type { SafeAccount } from "@/lib/accounts/read";
 import { V11_POLICY } from "@/lib/v11-policy";
 
 const SUPABASE_CONFIGURED =

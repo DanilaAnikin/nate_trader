@@ -2,7 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { getSupabaseServer } from "./supabase/server";
 import { getSessionUser, listOwnedAccounts } from "./accounts/session";
-import { toSafe, type SafeAccount } from "./accounts/service";
+import { toSafe, type SafeAccount } from "./accounts/read";
 
 export const SELECTED_ACCOUNT_COOKIE = "nt_account";
 

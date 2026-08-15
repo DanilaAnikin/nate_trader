@@ -4,7 +4,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import AccountsClient from "./AccountsClient";
-import type { SafeAccount } from "@/lib/accounts/service";
+import type { SafeAccount } from "@/lib/accounts/read";
 import type { AccountBindingInfo } from "@/lib/status/types";
 
 vi.mock("@/lib/account-actions", () => ({ selectAccount: vi.fn() }));

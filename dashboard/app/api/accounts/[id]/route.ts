@@ -1,101 +1,32 @@
-import { NextResponse } from "next/server";
-import { sessionUserId } from "@/lib/accounts/session";
-import { maintenanceBlock } from "@/lib/maintenance";
-import { getSupabaseServer } from "@/lib/supabase/server";
-import { deleteAccount, rotateKeys, updateAccount } from "@/lib/accounts/service";
-
-export const dynamic = "force-dynamic";
-
-type Ctx = { params: Promise<{ id: string }> };
-
-function statusFor(reason: string): number {
-  if (reason === "not_found") return 404;
-  if (reason === "invalid_keys" || reason === "invalid_input" || reason === "no_credentials")
-    return 400;
-  if (reason === "network" || reason === "alpaca_error") return 502;
-  return 500;
-}
+import { frozenResponse } from "@/lib/frozen";
 
 /**
- * PATCH /api/accounts/[id]
- *  - { apiKey, apiSecret }                 → rotate credentials
- *  - { nickname?, color?, is_active? }      → update metadata
+ * Account metadata update, credential rotation and deletion are all disabled in
+ * this artifact.
+ *
+ * This file used to import `updateAccount`, `rotateKeys` and `deleteAccount`
+ * from `@/lib/accounts/service`, each of which reaches `./credentials` and from
+ * there `vault_create_secret`, `vault_update_secret` and `vault_delete_secret` —
+ * the three routines migration 0022 deliberately tombstones on the latest
+ * schema, revoking EXECUTE from PUBLIC, anon, authenticated AND service_role.
+ *
+ * Those imports are gone, not merely unused. The distinction matters: the
+ * containment gate proves a property of the module graph, and an import that is
+ * present but "never taken" is exactly the kind of claim a static proof cannot
+ * make and a future refactor quietly falsifies.
+ *
+ * Neither handler reads its request body, authenticates, constructs a Supabase
+ * client, or touches the database. The proxy independently refuses these verbs
+ * before authentication; that redundancy is intentional.
  */
-export async function PATCH(req: Request, { params }: Ctx) {
-  const frozen = maintenanceBlock(await sessionUserId());
-  if (frozen) return frozen;
 
-  const { id } = await params;
-  const supa = await getSupabaseServer();
-  const {
-    data: { user },
-  } = await supa.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
-  }
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-  let body: Record<string, unknown>;
-  try {
-    body = (await req.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
-  }
-
-  try {
-    const result =
-      typeof body.apiKey === "string" || typeof body.apiSecret === "string"
-        ? await rotateKeys(
-            user.id,
-            id,
-            String(body.apiKey ?? ""),
-            String(body.apiSecret ?? ""),
-          )
-        : await updateAccount(user.id, id, {
-            nickname: typeof body.nickname === "string" ? body.nickname : undefined,
-            color: typeof body.color === "string" ? body.color : undefined,
-            is_active:
-              typeof body.is_active === "boolean" ? body.is_active : undefined,
-          });
-
-    if (!result.ok) {
-      return NextResponse.json(
-        { error: result.message, reason: result.reason },
-        { status: statusFor(result.reason) },
-      );
-    }
-    return NextResponse.json({ account: result.account });
-  } catch {
-    return NextResponse.json({ error: "account update failed" }, { status: 500 });
-  }
+export async function PATCH(): Promise<Response> {
+  return frozenResponse();
 }
 
-/** DELETE /api/accounts/[id]?purgeHistory=true */
-export async function DELETE(req: Request, { params }: Ctx) {
-  const frozen = maintenanceBlock(await sessionUserId());
-  if (frozen) return frozen;
-
-  const { id } = await params;
-  const supa = await getSupabaseServer();
-  const {
-    data: { user },
-  } = await supa.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
-  }
-
-  const purgeHistory =
-    new URL(req.url).searchParams.get("purgeHistory") === "true";
-
-  try {
-    const result = await deleteAccount(user.id, id, { purgeHistory });
-    if (!result.ok) {
-      return NextResponse.json(
-        { error: result.message, reason: result.reason },
-        { status: statusFor(result.reason) },
-      );
-    }
-    return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ error: "account deletion failed" }, { status: 500 });
-  }
+export async function DELETE(): Promise<Response> {
+  return frozenResponse();
 }

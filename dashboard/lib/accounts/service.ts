@@ -1,7 +1,6 @@
 import "server-only";
 import type { Database } from "@/lib/database.types";
 import { getSupabaseService } from "@/lib/supabase/service";
-import { maskAccountNumber } from "./mask";
 import {
   validateAlpacaKeys,
   storeCredentials,
@@ -9,60 +8,28 @@ import {
   purgeCredentials,
   type AccountMode,
 } from "./credentials";
+// The read half lives in ./read so a GET handler can import it WITHOUT pulling
+// ./credentials — and therefore the tombstoned vault_* wrappers — into its
+// transitive closure. Re-exported here so the many type-only importers of
+// SafeAccount are unaffected. See lib/accounts/read.ts for the full reasoning.
+import {
+  toSafe,
+  listAccounts,
+  type SafeAccount,
+  type AccountError,
+  type AccountOk,
+  type AccountResult,
+} from "./read";
 
-type AccountRow = Database["public"]["Tables"]["accounts"]["Row"];
+export {
+  toSafe,
+  listAccounts,
+  type SafeAccount,
+  type AccountError,
+  type AccountOk,
+  type AccountResult,
+};
 
-/**
- * The account shape the browser is allowed to see.
- *
- * This is an explicit allowlist, deliberately *not* `Omit<AccountRow, ...>`:
- * a new sensitive column added to the table must not become client-visible by
- * default. The full broker account number, the Vault secret UUIDs, `owner_id`
- * and `deleted_at` are all withheld; only a four-character broker mask is
- * exposed so the operator can tell two accounts apart.
- */
-export interface SafeAccount {
-  readonly id: string;
-  readonly nickname: string;
-  readonly mode: Database["public"]["Enums"]["account_mode"];
-  readonly status: Database["public"]["Enums"]["account_status"];
-  readonly color: string;
-  readonly is_active: boolean;
-  readonly brokerAccountMask: string | null;
-  readonly last_verified_at: string | null;
-  readonly created_at: string;
-}
-
-export function toSafe(row: AccountRow): SafeAccount {
-  return {
-    id: row.id,
-    nickname: row.nickname,
-    mode: row.mode,
-    status: row.status,
-    color: row.color,
-    is_active: row.is_active,
-    brokerAccountMask: maskAccountNumber(row.alpaca_account_number),
-    last_verified_at: row.last_verified_at,
-    created_at: row.created_at,
-  };
-}
-
-export type AccountError = { ok: false; reason: string; message: string };
-export type AccountOk = { ok: true; account: SafeAccount };
-export type AccountResult = AccountOk | AccountError;
-
-/** Every account owned by the user, newest first, excluding soft-deleted rows. */
-export async function listAccounts(userId: string): Promise<SafeAccount[]> {
-  const svc = getSupabaseService();
-  const { data, error } = await svc
-    .from("accounts")
-    .select("*")
-    .eq("owner_id", userId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true });
-  if (error) throw new Error(`listAccounts failed: ${error.message}`);
-  return (data ?? []).map(toSafe);
-}
 
 export type CreateAccountInput = {
   nickname: string;

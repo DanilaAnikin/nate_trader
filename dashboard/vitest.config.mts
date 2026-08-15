@@ -21,6 +21,11 @@ export default defineConfig({
       // The proxy lives at the root and gates every request; it needs the
       // same coverage as anything under `app/`.
       "proxy.test.ts",
+      // Containment proofs live outside the source tree because they are
+      // about the artifact rather than about a module. Without this entry
+      // they are collected by nothing and pass by not running — the exact
+      // vacuity this suite exists to prevent.
+      "test/**/*.test.ts",
     ],
     setupFiles: ["test/setup.ts"],
   },

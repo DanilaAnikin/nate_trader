@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type { SafeAccount } from "@/lib/accounts/service";
+import type { SafeAccount } from "@/lib/accounts/read";
 import { selectAccount } from "@/lib/account-actions";
 import { ModeBadge } from "./badges";
 

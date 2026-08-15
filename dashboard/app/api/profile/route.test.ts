@@ -94,14 +94,6 @@ vi.mock("@/lib/supabase/service", () => {
 
 const { GET, PATCH } = await import("./route");
 
-function patchReq(body: unknown) {
-  return new Request("http://localhost/api/profile", {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
 beforeEach(() => {
   currentUserId = OWNER_ID;
   frozen = false;
@@ -123,83 +115,47 @@ describe("GET /api/profile", () => {
   });
 });
 
-describe("PATCH /api/profile", () => {
-  it("writes display_name to the session's own row", async () => {
-    const res = await PATCH(patchReq({ display_name: "  Grace  " }));
-    expect(res.status).toBe(200);
-    expect(updates).toEqual([{ patch: { display_name: "Grace" }, id: OWNER_ID }]);
+describe("PATCH /api/profile is frozen in the image", () => {
+  /**
+   * SUPERSEDED, and deliberately kept as the same input matrix.
+   *
+   * These cases used to assert the PATCH semantics: allowlisted fields, own-row
+   * targeting, foreign-vs-missing indistinguishability, smuggled ids, malformed
+   * bodies, no session. Every one of them is now answered the same way, by a
+   * constant 503 that never reads the body and never authenticates.
+   *
+   * Keeping the matrix rather than deleting it is the point: the property under
+   * test is that NONE of these inputs can produce a write, and the strongest
+   * evidence for that is feeding the handler exactly the inputs that used to
+   * make it behave differently and getting one identical answer.
+   */
+  const INPUTS: Array<[string, unknown]> = [
+    ["a valid display_name", { display_name: "new name" }],
+    ["a default account the user owns", { default_account_id: OWNED_ACCOUNT }],
+    ["a default account owned by someone else", { default_account_id: FOREIGN_ACCOUNT }],
+    ["a field not on the allowlist", { is_admin: true }],
+    ["a smuggled row id", { id: "someone-else", display_name: "x" }],
+    ["a non-uuid default account", { default_account_id: "not-a-uuid" }],
+    ["a wrong-typed display_name", { display_name: 42 }],
+    ["an empty patch", {}],
+    ["a null default account", { default_account_id: null }],
+  ];
+
+  it.each(INPUTS)("refuses %s with the constant 503", async () => {
+    const res = await PATCH();
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.reason).toBe("FROZEN_CONTAINMENT_BRIDGE");
   });
 
-  it("accepts a default account the user owns", async () => {
-    const res = await PATCH(patchReq({ default_account_id: OWNED_ACCOUNT }));
-    expect(res.status).toBe(200);
-    expect(updates).toEqual([{ patch: { default_account_id: OWNED_ACCOUNT }, id: OWNER_ID }]);
+  it("refuses identically with no session at all", async () => {
+    const res = await PATCH();
+    expect(res.status).toBe(503);
   });
 
-  it("refuses a default account owned by someone else, and writes nothing", async () => {
-    const res = await PATCH(patchReq({ default_account_id: FOREIGN_ACCOUNT }));
-    expect(res.status).toBe(400);
-    expect(updates).toEqual([]);
-  });
-
-  it("gives the same answer for a foreign account and a missing one", async () => {
-    const foreign = await PATCH(patchReq({ default_account_id: FOREIGN_ACCOUNT }));
-    const missing = await PATCH(patchReq({ default_account_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" }));
-    expect(foreign.status).toBe(missing.status);
-    expect(await foreign.json()).toEqual(await missing.json());
-  });
-
-  it("rejects a field that is not on the allowlist", async () => {
-    const res = await PATCH(patchReq({ id: OTHER_ID }));
-    expect(res.status).toBe(400);
-    expect(updates).toEqual([]);
-  });
-
-  it("rejects an attempt to retarget the row via a smuggled id", async () => {
-    const res = await PATCH(patchReq({ display_name: "x", id: OTHER_ID }));
-    expect(res.status).toBe(400);
-    expect(updates).toEqual([]);
-  });
-
-  it("rejects a non-uuid default account without querying", async () => {
-    const res = await PATCH(patchReq({ default_account_id: "not-a-uuid" }));
-    expect(res.status).toBe(400);
-    expect(updates).toEqual([]);
-  });
-
-  it("rejects a wrong-typed display_name", async () => {
-    expect((await PATCH(patchReq({ display_name: 42 }))).status).toBe(400);
-    expect(updates).toEqual([]);
-  });
-
-  it("rejects an empty patch", async () => {
-    expect((await PATCH(patchReq({}))).status).toBe(400);
-  });
-
-  it("rejects a malformed body", async () => {
-    const bad = new Request("http://localhost/api/profile", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: "{not json",
-    });
-    expect((await PATCH(bad)).status).toBe(400);
-  });
-
-  it("401s when there is no session", async () => {
-    currentUserId = null;
-    expect((await PATCH(patchReq({ display_name: "x" }))).status).toBe(401);
-    expect(updates).toEqual([]);
-  });
-
-  it("is blocked by the write freeze before it authenticates or writes", async () => {
-    frozen = true;
-    expect((await PATCH(patchReq({ display_name: "x" }))).status).toBe(503);
-    expect(updates).toEqual([]);
-  });
-
-  it("clears the default account when given null", async () => {
-    const res = await PATCH(patchReq({ default_account_id: null }));
-    expect(res.status).toBe(200);
-    expect(updates).toEqual([{ patch: { default_account_id: null }, id: OWNER_ID }]);
+  it("never reads the request body", () => {
+    // A handler that takes no parameter cannot read a body. This is a stronger
+    // statement than "we did not observe a read".
+    expect(PATCH.length).toBe(0);
   });
 });

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { SafeAccount } from "@/lib/accounts/service";
+import type { SafeAccount } from "@/lib/accounts/read";
 import { selectAccount } from "@/lib/account-actions";
 import { money } from "@/lib/status/client";
 import type { AccountBindingInfo, AccountRole } from "@/lib/status/types";

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Modal from "./Modal";
-import type { SafeAccount } from "@/lib/accounts/service";
+import type { SafeAccount } from "@/lib/accounts/read";
 
 const COLORS = [
   "#007aff",

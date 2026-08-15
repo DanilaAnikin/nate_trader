@@ -66,17 +66,31 @@ describe("every write path is behind the freeze", () => {
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/(^|[^:])\/\/.*$/gm, "$1");
 
+  // SUPERSEDED, and deliberately strengthened rather than deleted.
+  //
+  // This used to assert "every mutating handler calls maintenanceBlock()".
+  // That was correct for a flag-gated freeze, and it is satisfied by a handler
+  // that consults the flag and then writes. The bridge no longer has a flag to
+  // consult: each mutating handler is a constant refusal, so the guard count is
+  // now zero and the old assertion would fail on code that is strictly safer.
+  //
+  // The replacement asserts the stronger property directly. It would also have
+  // caught the original bug, which is the bar a superseding test has to clear.
   it.each([
     ["accounts/route.ts", "POST /api/accounts"],
     ["accounts/[id]/route.ts", "PATCH and DELETE /api/accounts/[id]"],
     ["accounts/[id]/verify/route.ts", "POST /api/accounts/[id]/verify"],
-  ])("%s calls maintenanceBlock()", (file, label) => {
+    ["profile/route.ts", "PATCH /api/profile"],
+  ])("%s refuses every mutation unconditionally", (file, label) => {
     const source = read(file);
     const handlers =
       source.match(/export async function (POST|PATCH|PUT|DELETE)\b/g) ?? [];
-    const guards = source.match(/maintenanceBlock\(/g) ?? [];
     expect(handlers.length, `${label} declares no mutating handler`).toBeGreaterThan(0);
-    expect(guards.length).toBeGreaterThanOrEqual(handlers.length);
+    const refusals = source.match(/return frozenResponse\(\);/g) ?? [];
+    expect(refusals.length).toBeGreaterThanOrEqual(handlers.length);
+    // and no branch remains that could reach a write
+    expect(source).not.toMatch(/maintenanceBlock\(/);
+    expect(source).not.toMatch(/from ["']@\/lib\/accounts\/service["']/);
   });
 
   it.each([

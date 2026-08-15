@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
-import { sessionUserId } from "@/lib/accounts/session";
-import { maintenanceBlock } from "@/lib/maintenance";
 import { getSupabaseServer } from "@/lib/supabase/server";
-import { createAccount, listAccounts } from "@/lib/accounts/service";
-import type { AccountMode } from "@/lib/accounts/credentials";
+// READ-ONLY import, deliberately from ./read and not ./service. `service.ts`
+// also exports createAccount/updateAccount/rotateKeys/deleteAccount, which reach
+// ./credentials and therefore the vault_* wrappers that migration 0022
+// tombstones. Importing from ./read keeps those out of this GET handler's
+// transitive closure entirely — a property test/containment/reachability.mjs
+// proves over the real module graph.
+import { listAccounts } from "@/lib/accounts/read";
+import { frozenResponse } from "@/lib/frozen";
 
 export const dynamic = "force-dynamic";
 
@@ -24,48 +28,19 @@ export async function GET() {
   }
 }
 
-/** POST /api/accounts → validate keys, store in Vault, create the account. */
-export async function POST(req: Request) {
-  const frozen = maintenanceBlock(await sessionUserId());
-  if (frozen) return frozen;
-
-  const supa = await getSupabaseServer();
-  const {
-    data: { user },
-  } = await supa.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
-  }
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await req.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
-  }
-
-  try {
-    const result = await createAccount(user.id, {
-      nickname: String(body.nickname ?? ""),
-      mode: body.mode as AccountMode,
-      apiKey: String(body.apiKey ?? ""),
-      apiSecret: String(body.apiSecret ?? ""),
-      color: typeof body.color === "string" ? body.color : undefined,
-    });
-    if (!result.ok) {
-      const status =
-        result.reason === "invalid_keys" || result.reason === "invalid_input"
-          ? 400
-          : result.reason === "network" || result.reason === "alpaca_error"
-            ? 502
-            : 500;
-      return NextResponse.json(
-        { error: result.message, reason: result.reason },
-        { status },
-      );
-    }
-    return NextResponse.json({ account: result.account }, { status: 201 });
-  } catch {
-    return NextResponse.json({ error: "account creation failed" }, { status: 500 });
-  }
+/**
+ * Account creation is disabled in this artifact.
+ *
+ * Previously this validated Alpaca keys, stored them in Vault and created the
+ * account — a path that reaches `vault_create_secret`, which migration 0022
+ * tombstones on the latest schema. It is now a constant refusal, and
+ * `createAccount` is no longer imported at all: the containment proof is about
+ * the module graph, and an import that is present but "never taken" is exactly
+ * the claim a static proof cannot make and a refactor quietly falsifies.
+ *
+ * The request body is never read and the caller is never authenticated, so
+ * there is nothing to decide and nothing to parse.
+ */
+export async function POST(): Promise<Response> {
+  return frozenResponse();
 }

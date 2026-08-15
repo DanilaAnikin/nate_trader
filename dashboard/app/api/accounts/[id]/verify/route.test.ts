@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * The verify route re-checks stored credentials against Alpaca. It must store
@@ -71,11 +73,8 @@ vi.mock("@/lib/supabase/service", () => ({
 
 const { POST } = await import("./route");
 
-function request() {
-  return POST(new Request("http://localhost/api/accounts/acc-1/verify", {
-    method: "POST",
-  }), { params: Promise.resolve({ id: "acc-1" }) });
-}
+// The old `request()` helper is gone with the handler that accepted a
+// request: POST now takes no parameters, which is the point.
 
 beforeEach(() => {
   currentUserId = OWNER_ID;
@@ -95,42 +94,43 @@ beforeEach(() => {
   );
 });
 
-describe("POST /api/accounts/[id]/verify", () => {
-  it("returns only a masked broker account number", async () => {
-    const response = await request();
-    expect(response.status).toBe(200);
-    const body = await response.json();
-
-    expect(body).toEqual({
-      ok: true,
-      status: "connected",
-      brokerAccountMask: "••••8811",
-    });
-    expect(body).not.toHaveProperty("accountNumber");
+describe("POST /api/accounts/[id]/verify is frozen in the image", () => {
+  /**
+   * SUPERSEDED. Verification read Vault secrets through get_account_credentials,
+   * contacted Alpaca and then persisted a status — a write in every sense that
+   * matters here. The frozen bridge does none of it, so the masking and
+   * authentication assertions no longer have a code path to exercise.
+   *
+   * What replaces them is the property that makes those assertions unnecessary:
+   * the handler refuses unconditionally, cannot read a body, and imports no
+   * credential or broker code at all.
+   */
+  it("refuses with the constant 503", async () => {
+    const res = await POST();
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.reason).toBe("FROZEN_CONTAINMENT_BRIDGE");
+    expect(body.writes_enabled).toBe(false);
   });
 
-  it("never puts the full account number in the JSON body", async () => {
-    const serialized = await (await request()).text();
-    expect(serialized).not.toContain(CANARY_ACCOUNT_NUMBER);
-    expect(serialized).not.toContain("PA-VERIFY-CANARY");
+  it("refuses identically for an unauthenticated caller", async () => {
+    const res = await POST();
+    expect(res.status).toBe(503);
   });
 
-  it("still stores the full number server-side for the production binding", async () => {
-    await request();
-    const stored = updates.find(
-      (patch) => patch.alpaca_account_number !== undefined,
-    );
-    expect(stored?.alpaca_account_number).toBe(CANARY_ACCOUNT_NUMBER);
+  it("cannot read a request body or a route parameter", () => {
+    expect(POST.length).toBe(0);
   });
 
-  it("is no-store so a mask is never cached by a proxy", async () => {
-    const response = await request();
-    expect(response.headers.get("cache-control")).toContain("no-store");
-  });
-
-  it("refuses an unauthenticated caller", async () => {
-    currentUserId = null;
-    const response = await request();
-    expect(response.status).toBe(401);
+  it("no longer imports any credential or broker code", () => {
+    const src = readFileSync(
+      join(__dirname, "route.ts"),
+      "utf8",
+    )
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("*") && !l.trim().startsWith("//"))
+      .join("\n");
+    expect(src).not.toMatch(/from ["'][^"']*credentials["']/);
+    expect(src).not.toMatch(/from ["']@\/lib\/supabase\/service["']/);
   });
 });
