@@ -226,6 +226,27 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends postgresql-client
+      # The harness refuses to run unless the exact image is already present
+      # locally, so that a local run can never silently pull a drifting tag.
+      # That is the right rule and it is not relaxed here — instead the image is
+      # fetched BY IMMUTABLE DIGEST and then given the tag the harness expects.
+      #
+      # The digest is the one the production database is actually running,
+      # read from natetrader-supabase-db-1. Pinning the tag instead would
+      # reintroduce exactly the drift the harness is guarding against.
+      - name: Pull the exact production database image by digest
+        env:
+          PG_DIGEST: supabase/postgres@sha256:f371b5f3f2ac0a05703f33d6e6134515fb2498cab708fb948a0aeb7481467c00
+          PG_TAG: supabase/postgres:17.6.1.136
+        run: |
+          set -Eeuo pipefail
+          docker pull "$PG_DIGEST"
+          docker tag "$PG_DIGEST" "$PG_TAG"
+          # Prove the tag we just created really points at the pinned digest,
+          # rather than at something a concurrent pull left behind.
+          got="$(docker image inspect "$PG_TAG" --format '{{index .RepoDigests 0}}')"
+          echo "resolved: $got"
+          [ "$got" = "$PG_DIGEST" ] || { echo "::error::tag does not resolve to the pinned digest"; exit 1; }
       # Executes the bridge's route surface against a real 0001-0008 database
       # and a real 0001-0023 one. Replaces the previous claim, which came from
       # grepping migrations for object names.
