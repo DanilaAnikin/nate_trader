@@ -11,9 +11,17 @@ COPY . .
 RUN mkdir -p /app/public
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+# The auth cookie name must be pinned at BUILD time, not runtime. Next.js
+# inlines only NEXT_PUBLIC_* into the client bundle, so a value supplied to the
+# container at runtime is visible to SSR and the proxy but invisible to the
+# browser — the two halves would then look for different cookies and every
+# signed-in user would be redirected to /login. Passing it as a build arg is
+# what makes "pinned rather than derived" true on both sides.
+ARG NEXT_PUBLIC_SUPABASE_AUTH_COOKIE_NAME
 ARG BUILD_SHA=unknown
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV NEXT_PUBLIC_SUPABASE_AUTH_COOKIE_NAME=$NEXT_PUBLIC_SUPABASE_AUTH_COOKIE_NAME
 ENV BUILD_SHA=$BUILD_SHA
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN node -e 'for (const name of ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"]) { if (!process.env[name]) { throw new Error(`${name} is required`) } }' \
@@ -25,6 +33,11 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+# Also carried into the runner so SSR and the proxy read the SAME pinned value
+# at runtime that the browser bundle had inlined at build time. If only the
+# builder stage set it, the two halves could still disagree.
+ARG NEXT_PUBLIC_SUPABASE_AUTH_COOKIE_NAME
+ENV NEXT_PUBLIC_SUPABASE_AUTH_COOKIE_NAME=$NEXT_PUBLIC_SUPABASE_AUTH_COOKIE_NAME
 ARG BUILD_SHA=unknown
 ENV BUILD_SHA=$BUILD_SHA
 LABEL org.opencontainers.image.revision=$BUILD_SHA
