@@ -27,14 +27,14 @@ def _matching_local_bar_evidence(monkeypatch):
     )
 
 
-def test_validation_artifact_accepts_nested_v11_schema_and_pass(tmp_path, validation_clock_at_bar_boundary):
+def test_validation_artifact_accepts_nested_v11_schema_and_pass(tmp_path):
     path = tmp_path / "validation.json"
     path.write_text(json.dumps(_report()))
 
     assert check_validation_artifact(path) == []
 
 
-def test_validation_artifact_rejects_failed_alpha_gate(tmp_path, validation_clock_at_bar_boundary):
+def test_validation_artifact_rejects_failed_alpha_gate(tmp_path):
     path = tmp_path / "validation.json"
     path.write_text(
         json.dumps(
@@ -89,7 +89,7 @@ def test_validation_artifact_rejects_changed_ranking_universe(tmp_path):
     assert "ranking universe" in check_validation_artifact(path)[0]
 
 
-def test_validation_artifact_rejects_changed_historical_bar_prefix(tmp_path, validation_clock_at_bar_boundary):
+def test_validation_artifact_rejects_changed_historical_bar_prefix(tmp_path):
     path = tmp_path / "validation.json"
     payload = _report()
     payload["evidence"]["bar_snapshot_sha256"] = "b" * 64
