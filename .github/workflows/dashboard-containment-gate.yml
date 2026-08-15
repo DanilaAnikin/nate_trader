@@ -1,0 +1,290 @@
+name: dashboard-containment-gate
+
+# ============================================================================
+# A green result here means EXACTLY four things and nothing else:
+#
+#   * the candidate is an exact non-trading dashboard SHA
+#   * its change scope is provably confined to dashboard/
+#   * the dashboard and security suites pass on it
+#   * paper promotion is explicitly FALSE
+#
+# It is deliberately named for what it gates. "release gate" was the old name
+# for a status that meant both "the repository is correct" and "the strategy may
+# trade", and that ambiguity is what let a truthful strategy FAIL block every
+# unrelated security merge. No status in this repository may mean
+# "everything is safe".
+#
+# THIS ATTESTATION CAN NEVER AUTHORIZE paper-production. It reports
+# paper_validation_result: NOT_APPLICABLE, and NOT_APPLICABLE is not PASS.
+# ============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: "Full 40-character candidate commit SHA (not a branch, not a short SHA)"
+        required: true
+        type: string
+
+# Read-only. The containment checks need no secrets, so candidate code never
+# runs in a job that has any. Note there is deliberately no pull_request_target
+# trigger: that would execute candidate-controlled code with repository secrets,
+# which is the exact hazard this gate exists to avoid.
+permissions:
+  contents: read
+
+concurrency:
+  group: containment-${{ inputs.candidate_sha }}
+  cancel-in-progress: false
+
+jobs:
+  # ── the trusted half ──────────────────────────────────────────────────────
+  # Checks out MAIN and runs main's copy of the policy. The candidate is fetched
+  # as data and inspected with git plumbing; none of its code is executed here.
+  identity-boundary:
+    name: identity boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      attestation: ${{ steps.policy.outputs.attestation }}
+    steps:
+      - name: Refuse to run from anything but the trusted ref
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+          # If this workflow were dispatched on the candidate's own branch, the
+          # candidate would supply the policy that judges it.
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::containment gate must be dispatched on main; got $REF"
+            exit 1
+          fi
+          echo "trusted ref confirmed: $REF"
+
+      - name: Checkout the trusted policy from main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+          path: trusted
+
+      - name: Fetch the candidate as data
+        env:
+          CANDIDATE: ${{ inputs.candidate_sha }}
+        working-directory: trusted
+        run: |
+          set -Eeuo pipefail
+          case "$CANDIDATE" in
+            *[!0-9a-f]* | "" ) echo "::error::candidate is not lowercase hex"; exit 1 ;;
+          esac
+          [ "${#CANDIDATE}" -eq 40 ] || { echo "::error::candidate is not 40 chars"; exit 1; }
+          git fetch --no-tags origin "+$CANDIDATE:refs/candidate" 2>/dev/null \
+            || git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+          git cat-file -t "$CANDIDATE" >/dev/null
+
+      - name: Run the trusted identity policy
+        id: policy
+        env:
+          CANDIDATE: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          bash trusted/.github/containment/trusted-policy.sh \
+            "$PWD/trusted" "$CANDIDATE" "$PWD/attestation.json"
+          {
+            echo 'attestation<<ATTEST_EOF'
+            cat "$PWD/attestation.json"
+            echo 'ATTEST_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload the attestation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: containment-attestation-${{ inputs.candidate_sha }}
+          path: attestation.json
+          if-no-files-found: warn
+
+  # ── the candidate half ────────────────────────────────────────────────────
+  # Only reached once the boundary holds, so by the time candidate code runs we
+  # already know it cannot have touched scripts/, state/, migrations, the locks
+  # or the paper workflow.
+  dashboard-suite:
+    name: dashboard suite
+    needs: identity-boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Reject vulnerable dependencies
+        run: npm audit --audit-level=high
+      # Includes the containment-specific suites: the browser data-plane ban,
+      # the cookie-name/URL split, the pre-authentication mutation freeze, the
+      # /api/profile boundary, and the Dockerfile build-arg coverage guard.
+      - name: Contract and containment tests
+        run: npm test
+      - name: Lint and type-check
+        run: |
+          npm run lint
+          npx tsc --noEmit
+      - name: Production build
+        run: npm run build
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end fail-closed suite
+        run: npx playwright test
+
+  bundle-scan:
+    name: bundle scan
+    needs: identity-boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+      - name: Build with real public values and a sentinel service key
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ntapi.anikin.cz
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-public-anon-placeholder
+          NEXT_PUBLIC_SUPABASE_AUTH_COOKIE_NAME: sb-ntapi-auth-token
+          SUPABASE_SERVER_URL: http://natetrader-supabase-kong:8000
+          SUPABASE_SERVICE_ROLE_KEY: ci-sentinel-SERVICEROLECANARY
+          BUILD_SHA: ${{ inputs.candidate_sha }}
+        run: npm run build
+      - name: Scan the shipped client bundle
+        run: |
+          set -Eeuo pipefail
+          S=.next/static
+          n=$(find "$S" -type f | wc -l)
+          echo "static files: $n"
+          # NON-VACUITY. A scan over an empty tree reports every secret absent.
+          # This is not hypothetical: an earlier image scan in this programme
+          # extracted zero files and cheerfully declared everything ABSENT.
+          [ "$n" -ge 5 ] || { echo "::error::only $n static files — scan would be vacuous"; exit 1; }
+          # POSITIVE CONTROL: something we know is there must be found, or the
+          # scanner itself is broken and every absence below is meaningless.
+          grep -rqF "ntapi.anikin.cz" "$S" \
+            || { echo "::error::positive control failed: public URL not found in the bundle"; exit 1; }
+          echo "positive control ok"
+          fail=0
+          for needle in \
+            "natetrader-supabase-kong" \
+            "SUPABASE_SERVER_URL" \
+            "SERVICEROLECANARY" \
+            "//kong:8000" \
+            'from("profiles")' \
+            "/rest/v1" \
+            "GITHUB_TOKEN" \
+            "ALPACA_SECRET_KEY" ; do
+            if grep -rqF "$needle" "$S"; then
+              echo "::error::forbidden string present in the client bundle: $needle"
+              grep -rlF "$needle" "$S" | head -3
+              fail=1
+            else
+              echo "absent ok: $needle"
+            fi
+          done
+          # the containment change must be visibly present, not merely
+          # "nothing bad found"
+          grep -rqF "/api/profile" "$S" \
+            || { echo "::error::/api/profile is absent — the profile was not moved off the data plane"; fail=1; }
+          grep -rqF "sb-ntapi-auth-token" "$S" \
+            || { echo "::error::the pinned cookie name never reached the browser bundle"; fail=1; }
+          exit "$fail"
+
+  schema-compatibility:
+    name: schema compatibility 0008 and latest
+    needs: identity-boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+      # Executes the bridge's route surface against a real 0001-0008 database
+      # and a real 0001-0023 one. Replaces the previous claim, which came from
+      # grepping migrations for object names.
+      - name: Run the schema-compatibility harness
+        run: dashboard/test/schema-compat/run.sh
+
+  # ── the aggregator ────────────────────────────────────────────────────────
+  containment-verdict:
+    name: containment verdict
+    # if: always() so a SKIPPED or CANCELLED mandatory job is a failure rather
+    # than a silently absent status. A gate that can be satisfied by a job not
+    # running is not a gate.
+    if: always()
+    needs: [identity-boundary, dashboard-suite, bundle-scan, schema-compatibility]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require every mandatory job to have actually succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          set -Eeuo pipefail
+          echo "$RESULTS" > results.json
+          python3 - <<'PY'
+          import json, sys
+          need = ["identity-boundary", "dashboard-suite", "bundle-scan", "schema-compatibility"]
+          got = json.load(open("results.json"))
+          bad = []
+          for job in need:
+              if job not in got:
+                  bad.append(f"{job}: MISSING from the dependency graph")
+                  continue
+              r = got[job].get("result")
+              if r != "success":
+                  bad.append(f"{job}: {r}")
+          if bad:
+              print("containment verdict: FAIL")
+              for b in bad:
+                  print("  " + b)
+              sys.exit(1)
+          print("containment verdict: PASS — all %d mandatory jobs succeeded" % len(need))
+          PY
+
+      - name: State what this does and does not authorize
+        run: |
+          cat <<'EOF'
+          dashboard-containment-gate: PASS
+
+            paper_promotable                  : false
+            dashboard_containment_promotable  : true
+            paper_validation_required         : false
+            paper_validation_result           : NOT_APPLICABLE
+            strategy_identity_unchanged       : true
+            containment_scope_valid           : true
+
+          NOT_APPLICABLE is not PASS. This result attests that a non-trading
+          dashboard change is confined to dashboard/ and passes its security
+          suites. It says nothing whatever about whether the strategy may trade,
+          and it can never authorize paper-production, which additionally
+          requires a successful v11-release.yml promotion result and an explicit
+          human PRODUCTION_RELEASE_SHA approval.
+          EOF
