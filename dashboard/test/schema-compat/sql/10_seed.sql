@@ -123,6 +123,15 @@ declare
   n_flows    int;
   n_audit    int;
   acct_owner uuid;
+  -- Named once, used by both the condition and the message, so a changed
+  -- expectation cannot leave the error text quietly describing the old one.
+  exp_users     constant int := 1;
+  exp_profiles  constant int := 1;
+  exp_accounts  constant int := 1;
+  min_equity    constant int := 20;
+  exp_flows     constant int := 3;
+  min_audit     constant int := 1;
+  exp_owner     constant uuid := '11111111-1111-4111-8111-111111111111';
 begin
   select count(*) into n_users    from auth.users where id = '11111111-1111-4111-8111-111111111111';
   select count(*) into n_profiles from public.profiles where id = '11111111-1111-4111-8111-111111111111';
@@ -132,14 +141,14 @@ begin
   select count(*) into n_audit    from public.audit_log where action = 'schema_compat.seed';
   select owner_id into acct_owner from public.accounts where id = '22222222-2222-4222-8222-222222222222';
 
-  if n_users    <> 1 then raise exception 'seed: expected 1 auth.users row, got %', n_users; end if;
-  if n_profiles <> 1 then raise exception 'seed: expected 1 profiles row, got %', n_profiles; end if;
-  if n_accounts <> 1 then raise exception 'seed: expected 1 accounts row, got %', n_accounts; end if;
-  if n_equity   <  20 then raise exception 'seed: expected >=20 equity_snapshots rows, got %', n_equity; end if;
-  if n_flows    <> 3 then raise exception 'seed: expected 3 cash_flows rows, got %', n_flows; end if;
-  if n_audit    <  1 then raise exception 'seed: expected >=1 audit_log row, got %', n_audit; end if;
-  if acct_owner is distinct from '11111111-1111-4111-8111-111111111111'::uuid then
-    raise exception 'seed: accounts.owner_id % does not match the seeded auth user', acct_owner;
+  if n_users    <> exp_users    then raise exception 'seed: expected % auth.users row(s), got %',        exp_users,    n_users;    end if;
+  if n_profiles <> exp_profiles then raise exception 'seed: expected % profiles row(s), got %',          exp_profiles, n_profiles; end if;
+  if n_accounts <> exp_accounts then raise exception 'seed: expected % accounts row(s), got %',          exp_accounts, n_accounts; end if;
+  if n_equity   <  min_equity   then raise exception 'seed: expected >=% equity_snapshots rows, got %',  min_equity,   n_equity;   end if;
+  if n_flows    <> exp_flows    then raise exception 'seed: expected % cash_flows rows, got %',          exp_flows,    n_flows;    end if;
+  if n_audit    <  min_audit    then raise exception 'seed: expected >=% audit_log row(s), got %',       min_audit,    n_audit;    end if;
+  if acct_owner is distinct from exp_owner then
+    raise exception 'seed: accounts.owner_id % does not match the seeded auth user %', acct_owner, exp_owner;
   end if;
 
   raise notice 'seed ok: users=% profiles=% accounts=% equity=% flows=% audit=%',
