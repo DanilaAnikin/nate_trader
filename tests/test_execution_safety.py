@@ -2709,7 +2709,7 @@ def test_broker_history_failure_preserves_fresh_halt_and_exits(
     assert any(item["action"] == "DRY_RUN_ADAPTIVE_EXIT" for item in result)
 
 
-def test_validation_gate_requires_full_paper_eligibility_contract(monkeypatch):
+def test_validation_gate_requires_full_paper_eligibility_contract(monkeypatch, validation_clock_at_bar_boundary):
     import strategy_identity
     from backtest.validate_v11 import attach_report_contract
 
