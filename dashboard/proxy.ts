@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { ARTIFACT_ROLE, FROZEN_BODY } from "@/lib/frozen";
 import { createServerClient } from "@supabase/ssr";
 import {
   getAuthCookieName,
@@ -16,36 +17,8 @@ const MUTATING_METHODS: ReadonlySet<string> = new Set([
   "DELETE",
 ]);
 
-const FREEZE_VALUES: ReadonlySet<string> = new Set(["on", "1", "true", "yes"]);
 
-/**
- * The freeze flag, read here rather than imported from `lib/maintenance` so
- * this file keeps no `server-only` dependency.
- */
-function maintenanceFrozen(): boolean {
-  const raw = process.env.DASHBOARD_MAINTENANCE_MODE?.trim().toLowerCase();
-  return raw !== undefined && FREEZE_VALUES.has(raw);
-}
 
-/**
- * True when this image may be carrying an operator freeze bypass.
- *
- * The proxy cannot evaluate the bypass — it has no authenticated user at the
- * point the freeze is checked. What it can do is decline to answer *for* the
- * handler: when the image is an isolated sidecar with a non-empty allowlist,
- * the freeze decision belongs to `maintenanceBlock(userId)` inside the
- * authenticated handler, and refusing here would make the bypass unreachable
- * no matter who was asking.
- *
- * Read at request time rather than module load so a test (and an operator
- * restarting with a new allowlist) sees the current value.
- */
-function bypassPossible(): boolean {
-  const sidecar = process.env.DASHBOARD_SIDECAR_ONLY?.trim().toLowerCase();
-  if (sidecar === undefined || !FREEZE_VALUES.has(sidecar)) return false;
-  const allowlist = process.env.DASHBOARD_FREEZE_BYPASS_USERS?.trim();
-  return Boolean(allowlist);
-}
 
 /**
  * Refreshes the Supabase session cookie on every request and gates access:
@@ -90,23 +63,29 @@ export async function proxy(request: NextRequest) {
   // would make the bypass unreachable for the one session it exists for.
   // `maintenanceBlock(userId)` in the handler is the decision point, and it
   // still refuses everyone not on the list.
-  if (
-    isApi &&
-    MUTATING_METHODS.has(request.method) &&
-    maintenanceFrozen() &&
-    !bypassPossible()
-  ) {
-    return NextResponse.json(
-      {
-        code: "MAINTENANCE_MODE",
-        error:
-          "The dashboard is in maintenance mode: writes are frozen while a schema migration or rollback is in progress.",
+  // UNCONDITIONAL in this artifact. No flag, no bypass, no sidecar mode.
+  //
+  // This used to be gated on `maintenanceFrozen() && !bypassPossible()`, so with
+  // DASHBOARD_MAINTENANCE_MODE absent the proxy fell through to
+  // createServerClient() + auth.getUser() and answered 401 — before the
+  // handler's constant 503 could run. The runtime canary measured exactly that:
+  // 95 of 240 mutating requests returned 401 instead of 503, and a Supabase
+  // client was constructed on 190 of them. The handlers were frozen; the edge
+  // in front of them was not, which meant the artifact as a whole was not.
+  //
+  // The operator-bypass reasoning that justified the old condition belongs to a
+  // dashboard that can be unfrozen. This one cannot: `lib/frozen.ts` is a
+  // constant and there is no maintenance window to end. Keeping a bypass here
+  // would leave a path that reaches authentication on a mutating request.
+  if (isApi && MUTATING_METHODS.has(request.method)) {
+    return NextResponse.json(FROZEN_BODY, {
+      status: 503,
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Artifact-Role": ARTIFACT_ROLE,
+        "X-Writes-Enabled": "false",
       },
-      {
-        status: 503,
-        headers: { "Cache-Control": "no-store", "Retry-After": "600" },
-      },
-    );
+    });
   }
 
   // The proxy validates sessions server-side, so it reads Supabase over the

@@ -13,6 +13,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { NextRequest } from "next/server";
 
 function request(
@@ -92,7 +94,7 @@ describe("the freeze at the edge", () => {
     const proxy = await loadProxy();
     const response = await proxy(request("/api/accounts", { method: "POST" }));
     expect(response.status).toBe(503);
-    expect((await response.json()).code).toBe("MAINTENANCE_MODE");
+    expect((await response.json()).reason).toBe("FROZEN_CONTAINMENT_BRIDGE");
   });
 
   it("keeps serving reads while frozen", async () => {
@@ -102,16 +104,24 @@ describe("the freeze at the edge", () => {
     expect(response.status).not.toBe(503);
   });
 
-  it("stands aside when an operator bypass could apply", async () => {
-    // The proxy has no authenticated user at this point, so it must not answer
-    // for the handler. `maintenanceBlock(userId)` decides, and it still
-    // refuses everyone who is not on the list.
-    vi.stubEnv("DASHBOARD_MAINTENANCE_MODE", "on");
+  // INVERTED, deliberately. This asserted that the proxy stood aside when an
+  // operator bypass could apply, so the handler could decide. That reasoning
+  // belongs to a dashboard that can be unfrozen; this artifact cannot be, and a
+  // bypass here is a path that reaches authentication on a mutating request.
+  // The runtime canary measured the cost of the old behaviour: with the flag
+  // absent, 95 of 240 mutating requests answered 401 instead of 503 and a
+  // Supabase client was constructed on 190 of them.
+  it("has no operator bypass left to stand aside for", async () => {
+    vi.stubEnv("DASHBOARD_MAINTENANCE_MODE", "off");
     vi.stubEnv("DASHBOARD_SIDECAR_ONLY", "on");
-    vi.stubEnv("DASHBOARD_FREEZE_BYPASS_USERS", "operator-1");
+    vi.stubEnv("DASHBOARD_FREEZE_BYPASS_USERS", "00000000-0000-0000-0000-000000000001");
     const proxy = await loadProxy();
-    const response = await proxy(request("/api/accounts", { method: "POST" }));
-    expect(response.status).not.toBe(503);
+    const res = await proxy(request("/api/accounts", { method: "PATCH" }));
+    expect(res.status).toBe(503);
+    expect((await res.json()).reason).toBe("FROZEN_CONTAINMENT_BRIDGE");
+    const src = readFileSync(join(__dirname, "proxy.ts"), "utf8")
+      .split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+    expect(src).not.toMatch(/bypassPossible|DASHBOARD_FREEZE_BYPASS_USERS|maintenanceFrozen/);
   });
 
   it.each([

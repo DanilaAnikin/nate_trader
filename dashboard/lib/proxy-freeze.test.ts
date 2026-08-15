@@ -53,7 +53,7 @@ describe("proxy write freeze", () => {
     for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
       const res = await proxy(req(method, "/api/accounts"));
       expect(res.status, method).toBe(503);
-      expect(await res.clone().json()).toMatchObject({ code: "MAINTENANCE_MODE" });
+      expect(await res.clone().json()).toMatchObject({ reason: "FROZEN_CONTAINMENT_BRIDGE" });
     }
     expect(authCalls).toBe(0);
   });
@@ -71,11 +71,17 @@ describe("proxy write freeze", () => {
     expect(res.status).not.toBe(503);
   });
 
-  it("lets mutating API requests through when no freeze is in force", async () => {
+  // INVERTED. There is no longer a state in which a mutating API request is
+  // let through: the refusal is unconditional in the artifact. This case used
+  // to prove the freeze was a flag; it now proves it is not.
+  it("refuses a mutating API request even with no freeze flag in force", async () => {
     delete process.env.DASHBOARD_MAINTENANCE_MODE;
-    const res = await proxy(req("POST", "/api/accounts"));
-    expect(res.status).not.toBe(503);
-    expect(authCalls).toBeGreaterThan(0);
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+      const res = await proxy(req(method, "/api/accounts"));
+      expect(res.status, method).toBe(503);
+      expect(await res.clone().json()).toMatchObject({ reason: "FROZEN_CONTAINMENT_BRIDGE" });
+    }
+    expect(authCalls, "the refusal must not contact Auth").toBe(0);
   });
 
   it("keeps /api/health reachable during a freeze", async () => {
