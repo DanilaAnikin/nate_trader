@@ -341,7 +341,40 @@ s=s.replace("'resolve_create_operation(uuid, uuid) is superseded: pass the expec
 p.write_text(s)
 PYX
 }
-expect_red "29 a silently-empty second mechanism is an error" m29 "the inline-tombstone scan found none"
+# The mutation removes 0022's inline raise. The inline scan still finds
+# 0017's two, so the count floor does not fire — the NAMED-routine check
+# does, which is the more specific and more useful reason.
+expect_red "29 losing one inline tombstone is an error" m29 "resolve_create_operation is tombstoned inline but is not in the derived set"
+
+# ── V. tombstones outside migration 0022 ────────────────────────────────────
+m30(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+# reconcile_cash_flow_mirror is tombstoned by 0017, not 0022. A derivation
+# scoped to one migration cannot see it.
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'await (supa as never as {rpc:(n:string)=>Promise<unknown>}).rpc("reconcile_cash_flow_mirror");\n    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "30 a routine tombstoned by 0017, not 0022" m30 "names tombstoned routine reconcile_cash_flow_mirror"
+
+m31(){ python3 - "$1" <<'PYX'
+import pathlib,sys,glob
+d=pathlib.Path(sys.argv[1]).parent/"supabase/migrations"
+# blunt the self-naming requirement: if the scan stops recognising the inline
+# form, that is a broken scan, not a cleaner tree
+f=sorted(glob.glob(str(d/"0017_*.sql")))[0]
+p=pathlib.Path(f); s=p.read_text()
+s=s.replace("reconcile_cash_flow_mirror is superseded by publish_broker_refresh",
+            "this routine has been retired in favour of publish_broker_refresh")
+s=s.replace("replace_equity_snapshots is superseded by publish_broker_refresh",
+            "this routine has been retired in favour of publish_broker_refresh")
+p.write_text(s)
+PYX
+}
+expect_red "31 a silently-shrunken inline scan is an error" m31 "the inline-tombstone scan yielded"
+
 
 echo
 echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed"

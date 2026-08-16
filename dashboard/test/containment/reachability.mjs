@@ -52,98 +52,117 @@ const REPO = resolve(DASH, "..");
 const errors = [];
 
 /**
- * The tombstoned routines, READ FROM THE MIGRATION rather than retyped.
+ * The tombstoned routines, derived from EVERY migration.
  *
- * The previous hardcoded list named three. Migration 0022 tombstones five —
- * `record_account_verification` and `create_account_atomic` as well — so the
- * file's own stated basis ("routines migration 0022 tombstones") was broader
- * than what it checked. A list that has to be kept in sync by hand will drift
- * away from the thing it describes; this one cannot.
+ * Three rounds of adversarial audit walked this outwards one step at a time,
+ * and each step was the same mistake at a wider radius:
+ *
+ *   a hardcoded list of three
+ *   -> the five in migration 0022's section-5 loop
+ *   -> plus resolve_create_operation, which 0022 tombstones INLINE
+ *   -> plus the two that migration 0017 tombstones, in a different file
+ *
+ * Each version was a derivation scoped to whatever the previous finding had
+ * pointed at, which is a hand-pinned list wearing a derivation's clothes.
+ *
+ * WHY THE LOOP SCAN IS NOT SIMPLY WIDENED
+ * ---------------------------------------
+ * `p.proname in (...)` appears in EIGHT migrations, and only 0022's is a
+ * tombstone loop. The others are ACL loops — 0016 is literally named
+ * global_function_acl — and widening the scan to all of them would forbid
+ * get_account_credentials, publish_broker_refresh and ten other LIVE routines,
+ * failing the proof for routines that are supposed to work. Measured, not
+ * assumed. So a loop counts only when its own file also installs a tombstone
+ * BODY: a `create or replace function %s` whose text raises "superseded".
+ *
+ * LAST DEFINITION WINS
+ * --------------------
+ * A routine tombstoned in one migration could be revived in a later one, and
+ * forbidding it then would be a false positive that fails the build. Inline
+ * definitions are therefore walked in migration order and the final one
+ * decides. (Checked: none of the eight is revived. The five from 0022's loop
+ * do have later LIVE bodies in earlier files — 0008, 0020, 0021 — which is
+ * exactly why the dynamic loop has to be read as well: it tombstones at
+ * runtime via execute format(), leaving no literal text for a text scan.)
  */
 function forbiddenRoutines() {
   const dir = join(REPO, "supabase", "migrations");
-  const file = existsSync(dir)
-    ? readdirSync(dir).find((f) => /^0022_.*\.sql$/.test(f))
-    : undefined;
-  if (!file) {
-    errors.push("cannot find supabase/migrations/0022_*.sql — the forbidden list has no source");
+  if (!existsSync(dir)) {
+    errors.push("cannot find supabase/migrations — the forbidden list has no source");
     return [];
   }
-  const sql = readFileSync(join(dir, file), "utf8");
+  const files = readdirSync(dir).filter((f) => /\.sql$/.test(f)).sort();
+  if (files.length < 20) {
+    errors.push(`only ${files.length} migrations found — the scan is looking in the wrong place`);
+  }
 
-  // MECHANISM 1: the dynamic loop in section 5, driven by `p.proname in (...)`.
-  const loop = sql.match(/p\.proname\s+in\s*\(([\s\S]*?)\)\s*\n/);
-  const fromLoop = loop ? [...loop[1].matchAll(/'([a-z0-9_]+)'/g)].map((x) => x[1]) : [];
-  if (!loop) errors.push(`cannot parse the section-5 tombstone list out of ${file}`);
+  const strip = (t) => t.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
 
-  // MECHANISM 2: functions tombstoned INLINE, by a `create or replace` whose
-  // body raises "is superseded".
+  // A tombstone announces ITSELF. Every real one in this tree reads
+  // "<routine>(<sig>) is superseded ...", and the loop's format() template is
+  // "%s is superseded and must not be called".
   //
-  // This exists because scoping the derivation to section 5 is not the same as
-  // scoping it to the migration, and an adversarial audit proved the
-  // difference: 0022 also tombstones resolve_create_operation(uuid, uuid) at
-  // lines 151-168, directly, with a different message —
-  // "is superseded: pass the expected request fingerprint" rather than
-  // "is superseded and must not be called". Parsing one list found five names
-  // where the migration tombstones six.
-  //
-  // The auditor found it in the catalogue classifier. It was true here too, for
-  // the same reason and with the same shape: a derivation scoped to one
-  // mechanism is a hand-pinned list wearing a derivation's clothes.
-  // The two halves must be the SAME STATEMENT, and prose does not count.
-  //
-  // The first version of this scan tested "is superseded appears within 2000
-  // characters" AND "raise exception appears within 2000 characters" as
-  // independent conditions. It reported begin_account_verification as
-  // tombstoned: its `raise exception` at offset 433 is an ordinary argument
-  // check, and "is superseded" appears at offset 1706 inside a COMMENT reading
-  // "this account is superseded here". Two true facts about one function, and
-  // a false conclusion from their conjunction.
-  //
-  // So: SQL comments are stripped first — the same rule that had to be applied
-  // to the browser data-plane guard today, for the same reason — and the
-  // message must belong to the raise.
-  const sqlNoComments = sql.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
-  const fromInline = [];
-  const CREATE_FN = /create\s+or\s+replace\s+function\s+(?:[a-z0-9_]+\.)?([a-z0-9_]+)\s*\(/gi;
-  for (const m of sqlNoComments.matchAll(CREATE_FN)) {
-    // A function's body ends at its own dollar-quote terminator, NOT at the
-    // next `create or replace function`.
-    //
-    // Slicing to the next function absorbed everything between them, and
-    // section 5's tombstone loop is a `do $$ ... $$` block rather than a
-    // function — so its format() string, "%s is superseded and must not be
-    // called", was attributed to whichever function happened to precede it.
-    // That reported audit_log_detail_guard as tombstoned. It is the guard that
-    // ARMS the audit rules; treating it as superseded would have been a
-    // confident, precisely-worded lie.
-    const after = sqlNoComments.slice(m.index);
-    const tag = after.match(/\bas\s+(\$[a-z_]*\$)/i);
-    if (!tag) continue;
-    const bodyStart = after.indexOf(tag[1]) + tag[1].length;
-    const bodyEnd = after.indexOf(tag[1], bodyStart);
-    if (bodyEnd < 0) continue;
-    const body = after.slice(bodyStart, bodyEnd);
-    if (/raise\s+exception\s+'[^']*is superseded/i.test(body)) {
-      fromInline.push(m[1].toLowerCase());
+  // The looser test — any raise mentioning "supersed" — reported
+  // finish_account_verification as dead. It is live, and its body raises
+  // "verification token % was superseded by a later verification": a TOKEN
+  // being superseded, not the routine. The word was right and the subject was
+  // not. Requiring the routine to name itself is what separates the two.
+  const supersededSelf = (body, name) =>
+    new RegExp(`raise\\s+exception\\s+'\\s*(?:${name}|%s)\\s*(?:\\([^']*?\\))?\\s+is superseded`, "i").test(body);
+  const INSTALLS_TOMBSTONE = /raise\s+exception\s+'\s*%s\s+is superseded/i;
+
+  let fromLoop = [];
+  const inlineState = new Map(); // routine -> true when its LAST definition is a tombstone
+
+  for (const f of files) {
+    const sql = strip(readFileSync(join(dir, f), "utf8"));
+
+    // MECHANISM 1 — a loop that installs tombstone bodies. Only a file that
+    // also contains `create or replace function %s` with a superseded raise
+    // is doing that; the rest are ACL loops.
+    const installsTombstones =
+      /create\s+or\s+replace\s+function\s+%s/i.test(sql) && INSTALLS_TOMBSTONE.test(sql);
+    if (installsTombstones) {
+      const loop = sql.match(/p\.proname\s+in\s*\(([\s\S]*?)\)\s*\n/);
+      if (loop) fromLoop = [...loop[1].matchAll(/'([a-z0-9_]+)'/g)].map((x) => x[1]);
+    }
+
+    // MECHANISM 2 — an inline `create or replace` whose own body raises
+    // "superseded". Each body is bounded by ITS OWN dollar-quote terminator:
+    // slicing to the next `create or replace` absorbed 0022's do-block and
+    // attributed its format() string to the preceding function, which reported
+    // audit_log_detail_guard — the guard that ARMS the audit rules — as dead.
+    const CREATE_FN = /create\s+or\s+replace\s+function\s+(?:[a-z0-9_]+\.)?([a-z0-9_]+)\s*\(/gi;
+    for (const m of sql.matchAll(CREATE_FN)) {
+      const name = m[1].toLowerCase();
+      if (name === "%s") continue;
+      const after = sql.slice(m.index);
+      const tag = after.match(/\bas\s+(\$[a-z_]*\$)/i);
+      if (!tag) continue;
+      const b0 = after.indexOf(tag[1]) + tag[1].length;
+      const b1 = after.indexOf(tag[1], b0);
+      if (b1 < 0) continue;
+      inlineState.set(name, supersededSelf(after.slice(b0, b1), name));
     }
   }
 
+  const fromInline = [...inlineState.entries()].filter(([, t]) => t).map(([n]) => n);
   const names = [...new Set([...fromLoop, ...fromInline])].sort();
 
-  // Non-vacuity, per mechanism. A union is only as good as its narrowest
-  // contributor, and a silently-empty contributor is invisible in the total.
+  // Non-vacuity per mechanism. A union is only as good as its narrowest input,
+  // and a silently-empty contributor is invisible in the total. These floors
+  // are the counts measured against this migration set; a scan that finds
+  // fewer is broken, not looking at a cleaner tree.
   if (fromLoop.length < 5) {
-    errors.push(`section-5 loop yielded ${fromLoop.length} routines — expected at least 5`);
+    errors.push(`the tombstone-installing loop yielded ${fromLoop.length} routines — expected at least 5`);
   }
-  if (fromInline.length < 1) {
-    errors.push(
-      `the inline-tombstone scan found none in ${file} — it found resolve_create_operation when written; ` +
-        `finding zero means the scan is broken, not that the migration changed`,
-    );
+  if (fromInline.length < 3) {
+    errors.push(`the inline-tombstone scan yielded ${fromInline.length} routines — expected at least 3`);
   }
-  if (!names.includes("resolve_create_operation")) {
-    errors.push("resolve_create_operation is not in the derived tombstone set — the second mechanism is not working");
+  for (const known of ["resolve_create_operation", "reconcile_cash_flow_mirror", "replace_equity_snapshots"]) {
+    if (!names.includes(known)) {
+      errors.push(`${known} is tombstoned inline but is not in the derived set — the scan is broken`);
+    }
   }
   return names;
 }
@@ -469,7 +488,7 @@ if (!probe) {
 
 console.log(`entrypoints: ${eps.length} (route files on disk: ${routeFileCount})`);
 console.log(`modules walked (with repeats): ${modulesWalked}`);
-console.log(`forbidden routines (read from migration 0022): ${FORBIDDEN_ROUTINES.join(", ")}`);
+console.log(`forbidden routines (derived from every migration): ${FORBIDDEN_ROUTINES.join(", ")}`);
 console.log(`mutation surface (derived: table writes + tombstoned-routine names): ${FORBIDDEN_MODULES.join(", ")}`);
 
 if (errors.length) {
