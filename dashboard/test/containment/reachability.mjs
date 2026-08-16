@@ -70,15 +70,80 @@ function forbiddenRoutines() {
     return [];
   }
   const sql = readFileSync(join(dir, file), "utf8");
-  // the `p.proname in ( ... )` list that drives the tombstone loop
-  const m = sql.match(/p\.proname\s+in\s*\(([\s\S]*?)\)\s*\n/);
-  if (!m) {
-    errors.push(`cannot parse the tombstone list out of ${file}`);
-    return [];
+
+  // MECHANISM 1: the dynamic loop in section 5, driven by `p.proname in (...)`.
+  const loop = sql.match(/p\.proname\s+in\s*\(([\s\S]*?)\)\s*\n/);
+  const fromLoop = loop ? [...loop[1].matchAll(/'([a-z0-9_]+)'/g)].map((x) => x[1]) : [];
+  if (!loop) errors.push(`cannot parse the section-5 tombstone list out of ${file}`);
+
+  // MECHANISM 2: functions tombstoned INLINE, by a `create or replace` whose
+  // body raises "is superseded".
+  //
+  // This exists because scoping the derivation to section 5 is not the same as
+  // scoping it to the migration, and an adversarial audit proved the
+  // difference: 0022 also tombstones resolve_create_operation(uuid, uuid) at
+  // lines 151-168, directly, with a different message —
+  // "is superseded: pass the expected request fingerprint" rather than
+  // "is superseded and must not be called". Parsing one list found five names
+  // where the migration tombstones six.
+  //
+  // The auditor found it in the catalogue classifier. It was true here too, for
+  // the same reason and with the same shape: a derivation scoped to one
+  // mechanism is a hand-pinned list wearing a derivation's clothes.
+  // The two halves must be the SAME STATEMENT, and prose does not count.
+  //
+  // The first version of this scan tested "is superseded appears within 2000
+  // characters" AND "raise exception appears within 2000 characters" as
+  // independent conditions. It reported begin_account_verification as
+  // tombstoned: its `raise exception` at offset 433 is an ordinary argument
+  // check, and "is superseded" appears at offset 1706 inside a COMMENT reading
+  // "this account is superseded here". Two true facts about one function, and
+  // a false conclusion from their conjunction.
+  //
+  // So: SQL comments are stripped first — the same rule that had to be applied
+  // to the browser data-plane guard today, for the same reason — and the
+  // message must belong to the raise.
+  const sqlNoComments = sql.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  const fromInline = [];
+  const CREATE_FN = /create\s+or\s+replace\s+function\s+(?:[a-z0-9_]+\.)?([a-z0-9_]+)\s*\(/gi;
+  for (const m of sqlNoComments.matchAll(CREATE_FN)) {
+    // A function's body ends at its own dollar-quote terminator, NOT at the
+    // next `create or replace function`.
+    //
+    // Slicing to the next function absorbed everything between them, and
+    // section 5's tombstone loop is a `do $$ ... $$` block rather than a
+    // function — so its format() string, "%s is superseded and must not be
+    // called", was attributed to whichever function happened to precede it.
+    // That reported audit_log_detail_guard as tombstoned. It is the guard that
+    // ARMS the audit rules; treating it as superseded would have been a
+    // confident, precisely-worded lie.
+    const after = sqlNoComments.slice(m.index);
+    const tag = after.match(/\bas\s+(\$[a-z_]*\$)/i);
+    if (!tag) continue;
+    const bodyStart = after.indexOf(tag[1]) + tag[1].length;
+    const bodyEnd = after.indexOf(tag[1], bodyStart);
+    if (bodyEnd < 0) continue;
+    const body = after.slice(bodyStart, bodyEnd);
+    if (/raise\s+exception\s+'[^']*is superseded/i.test(body)) {
+      fromInline.push(m[1].toLowerCase());
+    }
   }
-  const names = [...m[1].matchAll(/'([a-z0-9_]+)'/g)].map((x) => x[1]);
-  if (names.length < 5) {
-    errors.push(`parsed only ${names.length} tombstoned routines from ${file} — expected at least 5`);
+
+  const names = [...new Set([...fromLoop, ...fromInline])].sort();
+
+  // Non-vacuity, per mechanism. A union is only as good as its narrowest
+  // contributor, and a silently-empty contributor is invisible in the total.
+  if (fromLoop.length < 5) {
+    errors.push(`section-5 loop yielded ${fromLoop.length} routines — expected at least 5`);
+  }
+  if (fromInline.length < 1) {
+    errors.push(
+      `the inline-tombstone scan found none in ${file} — it found resolve_create_operation when written; ` +
+        `finding zero means the scan is broken, not that the migration changed`,
+    );
+  }
+  if (!names.includes("resolve_create_operation")) {
+    errors.push("resolve_create_operation is not in the derived tombstone set — the second mechanism is not working");
   }
   return names;
 }

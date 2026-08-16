@@ -314,6 +314,35 @@ PYX
 }
 expect_red "27 a broken derivation is an error, not a clean tree" m27 "the rule is not working"
 
+# ── IV. the second tombstoning mechanism ────────────────────────────────────
+m28(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+d=pathlib.Path(sys.argv[1])
+# resolve_create_operation is tombstoned by 0022 INLINE, not by the section-5
+# loop. A derivation scoped to that loop misses it, which is what an audit
+# demonstrated in the sibling catalogue classifier.
+p=d/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'await (supa as never as {rpc:(n:string)=>Promise<unknown>}).rpc("resolve_create_operation");\n    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "28 an INLINE-tombstoned routine is forbidden too" m28 "names tombstoned routine resolve_create_operation"
+
+m29(){ python3 - "$1" <<'PYX'
+import pathlib,sys,glob,re
+d=pathlib.Path(sys.argv[1]).parent/"supabase/migrations"
+f=sorted(glob.glob(str(d/"0022_*.sql")))[0]
+p=pathlib.Path(f); s=p.read_text()
+# remove the inline tombstone's raise; the mechanism-2 scan must notice it
+# found nothing rather than silently contributing zero to the union
+s=s.replace("'resolve_create_operation(uuid, uuid) is superseded: pass the expected request fingerprint'",
+            "'resolve_create_operation(uuid, uuid) is retired'")
+p.write_text(s)
+PYX
+}
+expect_red "29 a silently-empty second mechanism is an error" m29 "the inline-tombstone scan found none"
+
 echo
 echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed"
 [[ $BAD -eq 0 ]] && { echo "FALSIFICATION GREEN — every mutation is detected, each for its own reason"; exit 0; } \
