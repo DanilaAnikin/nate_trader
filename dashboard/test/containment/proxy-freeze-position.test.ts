@@ -54,6 +54,22 @@ function prologue(): string {
 }
 
 describe("the write freeze is the first decision the proxy makes", () => {
+  it("the prologue is non-empty and is the real one", () => {
+    // Every assertion below is of the form "the prologue does not contain X",
+    // and an EMPTY prologue satisfies all of them. Its passing value is also
+    // its failure-to-run value.
+    //
+    // It was guarded, but only transitively: an empty region would fail the
+    // return-count and branch-count checks further down. That is protection by
+    // side effect, and a control that fires as somebody else's failure is one
+    // nobody will recognise when it does. So the emptiness is asserted here,
+    // in its own right, naming what it expects to find.
+    const p = prologue();
+    expect(p.length, "the prologue is empty — every check below would pass vacuously").toBeGreaterThan(100);
+    expect(p).toContain("const path = request.nextUrl.pathname;");
+    expect(p).toContain("const isApi =");
+  });
+
   it("the freeze condition has exactly its two conjuncts", () => {
     // An extra `&& something` is how the flag gate came back the first time.
     // Matching the whole condition, not a substring of it, is what makes an
