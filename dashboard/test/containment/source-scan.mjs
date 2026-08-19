@@ -32,7 +32,24 @@ import ts from "typescript";
  * interpolation itself contains a backtick is consumed as one literal. That is
  * conservative in the safe direction — it removes nothing — and no file in this
  * tree does it. */
+/* Parsing is correct but not free, and the callers re-ask the same question a
+ * lot: the analyzer strips each closure member once per entrypoint that reaches
+ * it (363 module visits over 26 entrypoints), and browser-data-plane.test.ts
+ * strips every file in the tree in one `it`, which timed out at 5s the moment
+ * this became a real parse. Keyed on the content as well as the name, so a
+ * changed file is never answered from the cache. */
+const STRIP_CACHE = new Map();
+
 export function stripComments(src, fileName = "input.tsx") {
+  const key = `${fileName}\u0000${src}`;
+  const hit = STRIP_CACHE.get(key);
+  if (hit !== undefined) return hit;
+  const out = stripCommentsUncached(src, fileName);
+  STRIP_CACHE.set(key, out);
+  return out;
+}
+
+function stripCommentsUncached(src, fileName) {
   // Parsed, not lexed by hand. The hand-written scanner this replaces guessed
   // at the two hardest questions in JavaScript tokenisation and got both wrong
   // in the dangerous direction:

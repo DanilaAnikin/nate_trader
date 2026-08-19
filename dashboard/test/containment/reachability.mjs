@@ -211,7 +211,30 @@ const FORBIDDEN_ROUTINES = forbiddenRoutines();
  * which the old two-entry list MISSED.
  */
 const TABLE_WRITE_RE =
-  /\.from\s*\(\s*["'`][^"'`]+["'`]\s*\)[\s\S]{0,300}?\.(insert|update|upsert|delete)\s*\(/;
+  /\.\s*from\s*(?:\?\.)?\s*\(\s*["'`][^"'`]+["'`]\s*\)[\s\S]{0,300}?\.\s*(?:insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/;
+
+/** THE RULE, in one place, so the set that is DERIVED and the set that is
+ *  DECIDED cannot be different sets.
+ *
+ *  They were. `forbiddenModules()` enumerated only app/, lib/ and components/
+ *  minus SKIP_DIRS, while `closureOf()` follows resolved import edges ANYWHERE
+ *  under the dashboard. So a module at dashboard/server/writer.ts — or at
+ *  dashboard/lib/e2e/writer.ts, inside a skipped directory — could do a
+ *  textbook `svc.from("accounts").delete()`, be imported by a route, and never
+ *  enter the derived set. Demonstrated: modulesWalked rose from 363 to 364, so
+ *  the analyzer WALKED INTO the file, and still printed PASS. None of the three
+ *  newer detectors covers it either: the table name is a literal, there is no
+ *  computed access, and the import edge is a plain static one.
+ *
+ *  The offence loop now applies this rule to the closure member it is holding,
+ *  rather than looking the member up in a list derived over a different walk.
+ *  The derived list is still computed, because it is what gets REPORTED — and
+ *  a closure member that this rule flags but that list does not contain is now
+ *  an error, so the report cannot quietly understate the surface either. */
+function isMutationSurface(src) {
+  if (TABLE_WRITE_RE.test(src)) return true;
+  return FORBIDDEN_ROUTINES.some((r) => new RegExp(`["'\`]${r}["'\`]`).test(src));
+}
 
 function forbiddenModules() {
   const found = [];
@@ -224,11 +247,7 @@ function forbiddenModules() {
         errors.push(`${relative(DASH, f)}: unreadable while deriving the mutation surface`);
         continue;
       }
-      const writesTable = TABLE_WRITE_RE.test(src);
-      const namesTombstone = FORBIDDEN_ROUTINES.some((r) =>
-        new RegExp(`["'\`]${r}["'\`]`).test(src),
-      );
-      if (writesTable || namesTombstone) found.push(relative(DASH, f));
+      if (isMutationSurface(src)) found.push(relative(DASH, f));
     }
   }
   // Non-vacuity: a derivation that finds nothing would make the whole rule
@@ -368,7 +387,37 @@ const COMPUTED_DATAPLANE_RE = /\[\s*["'`](rpc|from|insert|update|upsert|delete)[
  * matters is the shape TABLE_WRITE_RE is blind to: a `.from()` the rule cannot
  * read, feeding a method that writes. */
 const FROM_NONLITERAL_WRITE_RE =
-  /\.from\s*\(\s*(?!["'`])[^)]*\)[\s\S]{0,300}?\.(insert|update|upsert|delete)\s*\(/g;
+  /\.\s*from\s*(?:\?\.)?\s*\(\s*(?!["'`])[^)]*\)[\s\S]{0,300}?\.\s*(insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/g;
+
+/* THE `.from` FAMILY GETS THE SAME ACCOUNTING `.rpc` HAS.
+ *
+ * Both write rules used to require the literal token `.from(`, so two ordinary
+ * spellings defeated them at once and emitted nothing:
+ *
+ *     const { from } = svc; from("equity_snapshots").upsert(rows)   // no dot
+ *     svc?.from?.("accounts")?.update?.({ … })                      // ?. between
+ *
+ * `.rpc` has had both halves of this since an earlier round — an explicit `\??`
+ * for optional chaining AND RPC_ANY_RE to catch every mention it cannot
+ * classify. The `.from` rules had neither, so an UNREADABLE `.from` was
+ * reported as an ABSENT `.from` — the exact failure mode the header of this
+ * file says is forbidden.
+ *
+ * A receiver allowlist is unavoidable because `Array.from` and `Buffer.from`
+ * are ordinary code (measured: four `Buffer.from` in lib/status/zip.ts). It is
+ * small, explicit, and has a positive control in the mutant suite so it cannot
+ * quietly grow into a hole. */
+const FROM_BUILTIN_RECEIVERS = new Set([
+  "Array", "Buffer", "Object", "Date", "Promise", "Map", "Set", "WeakMap", "WeakSet",
+  "Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array",
+  "Int32Array", "Uint32Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array",
+]);
+/** `X.from(` / `X?.from?.(` with the receiver captured. */
+const FROM_WITH_RECEIVER_RE = /([A-Za-z_$][\w$]*)\s*\??\.\s*from\s*(?:\?\.)?\s*\(/g;
+/** A `from(` call with no receiver at all — an alias or a destructured method. */
+const FROM_BARE_CALL_RE = /(?:^|[^.\w$])from\s*(?:\?\.)?\s*\(/g;
+/** `const { from } = …` / `const { from: alias } = …` */
+const FROM_DESTRUCTURED_RE = /(?:const|let|var)\s*\{[^}]*\bfrom\b[^}]*\}\s*=/g;
 /** `import(...)` and `require(...)`, literal or not — both are edges. */
 const DYNAMIC_RE = /\b(?:import|require)\s*\(\s*([^)]*?)\s*\)/g;
 /** Every mention of `.rpc`, however it is spelled. */
@@ -429,6 +478,22 @@ function closureOf(entry) {
     // name, so `const T = "equity_snapshots"; svc.from(T).upsert(rows)` was not
     // a table write and the module never became mutation surface. Counted the
     // same way `.rpc` is: every occurrence must be one the rule can read.
+    for (const m of src.matchAll(FROM_DESTRUCTURED_RE)) {
+      errors.push(`${rel}: \`from\` is destructured (${m[0].slice(0, 48)}) — a later from(...) call has no receiver this analyzer can read`);
+    }
+    FROM_WITH_RECEIVER_RE.lastIndex = 0;
+    for (const m of src.matchAll(FROM_WITH_RECEIVER_RE)) {
+      if (FROM_BUILTIN_RECEIVERS.has(m[1])) continue;
+      const after = src.slice(m.index + m[0].length).trimStart();
+      if (!/^["'`]/.test(after)) {
+        errors.push(`${rel}: ${m[1]}.from(...) without a literal table name — the table-write rule cannot read it`);
+      }
+    }
+    FROM_BARE_CALL_RE.lastIndex = 0;
+    for (const m of src.matchAll(FROM_BARE_CALL_RE)) {
+      errors.push(`${rel}: a from(...) call with no receiver (${m[0].trim().slice(0, 32)}) — cannot be classified`);
+    }
+
     FROM_NONLITERAL_WRITE_RE.lastIndex = 0;
     for (const m of src.matchAll(FROM_NONLITERAL_WRITE_RE)) {
       errors.push(
@@ -527,8 +592,19 @@ for (const ep of eps) {
         offences.push(`${rel} -> ${fr}: names tombstoned routine ${routine}`);
       }
     }
-    for (const m of FORBIDDEN_MODULES) {
-      if (fr === m) offences.push(`${rel} -> ${fr}: mutation surface in a production entrypoint closure`);
+    // Applied to THIS module's source, not looked up in a list built by a
+    // different walk. `namesTombstone` is already reported above with the
+    // routine named, so only report the table-write half here to avoid
+    // duplicating one offence as two.
+    if (TABLE_WRITE_RE.test(src)) {
+      offences.push(`${rel} -> ${fr}: mutation surface in a production entrypoint closure`);
+      if (!FORBIDDEN_MODULES.includes(fr)) {
+        errors.push(
+          `${fr} is mutation surface reachable from ${rel}, but the derivation's roots ` +
+            `(app, lib, components minus ${[...SKIP_DIRS].join("/")}) never scanned it — ` +
+            `the reported surface understates what the walk reaches`,
+        );
+      }
     }
   }
 }

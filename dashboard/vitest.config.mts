@@ -36,5 +36,27 @@ export default defineConfig({
     include: ["**/*.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"],
     exclude: ["node_modules/**", ".next/**", "dist/**", "e2e/**"],
     setupFiles: ["test/setup.ts"],
+    // Vitest's default per-test bound is 5000ms, and two tests now sit either
+    // side of it under a full parallel run:
+    //
+    //   lib/supabase/browser-data-plane.test.ts strips EVERY file in the tree
+    //   in a single `it`. That became a real TypeScript parse when the
+    //   hand-written comment scanner was replaced (it had been defeated twice),
+    //   so the work is genuinely larger — 3.4s alone, over 5s under sixteen
+    //   workers. The result is unchanged; only the cost is.
+    //
+    //   components/PortfolioClient.test.tsx takes 4.94s ALONE. It has been
+    //   intermittently red since long before this change (see the note in
+    //   test/setup.ts: reproduced once in eighteen runs with the earlier
+    //   asyncUtilTimeout increase already in place, cause still unknown). A
+    //   heavier suite makes an already-marginal test tip over more often.
+    //
+    // THIS IS NOT A FIX FOR THAT FLAKE, and must not be read as one. It stops a
+    // timeout bound from being what reports it — a test that never renders
+    // still fails, thirty seconds later — so a red result means something is
+    // actually wrong rather than that the machine was busy. The flake itself is
+    // still open and still worth chasing: an intermittently red gate teaches
+    // people to re-run a gate, and a gate people re-run is not a gate.
+    testTimeout: 30000,
   },
 });

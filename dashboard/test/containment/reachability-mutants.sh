@@ -71,14 +71,48 @@ run_analyzer(){ node "$1/test/containment/reachability.mjs" >"$1/out.txt" 2>&1; 
 #
 # The substring is what makes this a detection rather than a crash. It must be
 # the offence the mutation was written to provoke.
+# A digest over the prepared tree, so a mutation that changes nothing can be
+# told from one that changes something.
+# Over the WHOLE prepared root, not just its dashboard/ subtree. `prepare`
+# returns "$d/dashboard" but also copies supabase/migrations beside it, and
+# four mutants (22, 24, 29, 31) patch only the migrations — digesting the
+# dashboard alone reported those as "changed nothing" the moment this guard was
+# added, which would have been a false accusation against four working mutants.
+# STRUCTURE AND CONTENT. Content alone is not enough: mutant 22 plants a
+# DANGLING SYMLINK, which `find -type f` does not match and which has no
+# content to hash, so a content-only digest called that mutation "no change"
+# and accused a working mutant of being disarmed. The entry list carries the
+# type and the link target, so creations, deletions and symlinks all move it.
+tree_digest(){
+  local root; root="$(dirname "$1")"
+  {
+    find "$root" -not -path '*/node_modules/*' -printf '%y %P %l\n' 2>/dev/null | LC_ALL=C sort
+    find "$root" -type f -not -path '*/node_modules/*' -print0 2>/dev/null \
+      | LC_ALL=C sort -z | xargs -0 sha256sum 2>/dev/null
+  } | sha256sum | cut -d' ' -f1
+}
+
 expect_red(){
   local label="$1" fn="$2" want="$3"
   MUTANTS=$((MUTANTS+1))
   local d; d="$(prepare "m$(printf '%s' "$label" | tr -c 'a-zA-Z0-9' '_')")"
+  local before; before="$(tree_digest "$d")"
   "$fn" "$d"
+  # THE MUTATION MUST HAVE MUTATED SOMETHING.
+  #
+  # Mutant 27 patched a source line by exact string match; a refactor renamed
+  # that line, `str.replace` found nothing, the "mutant" was a pristine tree,
+  # and the analyzer passed it — reported as a MISSED mutation, which reads as
+  # a hole in the analyzer when it was a hole in the mutant. A no-op mutation
+  # is a harness failure and has to say so in its own words, because the two
+  # look identical from the outside.
+  if [[ "$(tree_digest "$d")" == "$before" ]]; then
+    BAD=$((BAD+1)); note NOT-OK "$label" "the mutation changed NOTHING — this mutant is disarmed, not passing"
+    return
+  fi
   if run_analyzer "$d"; then
     BAD=$((BAD+1)); note NOT-OK "$label" "analyzer still PASSED"
-  elif grep -qF "$want" "$d/out.txt"; then
+  elif grep -qF -- "$want" "$d/out.txt"; then
     OK=$((OK+1)); note ok "$label"
   else
     BAD=$((BAD+1)); note NOT-OK "$label" "went red, but not for '$want'"
@@ -314,7 +348,7 @@ d=pathlib.Path(sys.argv[1])
 # must be an ERROR rather than a clean tree — the failure mode the two blockers
 # of the day both had.
 p=d/"test/containment/reachability.mjs"; s=p.read_text()
-s=s.replace("if (writesTable || namesTombstone) found.push(relative(DASH, f));",
+s=s.replace("if (isMutationSurface(src)) found.push(relative(DASH, f));",
             "if (false) found.push(relative(DASH, f));")
 p.write_text(s)
 PYX
@@ -399,8 +433,14 @@ s=('import { brokerStatus } from "@/lib/status/broker"; '
 p.write_text(s)
 PYX
 }
+# Asserts the EDGE — the offence naming lib/accounts/credentials.ts — rather
+# than one particular wording. credentials.ts is now reported with the more
+# specific "names tombstoned routine" reason, because the offence loop applies
+# the table-write rule to the module it is holding instead of looking the name
+# up in a list; either way the point of this mutant is that the second
+# specifier on the line produced an import edge at all.
 expect_red "32 a second import on the same line is an edge, not a silence" m32 \
-  "mutation surface in a production entrypoint closure"
+  "-> lib/accounts/credentials.ts"
 
 # `.rpc` was matched as /\.rpc\b/, which computed access does not contain, and
 # the concatenated name is not a literal — so BOTH RPC controls missed it.
@@ -486,6 +526,103 @@ PYX
 }
 expect_red "37 a regex in statement position cannot hide a table write" m37 \
   "mutation surface in a production entrypoint closure"
+
+# ── VIII. the two walks that were not the same walk (round 10) ─────────────
+# Every one of the 37 mutants above plants its payload inside app/, lib/ or
+# components/ and outside SKIP_DIRS, so the suite only ever exercised the
+# INTERSECTION of the derivation's roots and the closure walk, and could not
+# observe that they differ. These two plant outside it.
+
+# A writer module in a directory the derivation never enumerated. Measured
+# against the shipped code: modulesWalked 363 -> 364, so the analyzer walked
+# INTO the file, and still reported PASS.
+m38(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+d=pathlib.Path(sys.argv[1])
+(d/"server").mkdir(exist_ok=True)
+(d/"server/writer.ts").write_text(
+ 'import { getSupabaseService } from "@/lib/supabase/service";\n'
+ 'export async function wipe(id: string) {\n'
+ '  const svc = getSupabaseService();\n'
+ '  await svc.from("accounts").delete().eq("id", id);\n'
+ '}\n')
+p=d/"app/api/accounts/route.ts"; s=p.read_text()
+p.write_text('import { wipe } from "@/server/writer";\nvoid wipe;\n' + s)
+PYX
+}
+expect_red "38 a writer outside the derivation's roots is still in the closure" m38 \
+  "mutation surface in a production entrypoint closure"
+
+# The same, inside a SKIP_DIRS directory.
+m39(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+d=pathlib.Path(sys.argv[1])
+(d/"lib/e2e").mkdir(parents=True, exist_ok=True)
+(d/"lib/e2e/writer.ts").write_text(
+ 'import { getSupabaseService } from "@/lib/supabase/service";\n'
+ 'export async function wipe2(id: string) {\n'
+ '  const svc = getSupabaseService();\n'
+ '  await svc.from("accounts").delete().eq("id", id);\n'
+ '}\n')
+p=d/"app/api/accounts/route.ts"; s=p.read_text()
+p.write_text('import { wipe2 } from "@/lib/e2e/writer";\nvoid wipe2;\n' + s)
+PYX
+}
+expect_red "39 a writer inside a skipped directory is still in the closure" m39 \
+  "mutation surface in a production entrypoint closure"
+
+# ── IX. the .from spellings the write rules could not read (round 10) ──────
+# Every write mutant above is spelled `.from(`. These are the two ordinary
+# spellings that defeated BOTH write rules at once while emitting nothing —
+# an unreadable `.from` reported as an absent `.from`.
+m40(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'const { from } = supa as unknown as { from: (t: string) => { upsert: (r: unknown) => Promise<unknown> } };\n'
+ '    await from("equity_snapshots").upsert({ id: 1 });\n'
+ '    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "40 a destructured from() is unclassifiable, not absent" m40 \
+  "is destructured"
+
+m41(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'const w = supa as unknown as { from?: (t: string) => { update?: (r: unknown) => Promise<unknown> } };\n'
+ '    await w?.from?.("accounts")?.update?.({ nickname: "x" });\n'
+ '    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "41 optional chaining does not hide a table write" m41 \
+  "mutation surface in a production entrypoint closure"
+
+# POSITIVE CONTROL on the receiver allowlist. Array.from and Buffer.from are
+# ordinary code; if the allowlist ever stopped working the suite would go red
+# on the pristine tree, and somebody would widen the rule to make it green.
+# This asserts the allowlist is doing its job on a real construct, so the
+# refusals above are about the data plane and not about JavaScript.
+m42(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport function ordinary(xs: Iterable<number>, b: string) {\n'
+      '  return Array.from(xs).length + Buffer.from(b).length;\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+d42="$(prepare m42_allowlist)"; m42 "$d42"
+MUTANTS=$((MUTANTS+1))
+if run_analyzer "$d42"; then
+  OK=$((OK+1)); note ok "42 CONTROL: Array.from/Buffer.from are not refused"
+else
+  BAD=$((BAD+1)); note NOT-OK "42 CONTROL: the receiver allowlist rejected ordinary code"
+  grep -iE 'from\(' "$d42/out.txt" | head -3 | sed 's/^/           /'
+fi
 
 echo
 echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed"
