@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { hasUseServer } from "./source-scan.mjs";
 
 /**
  * Every Server Action is explicitly classified, and none can mutate data.
@@ -47,7 +48,7 @@ function walk(dir: string, out: string[] = []): string[] {
 /** Every `"use server"` module, found rather than listed. */
 const ACTION_FILES = ["app", "lib", "components"]
   .flatMap((r) => walk(join(DASH, r)))
-  .filter((f) => /^\s*["']use server["']/m.test(readFileSync(f, "utf8").slice(0, 200)))
+  .filter((f) => hasUseServer(readFileSync(f, "utf8")))
   .map((f) => relative(DASH, f))
   .sort();
 
@@ -138,5 +139,47 @@ describe("the Server Action surface is enumerated and classified", () => {
       }
     }
     expect(offences).toEqual([]);
+  });
+});
+
+describe("the action classifier reads the whole file", () => {
+  /**
+   * The classifier used to test `readFileSync(f).slice(0, 200)` — the same
+   * 200-byte head-of-file window `reachability.mjs` documents as a defect it
+   * had already fixed once. A banner comment longer than 200 bytes above a
+   * function-level `"use server"` hid the module from this file's permitted-
+   * action table, from its write-method check, and from its "only auth-only
+   * may construct a Supabase client" check, all at once — while the analyzer
+   * next door still classified it as an action.
+   *
+   * The two halves of this test are the red-before and the green-after,
+   * executed side by side rather than described.
+   */
+  const BANNER_ACTION =
+    "/".concat("*\n") +
+    " * ".concat("x".repeat(240), "\n") +
+    " */\n" +
+    "export async function hidden() {\n" +
+    '  "use server";\n' +
+    "  return 1;\n" +
+    "}\n";
+
+  it("the 200-byte window this replaced could not see a banner-shifted directive", () => {
+    // The old predicate, verbatim, as the control.
+    const old = /^\s*["']use server["']/m.test(BANNER_ACTION.slice(0, 200));
+    expect(old, "the old rule would have caught this — the fixture is not the attack shape").toBe(false);
+    expect(BANNER_ACTION.length).toBeGreaterThan(200);
+  });
+
+  it("the whole-file rule does see it", () => {
+    expect(hasUseServer(BANNER_ACTION)).toBe(true);
+  });
+
+  it("and still does not mistake prose for a directive", () => {
+    // Non-vacuity in the other direction: a rule that answered `true` for
+    // everything would pass the case above and be worthless.
+    expect(hasUseServer('// this module is not a "use server" module\nexport const a = 1;\n')).toBe(false);
+    expect(hasUseServer('/* "use server" appears here only in prose */\nexport const b = 2;\n')).toBe(false);
+    expect(hasUseServer("export const c = 3;\n")).toBe(false);
   });
 });

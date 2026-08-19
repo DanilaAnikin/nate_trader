@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { stripComments } from "./source-scan.mjs";
 
 /**
  * Nothing decides anything before the freeze.
@@ -28,9 +29,7 @@ import { join } from "node:path";
  * prologue instead of enumerating the names of things that must not be in it.
  */
 
-const SRC = readFileSync(join(__dirname, "..", "..", "proxy.ts"), "utf8")
-  .replace(/\/\*[\s\S]*?\*\//g, "")
-  .replace(/(^|[^:])\/\/.*$/gm, "$1");
+const SRC = stripComments(readFileSync(join(__dirname, "..", "..", "proxy.ts"), "utf8"));
 
 const FN = "export async function proxy(";
 const FREEZE = "if (isApi && MUTATING_METHODS.has(request.method))";

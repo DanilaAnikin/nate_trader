@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { stripComments } from "./source-scan.mjs";
 
 /**
  * What the browser is allowed to do directly, and why the freeze cannot see it.
@@ -41,9 +42,9 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-function stripComments(s: string) {
-  return s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
-}
+// stripComments is imported: it used to be a local copy of the same two
+// `replace` calls the analyzer had, and when a regex literal was shown to
+// defeat that form, every copy had the hole. One definition, in source-scan.mjs.
 
 /** Every `"use client"` module. Found, not listed. */
 const CLIENT_FILES = ["app", "components", "lib"]

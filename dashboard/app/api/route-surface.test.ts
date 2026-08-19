@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { stripComments } from "../../test/containment/source-scan.mjs";
 
 /**
  * Every route in the image, enumerated — not a list someone remembered to
@@ -40,9 +41,7 @@ function routeFiles(dir: string): string[] {
 
 /** Source with comments removed, so prose about a write is not a write. */
 function code(file: string): string {
-  return readFileSync(file, "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  return stripComments(readFileSync(file, "utf8"));
 }
 
 /**

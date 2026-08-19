@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { stripComments } from "./source-scan.mjs";
 
 /**
  * Every Route Handler in the app, in every form it can be written, everywhere
@@ -53,9 +54,7 @@ const FILES = routeFiles(APP).map((f) => relative(DASH, f));
 
 /** Source with comments stripped, so prose about a handler is not a handler. */
 function code(rel: string): string {
-  return readFileSync(join(DASH, rel), "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  return stripComments(readFileSync(join(DASH, rel), "utf8"));
 }
 
 /**

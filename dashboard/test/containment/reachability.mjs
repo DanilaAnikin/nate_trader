@@ -45,6 +45,7 @@
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { dirname, join, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stripComments, hasUseServer } from "./source-scan.mjs";
 
 const DASH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const REPO = resolve(DASH, "..");
@@ -277,10 +278,6 @@ function walkFiles(dir, out = []) {
   return out;
 }
 
-/** Source with comments removed, so prose about a directive is not a directive. */
-function stripComments(src) {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
-}
 
 /**
  * Does this module contain a Server Action?
@@ -345,8 +342,33 @@ function resolveSpec(spec, fromFile) {
   return null;
 }
 
-const IMPORT_RE = /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?)\bfrom\s*["']([^"']+)["']/g;
-const BARE_IMPORT_RE = /(?:^|\n)\s*import\s*["']([^"']+)["']/g;
+// A STATEMENT boundary, not a line boundary. These were anchored `(?:^|\n)\s*`,
+// so only the FIRST import on a physical line was ever seen:
+//
+//     import a from "@/lib/x"; import { createAccount } from "@/lib/accounts/service";
+//
+// yielded one edge, and — worse than being wrong — said nothing about it. The
+// second specifier simply did not exist as far as the walk was concerned, which
+// put a whole subgraph inside a route closure with `modulesWalked` unchanged.
+// `;`, `{` and `}` join `\n` as places a statement can begin; the accounting
+// below then requires the number of edges found to equal the number of
+// specifiers present, so a form neither anchor admits is an error rather than
+// a silence.
+const IMPORT_RE = /(?:^|[\n;{}])\s*(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?)\bfrom\s*["']([^"']+)["']/g;
+const BARE_IMPORT_RE = /(?:^|[\n;{}])\s*import\s*["']([^"']+)["']/g;
+/** Every `from "…"` / `import "…"` in the file, however it is positioned. */
+const ANY_SPEC_RE = /\bfrom\s*["'][^"']+["']|(?:^|[\n;{}(])\s*import\s*["'][^"']+["']/g;
+/** Computed access to a data-plane method: svc["rpc"], client['from'], … */
+const COMPUTED_DATAPLANE_RE = /\[\s*["'`](rpc|from|insert|update|upsert|delete)["'`]\s*\]/g;
+/** A table write whose table name is NOT a literal.
+ *
+ * Scoped to the write, deliberately. A bare `.from(` matches `Buffer.from(...)`
+ * — measured: lib/status/zip.ts has four — so counting every `.from(` against
+ * the literal ones reports a ZIP reader as an unreadable data-plane call. What
+ * matters is the shape TABLE_WRITE_RE is blind to: a `.from()` the rule cannot
+ * read, feeding a method that writes. */
+const FROM_NONLITERAL_WRITE_RE =
+  /\.from\s*\(\s*(?!["'`])[^)]*\)[\s\S]{0,300}?\.(insert|update|upsert|delete)\s*\(/g;
 /** `import(...)` and `require(...)`, literal or not — both are edges. */
 const DYNAMIC_RE = /\b(?:import|require)\s*\(\s*([^)]*?)\s*\)/g;
 /** Every mention of `.rpc`, however it is spelled. */
@@ -392,6 +414,43 @@ function closureOf(entry) {
       errors.push(
         `${rel}: ${mentions - classified} reference(s) to .rpc that are not a direct call ` +
           `(alias, .bind, property access) — cannot be classified`,
+      );
+    }
+
+    // Computed access to a data-plane method is not analyzable, and the two
+    // RPC controls above both miss it: `svc["rpc"]("vault_" + "create_secret")`
+    // contains no `.rpc` at all, and the concatenated name is not a literal.
+    COMPUTED_DATAPLANE_RE.lastIndex = 0;
+    for (const m of src.matchAll(COMPUTED_DATAPLANE_RE)) {
+      errors.push(`${rel}: computed access to the data-plane method ${m[1]} (${m[0]}) — cannot be classified`);
+    }
+
+    // `.from(` with a non-literal argument. TABLE_WRITE_RE needs a quoted table
+    // name, so `const T = "equity_snapshots"; svc.from(T).upsert(rows)` was not
+    // a table write and the module never became mutation surface. Counted the
+    // same way `.rpc` is: every occurrence must be one the rule can read.
+    FROM_NONLITERAL_WRITE_RE.lastIndex = 0;
+    for (const m of src.matchAll(FROM_NONLITERAL_WRITE_RE)) {
+      errors.push(
+        `${rel}: .from(<non-literal>) feeding .${m[1]}() — the table-write rule needs a literal ` +
+          `table name, so this write is invisible to it`,
+      );
+    }
+
+    // And the imports must ADD UP. Widening the anchor fixes the case that was
+    // found; this makes the next one an error instead of a silence, which is
+    // the whole difference between a scanner that is right today and one that
+    // says when it stops being right.
+    const specCount = (src.match(ANY_SPEC_RE) ?? []).length;
+    let edgeCount = 0;
+    for (const re of [IMPORT_RE, BARE_IMPORT_RE]) {
+      re.lastIndex = 0;
+      edgeCount += [...src.matchAll(re)].length;
+    }
+    if (specCount > edgeCount) {
+      errors.push(
+        `${rel}: ${specCount} module specifier(s) present but only ${edgeCount} import edge(s) matched — ` +
+          `the import scanner is dropping ${specCount - edgeCount} of them`,
       );
     }
 

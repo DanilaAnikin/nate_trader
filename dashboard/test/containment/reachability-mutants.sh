@@ -376,6 +376,74 @@ PYX
 expect_red "31 a silently-shrunken inline scan is an error" m31 "the inline-tombstone scan yielded"
 
 
+# ── VI. the four parser blind spots an audit measured (round 9) ─────────────
+# Each of these was verified against the shipped regexes before the fix: the
+# analyzer did not merely miss them, it reported PASS and said nothing.
+
+# The import scanner was anchored `(?:^|\n)\s*`, so only the FIRST import on a
+# physical line existed. Measured: the two-specifier line below yielded exactly
+# one edge, ["@/lib/status/broker"], and no error — the credentials subgraph
+# entered a route closure with modulesWalked unchanged.
+m32(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=('import { brokerStatus } from "@/lib/status/broker"; '
+   'import { purgeCredentials } from "@/lib/accounts/credentials";\n') + s
+p.write_text(s)
+PYX
+}
+expect_red "32 a second import on the same line is an edge, not a silence" m32 \
+  "mutation surface in a production entrypoint closure"
+
+# `.rpc` was matched as /\.rpc\b/, which computed access does not contain, and
+# the concatenated name is not a literal — so BOTH RPC controls missed it.
+m33(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'await (supa as never as Record<string, (n: string) => Promise<unknown>>)["rpc"]("vault_" + "create_secret");\n    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "33 computed access to a data-plane method cannot be classified" m33 \
+  "computed access to the data-plane method rpc"
+
+# TABLE_WRITE_RE needs a quoted table name, so a variable defeated it and the
+# module never became mutation surface.
+m34(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport async function drift(svc: { from: (t: string) => { upsert: (r: unknown) => Promise<unknown> } }) {\n'
+      '  const t = "equity_snapshots";\n'
+      '  await svc.from(t).upsert({ id: 1 });\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_red "34 a non-literal table name feeding a write is not invisible" m34 \
+  "the table-write rule needs a literal"
+
+# stripComments was two `replace` calls; the second could not tell a comment
+# from a slash inside a regex literal, and deleted the rest of the line.
+# Measured against the old helper: `const sep = /\//;` stripped the file to
+# `const sep = /\` and the write below it vanished from every check.
+m35(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport function hidden(svc: { from: (t: string) => { update: (r: unknown) => { eq: (a: string, b: string) => Promise<unknown> } } }, id: string) {\n'
+      # ON ONE LINE, which is the whole point. The old stripComments deleted
+      # from the slash to the end of the LINE, so a regex literal on its own
+      # line hid nothing — measured: separated, the UNFIXED analyzer caught
+      # this mutant too, i.e. it passed for the wrong reason. Joined, the
+      # unfixed analyzer reports PASS and the write is invisible.
+      '  const sep = /\\//; return svc.from(\"accounts\").update({ nickname: \"x\" }).eq(\"id\", id); void sep;\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_red "35 a regex literal cannot hide the code after it" m35 \
+  "mutation surface in a production entrypoint closure"
+
 echo
 echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed"
 [[ $BAD -eq 0 ]] && { echo "FALSIFICATION GREEN — every mutation is detected, each for its own reason"; exit 0; } \
