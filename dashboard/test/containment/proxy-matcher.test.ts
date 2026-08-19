@@ -59,11 +59,27 @@ describe("the proxy is wired to run on the API surface", () => {
 describe("Next's compiled matcher, when a build is present", () => {
   const built = existsSync(MANIFEST);
 
-  it("has a build to check, or defers to the gate", () => {
-    // Not an assertion about the code — a statement of which layer ran, so a
-    // green suite never silently means "the real check did not happen".
-    // proxy-matcher.mjs enforces the build's presence where it is guaranteed.
-    expect(typeof built).toBe("boolean");
+  it("defers to a layer that exists and can enforce it", () => {
+    // `expect(typeof built).toBe("boolean")` used to be here. It is true
+    // whether or not a build exists, whether or not this file loaded correctly,
+    // and whether or not the deferral it describes is real — its passing value
+    // is its failure-to-run value, which is the shape this suite exists to
+    // reject. It also mattered: in CI `npm test` runs BEFORE `npm run build`,
+    // so `built` is false and the assertion below never executes there.
+    //
+    // What can honestly be checked from this checkout is that the layer being
+    // deferred TO is present and substantial. Whether the gate invokes it is
+    // NOT checkable here: the workflow lives on the trusted branch, not in this
+    // one, so this file cannot see it. It runs `node test/containment/
+    // proxy-matcher.mjs` after the production build.
+    const enforcer = join(__dirname, "proxy-matcher.mjs");
+    expect(existsSync(enforcer), "the layer this test defers to does not exist").toBe(true);
+    const body = readFileSync(enforcer, "utf8");
+    expect(body.length, "the deferred-to enforcer is empty").toBeGreaterThan(500);
+    expect(body, "the enforcer does not read Next's compiled matcher").toContain(
+      "functions-config-manifest.json",
+    );
+    expect(body, "the enforcer does not fail when there is no build").toMatch(/exit\(1\)|process\.exitCode/);
   });
 
   it.runIf(built)("runs on every API path, including extension-suffixed ones", () => {

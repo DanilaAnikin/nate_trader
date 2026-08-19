@@ -86,6 +86,15 @@ describe("the write freeze is the first decision the proxy makes", () => {
   });
 
   it("nothing caller-controlled is consulted before the freeze", () => {
+    // PRECISELY: nothing caller-controlled BEYOND THE PATH. The health
+    // short-circuit at the top of proxy() is `if (path === "/api/health")
+    // return response;`, and `path` comes from request.nextUrl.pathname — so
+    // the blanket phrasing this file used to carry ("nothing caller-controlled
+    // is consulted before it") was not what the code does, and the test two
+    // cases down explicitly blesses that return. The exemption is safe only
+    // because the health route exports nothing mutating, which is now asserted
+    // in its own right below rather than assumed.
+    //
     // A bypass needs an input. The prologue may read the path and the method;
     // headers, cookies, body, query and search params are all attacker-chosen
     // and have no business influencing whether a write is refused.
@@ -116,6 +125,18 @@ describe("the write freeze is the first decision the proxy makes", () => {
     // shape every bypass has.
     const ifs = prologue().match(/\bif\s*\(/g) ?? [];
     expect(ifs.length, "there is a branch before the write freeze").toBe(1);
+  });
+
+  it("the one path exempted before the freeze exports nothing mutating", () => {
+    // The health short-circuit returns before the freeze can run, so anything
+    // mutating added to that route would be edge-unfrozen. Today it is GET
+    // only; this makes that a checked property of the exemption rather than a
+    // fact somebody happened to know.
+    const health = readFileSync(join(__dirname, "..", "..", "app", "api", "health", "route.ts"), "utf8");
+    const exported = [...health.matchAll(/export\s+(?:async\s+)?(?:function|const)\s+([A-Z]+)\b/g)].map((m) => m[1]);
+    expect(exported.length, "no exported handlers found in the health route — this check would be vacuous")
+      .toBeGreaterThan(0);
+    expect(exported.sort(), "the pre-freeze exemption now covers a mutating handler").toEqual(["GET"]);
   });
 
   it("the freeze is not inside a conditional block", () => {

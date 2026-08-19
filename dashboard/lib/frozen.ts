@@ -48,6 +48,33 @@
  * test/containment/client-mutations.test.ts: the browser may reach Auth and
  * nothing else. A client component that used `.from()` or `.rpc()` would sit
  * outside every control this artifact has, and that test fails on it.
+ *
+ * TWO MORE, FOUND BY AUDIT AND NAMED HERE BECAUSE THEY WERE NOT.
+ *
+ * (1) THE EDGE FREEZE IS API-SCOPED, SO SERVER ACTIONS ARE NOT EDGE-FROZEN.
+ * `proxy.ts` refuses on `isApi && MUTATING_METHODS.has(method)`. A Next Server
+ * Action is a POST to a PAGE path carrying a `Next-Action` header, so it runs
+ * the proxy — the matcher covers page paths — but `isApi` is false and the
+ * freeze block is skipped; only the auth check applies. Saying Server Actions
+ * are "inside the containment surface" overstates it: they are inside the
+ * MATCHER and inside the module-graph closure `reachability.mjs` walks, and
+ * they are enumerated and classified by
+ * test/containment/server-actions.test.ts. They are not inside the edge
+ * refusal. That is a deliberate trade — freezing them would break sign-out,
+ * which is itself a Server Action — and the three that exist are
+ * `signOut` (GoTrue), `refreshAll` (revalidatePath) and `selectAccount` (a
+ * cookie). None writes application data. The guard against a fourth one that
+ * does is static, not runtime, so it is only as good as that classifier, which
+ * is why its head-of-file window was closed.
+ *
+ * (2) THIS IMAGE DOES PERFORM ONE WRITE. `app/auth/actions.ts`'s `signOut()`
+ * runs server-side and calls GoTrue, which deletes from `auth.sessions` and
+ * `auth.refresh_tokens` in the same self-hosted Postgres. The carve-out above
+ * is written as though the Auth exception were only the browser's; it is not.
+ * The write is to the identity provider's own tables, never to application
+ * data, and it is the same category the browser exception already permits —
+ * but "this image performs no writes", unqualified, is false, and it is better
+ * to say so here than to have it discovered.
  */
 
 /** Stable, non-secret identity of this artifact. Surfaced by /api/health. */

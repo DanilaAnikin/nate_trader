@@ -32,7 +32,8 @@ function routeFiles(dir: string): string[] {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) {
       out.push(...routeFiles(full));
-    } else if (entry === "route.ts") {
+      // Every route-file form Next accepts; see permanent-freeze.test.ts.
+    } else if (/^route\.(ts|tsx|js|jsx|mjs|cjs)$/.test(entry)) {
       out.push(full);
     }
   }

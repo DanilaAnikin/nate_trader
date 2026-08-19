@@ -28,7 +28,12 @@ function routeFiles(dir = join(DASH, "app", "api"), out: string[] = []): string[
   for (const e of readdirSync(dir)) {
     const p = join(dir, e);
     if (statSync(p).isDirectory()) routeFiles(p, out);
-    else if (e === "route.ts") out.push(p);
+    // EVERY route-file form Next accepts, not just the one this tree happens
+    // to use today. Matching the literal "route.ts" meant app/api/x/route.js
+    // exporting a writing GET was seen by neither this enumerator nor
+    // app/api/route-surface.test.ts — and a GET is not refused by the edge
+    // freeze, which is deliberately method-scoped.
+    else if (/^route\.(ts|tsx|js|jsx|mjs|cjs)$/.test(e)) out.push(p);
   }
   return out;
 }
