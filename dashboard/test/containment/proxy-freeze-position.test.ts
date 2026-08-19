@@ -132,11 +132,46 @@ describe("the write freeze is the first decision the proxy makes", () => {
     // mutating added to that route would be edge-unfrozen. Today it is GET
     // only; this makes that a checked property of the exemption rather than a
     // fact somebody happened to know.
-    const health = readFileSync(join(__dirname, "..", "..", "app", "api", "health", "route.ts"), "utf8");
-    const exported = [...health.matchAll(/export\s+(?:async\s+)?(?:function|const)\s+([A-Z]+)\b/g)].map((m) => m[1]);
-    expect(exported.length, "no exported handlers found in the health route — this check would be vacuous")
+    const health = stripComments(
+      readFileSync(join(__dirname, "..", "..", "app", "api", "health", "route.ts"), "utf8"),
+      "app/api/health/route.ts",
+    );
+    // EVERY export form Next accepts, not just the declaration one. The first
+    // version matched only `export [async] function NAME` / `export const NAME`,
+    // so `export { POST }` or `export { handler as POST }` — both of which Next
+    // honours — would have left this green while sitting behind the pre-freeze
+    // `if (path === "/api/health") return response;`, i.e. edge-unfrozen. That
+    // is the same narrowing this commit series exists to remove.
+    const exported = new Set<string>();
+    for (const m of health.matchAll(/export\s+(?:async\s+)?(?:function|const|let|var)\s+([A-Za-z_$][\w$]*)/g)) {
+      exported.add(m[1]);
+    }
+    for (const block of health.matchAll(/export\s*\{([^}]*)\}/g)) {
+      for (const clause of block[1].split(",")) {
+        const name = clause.trim().split(/\s+as\s+/).pop();
+        if (name) exported.add(name.trim());
+      }
+    }
+    const handlers = [...exported].filter((n) => /^[A-Z]+$/.test(n));
+    expect(handlers.length, "no exported handlers found in the health route — this check would be vacuous")
       .toBeGreaterThan(0);
-    expect(exported.sort(), "the pre-freeze exemption now covers a mutating handler").toEqual(["GET"]);
+    expect(handlers.sort(), "the pre-freeze exemption now covers a mutating handler").toEqual(["GET"]);
+
+    // Non-vacuity on the ENUMERATOR, not just on its answer: the same reader,
+    // pointed at each form in turn, must actually see a POST. Otherwise "only
+    // GET is exported" is indistinguishable from "the reader sees nothing".
+    const seesPost = (src: string) => {
+      const found = new Set<string>();
+      for (const m of src.matchAll(/export\s+(?:async\s+)?(?:function|const|let|var)\s+([A-Za-z_$][\w$]*)/g)) found.add(m[1]);
+      for (const b of src.matchAll(/export\s*\{([^}]*)\}/g))
+        for (const c of b[1].split(",")) { const n = c.trim().split(/\s+as\s+/).pop(); if (n) found.add(n.trim()); }
+      return found.has("POST");
+    };
+    expect(seesPost("export async function POST() {}"), "declaration form not seen").toBe(true);
+    expect(seesPost("export const POST = () => {};"), "const form not seen").toBe(true);
+    expect(seesPost("async function h() {}\nexport { h as POST };"), "aliased re-export not seen").toBe(true);
+    expect(seesPost("async function POST() {}\nexport { POST };"), "plain re-export not seen").toBe(true);
+    expect(seesPost("export async function GET() {}"), "the reader invents a POST that is not there").toBe(false);
   });
 
   it("the freeze is not inside a conditional block", () => {

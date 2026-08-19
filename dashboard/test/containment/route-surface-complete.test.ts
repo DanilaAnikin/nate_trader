@@ -91,11 +91,43 @@ describe("the Route Handler surface is completely enumerated", () => {
   });
 
   it("searches every route filename, not just route.ts", () => {
-    // Guards the enumerator itself: if this regex is ever narrowed back to
-    // `route.ts`, a route.js becomes invisible again and nothing else notices.
-    expect(/^route\.\(ts\|tsx\|js\|jsx\|mjs\|cjs\)\$/.source).toBeTruthy();
-    const found = FILES.filter((f) => /route\.(ts|tsx|js|jsx|mjs|cjs)$/.test(f));
-    expect(found.length).toBe(FILES.length);
+    // THIS TEST COULD NOT FAIL. It asserted `/^route\.\(…\)\$/.source` is
+    // truthy — the `.source` of any literal regex is a non-empty string, always
+    // — and then that `FILES.filter(re).length === FILES.length`, where FILES
+    // had already been produced by that same filter, so the equality held by
+    // construction. Its own comment claimed "if this regex is ever narrowed
+    // back to `route.ts` … nothing else notices"; this test did not notice
+    // either, in a commit whose subject was "stop two checks that could not
+    // fail".
+    //
+    // What it should check is the ENUMERATORS' regex, read out of the files
+    // that enumerate, exercised against filenames Next accepts and filenames it
+    // does not. Extracted as text rather than imported, because both are inline
+    // literals inside test files.
+    const sources = [
+      join(DASH, "test/containment/permanent-freeze.test.ts"),
+      join(DASH, "app/api/route-surface.test.ts"),
+    ];
+    const patterns = sources.map((f) => {
+      const body = readFileSync(f, "utf8");
+      const m = body.match(/\/\^route\\\.\(([^)]*)\)\$\//);
+      expect(m, `no route-filename regex found in ${relative(DASH, f)} — the extraction is broken, not the enumerator`).not.toBeNull();
+      return (m as RegExpMatchArray)[1].split("|");
+    });
+    // Non-vacuity: two enumerators, both found, and they must agree.
+    expect(patterns.length).toBe(2);
+    expect(patterns[0].length, "the extracted extension list is empty").toBeGreaterThan(1);
+    expect(patterns[1]).toEqual(patterns[0]);
+
+    // Every form Next accepts must be in it, and nothing else may be.
+    expect([...patterns[0]].sort()).toEqual(["cjs", "js", "jsx", "mjs", "ts", "tsx"]);
+    const re = new RegExp(`^route\\.(${patterns[0].join("|")})$`);
+    for (const good of ["route.ts", "route.tsx", "route.js", "route.jsx", "route.mjs", "route.cjs"]) {
+      expect(re.test(good), `${good} is a route file Next accepts and the enumerator misses it`).toBe(true);
+    }
+    for (const bad of ["route.txt", "routes.ts", "myroute.ts", "route.ts.bak", "route"]) {
+      expect(re.test(bad), `${bad} is not a route file and the enumerator claims it is`).toBe(false);
+    }
   });
 
   it("every mutating handler is in the one form the strict assertions can verify", () => {

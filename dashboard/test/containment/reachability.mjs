@@ -310,9 +310,15 @@ function walkFiles(dir, out = []) {
  * Over-inclusion costs nothing here. An extra entrypoint makes the proof
  * stricter; a missed one makes it a lie.
  */
-function hasServerAction(src) {
-  return /["']use server["']/.test(stripComments(src));
-}
+// `hasUseServer`, imported at the top of this file, IS this rule. There used
+// to be a byte-identical local copy here called `hasServerAction`, and it was
+// the copy that entrypoints() called — so the import was dead. eslint said so,
+// in a warning that `npm run lint` does not fail on, which is how a commit
+// footer claiming "lint clean" managed to be true and misleading at once.
+//
+// Two copies of the rule that decides which files are entrypoints is exactly
+// the divergence that produced the 200-byte-window finding: tighten one and
+// the other silently keeps answering the old way.
 
 /** Production entrypoints, enumerated from disk. */
 const ROUTE_FILE_RE = /\/(route|page|layout|template|error|global-error|loading|not-found|default)\.(ts|tsx|js|jsx|mjs|cjs)$/;
@@ -340,7 +346,7 @@ function entrypoints() {
         errors.push(`${relative(DASH, f)}: unreadable while scanning for "use server"`);
         continue;
       }
-      if (hasServerAction(src)) eps.add(f);
+      if (hasUseServer(src, f)) eps.add(f);
     }
   }
   return [...eps].sort();
@@ -379,10 +385,24 @@ const BARE_IMPORT_RE = /(?:^|[\n;{}])\s*import\s*["']([^"']+)["']/g;
 const ANY_SPEC_RE = /\bfrom\s*["'][^"']+["']|(?:^|[\n;{}(])\s*import\s*["'][^"']+["']/g;
 /** Computed access to a data-plane method: svc["rpc"], client['from'], … */
 const COMPUTED_DATAPLANE_RE = /\[\s*["'`](rpc|from|insert|update|upsert|delete)["'`]\s*\]/g;
+/** …and the form with no literal key at all: `svc[m](…)`, `svc[k]?.(…)`.
+ *
+ *  The rule above only ever saw a QUOTED key, so `const m = "rpc"; svc[m]("…")`
+ *  walked past it — and past the literal-name rule too, since the routine name
+ *  can be concatenated. A call through a member this analyzer cannot read is
+ *  unclassifiable by definition, which under the governing rule at the top of
+ *  this file is an ERROR and not an absence.
+ *
+ *  Matches a CALL only. Ordinary computed READS (`obj[k].field`, `rows[i]`,
+ *  `map[key] = v`) are untouched, which is why the tree still passes. */
+const COMPUTED_CALL_RE = /\[\s*(?!["'`])[^\]\n]{1,60}\]\s*(?:\?\.)?\s*\(/g;
 /** A table write whose table name is NOT a literal.
  *
  * Scoped to the write, deliberately. A bare `.from(` matches `Buffer.from(...)`
- * — measured: lib/status/zip.ts has four — so counting every `.from(` against
+ * — measured: exactly one, at lib/status/zip.ts:315 — an earlier note said
+ * "four in lib/status/zip.ts", which counted Buffer.from across the whole tree
+ * (zip.ts, read-model.test.ts, zip.test.ts, test/zip-builder.ts) and attributed
+ * the total to one file — so counting every `.from(` against
  * the literal ones reports a ZIP reader as an unreadable data-plane call. What
  * matters is the shape TABLE_WRITE_RE is blind to: a `.from()` the rule cannot
  * read, feeding a method that writes. */
@@ -472,6 +492,10 @@ function closureOf(entry) {
     COMPUTED_DATAPLANE_RE.lastIndex = 0;
     for (const m of src.matchAll(COMPUTED_DATAPLANE_RE)) {
       errors.push(`${rel}: computed access to the data-plane method ${m[1]} (${m[0]}) — cannot be classified`);
+    }
+    COMPUTED_CALL_RE.lastIndex = 0;
+    for (const m of src.matchAll(COMPUTED_CALL_RE)) {
+      errors.push(`${rel}: a call through a computed, non-literal member (${m[0].trim().slice(0, 40)}) — cannot be classified`);
     }
 
     // `.from(` with a non-literal argument. TABLE_WRITE_RE needs a quoted table

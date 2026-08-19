@@ -112,7 +112,7 @@ function guessKind(fileName) {
  * window reachability.mjs documents as a defect it had already fixed: a banner
  * comment longer than 200 bytes above a function-level `"use server"` hid the
  * module from the classifier while the analyzer still saw it as an action.
- * Measured on a file with a 276-byte banner: server-actions.test.ts saw no
+ * Measured on a file with a 251-byte banner (measured from the fixture; an earlier note said 276): server-actions.test.ts saw no
  * action, reachability.mjs saw one — so the module escaped the permitted-action
  * table, the write-method check and the "only auth-only may construct a
  * Supabase client" check, all at once.
