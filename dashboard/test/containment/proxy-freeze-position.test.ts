@@ -29,7 +29,7 @@ import { stripComments } from "./source-scan.mjs";
  * prologue instead of enumerating the names of things that must not be in it.
  */
 
-const SRC = stripComments(readFileSync(join(__dirname, "..", "..", "proxy.ts"), "utf8"));
+const SRC = stripComments(readFileSync(join(__dirname, "..", "..", "proxy.ts"), "utf8"), "proxy.ts");
 
 const FN = "export async function proxy(";
 const FREEZE = "if (isApi && MUTATING_METHODS.has(request.method))";

@@ -42,7 +42,7 @@ function routeFiles(dir: string): string[] {
 
 /** Source with comments removed, so prose about a write is not a write. */
 function code(file: string): string {
-  return stripComments(readFileSync(file, "utf8"));
+  return stripComments(readFileSync(file, "utf8"), file);
 }
 
 /**

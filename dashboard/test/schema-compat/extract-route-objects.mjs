@@ -122,53 +122,11 @@ if (routeFiles.length === 0) die(`no route files found under ${API_ROOT}`);
 // ---------------------------------------------------------------------------
 
 /**
- * Remove comments without touching string contents.
- *
- * A regex-only strip corrupts `"https://x"` into `"https:` and would then miss
- * or invent a `.from()` argument. This is a small scanner instead.
+ * Re-exported, not reimplemented. This module had the seventh independent copy
+ * of comment-stripping in the tree; they are now one definition, parsed by the
+ * TypeScript compiler rather than approximated by hand.
  */
-export function stripComments(src) {
-  let out = "";
-  let i = 0;
-  const n = src.length;
-  while (i < n) {
-    const c = src[i];
-    const d = src[i + 1];
-    if (c === "/" && d === "/") {
-      while (i < n && src[i] !== "\n") i++;
-      continue;
-    }
-    if (c === "/" && d === "*") {
-      i += 2;
-      while (i < n && !(src[i] === "*" && src[i + 1] === "/")) i++;
-      i += 2;
-      out += " ";
-      continue;
-    }
-    if (c === '"' || c === "'" || c === "`") {
-      const quote = c;
-      out += c;
-      i++;
-      while (i < n) {
-        if (src[i] === "\\") {
-          out += src[i] + (src[i + 1] ?? "");
-          i += 2;
-          continue;
-        }
-        out += src[i];
-        if (src[i] === quote) {
-          i++;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-    out += c;
-    i++;
-  }
-  return out;
-}
+export { stripComments } from "../containment/source-scan.mjs";
 
 // ---------------------------------------------------------------------------
 // 3. Import resolution (local modules only)
@@ -220,7 +178,7 @@ function importSpecs(code) {
 const codeCache = new Map();
 function codeOf(file) {
   if (!codeCache.has(file)) {
-    codeCache.set(file, stripComments(readFileSync(file, "utf8")));
+    codeCache.set(file, stripComments(readFileSync(file, "utf8"), file));
   }
   return codeCache.get(file);
 }

@@ -54,7 +54,7 @@ const FILES = routeFiles(APP).map((f) => relative(DASH, f));
 
 /** Source with comments stripped, so prose about a handler is not a handler. */
 function code(rel: string): string {
-  return stripComments(readFileSync(join(DASH, rel), "utf8"));
+  return stripComments(readFileSync(join(DASH, rel), "utf8"), rel);
 }
 
 /**

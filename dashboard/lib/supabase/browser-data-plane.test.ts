@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { stripComments } from "../../test/containment/source-scan.mjs";
 
 /**
  * The browser may talk to Supabase Auth. It may not talk to the data plane.
@@ -34,9 +35,11 @@ const CODE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
  * costs no coverage. The positive control below proves the patterns still fire
  * on a real call after stripping.
  */
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
-}
+// stripComments is imported. This file carried its own copy of the same two
+// `replace` calls every other consumer had — the form a regex literal defeats —
+// and it was missed when the others were consolidated, which is why the commit
+// that consolidated them claimed "five files" and "now lives once" when the
+// real number was seven and it did not.
 
 /** Files that are allowed to reach the data plane, with the reason. */
 const ALLOWED = new Map<string, string>([

@@ -49,13 +49,13 @@ function walk(dir: string, out: string[] = []): string[] {
 /** Every `"use client"` module. Found, not listed. */
 const CLIENT_FILES = ["app", "components", "lib"]
   .flatMap((r) => walk(join(DASH, r)))
-  .filter((f) => /^\s*["']use client["']/m.test(stripComments(readFileSync(f, "utf8"))))
+  .filter((f) => /^\s*["']use client["']/m.test(stripComments(readFileSync(f, "utf8"), f)))
   .map((f) => relative(DASH, f))
   .sort();
 
 /** Those that reach Supabase at all. */
 const CLIENT_SUPABASE = CLIENT_FILES.filter((f) =>
-  /supabase\.|createBrowserClient|getSupabaseBrowser/.test(stripComments(readFileSync(join(DASH, f), "utf8"))),
+  /supabase\.|createBrowserClient|getSupabaseBrowser/.test(stripComments(readFileSync(join(DASH, f), "utf8"), f)),
 );
 
 const CLASSIFIED: Record<string, { calls: string[]; why: string }> = {
@@ -101,7 +101,7 @@ describe("the browser's direct Supabase surface is enumerated and classified", (
     // RPC from the browser would be outside every control this artifact has.
     const offences: string[] = [];
     for (const f of CLIENT_SUPABASE) {
-      const src = stripComments(readFileSync(join(DASH, f), "utf8"));
+      const src = stripComments(readFileSync(join(DASH, f), "utf8"), f);
       for (const bad of FORBIDDEN_CLIENT_CALLS) {
         if (src.includes(bad)) offences.push(`${f}: uses ${bad} from the browser`);
       }
@@ -114,7 +114,7 @@ describe("the browser's direct Supabase surface is enumerated and classified", (
       /auth\.(signInWithPassword|signInWithOtp|signInWithOAuth|signUp|signOut|updateUser|resetPasswordForEmail|verifyOtp|setSession|refreshSession|exchangeCodeForSession|getUser|getSession|onAuthStateChange)/g;
     const offences: string[] = [];
     for (const f of CLIENT_SUPABASE) {
-      const src = stripComments(readFileSync(join(DASH, f), "utf8"));
+      const src = stripComments(readFileSync(join(DASH, f), "utf8"), f);
       const allowed = CLASSIFIED[f]?.calls ?? [];
       // reads are always fine; only state-changing Auth calls need naming
       const READS = ["auth.getUser", "auth.getSession", "auth.onAuthStateChange", "auth.signOut"];

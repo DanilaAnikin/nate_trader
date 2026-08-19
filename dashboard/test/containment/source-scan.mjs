@@ -1,3 +1,5 @@
+import ts from "typescript";
+
 /**
  * ONE definition of "what does this source actually say", imported by the
  * reachability analyzer and by every containment test that needs to read
@@ -30,43 +32,58 @@
  * interpolation itself contains a backtick is consumed as one literal. That is
  * conservative in the safe direction — it removes nothing — and no file in this
  * tree does it. */
-export function stripComments(src) {
-  const REGEX_MAY_FOLLOW = /[=(,:[!&|?{};+\-*%^~<>]$|\b(?:return|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)$/;
-  let out = "";
-  for (let i = 0; i < src.length; ) {
-    const c = src[i], d = src[i + 1];
-    if (c === "/" && d === "/") { while (i < src.length && src[i] !== "\n") i += 1; continue; }
-    if (c === "/" && d === "*") {
-      i += 2;
-      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i += 1;
-      i += 2; continue;
+export function stripComments(src, fileName = "input.tsx") {
+  // Parsed, not lexed by hand. The hand-written scanner this replaces guessed
+  // at the two hardest questions in JavaScript tokenisation and got both wrong
+  // in the dangerous direction:
+  //
+  //   REGEX vs DIVISION. Its heuristic listed the characters a regex may follow
+  //   and omitted `)`. So in `if (cond) /^https?:\/\//.test(x)` the regex was
+  //   read as division, its body was copied into the code stream, and the `//`
+  //   inside it was then deleted as a line comment together with the rest of
+  //   the line. An auditor used exactly that to hide a call to a tombstoned
+  //   routine AND a table write from the analyzer, which reported PASS. Adding
+  //   `)` to the list is not a fix — `(a + b) / c` is division — the question
+  //   genuinely needs a parser.
+  //
+  //   JSX. An apostrophe in JSX text (`<p>Don't panic</p>`) opened a string
+  //   state that ran to the next `'` anywhere in the file, so code between them
+  //   was treated as string content. That was a STRICT REGRESSION: the two
+  //   `replace` calls this all started from handled those inputs correctly.
+  //
+  // TypeScript's parser answers both by construction, understands .ts/.tsx/.mts
+  // and template literals, and is already a devDependency because `tsc` runs in
+  // the same suite. Comments are blanked to spaces rather than removed so every
+  // downstream offset and line number still lines up with the real file.
+  const sf = ts.createSourceFile(fileName, src, ts.ScriptTarget.Latest, /*setParentNodes*/ true, guessKind(fileName));
+  const blanked = Array.from(src);
+  const seen = new Set();
+  const blank = (r) => {
+    const key = `${r.pos}:${r.end}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    for (let i = r.pos; i < r.end && i < blanked.length; i += 1) {
+      if (blanked[i] !== "\n" && blanked[i] !== "\r") blanked[i] = " ";
     }
-    if (c === '"' || c === "'" || c === "`") {
-      out += c; i += 1;
-      while (i < src.length) {
-        if (src[i] === "\\") { out += src[i] + (src[i + 1] ?? ""); i += 2; continue; }
-        out += src[i];
-        if (src[i] === c) { i += 1; break; }
-        i += 1;
-      }
-      continue;
-    }
-    if (c === "/" && REGEX_MAY_FOLLOW.test(out.replace(/\s+$/, ""))) {
-      out += c; i += 1;
-      let inClass = false;
-      while (i < src.length) {
-        if (src[i] === "\\") { out += src[i] + (src[i + 1] ?? ""); i += 2; continue; }
-        if (src[i] === "[") inClass = true;
-        else if (src[i] === "]") inClass = false;
-        else if (src[i] === "/" && !inClass) { out += src[i]; i += 1; break; }
-        else if (src[i] === "\n") break;              // an unterminated regex is not one
-        out += src[i]; i += 1;
-      }
-      continue;
-    }
-    out += c; i += 1;
-  }
-  return out;
+  };
+  // Every comment is leading trivia of some token, and EndOfFileToken carries
+  // any trailing comment, so walking tokens covers the file exhaustively.
+  const visit = (node) => {
+    const full = node.getFullStart();
+    for (const r of ts.getLeadingCommentRanges(src, full) ?? []) blank(r);
+    for (const r of ts.getTrailingCommentRanges(src, node.getEnd()) ?? []) blank(r);
+    node.getChildren(sf).forEach(visit);
+  };
+  visit(sf);
+  return blanked.join("");
+}
+
+/** .tsx and .jsx must be parsed as JSX; everything else as ordinary TS. */
+function guessKind(fileName) {
+  if (/\.tsx$/i.test(fileName)) return ts.ScriptKind.TSX;
+  if (/\.jsx$/i.test(fileName)) return ts.ScriptKind.JSX;
+  if (/\.m?js$|\.cjs$/i.test(fileName)) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
 }
 
 
@@ -86,6 +103,6 @@ export function stripComments(src) {
  * Deliberately crude, and deliberately the same crudeness in both places: the
  * directive anywhere outside a comment, at file level or inside a function.
  */
-export function hasUseServer(src) {
-  return /["']use server["']/.test(stripComments(src));
+export function hasUseServer(src, fileName = "input.tsx") {
+  return /["']use server["']/.test(stripComments(src, fileName));
 }

@@ -53,6 +53,13 @@ prepare(){
   local d="$WORK/$1"; rm -rf "$d"; mkdir -p "$d/dashboard"
   ( cd "$DASH" && tar --exclude=node_modules --exclude=.next --exclude=.git -cf - . ) \
     | tar -xf - -C "$d/dashboard"
+  # node_modules is EXCLUDED from the copy (it is ~1GB) but the analyzer needs
+  # it: source-scan.mjs imports the TypeScript compiler, because the two
+  # hardest tokenisation questions in JavaScript — regex-vs-division and JSX —
+  # cannot be answered by a hand-written scanner, and an auditor defeated the
+  # hand-written one in both. A symlink costs nothing and keeps the mutant tree
+  # a faithful copy in every way that matters to the analysis.
+  ln -s "$DASH/node_modules" "$d/dashboard/node_modules"
   mkdir -p "$d/supabase"
   cp -r "$REPO/supabase/migrations" "$d/supabase/migrations"
   echo "$d/dashboard"
@@ -442,6 +449,42 @@ p.write_text(s)
 PYX
 }
 expect_red "35 a regex literal cannot hide the code after it" m35 \
+  "mutation surface in a production entrypoint closure"
+
+# ── VII. the position the round-9 fix did not cover (round 10) ─────────────
+# Mutant 35 proved a regex literal cannot hide the code after it — but it wrote
+# the regex after `=`, which the hand-written scanner's heuristic happened to
+# handle. An auditor moved the SAME regex to the far more common statement
+# position `if (cond) /re/.test(x)`, where the heuristic read it as division,
+# copied the regex body into the code stream, and let the `//` inside a URL
+# pattern delete the rest of the line. Measured against the shipped scanner:
+# `REACHABILITY: PASS`, rc 0, with a call to a tombstoned routine on that line.
+#
+# The suite had been probing exactly the one position its own fix covered. This
+# mutant differs from 35 ONLY in where the regex sits.
+m36(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'if (user.id.length) /^https?:\\/\\//.test(user.id); await (supa as never as {rpc:(n:string)=>Promise<unknown>}).rpc("vault_create_secret");\n    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "36 a regex in statement position cannot hide the code after it" m36 \
+  "names tombstoned routine vault_create_secret"
+
+# The same class, on the write side, which matters more: a table write is not
+# refused by the database tombstone, so hiding one is an unrefused mutation.
+m37(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport function hidden2(svc: { from: (t: string) => { update: (r: unknown) => { eq: (a: string, b: string) => Promise<unknown> } } }, id: string) {\n'
+      '  if (id.length) /^https?:\\/\\//.test(id); return svc.from("accounts").update({ nickname: "x" }).eq("id", id);\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_red "37 a regex in statement position cannot hide a table write" m37 \
   "mutation surface in a production entrypoint closure"
 
 echo

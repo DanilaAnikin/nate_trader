@@ -219,7 +219,7 @@ function forbiddenModules() {
     for (const f of walkFiles(join(DASH, root))) {
       let src;
       try {
-        src = stripComments(readFileSync(f, "utf8"));
+        src = stripComments(readFileSync(f, "utf8"), f);
       } catch {
         errors.push(`${relative(DASH, f)}: unreadable while deriving the mutation surface`);
         continue;
@@ -517,7 +517,7 @@ for (const ep of eps) {
 
   for (const f of cl) {
     const fr = relative(DASH, f);
-    const src = stripComments(readFileSync(f, "utf8"));
+    const src = stripComments(readFileSync(f, "utf8"), f);
     for (const routine of FORBIDDEN_ROUTINES) {
       // The NAME as a string literal, not a particular call syntax. Production
       // code has no reason to name a routine that exists only to raise. This

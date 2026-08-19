@@ -48,7 +48,7 @@ function walk(dir: string, out: string[] = []): string[] {
 /** Every `"use server"` module, found rather than listed. */
 const ACTION_FILES = ["app", "lib", "components"]
   .flatMap((r) => walk(join(DASH, r)))
-  .filter((f) => hasUseServer(readFileSync(f, "utf8")))
+  .filter((f) => hasUseServer(readFileSync(f, "utf8"), f))
   .map((f) => relative(DASH, f))
   .sort();
 
