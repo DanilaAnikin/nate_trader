@@ -267,7 +267,7 @@ function isTableWrite(src) {
 function unpairedTableWrite(src) {
   FROM_WITH_RECEIVER_RE.lastIndex = 0;
   const selectsTable = [...src.matchAll(FROM_WITH_RECEIVER_RE)].some(
-    (m) => !FROM_BUILTIN_RECEIVERS.has(m[1]),
+    (m) => !(m[1] && FROM_BUILTIN_RECEIVERS.has(m[1])),
   );
   if (!selectsTable) return false;
   return /\.\s*(?:insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/.test(src);
@@ -467,8 +467,15 @@ const COMPUTED_CALL_RE = /\[\s*(?!["'`])[^\]\n]{1,60}\]\s*(?:\?\.)?\s*\(/g;
 // `.update(` — a Map, a Set, `headers.delete`, `searchParams.delete`, a crypto
 // digest's `.update` — was reported as an unreadable data-plane write. The
 // scoping was meant to stop `Buffer.from` tripping the rule and only half did.
+// The receiver is captured so BUILTINS can be excluded — but capturing it as a
+// required identifier made an identifier receiver MANDATORY, and
+// `getSupabaseService().from(TABLE)` is the idiomatic spelling in this
+// codebase. So the narrowing added to stop `Array.from` producing a false
+// positive turned every factory-call receiver into a false NEGATIVE, which is
+// strictly the worse direction. A call-expression receiver (`)`) is now matched
+// too, and group 1 is simply absent for it, so only a named builtin is excused.
 const FROM_NONLITERAL_WRITE_RE =
-  /([A-Za-z_$][\w$]*)\s*\??\.\s*from\s*(?:\?\.)?\s*\(\s*(?!["'`])[^)]*\)[\s\S]{0,300}?\.\s*(insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/g;
+  /(?:([A-Za-z_$][\w$]*)|\))\s*\??\.\s*from\s*(?:\?\.)?\s*\(\s*(?!["'`])[^)]*\)[\s\S]{0,300}?\.\s*(insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/g;
 
 /* THE `.from` FAMILY GETS THE SAME ACCOUNTING `.rpc` HAS.
  *
@@ -494,7 +501,10 @@ const FROM_BUILTIN_RECEIVERS = new Set([
   "Int32Array", "Uint32Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array",
 ]);
 /** `X.from(` / `X?.from?.(` with the receiver captured. */
-const FROM_WITH_RECEIVER_RE = /([A-Za-z_$][\w$]*)\s*\??\.\s*from\s*(?:\?\.)?\s*\(/g;
+// Same shape, same reason: a call-expression receiver must be seen. This one
+// also feeds unpairedTableWrite, so the mandatory identifier silently narrowed
+// the module-level pairing rule that exists to not depend on a window.
+const FROM_WITH_RECEIVER_RE = /(?:([A-Za-z_$][\w$]*)|\))\s*\??\.\s*from\s*(?:\?\.)?\s*\(/g;
 /** A `from(` call with no receiver at all — an alias or a destructured method. */
 const FROM_BARE_CALL_RE = /(?:^|[^.\w$])from\s*(?:\?\.)?\s*\(/g;
 /** `const { from } = …` / `const { from: alias } = …` */
@@ -593,7 +603,7 @@ function closureOf(entry) {
     }
     FROM_WITH_RECEIVER_RE.lastIndex = 0;
     for (const m of src.matchAll(FROM_WITH_RECEIVER_RE)) {
-      if (FROM_BUILTIN_RECEIVERS.has(m[1])) continue;
+      if (m[1] && FROM_BUILTIN_RECEIVERS.has(m[1])) continue;
       const after = src.slice(m.index + m[0].length).trimStart();
       if (!/^["'`]/.test(after)) {
         errors.push(`${rel}: ${m[1]}.from(...) without a literal table name — the table-write rule cannot read it`);
@@ -606,7 +616,7 @@ function closureOf(entry) {
 
     FROM_NONLITERAL_WRITE_RE.lastIndex = 0;
     for (const m of src.matchAll(FROM_NONLITERAL_WRITE_RE)) {
-      if (FROM_BUILTIN_RECEIVERS.has(m[1])) continue;
+      if (m[1] && FROM_BUILTIN_RECEIVERS.has(m[1])) continue;
       errors.push(
         `${rel}: ${m[1]}.from(<non-literal>) feeding .${m[2]}() — the table-write rule needs a literal ` +
           `table name, so this write is invisible to it`,

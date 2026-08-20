@@ -703,6 +703,43 @@ PYX
 expect_red "46 a stripper that deletes rather than blanks is caught" m46 \
   "must blank comments, not delete them"
 
+# ── XI. the two regressions round 2 introduced (round 3) ───────────────────
+
+# A single emoji before a comment shifted every blanking window, because the
+# stripper indexed a CODE POINT array with UTF-16 code-UNIT offsets — leaving
+# the comment head intact and blanking real code past it. join("") restored the
+# UTF-16 length, so the length guard added in the same round was blind. No
+# mutant planted a non-BMP character, and the tree contains none.
+m47(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport const DOTS = { a: "\U0001F7E2", b: "\U0001F7E1", c: "\U0001F534" };\n'
+      'export function wipeIt(svc: { from: (t: string) => { delete: () => { eq: (a: string, b: string) => Promise<unknown> } } }, id: string) {\n'
+      '  return svc.from("accounts")/*p*/.delete().eq("id", id);\n'
+      '}\n')
+p.write_text(s, encoding="utf-8")
+PYX
+}
+expect_red "47 a non-BMP character does not shift the comment blanking" m47 \
+  "mutation surface in a production entrypoint closure"
+
+# The receiver capture added so Array.from could be allowlisted made an
+# IDENTIFIER receiver mandatory, so `getSupabaseService().from(TABLE)` — the
+# idiomatic spelling here — matched no `.from` rule at all. Every write mutant
+# spelled its receiver as a bare identifier, so none of them could notice.
+m48(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'const TABLE = "accounts";\n'
+ '    await (getSupabaseService() as never as { from: (t: string) => { delete: () => { eq: (a: string, b: string) => Promise<unknown> } } }).from(TABLE).delete().eq("id", user.id);\n'
+ '    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "48 a factory-call receiver is still a .from the rule must read" m48 \
+  "the table-write rule needs a literal"
+
 echo
 echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed"
 [[ $BAD -eq 0 ]] && { echo "FALSIFICATION GREEN — every mutation is detected, each for its own reason"; exit 0; } \

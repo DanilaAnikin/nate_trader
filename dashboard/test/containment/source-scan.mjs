@@ -78,7 +78,18 @@ function stripCommentsUncached(src, fileName) {
   // the same suite. Comments are blanked to spaces rather than removed so every
   // downstream offset and line number still lines up with the real file.
   const sf = ts.createSourceFile(fileName, src, ts.ScriptTarget.Latest, /*setParentNodes*/ true, guessKind(fileName));
-  const blanked = Array.from(src);
+  // CODE UNITS, not code points. `Array.from(src)` splits by code point, while
+  // ts.getLeading/TrailingCommentRanges return UTF-16 code-UNIT offsets — so a
+  // single emoji anywhere before a comment shifted every later blanking window
+  // one slot right, leaving the comment's head intact and blanking that many
+  // characters of REAL CODE past its end. `join("")` then restored the UTF-16
+  // length, so the length-preservation guard added in the same round could not
+  // see it. Demonstrated: an emoji map above `svc.from("accounts")/*p*/.delete()`
+  // produced `.d     ()` and REACHABILITY: PASS on a live route closure;
+  // replacing only the emoji with ASCII flipped it to FAIL with 5 offences.
+  // The converse also fired — an emoji INSIDE a comment shortened the output and
+  // tripped that guard on entirely benign code.
+  const blanked = src.split("");
   const seen = new Set();
   const blank = (r) => {
     const key = `${r.pos}:${r.end}`;
