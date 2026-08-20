@@ -112,7 +112,7 @@ expect_red(){
   fi
   if run_analyzer "$d"; then
     BAD=$((BAD+1)); note NOT-OK "$label" "analyzer still PASSED"
-  elif grep -qF -- "$want" "$d/out.txt"; then
+  elif grep -F 'FINDING[' "$d/out.txt" | grep -qF -- "$want"; then
     OK=$((OK+1)); note ok "$label"
   else
     BAD=$((BAD+1)); note NOT-OK "$label" "went red, but not for '$want'"
@@ -127,6 +127,19 @@ echo
 BASE="$(prepare baseline)"
 if run_analyzer "$BASE"; then
   note ok "BASELINE is green (control, not a mutant)"
+  # AND IT EMITS NO FINDING LINE AT ALL. Expectations are matched only against
+  # lines carrying the FINDING[ marker; this is what makes that meaningful. The
+  # analyzer prints "mutation surface (derived: …)" unconditionally, green runs
+  # included, and fifteen mutants used to require only the words "mutation
+  # surface" — so the banner alone satisfied them and their scoring collapsed
+  # to "non-zero exit means detected". If a green run ever emits a FINDING line,
+  # every expectation below is potentially satisfiable without the mutation.
+  if grep -q 'FINDING\[' "$BASE/out.txt"; then
+    note NOT-OK "BASELINE emits a FINDING line on a GREEN run" "expectations could be satisfied without the mutation"
+    grep 'FINDING\[' "$BASE/out.txt" | head -3 | sed 's/^/           /'
+    exit 1
+  fi
+  note ok "BASELINE emits no FINDING line (so no expectation is satisfiable by informational output)"
 else
   note NOT-OK "BASELINE is green" "$(tail -3 "$BASE/out.txt" | tr '\n' ' ')"
   echo; echo "baseline is not green — aborting, every mutant result would be meaningless"; exit 1
@@ -136,14 +149,14 @@ REACH="reaches\|names tombstoned\|mutation surface"
 
 # ── I. forms the analyzer already recognised ────────────────────────────────
 m1(){ sed -i '1i import { purgeCredentials } from "@/lib/accounts/credentials";' "$1/app/api/accounts/route.ts"; }
-expect_red "1 route imports credentials directly" m1 "mutation surface"
+expect_red "1 route imports credentials directly" m1 "app/api/accounts/route.ts -> lib/accounts/credentials.ts"
 
 m2(){ cat > "$1/lib/helper-hop.ts" <<'EOF'
 import { purgeCredentials } from "@/lib/accounts/credentials";
 export const hop = purgeCredentials;
 EOF
   sed -i '1i import { hop } from "@/lib/helper-hop";' "$1/app/api/accounts/route.ts"; }
-expect_red "2 route imports it through one helper" m2 "mutation surface"
+expect_red "2 route imports it through one helper" m2 "app/api/accounts/route.ts -> lib/accounts/credentials.ts"
 
 m3(){ cat > "$1/lib/reexport-a.ts" <<'EOF'
 export { purgeCredentials } from "@/lib/accounts/credentials";
@@ -152,10 +165,10 @@ EOF
 export { purgeCredentials } from "@/lib/reexport-a";
 EOF
   sed -i '1i import { purgeCredentials } from "@/lib/reexport-b";' "$1/app/api/accounts/route.ts"; }
-expect_red "3 route imports it through a re-export chain" m3 "mutation surface"
+expect_red "3 route imports it through a re-export chain" m3 "app/api/accounts/route.ts -> lib/accounts/credentials.ts"
 
 m4(){ sed -i 's|import { listAccounts } from "@/lib/accounts/read";|import { listAccounts } from "@/lib/accounts/service";|' "$1/app/api/accounts/route.ts"; }
-expect_red "4 GET imports the combined service" m4 "mutation surface"
+expect_red "4 GET imports the combined service" m4 "mutation surface in a production entrypoint closure"
 
 m5(){ sed -i 's|const accounts = await listAccounts(user.id);|const accounts = await listAccounts(user.id); await (supa as never as {rpc:(n:string)=>Promise<unknown>}).rpc("vault_create_secret");|' "$1/app/api/accounts/route.ts"; }
 expect_red "5 tombstoned call inside a GET" m5 "names tombstoned routine vault_create_secret"
@@ -179,10 +192,10 @@ q=pathlib.Path(sorted(glob.glob(str(d/"app/(app)/*/page.tsx")))[0])
 q.write_text('import { purgeCredentials } from "@/lib/accounts/credentials";\nvoid purgeCredentials;\n'+q.read_text())
 PY
 }
-expect_red "7 tombstoned reach from a page" m7 "mutation surface"
+expect_red "7 tombstoned reach from a page" m7 "app/(app)/accounts/page.tsx -> lib/accounts/credentials.ts"
 
 m8(){ sed -i '1i import { purgeCredentials } from "@/lib/accounts/credentials";' "$1/proxy.ts"; }
-expect_red "8 tombstoned reach from the proxy" m8 "mutation surface"
+expect_red "8 tombstoned reach from the proxy" m8 "proxy.ts -> lib/accounts/credentials.ts"
 
 m9(){ python3 - "$1" <<'PY'
 import pathlib,sys
@@ -193,7 +206,7 @@ s=s.replace('export async function POST(): Promise<Response> {',
 p.write_text(s)
 PY
 }
-expect_red "9 hidden behind a constant-false branch" m9 "mutation surface"
+expect_red "9 hidden behind a constant-false branch" m9 "app/api/accounts/route.ts -> lib/accounts/credentials.ts"
 
 m10(){ python3 - "$1" <<'PY'
 import pathlib,sys
@@ -210,7 +223,7 @@ import { purgeCredentials } from "@/lib/accounts/credentials";
 export async function GET() { void purgeCredentials; return new Response("x"); }
 EOF
 }
-expect_red "11 a newly added .ts route is enumerated" m11 "mutation surface"
+expect_red "11 a newly added .ts route is enumerated" m11 "app/api/sneaky/route.ts -> lib/accounts/credentials.ts"
 
 m12(){ sed -i '1i import { nope } from "@/lib/does-not-exist";' "$1/app/api/accounts/route.ts"; }
 expect_red "12 unresolved import fails closed" m12 "unresolved import"
@@ -232,7 +245,7 @@ s=s.replace('const accounts = await listAccounts(user.id);',
 p.write_text(s)
 PY
 }
-expect_red "15 dynamic import() is an edge" m15 "mutation surface"
+expect_red "15 dynamic import() is an edge" m15 "app/api/accounts/route.ts -> lib/accounts/credentials.ts"
 
 m16(){ python3 - "$1" <<'PY'
 import pathlib,sys
@@ -242,7 +255,7 @@ s=s.replace('const accounts = await listAccounts(user.id);',
 p.write_text(s)
 PY
 }
-expect_red "16 require() is an edge" m16 "mutation surface"
+expect_red "16 require() is an edge" m16 "app/api/accounts/route.ts -> lib/accounts/credentials.ts"
 
 m17(){ cat >> "$1/lib/accounts/read.ts" <<'EOF'
 
@@ -268,7 +281,7 @@ import { purgeCredentials } from "@/lib/accounts/credentials";
 export async function POST(req) { const b = await req.json(); await purgeCredentials(null, b.k, b.s); return new Response("{}"); }
 EOF
 }
-expect_red "19 a .js route is discovered, not just resolved" m19 "mutation surface"
+expect_red "19 a .js route is discovered, not just resolved" m19 "app/api/danger/route.js -> lib/accounts/credentials.ts"
 
 m20(){ cat > "$1/lib/ledger-actions.ts" <<'EOF'
 /* ------------------------------------------------------------------------
@@ -282,22 +295,28 @@ import { purgeCredentials } from "@/lib/accounts/credentials";
 export async function reap(id: string) { void purgeCredentials; void id; }
 EOF
 }
-expect_red "20 a directive past byte 200 is still a Server Action" m20 "mutation surface"
+expect_red "20 a directive past byte 200 is still a Server Action" m20 "lib/ledger-actions.ts -> lib/accounts/credentials.ts"
 
-m21(){ python3 - "$1" <<'PY'
-import pathlib,sys,glob
+# IN A FILE THAT IS NOT OTHERWISE AN ENTRYPOINT. This mutant used to append
+# its action to app/(app)/*/page.tsx — a file ROUTE_FILE_RE already makes an
+# entrypoint by filename — so its detection proved the dynamic import edge was
+# followed, not that a function-level directive CREATES an entrypoint. It
+# passed for a reason other than the one on its label, which is the failure
+# mode this suite exists to catch and had already caught once in mutant 35.
+# lib/reap-actions.ts enters the entrypoint set only if the directive is seen.
+m21(){ python3 - "$1" <<'PYX'
+import pathlib,sys
 d=pathlib.Path(sys.argv[1])
-q=pathlib.Path(sorted(glob.glob(str(d/"app/(app)/*/page.tsx")))[0])
-q.write_text(q.read_text() + '''
-export async function reapAccountAction(id: string) {
-  "use server";
-  const creds = await import("@/lib/accounts/credentials");
-  void creds; void id;
+(d/"lib/reap-actions.ts").write_text(
+ 'const BANNER = 1;\n'
+ 'export async function reapAccountAction(id: string) {\n'
+ '  "use server";\n'
+ '  const creds = await import("@/lib/accounts/credentials");\n'
+ '  void creds; void id; void BANNER;\n'
+ '}\n')
+PYX
 }
-''')
-PY
-}
-expect_red "21 a function-level \"use server\" is a Server Action" m21 "mutation surface"
+expect_red "21 a function-level \"use server\" is a Server Action" m21 "lib/reap-actions.ts -> lib/accounts/credentials.ts"
 
 m22(){ ln -s /nonexistent/target "$1/app/api/dangling.ts"; }
 expect_red "22 a dangling symlink is an error, not a crash" m22 "cannot stat"
@@ -327,7 +346,7 @@ expect_red "24 a shrunken tombstone list is not accepted" m24 "expected at least
 
 # ── III. the module the hand-pinned list used to miss ───────────────────────
 m25(){ sed -i '1i import { backfillEquity } from "@/lib/accounts/equity-backfill";' "$1/app/api/accounts/route.ts"; }
-expect_red "25 equity-backfill in a closure (the old list missed it)" m25 "mutation surface"
+expect_red "25 equity-backfill in a closure (the old list missed it)" m25 "mutation surface in a production entrypoint closure"
 
 m26(){ python3 - "$1" <<'PYX'
 import pathlib,sys,shutil
@@ -339,7 +358,7 @@ p=d/"app/api/accounts/route.ts"
 p.write_text('import * as c2 from "@/lib/accounts/creds2";\nvoid c2;\n'+p.read_text())
 PYX
 }
-expect_red "26 a RENAMED copy of the mutation surface" m26 "mutation surface"
+expect_red "26 a RENAMED copy of the mutation surface" m26 "app/api/accounts/route.ts -> lib/accounts/creds2.ts"
 
 m27(){ python3 - "$1" <<'PYX'
 import pathlib,sys
@@ -623,6 +642,66 @@ else
   BAD=$((BAD+1)); note NOT-OK "42 CONTROL: the receiver allowlist rejected ordinary code"
   grep -iE 'from\(' "$d42/out.txt" | head -3 | sed 's/^/           /'
 fi
+
+# ── X. the four the delta review found in the round-9 repairs ──────────────
+
+# A real Next route inside a directory the walk skipped. Both the entrypoint set
+# and the route-file count it is checked against came from the same skipping
+# walk, so the floor could not notice its own blind spot.
+m43(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+d=pathlib.Path(sys.argv[1]); (d/"app/api/e2e").mkdir(parents=True, exist_ok=True)
+(d/"app/api/e2e/route.ts").write_text(
+ 'import { purgeCredentials } from "@/lib/accounts/credentials";\n'
+ 'export async function POST() { void purgeCredentials; return new Response("x"); }\n')
+PYX
+}
+expect_red "43 a route inside a skipped directory is still an entrypoint" m43 \
+  "app/api/e2e/route.ts -> lib/accounts/credentials.ts"
+
+# A literal-table write held far from its .from(, so the windowed rule cannot
+# pair them. The table name IS a literal, so the non-literal rule is silent too.
+m44(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+filler = "".join(f'  const pad{i} = "{i}".repeat(8);\n' for i in range(24))
+s += ('\n\nexport async function farApart(svc: { from: (t: string) => { delete: () => Promise<unknown> } }) {\n'
+      '  const q = svc.from("accounts");\n' + filler +
+      '  return q.delete();\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_red "44 a write far from its .from( is still a table write" m44 \
+  "mutation surface in a production entrypoint closure"
+
+# The method taken as a reference rather than called. `.rpc` has been refusing
+# this shape since mutant 18; `.from` stopped at the form its own mutant used.
+m45(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'const tbl = (supa as never as { from: (t: string) => { upsert: (r: unknown) => Promise<unknown> } }).from;\n'
+ '    await tbl("equity_snapshots").upsert({ id: 1 });\n'
+ '    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "45 a .from taken as a reference is unclassifiable, not absent" m45 \
+  "reference(s) that are not calls"
+
+# A stripper that DELETES instead of blanking would drop the specifier count and
+# the edge count together, silently re-opening the same-line-import fix.
+m46(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"test/containment/source-scan.mjs"; s=p.read_text()
+s=s.replace('if (blanked[i] !== "\\n" && blanked[i] !== "\\r") blanked[i] = " ";',
+            'if (blanked[i] !== "\\n" && blanked[i] !== "\\r") blanked[i] = "";')
+p.write_text(s)
+PYX
+}
+expect_red "46 a stripper that deletes rather than blanks is caught" m46 \
+  "must blank comments, not delete them"
 
 echo
 echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed"

@@ -232,8 +232,45 @@ const TABLE_WRITE_RE =
  *  a closure member that this rule flags but that list does not contain is now
  *  an error, so the report cannot quietly understate the surface either. */
 function isMutationSurface(src) {
-  if (TABLE_WRITE_RE.test(src)) return true;
+  if (isTableWrite(src)) return true;
   return FORBIDDEN_ROUTINES.some((r) => new RegExp(`["'\`]${r}["'\`]`).test(src));
+}
+
+/** Does this module write a table? ONE predicate, used by the derivation and by
+ *  the offence loop alike. They diverged the moment a second condition was
+ *  added to only one of them: the derived list gained the module-level pairing
+ *  rule while the offence loop still tested TABLE_WRITE_RE on its own, so a
+ *  write the window could not pair entered the reported surface and produced no
+ *  offence. That is the same two-rules-for-one-question defect this file has now
+ *  had three times, at three different scales. */
+function isTableWrite(src) {
+  return TABLE_WRITE_RE.test(src) || unpairedTableWrite(src);
+}
+
+/** A `.from(` and a write method in the same module that the windowed rule
+ *  could not pair.
+ *
+ *  TABLE_WRITE_RE looks for a write within 300 characters of the `.from(`. The
+ *  headline of the commit that introduced it said it had closed "the 200-byte
+ *  window they shared" — and what replaced that was a 300-CHARACTER window with
+ *  the same defeat. Hold the query builder in a variable across a dozen
+ *  ordinary statements and a literal-table write is invisible to TABLE_WRITE_RE
+ *  and, because the table name IS a literal, invisible to
+ *  FROM_NONLITERAL_WRITE_RE too.
+ *
+ *  Widening the window only moves the number. This asks the question the window
+ *  was approximating: does this module both select a table and call a write
+ *  method? If so it is mutation surface, whatever the distance between them.
+ *  Deliberately over-inclusive — an extra module in the surface makes the proof
+ *  stricter, a missed one makes it a lie — and measured against this tree,
+ *  which still derives exactly the same three modules. */
+function unpairedTableWrite(src) {
+  FROM_WITH_RECEIVER_RE.lastIndex = 0;
+  const selectsTable = [...src.matchAll(FROM_WITH_RECEIVER_RE)].some(
+    (m) => !FROM_BUILTIN_RECEIVERS.has(m[1]),
+  );
+  if (!selectsTable) return false;
+  return /\.\s*(?:insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/.test(src);
 }
 
 function forbiddenModules() {
@@ -262,7 +299,18 @@ function forbiddenModules() {
   return found.sort();
 }
 
-const SKIP_DIRS = new Set(["node_modules", ".next", "dist", "e2e"]);
+// BUILD ARTEFACTS ONLY. `dist` and `e2e` used to be here, and walkFiles is what
+// entrypoints() AND the routeFileCount floor both use — so a real Next route at
+// app/api/e2e/route.ts was dropped from the entrypoint set and from the count
+// it is checked against, and `eps.length < routeFileCount` stayed false. The
+// floor's comment says it is "derived from the disk instead of guessed"; it was
+// derived from the same crippled walk, so it could not notice.
+//
+// Skipping a directory that can hold application code is a decision about which
+// code counts, and this file exists to not make that decision. node_modules and
+// .next are not application code; test FILES are excluded by TEST_RE, by name,
+// wherever they live.
+const SKIP_DIRS = new Set(["node_modules", ".next"]);
 const SOURCE_RE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 const TEST_RE = /\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/;
 const EXT = [".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs"];
@@ -438,6 +486,11 @@ const FROM_WITH_RECEIVER_RE = /([A-Za-z_$][\w$]*)\s*\??\.\s*from\s*(?:\?\.)?\s*\
 const FROM_BARE_CALL_RE = /(?:^|[^.\w$])from\s*(?:\?\.)?\s*\(/g;
 /** `const { from } = …` / `const { from: alias } = …` */
 const FROM_DESTRUCTURED_RE = /(?:const|let|var)\s*\{[^}]*\bfrom\b[^}]*\}\s*=/g;
+/** A `.from` that is REFERENCED rather than called: `const tbl = svc.from;`.
+ *  `.rpc` has had this since mutant 18 (`svc.rpc.bind(svc)` is an error); the
+ *  `.from` rules stopped at the syntactic form their own mutant used, so
+ *  `const tbl = svc.from; tbl(t).upsert(rows)` was invisible to both of them. */
+const FROM_REFERENCED_RE = /\.\s*from\s*(?!\s*\(|\s*\?\.\s*\()(?![\w$])/g;
 /** `import(...)` and `require(...)`, literal or not — both are edges. */
 const DYNAMIC_RE = /\b(?:import|require)\s*\(\s*([^)]*?)\s*\)/g;
 /** Every mention of `.rpc`, however it is spelled. */
@@ -505,6 +558,14 @@ function closureOf(entry) {
     for (const m of src.matchAll(FROM_DESTRUCTURED_RE)) {
       errors.push(`${rel}: \`from\` is destructured (${m[0].slice(0, 48)}) — a later from(...) call has no receiver this analyzer can read`);
     }
+    FROM_REFERENCED_RE.lastIndex = 0;
+    const referenced = (src.match(FROM_REFERENCED_RE) ?? []).length;
+    if (referenced) {
+      errors.push(
+        `${rel}: ${referenced} \`.from\` reference(s) that are not calls — the table-write rules ` +
+          `only read a direct call, so a method taken by reference is unclassifiable`,
+      );
+    }
     FROM_WITH_RECEIVER_RE.lastIndex = 0;
     for (const m of src.matchAll(FROM_WITH_RECEIVER_RE)) {
       if (FROM_BUILTIN_RECEIVERS.has(m[1])) continue;
@@ -530,6 +591,19 @@ function closureOf(entry) {
     // found; this makes the next one an error instead of a silence, which is
     // the whole difference between a scanner that is right today and one that
     // says when it stops being right.
+    // The stripper BLANKS comments to spaces rather than removing them, so a
+    // stripped file is exactly as long as the raw one. Both counters below are
+    // computed from the stripped source, so a stripper that DELETED a line
+    // holding an import would drop specCount and edgeCount together and the
+    // guard would be silent by construction — blind spot #4 quietly reopening
+    // blind spot #1. This makes that impossible to miss rather than reasoning
+    // that it cannot happen.
+    if (src.length !== raw.length) {
+      errors.push(
+        `${rel}: the comment stripper changed the file's length (${raw.length} -> ${src.length}); ` +
+          `it must blank comments, not delete them, or every count taken from it is unsafe`,
+      );
+    }
     const specCount = (src.match(ANY_SPEC_RE) ?? []).length;
     let edgeCount = 0;
     for (const re of [IMPORT_RE, BARE_IMPORT_RE]) {
@@ -620,7 +694,7 @@ for (const ep of eps) {
     // different walk. `namesTombstone` is already reported above with the
     // routine named, so only report the table-write half here to avoid
     // duplicating one offence as two.
-    if (TABLE_WRITE_RE.test(src)) {
+    if (isTableWrite(src)) {
       offences.push(`${rel} -> ${fr}: mutation surface in a production entrypoint closure`);
       if (!FORBIDDEN_MODULES.includes(fr)) {
         errors.push(
@@ -650,13 +724,25 @@ console.log(`modules walked (with repeats): ${modulesWalked}`);
 console.log(`forbidden routines (derived from every migration): ${FORBIDDEN_ROUTINES.join(", ")}`);
 console.log(`mutation surface (derived: table writes + tombstoned-routine names): ${FORBIDDEN_MODULES.join(", ")}`);
 
+// EVERY FINDING CARRIES A MARKER, and no informational line does.
+//
+// The falsification harness matched its required substring against the whole
+// of stdout+stderr, and this program prints
+//     mutation surface (derived: table writes + tombstoned-routine names): …
+// unconditionally, on green runs too. Fifteen of the mutants required only the
+// bare words "mutation surface", so the banner alone satisfied them and their
+// scoring collapsed to "non-zero exit means detected" — the very thing the
+// harness header says it fixed ("a crash is not a detection; each case has to
+// produce ITS OWN offence string"). With a marker the harness can grep only
+// lines that are actually findings, so an informational line can never stand
+// in for one again.
 if (errors.length) {
   console.error("\nFAIL-CLOSED ERRORS:");
-  for (const e of errors) console.error("  " + e);
+  for (const e of errors) console.error("  FINDING[error] " + e);
 }
 if (offences.length) {
   console.error("\nREACHABILITY OFFENCES:");
-  for (const o of offences) console.error("  " + o);
+  for (const o of offences) console.error("  FINDING[offence] " + o);
 }
 if (errors.length || offences.length) {
   console.error(`\nREACHABILITY: FAIL (${errors.length} errors, ${offences.length} offences)`);
