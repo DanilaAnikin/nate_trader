@@ -423,16 +423,24 @@ function resolveSpec(spec, fromFile) {
 // yielded one edge, and — worse than being wrong — said nothing about it. The
 // second specifier simply did not exist as far as the walk was concerned, which
 // put a whole subgraph inside a route closure with `modulesWalked` unchanged.
-// `;`, `{` and `}` join `\n` as places a statement can begin; the accounting
-// below then requires the number of edges found to equal the number of
-// specifiers present, so a form neither anchor admits is an error rather than
-// a silence.
+// `;`, `{` and `}` join `\n` as places a statement can begin. The accounting
+// below is ONE-SIDED, deliberately and stated as such: it errors when there are
+// MORE specifiers present than edges found, which is the direction that loses
+// an edge. It does not police the other direction, so a `from "…"` inside a
+// string literal inflates specCount and can only produce a false ERROR, never a
+// missed edge. An earlier version of this comment said the two counts must be
+// "equal", which is not what the code does.
 const IMPORT_RE = /(?:^|[\n;{}])\s*(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?)\bfrom\s*["']([^"']+)["']/g;
 const BARE_IMPORT_RE = /(?:^|[\n;{}])\s*import\s*["']([^"']+)["']/g;
 /** Every `from "…"` / `import "…"` in the file, however it is positioned. */
 const ANY_SPEC_RE = /\bfrom\s*["'][^"']+["']|(?:^|[\n;{}(])\s*import\s*["'][^"']+["']/g;
 /** Computed access to a data-plane method: svc["rpc"], client['from'], … */
-const COMPUTED_DATAPLANE_RE = /\[\s*["'`](rpc|from|insert|update|upsert|delete)["'`]\s*\]/g;
+// FOLLOWED BY A CALL. Without that this matched any bracket access whose key
+// happened to be one of these words, so `params["from"]` on a query-string
+// record, `range["from"]` on a date filter, or the array literal `["delete"]`
+// were all refused as "computed access to a data-plane method". `from` and
+// `delete` are ordinary object keys in a dashboard; the attack is a CALL.
+const COMPUTED_DATAPLANE_RE = /\[\s*["'`](rpc|from|insert|update|upsert|delete)["'`]\s*\]\s*(?:\?\.)?\s*\(/g;
 /** …and the form with no literal key at all: `svc[m](…)`, `svc[k]?.(…)`.
  *
  *  The rule above only ever saw a QUOTED key, so `const m = "rpc"; svc[m]("…")`
@@ -454,8 +462,13 @@ const COMPUTED_CALL_RE = /\[\s*(?!["'`])[^\]\n]{1,60}\]\s*(?:\?\.)?\s*\(/g;
  * the literal ones reports a ZIP reader as an unreadable data-plane call. What
  * matters is the shape TABLE_WRITE_RE is blind to: a `.from()` the rule cannot
  * read, feeding a method that writes. */
+// The receiver is captured so builtins can be excluded. Without that,
+// `Array.from(xs)` sitting within 300 characters of ANY `.delete(` or
+// `.update(` — a Map, a Set, `headers.delete`, `searchParams.delete`, a crypto
+// digest's `.update` — was reported as an unreadable data-plane write. The
+// scoping was meant to stop `Buffer.from` tripping the rule and only half did.
 const FROM_NONLITERAL_WRITE_RE =
-  /\.\s*from\s*(?:\?\.)?\s*\(\s*(?!["'`])[^)]*\)[\s\S]{0,300}?\.\s*(insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/g;
+  /([A-Za-z_$][\w$]*)\s*\??\.\s*from\s*(?:\?\.)?\s*\(\s*(?!["'`])[^)]*\)[\s\S]{0,300}?\.\s*(insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/g;
 
 /* THE `.from` FAMILY GETS THE SAME ACCOUNTING `.rpc` HAS.
  *
@@ -491,6 +504,12 @@ const FROM_DESTRUCTURED_RE = /(?:const|let|var)\s*\{[^}]*\bfrom\b[^}]*\}\s*=/g;
  *  `.from` rules stopped at the syntactic form their own mutant used, so
  *  `const tbl = svc.from; tbl(t).upsert(rows)` was invisible to both of them. */
 const FROM_REFERENCED_RE = /\.\s*from\s*(?!\s*\(|\s*\?\.\s*\()(?![\w$])/g;
+/** `Reflect.get(svc, "rpc")` — a dot-free, bracket-free way to take the method,
+ *  which combined with a concatenated routine name silences every other rule. */
+const REFLECT_GET_RE = /\bReflect\s*\.\s*get\s*\(/g;
+/** `const { rpc } = svc` — destructuring the RPC entry point, the `.from`
+ *  equivalent of which has been refused since the round-9 repair. */
+const RPC_DESTRUCTURED_RE = /(?:const|let|var)\s*\{[^}]*\brpc\b[^}]*\}\s*=/g;
 /** `import(...)` and `require(...)`, literal or not — both are edges. */
 const DYNAMIC_RE = /\b(?:import|require)\s*\(\s*([^)]*?)\s*\)/g;
 /** Every mention of `.rpc`, however it is spelled. */
@@ -546,6 +565,12 @@ function closureOf(entry) {
     for (const m of src.matchAll(COMPUTED_DATAPLANE_RE)) {
       errors.push(`${rel}: computed access to the data-plane method ${m[1]} (${m[0]}) — cannot be classified`);
     }
+    for (const m of src.matchAll(REFLECT_GET_RE)) {
+      errors.push(`${rel}: Reflect.get(...) takes a member this analyzer cannot read (${m[0].trim()}) — cannot be classified`);
+    }
+    for (const m of src.matchAll(RPC_DESTRUCTURED_RE)) {
+      errors.push(`${rel}: \`rpc\` is destructured (${m[0].slice(0, 48)}) — a later rpc(...) call has no receiver this analyzer can read`);
+    }
     COMPUTED_CALL_RE.lastIndex = 0;
     for (const m of src.matchAll(COMPUTED_CALL_RE)) {
       errors.push(`${rel}: a call through a computed, non-literal member (${m[0].trim().slice(0, 40)}) — cannot be classified`);
@@ -581,8 +606,9 @@ function closureOf(entry) {
 
     FROM_NONLITERAL_WRITE_RE.lastIndex = 0;
     for (const m of src.matchAll(FROM_NONLITERAL_WRITE_RE)) {
+      if (FROM_BUILTIN_RECEIVERS.has(m[1])) continue;
       errors.push(
-        `${rel}: .from(<non-literal>) feeding .${m[1]}() — the table-write rule needs a literal ` +
+        `${rel}: ${m[1]}.from(<non-literal>) feeding .${m[2]}() — the table-write rule needs a literal ` +
           `table name, so this write is invisible to it`,
       );
     }

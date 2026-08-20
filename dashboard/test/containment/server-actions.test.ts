@@ -40,7 +40,12 @@ function walk(dir: string, out: string[] = []): string[] {
     if (SKIP.has(e)) continue;
     const p = join(dir, e);
     if (statSync(p).isDirectory()) walk(p, out);
-    else if (/\.(ts|tsx)$/.test(p) && !/\.test\.tsx?$/.test(p)) out.push(p);
+    // SIX EXTENSIONS, the same set reachability.mjs walks. This accepted only
+    // .ts and .tsx, so a `"use server"` module written as .mjs, .js, .jsx or
+    // .cjs was invisible to the action classifier while the analyzer next door
+    // saw it — a third enumerator carrying the blind spot two others had just
+    // been widened to remove, in a file the same commit was already editing.
+    else if (/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(p) && !/\.test\.(ts|tsx|js|jsx|mjs|cjs)$/.test(p)) out.push(p);
   }
   return out;
 }

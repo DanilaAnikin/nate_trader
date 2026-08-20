@@ -27,11 +27,16 @@ import ts from "typescript";
  * containing it was clean. The same helper had been copied into four test
  * files, so all of them had the hole.
  *
- * This walks the source once, treating '…', "…", `…` and /…/ as opaque and
- * removing only real comments. KNOWN LIMIT: a template literal whose `${}`
- * interpolation itself contains a backtick is consumed as one literal. That is
- * conservative in the safe direction — it removes nothing — and no file in this
- * tree does it. */
+ * The implementation is TypeScript's parser, so the paragraph that used to sit
+ * here — describing a hand-written walk that treated '…', "…", `…` and /…/ as
+ * opaque — no longer describes anything. Its stated KNOWN LIMIT went with it:
+ * a template literal whose `${}` interpolation contains a backtick was said to
+ * be "consumed as one literal… conservative in the safe direction — it removes
+ * nothing". Both halves were wrong. The nested backtick TERMINATED the outer
+ * template early, desynchronising quote state and deleting real code, and the
+ * original two-`replace` form had handled the same input correctly. Measured
+ * against the parser: `const a = `x${ `y` }z`;` followed by a table write
+ * leaves the write intact and the file exactly its original length. */
 /* Parsing is correct but not free, and the callers re-ask the same question a
  * lot: the analyzer strips each closure member once per entrypoint that reaches
  * it (363 module visits over 26 entrypoints), and browser-data-plane.test.ts

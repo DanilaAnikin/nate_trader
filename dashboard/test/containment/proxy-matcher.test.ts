@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { stripComments } from "./source-scan.mjs";
 
 /**
  * The proxy must be INVOKED on every API path — the half no test was checking.
@@ -74,7 +75,12 @@ describe("Next's compiled matcher, when a build is present", () => {
     // proxy-matcher.mjs` after the production build.
     const enforcer = join(__dirname, "proxy-matcher.mjs");
     expect(existsSync(enforcer), "the layer this test defers to does not exist").toBe(true);
-    const body = readFileSync(enforcer, "utf8");
+    // COMMENT-STRIPPED. `toContain("functions-config-manifest.json")` was
+    // satisfied by the enforcer's own comment header, which names that path in
+    // prose — so the assertion held whether or not the enforcer still READ the
+    // manifest. Reading it as code is the discipline this commit's sibling
+    // introduced, applied to the file that motivated it.
+    const body = stripComments(readFileSync(enforcer, "utf8"), "proxy-matcher.mjs");
     expect(body.length, "the deferred-to enforcer is empty").toBeGreaterThan(500);
     expect(body, "the enforcer does not read Next's compiled matcher").toContain(
       "functions-config-manifest.json",
