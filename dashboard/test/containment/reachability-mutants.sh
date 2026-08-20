@@ -112,7 +112,15 @@ expect_red(){
   fi
   if run_analyzer "$d"; then
     BAD=$((BAD+1)); note NOT-OK "$label" "analyzer still PASSED"
-  elif grep -F 'FINDING[' "$d/out.txt" | grep -qF -- "$want"; then
+  # NO PIPELINE. `grep -q` exits on its first match and closes the pipe, so the
+  # upstream `grep -F` dies of SIGPIPE (141) — and under `set -Eeuo pipefail`
+  # the pipeline's status is then 141, the elif is false, and a CORRECTLY
+  # DETECTED mutant is scored "went red, but not for '<want>'". Measured: with
+  # the match on line 1 of a 2MB stream, 40 of 40 runs reported failure. The
+  # suite passes today only because its outputs are small enough that the
+  # upstream grep finishes first; mutant 46 already emits tens of kilobytes.
+  elif grep -F 'FINDING[' "$d/out.txt" > "$d/findings.txt" 2>/dev/null &&
+       grep -qF -- "$want" "$d/findings.txt"; then
     OK=$((OK+1)); note ok "$label"
   else
     BAD=$((BAD+1)); note NOT-OK "$label" "went red, but not for '$want'"
