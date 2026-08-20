@@ -45,7 +45,7 @@
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { dirname, join, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { stripComments, hasUseServer } from "./source-scan.mjs";
+import { stripComments, stripCommentsAndStrings, hasUseServer } from "./source-scan.mjs";
 
 const DASH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const REPO = resolve(DASH, "..");
@@ -441,6 +441,33 @@ const ANY_SPEC_RE = /\bfrom\s*["'][^"']+["']|(?:^|[\n;{}(])\s*import\s*["'][^"']
 // were all refused as "computed access to a data-plane method". `from` and
 // `delete` are ordinary object keys in a dashboard; the attack is a CALL.
 const COMPUTED_DATAPLANE_RE = /\[\s*["'`](rpc|from|insert|update|upsert|delete)["'`]\s*\]\s*(?:\?\.)?\s*\(/g;
+/** WHICH VIEW EACH RULE READS IS PART OF THE RULE.
+ *
+ *  Rules that read a LITERAL — the quoted method name here, the table name in
+ *  `.from("accounts")` — must see the comment-only view, because the
+ *  string-blanked view empties exactly the token they match on. Rules that look
+ *  for a SHAPE — a bare `from(`, a computed call, a Reflect.get — read the
+ *  blanked view, so prose that happens to look like code is not a finding.
+ *  Moving these two to the blanked view turned mutants 33 and 52 green, which
+ *  is how this note came to exist.
+ *
+ *  The same bracket key NOT followed by a call: `const m = svc["rpc"]`.
+ *
+ *  Scoping the rule above to a CALL — done to stop `params["from"]` on a record
+ *  being refused — reopened the reference form, which is the bracket spelling
+ *  of exactly what FROM_REFERENCED_RE was added to close for the dotted one. A
+ *  method taken now and called later is the oldest trick here; `.rpc` has
+ *  refused it since mutant 18. Read over the string-blanked view, so a key
+ *  appearing inside prose is not a finding. */
+//  BOUND AND THEN CALLED, which is what separates the attack from a record
+//  read. `const m = svc["rpc"]; m(...)` is the bracket spelling of taking a
+//  method now and calling it later; `const a = params["from"]` is a query-string
+//  lookup and must not be a finding. Matching the reference alone refused both —
+//  green control 54 said so the moment it existed. The binding's name is
+//  captured here and the caller checks whether it is invoked anywhere in the
+//  module.
+const COMPUTED_DATAPLANE_BOUND_RE =
+  /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*?\[\s*["'`](rpc|from|insert|update|upsert|delete)["'`]\s*\](?!\s*(?:\?\.)?\s*\()/g;
 /** …and the form with no literal key at all: `svc[m](…)`, `svc[k]?.(…)`.
  *
  *  The rule above only ever saw a QUOTED key, so `const m = "rpc"; svc[m]("…")`
@@ -451,7 +478,12 @@ const COMPUTED_DATAPLANE_RE = /\[\s*["'`](rpc|from|insert|update|upsert|delete)[
  *
  *  Matches a CALL only. Ordinary computed READS (`obj[k].field`, `rows[i]`,
  *  `map[key] = v`) are untouched, which is why the tree still passes. */
-const COMPUTED_CALL_RE = /\[\s*(?!["'`])[^\]\n]{1,60}\]\s*(?:\?\.)?\s*\(/g;
+// The lookahead excludes only a COMPLETE single literal — the form the rule
+// above reads. `svc["r" + "pc"](...)` starts with a quote and is not one
+// literal, so under the old `(?!["'`])` it was refused by neither rule, in a
+// file whose header says an unclassifiable call must be an error.
+const COMPUTED_CALL_RE =
+  /\[\s*(?!["'`][^"'`]*["'`]\s*\])[^\]\n]{1,60}\]\s*(?:\?\.)?\s*\(/g;
 /** A table write whose table name is NOT a literal.
  *
  * Scoped to the write, deliberately. A bare `.from(` matches `Buffer.from(...)`
@@ -543,7 +575,13 @@ function closureOf(entry) {
       errors.push(`${relative(DASH, f)}: unreadable`);
       continue;
     }
-    const src = stripComments(raw);
+    // WITH THE FILENAME. Without it guessKind returns TSX for every module, so
+    // the same file was stripped one way here and another way in
+    // forbiddenModules() and the offence loop — two views of one file inside a
+    // single run, which is the "two copies of one rule" failure this file has
+    // now had four times.
+    const src = stripComments(raw, f);
+    const code = stripCommentsAndStrings(raw, f);
     const rel = relative(DASH, f);
 
     // Every `.rpc` must be a direct call with a literal name. Anything else —
@@ -575,14 +613,23 @@ function closureOf(entry) {
     for (const m of src.matchAll(COMPUTED_DATAPLANE_RE)) {
       errors.push(`${rel}: computed access to the data-plane method ${m[1]} (${m[0]}) — cannot be classified`);
     }
-    for (const m of src.matchAll(REFLECT_GET_RE)) {
+    for (const m of code.matchAll(REFLECT_GET_RE)) {
       errors.push(`${rel}: Reflect.get(...) takes a member this analyzer cannot read (${m[0].trim()}) — cannot be classified`);
     }
-    for (const m of src.matchAll(RPC_DESTRUCTURED_RE)) {
+    for (const m of code.matchAll(RPC_DESTRUCTURED_RE)) {
       errors.push(`${rel}: \`rpc\` is destructured (${m[0].slice(0, 48)}) — a later rpc(...) call has no receiver this analyzer can read`);
     }
+    COMPUTED_DATAPLANE_BOUND_RE.lastIndex = 0;
+    for (const m of src.matchAll(COMPUTED_DATAPLANE_BOUND_RE)) {
+      const bound = m[1];
+      if (!new RegExp(`\\b${bound}\\s*(?:\\?\\.)?\\s*\\(`).test(code)) continue;
+      errors.push(
+        `${rel}: the data-plane method ${m[2]} is taken by computed reference as \`${bound}\` ` +
+          `and called later — cannot be classified`,
+      );
+    }
     COMPUTED_CALL_RE.lastIndex = 0;
-    for (const m of src.matchAll(COMPUTED_CALL_RE)) {
+    for (const m of code.matchAll(COMPUTED_CALL_RE)) {
       errors.push(`${rel}: a call through a computed, non-literal member (${m[0].trim().slice(0, 40)}) — cannot be classified`);
     }
 
@@ -590,11 +637,11 @@ function closureOf(entry) {
     // name, so `const T = "equity_snapshots"; svc.from(T).upsert(rows)` was not
     // a table write and the module never became mutation surface. Counted the
     // same way `.rpc` is: every occurrence must be one the rule can read.
-    for (const m of src.matchAll(FROM_DESTRUCTURED_RE)) {
+    for (const m of code.matchAll(FROM_DESTRUCTURED_RE)) {
       errors.push(`${rel}: \`from\` is destructured (${m[0].slice(0, 48)}) — a later from(...) call has no receiver this analyzer can read`);
     }
     FROM_REFERENCED_RE.lastIndex = 0;
-    const referenced = (src.match(FROM_REFERENCED_RE) ?? []).length;
+    const referenced = (code.match(FROM_REFERENCED_RE) ?? []).length;
     if (referenced) {
       errors.push(
         `${rel}: ${referenced} \`.from\` reference(s) that are not calls — the table-write rules ` +
@@ -610,7 +657,7 @@ function closureOf(entry) {
       }
     }
     FROM_BARE_CALL_RE.lastIndex = 0;
-    for (const m of src.matchAll(FROM_BARE_CALL_RE)) {
+    for (const m of code.matchAll(FROM_BARE_CALL_RE)) {
       errors.push(`${rel}: a from(...) call with no receiver (${m[0].trim().slice(0, 32)}) — cannot be classified`);
     }
 

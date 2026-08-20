@@ -121,6 +121,53 @@ function guessKind(fileName) {
 
 
 /**
+ * Comments removed AND string/template CONTENTS blanked, quotes kept.
+ *
+ * The token-presence rules in reachability.mjs — "is there a bare `from(`", "is
+ * there a computed call", "is there a Reflect.get" — run over source text, and
+ * stripComments removes comments but NOT string literals. So the three
+ * characters `from (` inside English prose, SQL text or a help message was a
+ * hard ERROR that failed the containment gate, and a markdown link `[x](y)`
+ * inside a string read as a computed call. An attack payload lives in code;
+ * prose that happens to look like code does not.
+ *
+ * Contents only — delimiters stay and the file keeps its exact length — so the
+ * rules that need the LITERAL (the table name in `.from("accounts")`) go on
+ * using the comment-only view. Two questions, two views, one parse.
+ */
+export function stripCommentsAndStrings(src, fileName = "input.tsx") {
+  const key = `S\u0000${fileName}\u0000${src}`;
+  const hit = STRIP_CACHE.get(key);
+  if (hit !== undefined) return hit;
+  const withoutComments = stripComments(src, fileName);
+  const sf = ts.createSourceFile(fileName, withoutComments, ts.ScriptTarget.Latest, true, guessKind(fileName));
+  const out = withoutComments.split("");
+  const visit = (node) => {
+    const k = node.kind;
+    if (
+      k === ts.SyntaxKind.StringLiteral ||
+      k === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
+      k === ts.SyntaxKind.TemplateHead ||
+      k === ts.SyntaxKind.TemplateMiddle ||
+      k === ts.SyntaxKind.TemplateTail ||
+      k === ts.SyntaxKind.JsxText
+    ) {
+      const a = node.getStart(sf) + 1;
+      const b = node.getEnd() - 1;
+      for (let j = a; j < b && j < out.length; j += 1) {
+        if (out[j] !== "\n" && out[j] !== "\r") out[j] = " ";
+      }
+    }
+    node.getChildren(sf).forEach(visit);
+  };
+  visit(sf);
+  const res = out.join("");
+  STRIP_CACHE.set(key, res);
+  return res;
+}
+
+
+/**
  * Does this module declare a Server Action?
  *
  * THE WHOLE FILE, outside comments. The action classifier used to read

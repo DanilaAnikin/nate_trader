@@ -128,6 +128,29 @@ expect_red(){
   fi
 }
 
+# A GREEN control: ordinary code the analyzer must NOT refuse. Counted apart
+# from mutations, because counting it as one is the honesty defect this file's
+# header already claims to have fixed once — the old "15/15" also counted the
+# baseline. There are N mutations and M controls, and the summary says both.
+CONTROLS=0; CONTROLS_OK=0
+expect_green(){ # <label> <fn>
+  local label="$1" fn="$2"
+  CONTROLS=$((CONTROLS+1))
+  local d; d="$(prepare "c$(printf '%s' "$label" | tr -c 'a-zA-Z0-9' '_')")"
+  local before; before="$(tree_digest "$d")"
+  "$fn" "$d"
+  if [[ "$(tree_digest "$d")" == "$before" ]]; then
+    BAD=$((BAD+1)); note NOT-OK "$label" "the control changed NOTHING — it is not exercising anything"
+    return
+  fi
+  if run_analyzer "$d"; then
+    CONTROLS_OK=$((CONTROLS_OK+1)); note ok "CONTROL $label"
+  else
+    BAD=$((BAD+1)); note NOT-OK "CONTROL $label" "ordinary code was REFUSED"
+    grep -F 'FINDING[' "$d/out.txt" 2>/dev/null | head -3 | sed 's/^/           /'
+  fi
+}
+
 echo "reachability falsification"
 echo
 
@@ -642,14 +665,7 @@ s += ('\n\nexport function ordinary(xs: Iterable<number>, b: string) {\n'
 p.write_text(s)
 PYX
 }
-d42="$(prepare m42_allowlist)"; m42 "$d42"
-MUTANTS=$((MUTANTS+1))
-if run_analyzer "$d42"; then
-  OK=$((OK+1)); note ok "42 CONTROL: Array.from/Buffer.from are not refused"
-else
-  BAD=$((BAD+1)); note NOT-OK "42 CONTROL: the receiver allowlist rejected ordinary code"
-  grep -iE 'from\(' "$d42/out.txt" | head -3 | sed 's/^/           /'
-fi
+expect_green "42 Array.from/Buffer.from are not refused" m42
 
 # ── X. the four the delta review found in the round-9 repairs ──────────────
 
@@ -748,7 +764,106 @@ PYX
 expect_red "48 a factory-call receiver is still a .from the rule must read" m48 \
   "the table-write rule needs a literal"
 
+# ── XII. the rules that had no mutant, and the narrowings nothing falsified ─
+# RM-2: COMPUTED_CALL_RE, REFLECT_GET_RE and RPC_DESTRUCTURED_RE were each the
+# ONLY rule between a PASS and a route calling a tombstoned routine — every one
+# of those shapes defeats the `.rpc` accounting (no literal `.rpc` token) and
+# the literal-name offence rule (name built by concatenation) — and none of them
+# had a mutant.
+m49(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'const k = "rpc" as const;\n'
+ '    await (supa as never as Record<string, (n: string) => Promise<unknown>>)[k]("vault_" + "create_secret");\n'
+ '    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "49 a computed call with a non-literal key is unclassifiable" m49 \
+  "call through a computed, non-literal member"
+
+m50(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'const fn = Reflect.get(supa as object, "rp" + "c") as (n: string) => Promise<unknown>;\n'
+ '    await fn("vault_" + "create_secret");\n'
+ '    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "50 Reflect.get takes a member the analyzer cannot read" m50 \
+  "Reflect.get(...) takes a member"
+
+m51(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'const { rpc } = supa as never as { rpc: (n: string) => Promise<unknown> };\n'
+ '    await rpc("vault_" + "create_secret");\n'
+ '    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "51 a destructured rpc is unclassifiable, not absent" m51 \
+  "is destructured"
+
+# BR-2: scoping the bracket rule to a CALL reopened the REFERENCE form.
+m52(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'const later = (supa as never as Record<string, (n: string) => Promise<unknown>>)["rpc"];\n'
+ '    await later("vault_" + "create_secret");\n'
+ '    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "52 a data-plane method taken by computed REFERENCE is refused" m52 \
+  "taken by computed reference"
+
+# BR-5: a key that starts with a quote but is not one literal escaped both
+# bracket rules at once.
+m53(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'await (supa as never as Record<string, (n: string) => Promise<unknown>>)["r" + "pc"]("vault_create_secret");\n'
+ '    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "53 a concatenated bracket key is still a computed call" m53 \
+  "call through a computed, non-literal member"
+
+# ── XIII. green controls: ordinary code that must NOT be refused ───────────
+# RM-5: both false-positive narrowings shipped unfalsified, so nothing would
+# notice if either regressed and began reddening ordinary code again.
+c54(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport function ordinaryReads(params: Record<string, string>, m: Map<string, number>) {\n'
+      '  const a = params["from"]; const b = params["delete"];\n'
+      '  m.delete("x");\n'
+      '  return [a, b, Array.from(m.keys()).length];\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_green "54 record reads named from/delete beside a Map.delete" c54
+
+c55(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport const HELP = "select from (a table), then see [docs](https://x/y) for delete()";\n'
+      'export function helpText() { return HELP; }\n')
+p.write_text(s)
+PYX
+}
+expect_green "55 prose in a string that looks like code" c55
+
 echo
-echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed"
+echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed; ${CONTROLS_OK}/${CONTROLS} green controls held"
 [[ $BAD -eq 0 ]] && { echo "FALSIFICATION GREEN — every mutation is detected, each for its own reason"; exit 0; } \
                  || { echo "FALSIFICATION RED — the analyzer missed $BAD mutation(s)"; exit 1; }
