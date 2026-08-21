@@ -1,0 +1,1 @@
+BASELINE_OUTCOME=vault_create_secret=raised:P0001 vault_delete_secret=raised:P0001 vault_update_secret=raised:P0001
