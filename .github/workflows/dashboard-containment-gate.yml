@@ -266,6 +266,15 @@ jobs:
       # Executes the bridge's route surface against a real 0001-0008 database
       # and a real 0001-0023 one. Replaces the previous claim, which came from
       # grepping migrations for object names.
+      # Same reason as the reachability job: this harness imports
+      # extract-route-objects.mjs, which re-exports the shared source scanner,
+      # which parses with the TypeScript compiler.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Install locked dependencies
+        working-directory: dashboard
+        run: npm ci
       - name: Run the schema-compatibility harness
         run: dashboard/test/schema-compat/run.sh
 
@@ -290,21 +299,34 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
+      # The analyzer parses TypeScript with the TypeScript compiler, so it has a
+      # real dependency now. It used to hand-lex the source, and an audit
+      # defeated that scanner twice — once through regex-vs-division, once
+      # through JSX — so the dependency is the point, not an accident. This job
+      # ran `node …` with no install and died with ERR_MODULE_NOT_FOUND.
+      - name: Install locked dependencies
+        working-directory: dashboard
+        run: npm ci
       - name: No production entrypoint reaches a tombstoned routine
         working-directory: dashboard
         run: node test/containment/reachability.mjs
-      # 24 mutations on a baseline proven green first. Ten of them are
-      # written in forms that used to walk straight past the analyzer —
-      # import(), require(), .rpc<T>(), an aliased .rpc, a .js route, a
-      # directive past byte 200, a function-level "use server" — because a
-      # falsification suite whose mutations are all drawn from inside the
-      # parser's competence measures the parser's diligence, not its coverage.
+      # Every mutation, on a baseline proven green first. Several are written
+      # in forms that used to walk straight past the analyzer — import(),
+      # require(), .rpc<T>(), an aliased .rpc, a .js route, a directive past
+      # byte 200, a function-level "use server" — because a falsification suite
+      # whose mutations are all drawn from inside the parser's competence
+      # measures the parser's diligence, not its coverage.
       #
-      # The previous step name said 14 and three commit messages said 15/15.
-      # There were 14 expect_red calls, two of them duplicates, and the 15th
-      # `ok` was the baseline control being counted as a mutant. The honest
-      # figure was 13.
-      - name: The proof can go red — 24 mutations, on a green baseline
+      # NO COUNT IS PINNED HERE, deliberately. This label has carried a wrong
+      # number four times — it said 14 while there were 14 `expect_red` calls
+      # of which two were duplicates and one `ok` was the baseline control (the
+      # honest figure was 13), three commit messages said 15/15, and it then
+      # said 24 while the suite had grown to 31. A number typed beside a script
+      # that derives its own is a claim nothing checks. The script counts its
+      # mutations, prints "<n> mutations, <n> detected, <m> missed", and exits
+      # non-zero if m is not 0 or if the baseline was not green first; that
+      # output is the record.
+      - name: The proof can go red — every mutation, on a green baseline
         working-directory: dashboard
         run: bash test/containment/reachability-mutants.sh
 
