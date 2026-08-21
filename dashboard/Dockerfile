@@ -42,6 +42,22 @@ ARG BUILD_SHA=unknown
 ENV BUILD_SHA=$BUILD_SHA
 LABEL org.opencontainers.image.revision=$BUILD_SHA
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+# NO PACKAGE MANAGER IN A FROZEN ARTIFACT.
+#
+# A Next standalone server runs `node server.js`; npm is never invoked at
+# runtime. It is nonetheless present in the base image, and it brings its own
+# bundled dependency tree — which is where EVERY vulnerability in this image
+# came from. Measured on the sealed artifact at 3eb8f0ad: 1 CRITICAL, 7 HIGH
+# and 8 MEDIUM, all sixteen under usr/local/lib/node_modules/npm/node_modules/
+# (tar, brace-expansion, ip-address, picomatch, sigstore), and not one of them
+# an application dependency. Bumping this project's lockfile would have fixed
+# none of them.
+#
+# Removing it is also the right shape for this artifact independently of any
+# CVE: a container whose entire purpose is that it cannot change should not
+# carry the tool for changing it.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+ && ! command -v npm >/dev/null 2>&1
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
