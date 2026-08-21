@@ -27,7 +27,13 @@ import { hasUseServer } from "./source-scan.mjs";
  */
 
 const DASH = join(__dirname, "..", "..");
-const SKIP = new Set(["node_modules", ".next", "dist", "e2e"]);
+// BUILD ARTEFACTS ONLY, matching reachability.mjs. Widening this walk's
+// EXTENSIONS while leaving `dist` and `e2e` in its skip list kept the very
+// blind spot the immediately preceding commit had removed from the analyzer,
+// for the same reason: skipping a directory that can hold application code is
+// a decision about which code counts, and this file does not get to make it.
+// Test FILES are excluded by name, wherever they live.
+const SKIP = new Set(["node_modules", ".next"]);
 
 function walk(dir: string, out: string[] = []): string[] {
   let entries: string[];

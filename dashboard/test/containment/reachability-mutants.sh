@@ -712,7 +712,7 @@ p.write_text(s)
 PYX
 }
 expect_red "45 a .from taken as a reference is unclassifiable, not absent" m45 \
-  "reference(s) that are not calls"
+  "is taken by reference as"
 
 # A stripper that DELETES instead of blanking would drop the specifier count and
 # the edge count together, silently re-opening the same-line-import fix.
@@ -862,6 +862,19 @@ p.write_text(s)
 PYX
 }
 expect_green "55 prose in a string that looks like code" c55
+
+c56(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport function dateRange(range: { from: string; to: string }, d: Record<string, string>) {\n'
+      '  const x = range.from;\n'
+      '  d.from = x;\n'
+      '  return x + range.to;\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_green "56 a property named from that is read, not called" c56
 
 echo
 echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed; ${CONTROLS_OK}/${CONTROLS} green controls held"

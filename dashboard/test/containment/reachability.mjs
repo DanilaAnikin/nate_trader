@@ -545,7 +545,13 @@ const FROM_DESTRUCTURED_RE = /(?:const|let|var)\s*\{[^}]*\bfrom\b[^}]*\}\s*=/g;
  *  `.rpc` has had this since mutant 18 (`svc.rpc.bind(svc)` is an error); the
  *  `.from` rules stopped at the syntactic form their own mutant used, so
  *  `const tbl = svc.from; tbl(t).upsert(rows)` was invisible to both of them. */
-const FROM_REFERENCED_RE = /\.\s*from\s*(?!\s*\(|\s*\?\.\s*\()(?![\w$])/g;
+// BOUND AND THEN CALLED, the same discrimination the bracket form needs. As a
+// bare "any non-call `.from`" this fired on ordinary property access —
+// `range.from` on a date filter, `obj.from.bar()`, `d.from = 1` — none of which
+// is a method being taken to call later. The attack is
+// `const tbl = svc.from; tbl(t).upsert(...)`.
+const FROM_BOUND_RE =
+  /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*?\.\s*from\s*(?![\w$]|\s*\(|\s*\?\.\s*\()/g;
 /** `Reflect.get(svc, "rpc")` — a dot-free, bracket-free way to take the method,
  *  which combined with a concatenated routine name silences every other rule. */
 const REFLECT_GET_RE = /\bReflect\s*\.\s*get\s*\(/g;
@@ -640,12 +646,13 @@ function closureOf(entry) {
     for (const m of code.matchAll(FROM_DESTRUCTURED_RE)) {
       errors.push(`${rel}: \`from\` is destructured (${m[0].slice(0, 48)}) — a later from(...) call has no receiver this analyzer can read`);
     }
-    FROM_REFERENCED_RE.lastIndex = 0;
-    const referenced = (code.match(FROM_REFERENCED_RE) ?? []).length;
-    if (referenced) {
+    FROM_BOUND_RE.lastIndex = 0;
+    for (const m of code.matchAll(FROM_BOUND_RE)) {
+      const bound = m[1];
+      if (!new RegExp(`\\b${bound}\\s*(?:\\?\\.)?\\s*\\(`).test(code)) continue;
       errors.push(
-        `${rel}: ${referenced} \`.from\` reference(s) that are not calls — the table-write rules ` +
-          `only read a direct call, so a method taken by reference is unclassifiable`,
+        `${rel}: \`.from\` is taken by reference as \`${bound}\` and called later — the ` +
+          `table-write rules only read a direct call, so this is unclassifiable`,
       );
     }
     FROM_WITH_RECEIVER_RE.lastIndex = 0;
