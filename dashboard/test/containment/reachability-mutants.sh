@@ -398,7 +398,7 @@ d=pathlib.Path(sys.argv[1])
 # must be an ERROR rather than a clean tree — the failure mode the two blockers
 # of the day both had.
 p=d/"test/containment/reachability.mjs"; s=p.read_text()
-s=s.replace("if (isMutationSurface(src, code)) found.push(relative(DASH, f));",
+s=s.replace("if (isMutationSurface(raw, f)) found.push(relative(DASH, f));",
             "if (false) found.push(relative(DASH, f));")
 p.write_text(s)
 PYX
@@ -713,19 +713,12 @@ PYX
 }
 expect_red "45 a .from taken as a reference is unclassifiable, not absent" m45 \
   "is taken by reference as"
-
-# A stripper that DELETES instead of blanking would drop the specifier count and
-# the edge count together, silently re-opening the same-line-import fix.
-m46(){ python3 - "$1" <<'PYX'
-import pathlib,sys
-p=pathlib.Path(sys.argv[1])/"test/containment/source-scan.mjs"; s=p.read_text()
-s=s.replace('if (blanked[i] !== "\\n" && blanked[i] !== "\\r") blanked[i] = " ";',
-            'if (blanked[i] !== "\\n" && blanked[i] !== "\\r") blanked[i] = "";')
-p.write_text(s)
-PYX
-}
-expect_red "46 a stripper that deletes rather than blanks is caught" m46 \
-  "must blank comments, not delete them"
+# (m46 removed) It tested that reachability CATCHES a stripComments that deletes
+# instead of blanks. reachability no longer uses stripComments — module edges,
+# writes and routine names come from the TypeScript AST (ast-scan.mjs), which
+# reads comments and strings as distinct node kinds — so the stripper is no
+# longer its dependency. The blank-not-delete / length-preservation invariant is
+# tested where it now lives, in test/containment/source-scan.test.ts.
 
 # ── XI. the two regressions round 2 introduced (round 3) ───────────────────
 
@@ -915,6 +908,51 @@ p.write_text(s)
 PYX
 }
 expect_green "59 a .delete() described in a STRING beside a .from is not a write" c59
+
+# ── XV. equivalence guards for the regex -> AST migration ─────────────────
+# The analyzer was rewritten from regex-over-source-text to a real TypeScript
+# AST. Both are checked here against the SAME 54-mutation corpus and BOTH detect
+# all 54 (see the differential run recorded in the migration commit): after ten
+# rounds of hardening the regex had reached full detection coverage on this
+# corpus, so the AST is not catching a live miss. Its value is that the defect
+# class every prior round patched — a string, comment, or receiver shape read as
+# code, or code missed because it did not match a pattern — is now impossible by
+# construction rather than fixed instance by instance. These two cases are the
+# shapes those defects lived in; they are GREEN on both analyzers and exist to
+# keep the AST from regressing into either failure mode.
+
+# The query builder passed through TWO variables before the write. The AST pairs
+# a non-builtin .from() call with a write call at module scope; the regex paired
+# them the same way. Both see it — this guards the AST does not lose that pairing.
+m60(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport async function laundered(svc: { from: (t: string) => any }) {\n'
+      '  const a = svc.from("accounts");\n'
+      '  const b = a;\n'
+      '  const c = b;\n'
+      '  log("padding"); log("more padding"); log("still more");\n'
+      '  return c.delete();\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_red "60 a write laundered through two variables is still a table write" m60 \
+  "mutation surface in a production entrypoint closure"
+
+# A tombstoned routine name that appears ONLY in a comment must NOT be a finding:
+# the regex `["'`]name["'`]` never saw comments (it read stripped source), and
+# the AST does not either — a StringLiteral node is not a comment. This is the
+# green control that proves the name rule reads code, not prose.
+c61(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\n// historical note: vault_create_secret was removed; do not call it.\n'
+      'export function harmless() { return 1; }\n')
+p.write_text(s)
+PYX
+}
+expect_green "61 a tombstoned name in a COMMENT is not a finding" c61
 
 echo
 echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed; ${CONTROLS_OK}/${CONTROLS} green controls held"

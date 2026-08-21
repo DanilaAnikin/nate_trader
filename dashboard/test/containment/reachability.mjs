@@ -45,7 +45,8 @@
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { dirname, join, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { stripComments, stripCommentsAndStrings, hasUseServer } from "./source-scan.mjs";
+import { hasUseServer } from "./source-scan.mjs";
+import { moduleEdges, namesForbiddenRoutine, scanDataPlane } from "./ast-scan.mjs";
 
 const DASH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const REPO = resolve(DASH, "..");
@@ -210,8 +211,6 @@ const FORBIDDEN_ROUTINES = forbiddenRoutines();
  * RPCs), service.ts (table writes), and equity-backfill.ts (table writes),
  * which the old two-entry list MISSED.
  */
-const TABLE_WRITE_RE =
-  /\.\s*from\s*(?:\?\.)?\s*\(\s*["'`][^"'`]+["'`]\s*\)[\s\S]{0,300}?\.\s*(?:insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/;
 
 /** THE RULE, in one place, so the set that is DERIVED and the set that is
  *  DECIDED cannot be different sets.
@@ -231,69 +230,30 @@ const TABLE_WRITE_RE =
  *  The derived list is still computed, because it is what gets REPORTED — and
  *  a closure member that this rule flags but that list does not contain is now
  *  an error, so the report cannot quietly understate the surface either. */
-function isMutationSurface(src, code) {
-  if (isTableWrite(src, code)) return true;
-  return FORBIDDEN_ROUTINES.some((r) => new RegExp(`["'\`]${r}["'\`]`).test(src));
-}
-
-/** Does this module write a table? ONE predicate, used by the derivation and by
- *  the offence loop alike. They diverged the moment a second condition was
- *  added to only one of them: the derived list gained the module-level pairing
- *  rule while the offence loop still tested TABLE_WRITE_RE on its own, so a
- *  write the window could not pair entered the reported surface and produced no
- *  offence. That is the same two-rules-for-one-question defect this file has now
- *  had three times, at three different scales. */
-function isTableWrite(src, code) {
-  // TABLE_WRITE_RE reads the LITERAL table name, so it needs the comment-only
-  // view (src); the string-blanked view would empty its token. unpairedTableWrite
-  // is a pure SHAPE rule, so per this file's rule (see the two-views note) it
-  // reads the blanked view (code) — otherwise a `.delete(` inside a STRING, in
-  // a module that also selects a table, is a false positive. `code` defaults to
-  // `src` for callers that have not built the blanked view, which only ever
-  // makes the rule more inclusive, never less.
-  return TABLE_WRITE_RE.test(src) || unpairedTableWrite(code ?? src);
-}
-
-/** A `.from(` and a write method in the same module that the windowed rule
- *  could not pair.
- *
- *  TABLE_WRITE_RE looks for a write within 300 characters of the `.from(`. The
- *  headline of the commit that introduced it said it had closed "the 200-byte
- *  window they shared" — and what replaced that was a 300-CHARACTER window with
- *  the same defeat. Hold the query builder in a variable across a dozen
- *  ordinary statements and a literal-table write is invisible to TABLE_WRITE_RE
- *  and, because the table name IS a literal, invisible to
- *  FROM_NONLITERAL_WRITE_RE too.
- *
- *  Widening the window only moves the number. This asks the question the window
- *  was approximating: does this module both select a table and call a write
- *  method? If so it is mutation surface, whatever the distance between them.
- *  Deliberately over-inclusive — an extra module in the surface makes the proof
- *  stricter, a missed one makes it a lie — and measured against this tree,
- *  which still derives exactly the same three modules. */
-function unpairedTableWrite(src) {
-  FROM_WITH_RECEIVER_RE.lastIndex = 0;
-  const selectsTable = [...src.matchAll(FROM_WITH_RECEIVER_RE)].some(
-    (m) => !(m[1] && FROM_BUILTIN_RECEIVERS.has(m[1])),
-  );
-  if (!selectsTable) return false;
-  return /\.\s*(?:insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/.test(src);
+/** Does this module write a table or name a tombstoned routine? Decided from
+ *  the TypeScript AST (ast-scan.mjs), not from regexes over text: a `.from(...)`
+ *  call paired with a write method, and a string literal naming a forbidden
+ *  routine. Comments and string contents are distinct node kinds the scan never
+ *  treats as code, so the prose/comment false positives the regex era kept
+ *  reintroducing are impossible here. `raw` is the untouched source; the parser
+ *  handles comments and strings itself. */
+function isMutationSurface(raw, fileName) {
+  if (scanDataPlane(raw, fileName, relative(DASH, fileName)).writesTable) return true;
+  return namesForbiddenRoutine(raw, fileName, FORBIDDEN_ROUTINES) !== null;
 }
 
 function forbiddenModules() {
   const found = [];
   for (const root of ["app", "lib", "components"]) {
     for (const f of walkFiles(join(DASH, root))) {
-      let src, code;
+      let raw;
       try {
-        const raw = readFileSync(f, "utf8");
-        src = stripComments(raw, f);
-        code = stripCommentsAndStrings(raw, f);
+        raw = readFileSync(f, "utf8");
       } catch {
         errors.push(`${relative(DASH, f)}: unreadable while deriving the mutation surface`);
         continue;
       }
-      if (isMutationSurface(src, code)) found.push(relative(DASH, f));
+      if (isMutationSurface(raw, f)) found.push(relative(DASH, f));
     }
   }
   // Non-vacuity: a derivation that finds nothing would make the whole rule
@@ -424,160 +384,16 @@ function resolveSpec(spec, fromFile) {
   return null;
 }
 
-// A STATEMENT boundary, not a line boundary. These were anchored `(?:^|\n)\s*`,
-// so only the FIRST import on a physical line was ever seen:
-//
-//     import a from "@/lib/x"; import { createAccount } from "@/lib/accounts/service";
-//
-// yielded one edge, and — worse than being wrong — said nothing about it. The
-// second specifier simply did not exist as far as the walk was concerned, which
-// put a whole subgraph inside a route closure with `modulesWalked` unchanged.
-// `;`, `{` and `}` join `\n` as places a statement can begin. The accounting
-// below is ONE-SIDED, deliberately and stated as such: it errors when there are
-// MORE specifiers present than edges found, which is the direction that loses
-// an edge. It does not police the other direction, so a `from "…"` inside a
-// string literal inflates specCount and can only produce a false ERROR, never a
-// missed edge. An earlier version of this comment said the two counts must be
-// "equal", which is not what the code does.
-const IMPORT_RE = /(?:^|[\n;{}])\s*(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?)\bfrom\s*["']([^"']+)["']/g;
-const BARE_IMPORT_RE = /(?:^|[\n;{}])\s*import\s*["']([^"']+)["']/g;
-/** Every `from "…"` / `import "…"` in the file, however it is positioned. */
-const ANY_SPEC_RE = /\bfrom\s*["'][^"']+["']|(?:^|[\n;{}(])\s*import\s*["'][^"']+["']/g;
-/** Computed access to a data-plane method: svc["rpc"], client['from'], … */
-// FOLLOWED BY A CALL. Without that this matched any bracket access whose key
-// happened to be one of these words, so `params["from"]` on a query-string
-// record, `range["from"]` on a date filter, or the array literal `["delete"]`
-// were all refused as "computed access to a data-plane method". `from` and
-// `delete` are ordinary object keys in a dashboard; the attack is a CALL.
-const COMPUTED_DATAPLANE_RE = /\[\s*["'`](rpc|from|insert|update|upsert|delete)["'`]\s*\]\s*(?:\?\.)?\s*\(/g;
-/** WHICH VIEW EACH RULE READS IS PART OF THE RULE.
- *
- *  Rules that read a LITERAL — the quoted method name here, the table name in
- *  `.from("accounts")` — must see the comment-only view, because the
- *  string-blanked view empties exactly the token they match on. Rules that look
- *  for a SHAPE — a bare `from(`, a computed call, a Reflect.get — read the
- *  blanked view, so prose that happens to look like code is not a finding.
- *  Moving these two to the blanked view turned mutants 33 and 52 green, which
- *  is how this note came to exist.
- *
- *  The same bracket key NOT followed by a call: `const m = svc["rpc"]`.
- *
- *  Scoping the rule above to a CALL — done to stop `params["from"]` on a record
- *  being refused — reopened the reference form, which is the bracket spelling
- *  of exactly what FROM_REFERENCED_RE was added to close for the dotted one. A
- *  method taken now and called later is the oldest trick here; `.rpc` has
- *  refused it since mutant 18. Read over the string-blanked view, so a key
- *  appearing inside prose is not a finding. */
-//  BOUND AND THEN CALLED, which is what separates the attack from a record
-//  read. `const m = svc["rpc"]; m(...)` is the bracket spelling of taking a
-//  method now and calling it later; `const a = params["from"]` is a query-string
-//  lookup and must not be a finding. Matching the reference alone refused both —
-//  green control 54 said so the moment it existed. The binding's name is
-//  captured here and the caller checks whether it is invoked anywhere in the
-//  module.
-const COMPUTED_DATAPLANE_BOUND_RE =
-  /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*?\[\s*["'`](rpc|from|insert|update|upsert|delete)["'`]\s*\](?!\s*(?:\?\.)?\s*\()/g;
-/** …and the form with no literal key at all: `svc[m](…)`, `svc[k]?.(…)`.
- *
- *  The rule above only ever saw a QUOTED key, so `const m = "rpc"; svc[m]("…")`
- *  walked past it — and past the literal-name rule too, since the routine name
- *  can be concatenated. A call through a member this analyzer cannot read is
- *  unclassifiable by definition, which under the governing rule at the top of
- *  this file is an ERROR and not an absence.
- *
- *  Matches a CALL only. Ordinary computed READS (`obj[k].field`, `rows[i]`,
- *  `map[key] = v`) are untouched, which is why the tree still passes. */
-// The lookahead excludes only a COMPLETE single literal — the form the rule
-// above reads. `svc["r" + "pc"](...)` starts with a quote and is not one
-// literal, so under the old `(?!["'`])` it was refused by neither rule, in a
-// file whose header says an unclassifiable call must be an error.
-const COMPUTED_CALL_RE =
-  /\[\s*(?!["'`][^"'`]*["'`]\s*\])[^\]\n]{1,60}\]\s*(?:\?\.)?\s*\(/g;
-/** A table write whose table name is NOT a literal.
- *
- * Scoped to the write, deliberately. A bare `.from(` matches `Buffer.from(...)`
- * — measured: exactly one, at lib/status/zip.ts:315 — an earlier note said
- * "four in lib/status/zip.ts", which counted Buffer.from across the whole tree
- * (zip.ts, read-model.test.ts, zip.test.ts, test/zip-builder.ts) and attributed
- * the total to one file — so counting every `.from(` against
- * the literal ones reports a ZIP reader as an unreadable data-plane call. What
- * matters is the shape TABLE_WRITE_RE is blind to: a `.from()` the rule cannot
- * read, feeding a method that writes. */
-// The receiver is captured so builtins can be excluded. Without that,
-// `Array.from(xs)` sitting within 300 characters of ANY `.delete(` or
-// `.update(` — a Map, a Set, `headers.delete`, `searchParams.delete`, a crypto
-// digest's `.update` — was reported as an unreadable data-plane write. The
-// scoping was meant to stop `Buffer.from` tripping the rule and only half did.
-// The receiver is captured so BUILTINS can be excluded — but capturing it as a
-// required identifier made an identifier receiver MANDATORY, and
-// `getSupabaseService().from(TABLE)` is the idiomatic spelling in this
-// codebase. So the narrowing added to stop `Array.from` producing a false
-// positive turned every factory-call receiver into a false NEGATIVE, which is
-// strictly the worse direction. A call-expression receiver (`)`) is now matched
-// too, and group 1 is simply absent for it, so only a named builtin is excused.
-// The receiver may also end in `!` (non-null assertion, `svc!.from(T)`) or `]`
-// (index expression, `clients[0].from(T)`) — both ordinary TypeScript. Missing
-// them let a non-literal write behind such a receiver escape both this rule and
-// FROM_WITH_RECEIVER_RE. A `)` receiver still yields no group-1 capture, so the
-// builtin allowlist is unaffected.
-const FROM_NONLITERAL_WRITE_RE =
-  /(?:([A-Za-z_$][\w$]*)|\)|\]|!)\s*\??\.\s*from\s*(?:\?\.)?\s*\(\s*(?!["'`])[^)]*\)[\s\S]{0,300}?\.\s*(insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/g;
-
-/* THE `.from` FAMILY GETS THE SAME ACCOUNTING `.rpc` HAS.
- *
- * Both write rules used to require the literal token `.from(`, so two ordinary
- * spellings defeated them at once and emitted nothing:
- *
- *     const { from } = svc; from("equity_snapshots").upsert(rows)   // no dot
- *     svc?.from?.("accounts")?.update?.({ … })                      // ?. between
- *
- * `.rpc` has had both halves of this since an earlier round — an explicit `\??`
- * for optional chaining AND RPC_ANY_RE to catch every mention it cannot
- * classify. The `.from` rules had neither, so an UNREADABLE `.from` was
- * reported as an ABSENT `.from` — the exact failure mode the header of this
- * file says is forbidden.
- *
- * A receiver allowlist is unavoidable because `Array.from` and `Buffer.from`
- * are ordinary code (measured: four `Buffer.from` in lib/status/zip.ts). It is
- * small, explicit, and has a positive control in the mutant suite so it cannot
- * quietly grow into a hole. */
-const FROM_BUILTIN_RECEIVERS = new Set([
-  "Array", "Buffer", "Object", "Date", "Promise", "Map", "Set", "WeakMap", "WeakSet",
-  "Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array",
-  "Int32Array", "Uint32Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array",
-]);
-/** `X.from(` / `X?.from?.(` with the receiver captured. */
-// Same shape, same reason: a call-expression receiver must be seen. This one
-// also feeds unpairedTableWrite, so the mandatory identifier silently narrowed
-// the module-level pairing rule that exists to not depend on a window.
-const FROM_WITH_RECEIVER_RE = /(?:([A-Za-z_$][\w$]*)|\)|\]|!)\s*\??\.\s*from\s*(?:\?\.)?\s*\(/g;
-/** A `from(` call with no receiver at all — an alias or a destructured method. */
-const FROM_BARE_CALL_RE = /(?:^|[^.\w$])from\s*(?:\?\.)?\s*\(/g;
-/** `const { from } = …` / `const { from: alias } = …` */
-const FROM_DESTRUCTURED_RE = /(?:const|let|var)\s*\{[^}]*\bfrom\b[^}]*\}\s*=/g;
-/** A `.from` that is REFERENCED rather than called: `const tbl = svc.from;`.
- *  `.rpc` has had this since mutant 18 (`svc.rpc.bind(svc)` is an error); the
- *  `.from` rules stopped at the syntactic form their own mutant used, so
- *  `const tbl = svc.from; tbl(t).upsert(rows)` was invisible to both of them. */
-// BOUND AND THEN CALLED, the same discrimination the bracket form needs. As a
-// bare "any non-call `.from`" this fired on ordinary property access —
-// `range.from` on a date filter, `obj.from.bar()`, `d.from = 1` — none of which
-// is a method being taken to call later. The attack is
-// `const tbl = svc.from; tbl(t).upsert(...)`.
-const FROM_BOUND_RE =
-  /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*?\.\s*from\s*(?![\w$]|\s*\(|\s*\?\.\s*\()/g;
-/** `Reflect.get(svc, "rpc")` — a dot-free, bracket-free way to take the method,
- *  which combined with a concatenated routine name silences every other rule. */
-const REFLECT_GET_RE = /\bReflect\s*\.\s*get\s*\(/g;
-/** `const { rpc } = svc` — destructuring the RPC entry point, the `.from`
- *  equivalent of which has been refused since the round-9 repair. */
-const RPC_DESTRUCTURED_RE = /(?:const|let|var)\s*\{[^}]*\brpc\b[^}]*\}\s*=/g;
-/** `import(...)` and `require(...)`, literal or not — both are edges. */
-const DYNAMIC_RE = /\b(?:import|require)\s*\(\s*([^)]*?)\s*\)/g;
-/** Every mention of `.rpc`, however it is spelled. */
-const RPC_ANY_RE = /\.rpc\b/g;
-/** A directly classifiable call: optional generics, optional `?.`, literal name. */
-const RPC_CALL_RE = /\.rpc\s*(?:<[^>]*>)?\s*\??\s*\(\s*([^,)]*)/g;
+// Module edges, data-plane detection and tombstoned-routine references are all
+// derived from the TypeScript AST now (ast-scan.mjs), not from regexes over
+// source text. Ten rounds of adversarial review found the same defect class
+// every time a regex tried to read code as text — a `.from(` in a string, a
+// write held in a variable, a receiver ending in `!`, a dropped import edge on
+// a shared line. The parser answers all of them by construction. The regex
+// constants that used to live here (IMPORT_RE, TABLE_WRITE_RE, the FROM_*/RPC_*/
+// COMPUTED_* family, DYNAMIC_RE and the two-view stripComments apparatus) are
+// gone; their history is in git and in the falsification suite that still holds
+// every shape they were written to catch.
 
 const closures = new Map();
 
@@ -595,163 +411,26 @@ function closureOf(entry) {
       errors.push(`${relative(DASH, f)}: unreadable`);
       continue;
     }
-    // WITH THE FILENAME. Without it guessKind returns TSX for every module, so
-    // the same file was stripped one way here and another way in
-    // forbiddenModules() and the offence loop — two views of one file inside a
-    // single run, which is the "two copies of one rule" failure this file has
-    // now had four times.
-    const src = stripComments(raw, f);
-    const code = stripCommentsAndStrings(raw, f);
     const rel = relative(DASH, f);
 
-    // Every `.rpc` must be a direct call with a literal name. Anything else —
-    // a generic argument, an alias, a `.bind`, a computed name — is a call this
-    // analyzer cannot classify, and an unclassifiable call is a hole in the
-    // proof, not an absence of one. The audit reached a tombstoned routine
-    // through `.rpc<void>(...)` and through `svc.rpc.bind(svc)` while this
-    // printed PASS.
-    const mentions = (src.match(RPC_ANY_RE) ?? []).length;
-    let classified = 0;
-    for (const m of src.matchAll(RPC_CALL_RE)) {
-      classified += 1;
-      const arg = m[1].trim();
-      if (!/^["'`][a-zA-Z0-9_]+["'`]$/.test(arg)) {
-        errors.push(`${rel}: .rpc() called with a non-literal name (${arg.slice(0, 40)}) — cannot be classified`);
-      }
-    }
-    if (mentions > classified) {
-      errors.push(
-        `${rel}: ${mentions - classified} reference(s) to .rpc that are not a direct call ` +
-          `(alias, .bind, property access) — cannot be classified`,
-      );
-    }
+    // Data-plane findings from the AST (ast-scan.mjs): unclassifiable .rpc/.from
+    // access, computed calls, Reflect.get, destructuring, references. Comments
+    // and string contents are node kinds the scan never reads as code, so the
+    // whole two-views (stripComments/stripCommentsAndStrings) apparatus and its
+    // false positives are gone.
+    for (const e of scanDataPlane(raw, f, rel).errors) errors.push(e);
 
-    // Computed access to a data-plane method is not analyzable, and the two
-    // RPC controls above both miss it: `svc["rpc"]("vault_" + "create_secret")`
-    // contains no `.rpc` at all, and the concatenated name is not a literal.
-    COMPUTED_DATAPLANE_RE.lastIndex = 0;
-    for (const m of src.matchAll(COMPUTED_DATAPLANE_RE)) {
-      errors.push(`${rel}: computed access to the data-plane method ${m[1]} (${m[0]}) — cannot be classified`);
+    // Module edges from the AST: every static import/export-from/require and
+    // every dynamic import, exactly, with no counting. A dynamic import/require
+    // whose argument is not a string literal is an edge that could go anywhere.
+    const { specifiers, nonLiteralDynamic } = moduleEdges(raw, f);
+    for (const arg of nonLiteralDynamic) {
+      errors.push(`${rel}: dynamic import/require with a non-literal specifier (${arg})`);
     }
-    for (const m of code.matchAll(REFLECT_GET_RE)) {
-      errors.push(`${rel}: Reflect.get(...) takes a member this analyzer cannot read (${m[0].trim()}) — cannot be classified`);
-    }
-    for (const m of code.matchAll(RPC_DESTRUCTURED_RE)) {
-      errors.push(`${rel}: \`rpc\` is destructured (${m[0].slice(0, 48)}) — a later rpc(...) call has no receiver this analyzer can read`);
-    }
-    COMPUTED_DATAPLANE_BOUND_RE.lastIndex = 0;
-    for (const m of src.matchAll(COMPUTED_DATAPLANE_BOUND_RE)) {
-      const bound = m[1];
-      if (!new RegExp(`\\b${bound}\\s*(?:\\?\\.)?\\s*\\(`).test(code)) continue;
-      errors.push(
-        `${rel}: the data-plane method ${m[2]} is taken by computed reference as \`${bound}\` ` +
-          `and called later — cannot be classified`,
-      );
-    }
-    COMPUTED_CALL_RE.lastIndex = 0;
-    for (const m of code.matchAll(COMPUTED_CALL_RE)) {
-      errors.push(`${rel}: a call through a computed, non-literal member (${m[0].trim().slice(0, 40)}) — cannot be classified`);
-    }
-
-    // `.from(` with a non-literal argument. TABLE_WRITE_RE needs a quoted table
-    // name, so `const T = "equity_snapshots"; svc.from(T).upsert(rows)` was not
-    // a table write and the module never became mutation surface. Counted the
-    // same way `.rpc` is: every occurrence must be one the rule can read.
-    for (const m of code.matchAll(FROM_DESTRUCTURED_RE)) {
-      errors.push(`${rel}: \`from\` is destructured (${m[0].slice(0, 48)}) — a later from(...) call has no receiver this analyzer can read`);
-    }
-    FROM_BOUND_RE.lastIndex = 0;
-    for (const m of code.matchAll(FROM_BOUND_RE)) {
-      const bound = m[1];
-      if (!new RegExp(`\\b${bound}\\s*(?:\\?\\.)?\\s*\\(`).test(code)) continue;
-      errors.push(
-        `${rel}: \`.from\` is taken by reference as \`${bound}\` and called later — the ` +
-          `table-write rules only read a direct call, so this is unclassifiable`,
-      );
-    }
-    FROM_WITH_RECEIVER_RE.lastIndex = 0;
-    for (const m of src.matchAll(FROM_WITH_RECEIVER_RE)) {
-      if (m[1] && FROM_BUILTIN_RECEIVERS.has(m[1])) continue;
-      const after = src.slice(m.index + m[0].length).trimStart();
-      if (!/^["'`]/.test(after)) {
-        errors.push(`${rel}: ${m[1]}.from(...) without a literal table name — the table-write rule cannot read it`);
-      }
-    }
-    FROM_BARE_CALL_RE.lastIndex = 0;
-    for (const m of code.matchAll(FROM_BARE_CALL_RE)) {
-      errors.push(`${rel}: a from(...) call with no receiver (${m[0].trim().slice(0, 32)}) — cannot be classified`);
-    }
-
-    FROM_NONLITERAL_WRITE_RE.lastIndex = 0;
-    for (const m of src.matchAll(FROM_NONLITERAL_WRITE_RE)) {
-      if (m[1] && FROM_BUILTIN_RECEIVERS.has(m[1])) continue;
-      errors.push(
-        `${rel}: ${m[1]}.from(<non-literal>) feeding .${m[2]}() — the table-write rule needs a literal ` +
-          `table name, so this write is invisible to it`,
-      );
-    }
-
-    // And the imports must ADD UP. Widening the anchor fixes the case that was
-    // found; this makes the next one an error instead of a silence, which is
-    // the whole difference between a scanner that is right today and one that
-    // says when it stops being right.
-    // The stripper BLANKS comments to spaces rather than removing them, so a
-    // stripped file is exactly as long as the raw one. Both counters below are
-    // computed from the stripped source, so a stripper that DELETED a line
-    // holding an import would drop specCount and edgeCount together and the
-    // guard would be silent by construction — blind spot #4 quietly reopening
-    // blind spot #1. This makes that impossible to miss rather than reasoning
-    // that it cannot happen.
-    if (src.length !== raw.length) {
-      errors.push(
-        `${rel}: the comment stripper changed the file's length (${raw.length} -> ${src.length}); ` +
-          `it must blank comments, not delete them, or every count taken from it is unsafe`,
-      );
-    }
-    const specCount = (src.match(ANY_SPEC_RE) ?? []).length;
-    let edgeCount = 0;
-    for (const re of [IMPORT_RE, BARE_IMPORT_RE]) {
-      re.lastIndex = 0;
-      edgeCount += [...src.matchAll(re)].length;
-    }
-    if (specCount > edgeCount) {
-      errors.push(
-        `${rel}: ${specCount} module specifier(s) present but only ${edgeCount} import edge(s) matched — ` +
-          `the import scanner is dropping ${specCount - edgeCount} of them`,
-      );
-    }
-
-    for (const re of [IMPORT_RE, BARE_IMPORT_RE]) {
-      re.lastIndex = 0;
-      for (const m of src.matchAll(re)) {
-        const target = resolveSpec(m[1], f);
-        if (target === "EXTERNAL") continue;
-        if (target === null) {
-          errors.push(`${rel}: unresolved import '${m[1]}'`);
-          continue;
-        }
-        stack.push(target);
-      }
-    }
-
-    // Dynamic edges. `await import("@/lib/accounts/credentials")` is an import
-    // by any reasonable reading, and following only the static form let the
-    // audit put the entire credentials subgraph one `await` away from a GET
-    // with the module count unchanged.
-    for (const m of src.matchAll(DYNAMIC_RE)) {
-      const arg = m[1].trim();
-      const lit = arg.match(/^["'`]([^"'`]+)["'`]$/);
-      if (!lit) {
-        // an unresolvable dynamic edge could go anywhere, including here
-        errors.push(`${rel}: dynamic import/require with a non-literal specifier (${arg.slice(0, 40)})`);
-        continue;
-      }
-      const target = resolveSpec(lit[1], f);
+    for (const spec of specifiers) {
+      const target = resolveSpec(spec, f);
       if (target === "EXTERNAL") continue;
-      if (target === null) {
-        errors.push(`${rel}: unresolved dynamic import '${lit[1]}'`);
-        continue;
-      }
+      if (target === null) { errors.push(`${rel}: unresolved import '${spec}'`); continue; }
       stack.push(target);
     }
   }
@@ -785,22 +464,15 @@ for (const ep of eps) {
   for (const f of cl) {
     const fr = relative(DASH, f);
     const raw = readFileSync(f, "utf8");
-    const src = stripComments(raw, f);
-    const code = stripCommentsAndStrings(raw, f);
-    for (const routine of FORBIDDEN_ROUTINES) {
-      // The NAME as a string literal, not a particular call syntax. Production
-      // code has no reason to name a routine that exists only to raise. This
-      // catches aliasing, dispatch tables and generics in one rule, where
-      // matching `.rpc("name")` caught only the shape already thought of.
-      if (new RegExp(`["'\`]${routine}["'\`]`).test(src)) {
-        offences.push(`${rel} -> ${fr}: names tombstoned routine ${routine}`);
-      }
-    }
-    // Applied to THIS module's source, not looked up in a list built by a
-    // different walk. `namesTombstone` is already reported above with the
-    // routine named, so only report the table-write half here to avoid
-    // duplicating one offence as two.
-    if (isTableWrite(src, code)) {
+    // The NAME as a STRING LITERAL, from the AST — so it never matches the name
+    // in a comment or an identifier, and catches aliasing, dispatch tables and
+    // generics in one rule. Production code has no reason to name a routine that
+    // exists only to raise.
+    const named = namesForbiddenRoutine(raw, f, FORBIDDEN_ROUTINES);
+    if (named) offences.push(`${rel} -> ${fr}: names tombstoned routine ${named}`);
+    // The same AST predicate the derivation uses, applied to THIS module — one
+    // rule, one answer, no view to get wrong.
+    if (scanDataPlane(raw, f, fr).writesTable) {
       offences.push(`${rel} -> ${fr}: mutation surface in a production entrypoint closure`);
       if (!FORBIDDEN_MODULES.includes(fr)) {
         errors.push(
