@@ -2857,7 +2857,15 @@ function deriveImageSourceBinding() {
     return ev;
   }
   const HEX64 = /^[0-9a-f]{64}$/;
-  const HEX40 = /^[0-9a-f]{40}$/;
+  // `<sha>` in frozen mode, `<sha>+mutant` in mutant mode. run.sh REQUIRES the
+  // suffix in --mode mutant ("or `<target-sha>+mutant`") and refuses an image
+  // without it, so a control that accepted only bare hex contradicted the
+  // contract it was checking and made every mutant run an INCOMPLETE
+  // OBSERVATION — which is how it was found, on the run that establishes
+  // property (B). Checked more strictly than before, not less: the suffix must
+  // be present exactly when the mode is mutant, so a mutant image can no longer
+  // be passed off as a frozen run or the reverse.
+  const HEX40 = /^[0-9a-f]{40}(\+mutant)?$/;
   for (const [k, re] of [["sourceDigest", HEX64], ["commitTreeDigest", HEX64],
                          ["imageSourceDigest", HEX64], ["imageRevision", HEX40], ["targetSha", HEX40]]) {
     const v = PROV[k];
@@ -2871,11 +2879,26 @@ function deriveImageSourceBinding() {
   if (ev.reasons.length) return ev;
   ev.sourceEqualsCommit = ev.sourceDigest === ev.commitTreeDigest;
   ev.imageEqualsSource = ev.imageSourceDigest === ev.sourceDigest;
-  ev.revisionEqualsTargetSha = ev.imageRevision === ev.targetSha;
-  if (!ev.sourceEqualsCommit) {
+  const revBase = String(ev.imageRevision).replace(/\+mutant$/, "");
+  const revIsMutant = /\+mutant$/.test(String(ev.imageRevision));
+  ev.revisionEqualsTargetSha = revBase === ev.targetSha;
+  ev.revisionModeAgrees = revIsMutant === (String(PROV.mode) === "mutant");
+  // MODE-AWARE, because run.sh's own contract is: in frozen mode the --source
+  // tree and the tree at --target-sha must be EQUAL, and in mutant mode they
+  // must DIFFER — "the inverse assertion, so the check cannot be vacuous". A
+  // control that demanded equality in both directions refused every mutant run
+  // for being a mutant. Both directions are now asserted, which is strictly
+  // stronger: a "mutant" whose source equals the commit tree is not a mutant.
+  const wantMutant = String(PROV.mode) === "mutant";
+  if (!wantMutant && !ev.sourceEqualsCommit) {
     ev.reasons.push(`the --source tree this run enumerated digests to ${ev.sourceDigest} but the tree at ` +
                     `--target-sha ${ev.targetSha} digests to ${ev.commitTreeDigest}; the run drove a surface ` +
                     `that is not the commit's`);
+  }
+  if (wantMutant && ev.sourceEqualsCommit) {
+    ev.reasons.push(`this is --mode mutant, but the --source tree digests to ${ev.sourceDigest}, identical to ` +
+                    `the tree at --target-sha; a mutant that is byte-identical to the commit is not a mutant, ` +
+                    `and property (B) cannot be established from it`);
   }
   if (!ev.imageEqualsSource) {
     ev.reasons.push(`the image was built from a tree digesting to ${ev.imageSourceDigest} but --source ` +
@@ -2884,6 +2907,11 @@ function deriveImageSourceBinding() {
   if (!ev.revisionEqualsTargetSha) {
     ev.reasons.push(`the image is labelled org.opencontainers.image.revision=${ev.imageRevision} but this ` +
                     `verdict is filed against --target-sha ${ev.targetSha}`);
+  }
+  if (!ev.revisionModeAgrees) {
+    ev.reasons.push(`the image revision ${ev.imageRevision} ${revIsMutant ? "carries" : "does not carry"} the ` +
+                    `+mutant suffix, but this run is --mode ${PROV.mode}; a mutant image must not be filed as a ` +
+                    `frozen run, nor a frozen image as a mutant one`);
   }
   ev.satisfied = ev.reasons.length === 0;
   return ev;
