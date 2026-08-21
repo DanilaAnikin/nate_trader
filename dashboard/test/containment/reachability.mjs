@@ -231,8 +231,8 @@ const TABLE_WRITE_RE =
  *  The derived list is still computed, because it is what gets REPORTED — and
  *  a closure member that this rule flags but that list does not contain is now
  *  an error, so the report cannot quietly understate the surface either. */
-function isMutationSurface(src) {
-  if (isTableWrite(src)) return true;
+function isMutationSurface(src, code) {
+  if (isTableWrite(src, code)) return true;
   return FORBIDDEN_ROUTINES.some((r) => new RegExp(`["'\`]${r}["'\`]`).test(src));
 }
 
@@ -243,8 +243,15 @@ function isMutationSurface(src) {
  *  write the window could not pair entered the reported surface and produced no
  *  offence. That is the same two-rules-for-one-question defect this file has now
  *  had three times, at three different scales. */
-function isTableWrite(src) {
-  return TABLE_WRITE_RE.test(src) || unpairedTableWrite(src);
+function isTableWrite(src, code) {
+  // TABLE_WRITE_RE reads the LITERAL table name, so it needs the comment-only
+  // view (src); the string-blanked view would empty its token. unpairedTableWrite
+  // is a pure SHAPE rule, so per this file's rule (see the two-views note) it
+  // reads the blanked view (code) — otherwise a `.delete(` inside a STRING, in
+  // a module that also selects a table, is a false positive. `code` defaults to
+  // `src` for callers that have not built the blanked view, which only ever
+  // makes the rule more inclusive, never less.
+  return TABLE_WRITE_RE.test(src) || unpairedTableWrite(code ?? src);
 }
 
 /** A `.from(` and a write method in the same module that the windowed rule
@@ -277,14 +284,16 @@ function forbiddenModules() {
   const found = [];
   for (const root of ["app", "lib", "components"]) {
     for (const f of walkFiles(join(DASH, root))) {
-      let src;
+      let src, code;
       try {
-        src = stripComments(readFileSync(f, "utf8"), f);
+        const raw = readFileSync(f, "utf8");
+        src = stripComments(raw, f);
+        code = stripCommentsAndStrings(raw, f);
       } catch {
         errors.push(`${relative(DASH, f)}: unreadable while deriving the mutation surface`);
         continue;
       }
-      if (isMutationSurface(src)) found.push(relative(DASH, f));
+      if (isMutationSurface(src, code)) found.push(relative(DASH, f));
     }
   }
   // Non-vacuity: a derivation that finds nothing would make the whole rule
@@ -506,8 +515,13 @@ const COMPUTED_CALL_RE =
 // positive turned every factory-call receiver into a false NEGATIVE, which is
 // strictly the worse direction. A call-expression receiver (`)`) is now matched
 // too, and group 1 is simply absent for it, so only a named builtin is excused.
+// The receiver may also end in `!` (non-null assertion, `svc!.from(T)`) or `]`
+// (index expression, `clients[0].from(T)`) — both ordinary TypeScript. Missing
+// them let a non-literal write behind such a receiver escape both this rule and
+// FROM_WITH_RECEIVER_RE. A `)` receiver still yields no group-1 capture, so the
+// builtin allowlist is unaffected.
 const FROM_NONLITERAL_WRITE_RE =
-  /(?:([A-Za-z_$][\w$]*)|\))\s*\??\.\s*from\s*(?:\?\.)?\s*\(\s*(?!["'`])[^)]*\)[\s\S]{0,300}?\.\s*(insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/g;
+  /(?:([A-Za-z_$][\w$]*)|\)|\]|!)\s*\??\.\s*from\s*(?:\?\.)?\s*\(\s*(?!["'`])[^)]*\)[\s\S]{0,300}?\.\s*(insert|update|upsert|delete)\s*(?:\?\.)?\s*\(/g;
 
 /* THE `.from` FAMILY GETS THE SAME ACCOUNTING `.rpc` HAS.
  *
@@ -536,7 +550,7 @@ const FROM_BUILTIN_RECEIVERS = new Set([
 // Same shape, same reason: a call-expression receiver must be seen. This one
 // also feeds unpairedTableWrite, so the mandatory identifier silently narrowed
 // the module-level pairing rule that exists to not depend on a window.
-const FROM_WITH_RECEIVER_RE = /(?:([A-Za-z_$][\w$]*)|\))\s*\??\.\s*from\s*(?:\?\.)?\s*\(/g;
+const FROM_WITH_RECEIVER_RE = /(?:([A-Za-z_$][\w$]*)|\)|\]|!)\s*\??\.\s*from\s*(?:\?\.)?\s*\(/g;
 /** A `from(` call with no receiver at all — an alias or a destructured method. */
 const FROM_BARE_CALL_RE = /(?:^|[^.\w$])from\s*(?:\?\.)?\s*\(/g;
 /** `const { from } = …` / `const { from: alias } = …` */
@@ -770,7 +784,9 @@ for (const ep of eps) {
 
   for (const f of cl) {
     const fr = relative(DASH, f);
-    const src = stripComments(readFileSync(f, "utf8"), f);
+    const raw = readFileSync(f, "utf8");
+    const src = stripComments(raw, f);
+    const code = stripCommentsAndStrings(raw, f);
     for (const routine of FORBIDDEN_ROUTINES) {
       // The NAME as a string literal, not a particular call syntax. Production
       // code has no reason to name a routine that exists only to raise. This
@@ -784,7 +800,7 @@ for (const ep of eps) {
     // different walk. `namesTombstone` is already reported above with the
     // routine named, so only report the table-write half here to avoid
     // duplicating one offence as two.
-    if (isTableWrite(src)) {
+    if (isTableWrite(src, code)) {
       offences.push(`${rel} -> ${fr}: mutation surface in a production entrypoint closure`);
       if (!FORBIDDEN_MODULES.includes(fr)) {
         errors.push(

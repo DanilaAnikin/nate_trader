@@ -398,7 +398,7 @@ d=pathlib.Path(sys.argv[1])
 # must be an ERROR rather than a clean tree — the failure mode the two blockers
 # of the day both had.
 p=d/"test/containment/reachability.mjs"; s=p.read_text()
-s=s.replace("if (isMutationSurface(src)) found.push(relative(DASH, f));",
+s=s.replace("if (isMutationSurface(src, code)) found.push(relative(DASH, f));",
             "if (false) found.push(relative(DASH, f));")
 p.write_text(s)
 PYX
@@ -875,6 +875,46 @@ p.write_text(s)
 PYX
 }
 expect_green "56 a property named from that is read, not called" c56
+
+# ── XIV. receivers the write rules did not recognise, and a shape rule reading
+#         the wrong view (final audit: REACH-3, REACH-4) ────────────────────
+m57(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
+s=s.replace('const accounts = await listAccounts(user.id);',
+ 'const T = "equity_snapshots";\n'
+ '    await (supa as never as { from: (t: string) => { upsert: (r: unknown) => Promise<unknown> } })!.from(T).upsert({ id: 1 });\n'
+ '    const accounts = await listAccounts(user.id);')
+p.write_text(s)
+PYX
+}
+expect_red "57 a non-null-assertion receiver is still a .from feeding a write" m57 \
+  "the table-write rule needs a literal"
+
+m58(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport async function viaIndex(cs: Array<{ from: (t: string) => { delete: () => Promise<unknown> } }>) {\n'
+      '  const t = "accounts";\n'
+      '  return cs[0].from(t).delete();\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_red "58 an index-expression receiver is still a .from feeding a write" m58 \
+  "mutation surface in a production entrypoint closure"
+
+c59(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport function help(svc: { from: (t: string) => { select: () => Promise<unknown> } }) {\n'
+      '  const msg = "to remove a row call .delete() after .from(\'accounts\')";\n'
+      '  void svc; return msg;\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_green "59 a .delete() described in a STRING beside a .from is not a write" c59
 
 echo
 echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed; ${CONTROLS_OK}/${CONTROLS} green controls held"
