@@ -614,7 +614,16 @@ if (fs.existsSync(PROV_PATH)) {
   // fixture stack writes no provenance at all, and the non-certifying
   // manifests can never print PASS, so nothing is bought by demanding it.
   const need = ["runNonce", "schemas", "probeUserId", "image", "targetDirty"];
-  if (CERTIFYING) need.push("pgImage", "pgImagePinned");
+  // RC-4: the verifier self-pin (TRUSTED_DIGEST) and the classifier digest are
+  // enforced in run.sh, before it drives anything — but a VERDICT is rendered by
+  // this file over an artefact directory, and until now it never checked that
+  // those pins were carried into provenance at all. A verdict over artefacts
+  // from a run.sh that skipped or failed the pin would still print PASS. This
+  // does not RE-DERIVE the digests (that is run.sh's job, over the live tree it
+  // has and this process does not); it requires them to be PRESENT and
+  // well-formed in the certifying record, so a certifying verdict cannot be
+  // filed against a run that recorded no pin. Absence is a refusal, not a pass.
+  if (CERTIFYING) need.push("pgImage", "pgImagePinned", "trustedDigest", "trustedSha", "classifierDigest");
   for (const k of need) {
     if (!(k in PROV)) {
       console.error(`${RED}PROVENANCE_MALFORMED${OFF} missing '${k}' in ${PROV_PATH}`);
@@ -3178,9 +3187,9 @@ function scopeStatements() {
         "(handlerNotReached). They are read over the instrument's control surface and never written to " +
         "the bind mount, so for those two the driver's reading is the only reading. " +
         "THREE LIMITS OF THE ATTRIBUTION ITSELF, stated because they are refusal-shaped and a future red " +
-        "must not be mistaken for an attack. (1) It is UNMEASURED under --mode mutant: no mutant image " +
-        "exists at this sha, so the only sets it has been measured on are frozen, where the in-window " +
-        "bucket is empty. A mutant image that emits an event outside every request window WILL refuse. " +
+        "must not be mistaken for an attack. (1) It is UNMEASURED for a frozen artefact set like this one: " +
+        "the in-window bucket is empty here, so the attribution's behaviour on in-window events is " +
+        "measured only on the mutant set, verified separately. A mutant image that emits an event outside every request window WILL refuse. " +
         "That is the harness saying it cannot attribute the event, which is the correct direction, but " +
         "the false-positive rate for a real mutant run has not been observed. (2) The driver snapshots " +
         "the boot events, then reads /env, then POSTs the first cell tag; an event emitted in that gap " +
@@ -3202,9 +3211,9 @@ function scopeStatements() {
         "result touched — certified. Every gateway entry that is not the harness's own /__canary " +
         "traffic must now fall under a request tag some cell result claims " +
         "(claimEvidence.gatewayRowsUnaccounted above; measured 0 of 3960 across four genuine runs, all " +
-        "frozen — like the instrument-log attribution it is UNMEASURED under --mode mutant, because no " +
-        "mutant image exists at this sha, and a mutant that talks to the sink at container start will " +
-        "refuse rather than report a FINDING; that is the correct direction but the false-positive rate " +
+        "frozen — like the instrument-log attribution its behaviour on a populated in-window bucket is " +
+        "measured on the mutant set, verified separately; a mutant that talks to the sink at container " +
+        "start refuses rather than reporting a FINDING; that is the correct direction but the false-positive rate " +
         "has not been observed). The harness-control exemption is derived from the request path, not read " +
         "off the row, so a data-plane entry cannot claim it by calling itself 'harness'. " +
         "THAT LAST SENTENCE WAS TRUE OF THE EXEMPTION AND FALSE OF THE DECISION UNTIL ROUND 8, and the " +
@@ -3662,11 +3671,25 @@ if (PARTIAL) {
     console.log(`  schema axis: ${O.schemas.join(",")} of ${MANIFEST_SCHEMAS.join(",")} ` +
                 `(never driven: ${SCHEMAS_MISSING.join(",")})`);
   }
+  // A FINDING IS NOT DOWNGRADED TO "INCOMPLETE". EXIT_PARTIAL (4) is the largest
+  // code, so `Math.max(exitCode, EXIT_PARTIAL)` used to overwrite a genuine
+  // containment finding (EXIT_FINDING=1) or a harness/control failure with 4 —
+  // an operator would read PARTIAL ("just incomplete, re-run with more cells")
+  // over a subset run in which the frozen image REACHED a tombstoned wrapper.
+  // A breach in even one cell is a breach. Partiality only decides the outcome
+  // when everything that ran was clean.
+  if (exitCode >= EXIT_FINDING) {
+    console.log("  A subset was driven AND at least one thing that ran did not behave as the");
+    console.log("  mode expects. Incompleteness does not soften a finding: the run exits on the");
+    console.log("  finding, not on PARTIAL.");
+    writeScope("PARTIAL_WITH_FINDING");
+    process.exit(exitCode);
+  }
   console.log("  Everything that WAS driven behaved as the mode expects, and that is all this");
   console.log("  run can support. A subset of the matrix cannot establish a property of the");
   console.log("  matrix, so this is not a PASS and the exit status says so.");
   writeScope("PARTIAL");
-  process.exit(Math.max(exitCode, EXIT_PARTIAL));
+  process.exit(EXIT_PARTIAL);
 }
 
 /* -- a real, complete run that still cannot certify a commit --------------- */
