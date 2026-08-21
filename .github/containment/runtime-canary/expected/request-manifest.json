@@ -1,0 +1,221 @@
+{
+  "note": "COMMITTED request manifest. The matrix is generated from the route filesystem; this states what that generation MUST produce. A run that drives a different shape is refused before any verdict, so a suite cannot pass by driving less.",
+  "note_cellIds": "The 24 cell IDENTITIES, pinned. A verdict used to check only HOW MANY cell result files existed, so twenty-four copies of one cell — the most frozen combination — rendered a PASS over one driven combination. The driven set must now EQUAL this list, and each cell must have been observed running its own environment (cellEnv, below), read back out of the container by the instrument.",
+  "note_cellEnv": "The freeze flags each cell must be OBSERVED to have been running, as instrument.cjs reports them at /env under raw_freeze_flags: null means the variable was absent from the environment, \"\" means present and empty. __PROBE_USER_ID__ is substituted with the run’s disposable probe user id.",
+  "note_schemas": "Both migration generations are part of the claim. A single-schema run is PARTIAL, never a PASS: 24 cells x 2 schemas = 48 environment/schema combinations.",
+  "note_schemaWitness": "What each generation IS, as the running database reports itself. Audit finding B1: a cell result carried no generation marker at all — the schema appeared only in the filename prefix that verdict.mjs supplied when it globbed result-<schema>-*, so one generation's 24 result files copied onto the other generation's filenames satisfied every cell-identity check (filename, cell field, cellTags and raw_freeze_flags are all generation-independent) and 24 driven combinations were certified as 48. sink.mjs now reads this fingerprint out of the running database on every cell — md5 over every public relation's columns, every public routine's identity signature and every public constraint — returns it to the driver AND logs it in its own file, and verdict.mjs requires it to equal the value pinned here for the generation the filename claims. Re-record deliberately if a migration changes: boot the generation's fixture and read NT_GEN_FINGERPRINT, or take the value verdict.mjs prints when it refuses.",
+  "note_pinnedPgImage": "The postgres image a certifying run must have used, by digest. Audit finding E: --pg-image-substituted was argv-only. run.sh recorded pgImage/pgImagePinned in provenance.json and verdict.mjs read neither, so re-verdicting a run that had used a different database image — which every re-verification path does, because it cannot know to pass the flag — printed the full certifying PASS. verdict.mjs now recomputes 'was it the pinned image' from provenance.pgImage against THIS value, rather than believing either the run's boolean or an absent command-line flag.",
+  "pinnedPgImage": "supabase/postgres@sha256:f371b5f3f2ac0a05703f33d6e6134515fb2498cab708fb948a0aeb7481467c00",
+  "certifying": true,
+  "cells": 24,
+  "requestsPerCell": 10,
+  "totalRequests": 240,
+  "schemas": [
+    "0008",
+    "0023"
+  ],
+  "schemaWitness": {
+    "0008": {
+      "fingerprint": "bcc219a352cad24505e08205c9e9eedd",
+      "facts": {
+        "relation_columns": 142,
+        "routines": 7,
+        "constraints": 28
+      },
+      "recorded_from": "supabase/migrations 0001..0008 applied over dashboard/test/schema-compat/sql/00_env_bootstrap.sql on the pinned supabase/postgres digest; unchanged by 05_sink_role.sql, 15_probe_identity.sql and 20_canary_install.sql"
+    },
+    "0023": {
+      "fingerprint": "9ef7019e952974dba4db82629bdbfce2",
+      "facts": {
+        "relation_columns": 206,
+        "routines": 44,
+        "constraints": 42
+      },
+      "recorded_from": "supabase/migrations 0001..0023 applied over the same bootstrap on the same pinned digest; likewise unchanged by the harness's own installation"
+    }
+  },
+  "cellIds": [
+    "m-on__s-on__b-empty",
+    "m-on__s-on__b-probe",
+    "m-on__s-off__b-empty",
+    "m-on__s-off__b-probe",
+    "m-on__s-absent__b-empty",
+    "m-on__s-absent__b-probe",
+    "m-off__s-on__b-empty",
+    "m-off__s-on__b-probe",
+    "m-off__s-off__b-empty",
+    "m-off__s-off__b-probe",
+    "m-off__s-absent__b-empty",
+    "m-off__s-absent__b-probe",
+    "m-empty__s-on__b-empty",
+    "m-empty__s-on__b-probe",
+    "m-empty__s-off__b-empty",
+    "m-empty__s-off__b-probe",
+    "m-empty__s-absent__b-empty",
+    "m-empty__s-absent__b-probe",
+    "m-absent__s-on__b-empty",
+    "m-absent__s-on__b-probe",
+    "m-absent__s-off__b-empty",
+    "m-absent__s-off__b-probe",
+    "m-absent__s-absent__b-empty",
+    "m-absent__s-absent__b-probe"
+  ],
+  "cellEnv": {
+    "m-on__s-on__b-empty": {
+      "DASHBOARD_MAINTENANCE_MODE": "on",
+      "DASHBOARD_SIDECAR_ONLY": "on",
+      "DASHBOARD_FREEZE_BYPASS_USERS": ""
+    },
+    "m-on__s-on__b-probe": {
+      "DASHBOARD_MAINTENANCE_MODE": "on",
+      "DASHBOARD_SIDECAR_ONLY": "on",
+      "DASHBOARD_FREEZE_BYPASS_USERS": "__PROBE_USER_ID__"
+    },
+    "m-on__s-off__b-empty": {
+      "DASHBOARD_MAINTENANCE_MODE": "on",
+      "DASHBOARD_SIDECAR_ONLY": "off",
+      "DASHBOARD_FREEZE_BYPASS_USERS": ""
+    },
+    "m-on__s-off__b-probe": {
+      "DASHBOARD_MAINTENANCE_MODE": "on",
+      "DASHBOARD_SIDECAR_ONLY": "off",
+      "DASHBOARD_FREEZE_BYPASS_USERS": "__PROBE_USER_ID__"
+    },
+    "m-on__s-absent__b-empty": {
+      "DASHBOARD_MAINTENANCE_MODE": "on",
+      "DASHBOARD_SIDECAR_ONLY": null,
+      "DASHBOARD_FREEZE_BYPASS_USERS": ""
+    },
+    "m-on__s-absent__b-probe": {
+      "DASHBOARD_MAINTENANCE_MODE": "on",
+      "DASHBOARD_SIDECAR_ONLY": null,
+      "DASHBOARD_FREEZE_BYPASS_USERS": "__PROBE_USER_ID__"
+    },
+    "m-off__s-on__b-empty": {
+      "DASHBOARD_MAINTENANCE_MODE": "off",
+      "DASHBOARD_SIDECAR_ONLY": "on",
+      "DASHBOARD_FREEZE_BYPASS_USERS": ""
+    },
+    "m-off__s-on__b-probe": {
+      "DASHBOARD_MAINTENANCE_MODE": "off",
+      "DASHBOARD_SIDECAR_ONLY": "on",
+      "DASHBOARD_FREEZE_BYPASS_USERS": "__PROBE_USER_ID__"
+    },
+    "m-off__s-off__b-empty": {
+      "DASHBOARD_MAINTENANCE_MODE": "off",
+      "DASHBOARD_SIDECAR_ONLY": "off",
+      "DASHBOARD_FREEZE_BYPASS_USERS": ""
+    },
+    "m-off__s-off__b-probe": {
+      "DASHBOARD_MAINTENANCE_MODE": "off",
+      "DASHBOARD_SIDECAR_ONLY": "off",
+      "DASHBOARD_FREEZE_BYPASS_USERS": "__PROBE_USER_ID__"
+    },
+    "m-off__s-absent__b-empty": {
+      "DASHBOARD_MAINTENANCE_MODE": "off",
+      "DASHBOARD_SIDECAR_ONLY": null,
+      "DASHBOARD_FREEZE_BYPASS_USERS": ""
+    },
+    "m-off__s-absent__b-probe": {
+      "DASHBOARD_MAINTENANCE_MODE": "off",
+      "DASHBOARD_SIDECAR_ONLY": null,
+      "DASHBOARD_FREEZE_BYPASS_USERS": "__PROBE_USER_ID__"
+    },
+    "m-empty__s-on__b-empty": {
+      "DASHBOARD_MAINTENANCE_MODE": "",
+      "DASHBOARD_SIDECAR_ONLY": "on",
+      "DASHBOARD_FREEZE_BYPASS_USERS": ""
+    },
+    "m-empty__s-on__b-probe": {
+      "DASHBOARD_MAINTENANCE_MODE": "",
+      "DASHBOARD_SIDECAR_ONLY": "on",
+      "DASHBOARD_FREEZE_BYPASS_USERS": "__PROBE_USER_ID__"
+    },
+    "m-empty__s-off__b-empty": {
+      "DASHBOARD_MAINTENANCE_MODE": "",
+      "DASHBOARD_SIDECAR_ONLY": "off",
+      "DASHBOARD_FREEZE_BYPASS_USERS": ""
+    },
+    "m-empty__s-off__b-probe": {
+      "DASHBOARD_MAINTENANCE_MODE": "",
+      "DASHBOARD_SIDECAR_ONLY": "off",
+      "DASHBOARD_FREEZE_BYPASS_USERS": "__PROBE_USER_ID__"
+    },
+    "m-empty__s-absent__b-empty": {
+      "DASHBOARD_MAINTENANCE_MODE": "",
+      "DASHBOARD_SIDECAR_ONLY": null,
+      "DASHBOARD_FREEZE_BYPASS_USERS": ""
+    },
+    "m-empty__s-absent__b-probe": {
+      "DASHBOARD_MAINTENANCE_MODE": "",
+      "DASHBOARD_SIDECAR_ONLY": null,
+      "DASHBOARD_FREEZE_BYPASS_USERS": "__PROBE_USER_ID__"
+    },
+    "m-absent__s-on__b-empty": {
+      "DASHBOARD_MAINTENANCE_MODE": null,
+      "DASHBOARD_SIDECAR_ONLY": "on",
+      "DASHBOARD_FREEZE_BYPASS_USERS": ""
+    },
+    "m-absent__s-on__b-probe": {
+      "DASHBOARD_MAINTENANCE_MODE": null,
+      "DASHBOARD_SIDECAR_ONLY": "on",
+      "DASHBOARD_FREEZE_BYPASS_USERS": "__PROBE_USER_ID__"
+    },
+    "m-absent__s-off__b-empty": {
+      "DASHBOARD_MAINTENANCE_MODE": null,
+      "DASHBOARD_SIDECAR_ONLY": "off",
+      "DASHBOARD_FREEZE_BYPASS_USERS": ""
+    },
+    "m-absent__s-off__b-probe": {
+      "DASHBOARD_MAINTENANCE_MODE": null,
+      "DASHBOARD_SIDECAR_ONLY": "off",
+      "DASHBOARD_FREEZE_BYPASS_USERS": "__PROBE_USER_ID__"
+    },
+    "m-absent__s-absent__b-empty": {
+      "DASHBOARD_MAINTENANCE_MODE": null,
+      "DASHBOARD_SIDECAR_ONLY": null,
+      "DASHBOARD_FREEZE_BYPASS_USERS": ""
+    },
+    "m-absent__s-absent__b-probe": {
+      "DASHBOARD_MAINTENANCE_MODE": null,
+      "DASHBOARD_SIDECAR_ONLY": null,
+      "DASHBOARD_FREEZE_BYPASS_USERS": "__PROBE_USER_ID__"
+    }
+  },
+  "claims": [
+    "requestDriven",
+    "routeMatched",
+    "expectedResponseClass",
+    "refusalIdentity",
+    "responseStatus",
+    "proxyRefusedBeforeAuth",
+    "handlerNotReached",
+    "noAuthCall",
+    "noBodyParse",
+    "noSupabaseClient",
+    "noPostgRESTCall",
+    "noDatabaseCall",
+    "noVaultCall",
+    "noBrokerCall",
+    "noUnexpectedNetworkCall",
+    "canaryObservationComplete"
+  ],
+  "endpoints": [
+    "DELETE /api/accounts/:id auth=false",
+    "DELETE /api/accounts/:id auth=true",
+    "PATCH /api/accounts/:id auth=false",
+    "PATCH /api/accounts/:id auth=true",
+    "PATCH /api/profile auth=false",
+    "PATCH /api/profile auth=true",
+    "POST /api/accounts auth=false",
+    "POST /api/accounts auth=true",
+    "POST /api/accounts/:id/verify auth=false",
+    "POST /api/accounts/:id/verify auth=true"
+  ],
+  "note_refusalIdentity": "The refusal a frozen response must BE, not merely the status it must have. Audit finding B6: expectedResponseClass and proxyRefusedBeforeAuth asserted status 503 only, and the frozen proxy has its own unrelated 503 branch ('Authentication service temporarily unavailable', also Cache-Control: no-store) that satisfied them identically. Selectors are 'header:<name>' and 'body.<field>' over the response the driver recorded.",
+  "refusalIdentity": {
+    "header:x-artifact-role": "frozen-containment-bridge",
+    "header:x-writes-enabled": "false",
+    "body.reason": "FROZEN_CONTAINMENT_BRIDGE"
+  }
+}

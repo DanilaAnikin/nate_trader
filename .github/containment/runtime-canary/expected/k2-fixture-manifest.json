@@ -1,0 +1,48 @@
+{
+  "note": "COMMITTED fixture manifest for tests/k2-claim-completeness.sh ONLY. K2 drives synthetic single cells (k2-<case>) that are deliberately not matrix combinations, so it cannot be judged against the 24 pinned cell identities in request-manifest.json. It is therefore certifying=false, and driver/verdict.mjs refuses to print the PASS banner for it whatever else holds: a test seam must not be promotable into a certification.",
+  "certifying": false,
+  "cellIdPattern": "^k2-[A-Za-z0-9_-]+$",
+  "cells": 1,
+  "requestsPerCell": 10,
+  "totalRequests": 10,
+  "schemas": [
+    "0008",
+    "0023"
+  ],
+  "claims": [
+    "requestDriven",
+    "routeMatched",
+    "expectedResponseClass",
+    "refusalIdentity",
+    "responseStatus",
+    "proxyRefusedBeforeAuth",
+    "handlerNotReached",
+    "noAuthCall",
+    "noBodyParse",
+    "noSupabaseClient",
+    "noPostgRESTCall",
+    "noDatabaseCall",
+    "noVaultCall",
+    "noBrokerCall",
+    "noUnexpectedNetworkCall",
+    "canaryObservationComplete"
+  ],
+  "endpoints": [
+    "DELETE /api/accounts/:id auth=false",
+    "DELETE /api/accounts/:id auth=true",
+    "PATCH /api/accounts/:id auth=false",
+    "PATCH /api/accounts/:id auth=true",
+    "PATCH /api/profile auth=false",
+    "PATCH /api/profile auth=true",
+    "POST /api/accounts auth=false",
+    "POST /api/accounts auth=true",
+    "POST /api/accounts/:id/verify auth=false",
+    "POST /api/accounts/:id/verify auth=true"
+  ],
+  "note_refusalIdentity": "Same pin as the certifying manifest: K2 drives the real frozen image, so its refusals must carry the same identity. Mutant 11 (respond_503_unrelated) is the positive control that this claim can fail.",
+  "refusalIdentity": {
+    "header:x-artifact-role": "frozen-containment-bridge",
+    "header:x-writes-enabled": "false",
+    "body.reason": "FROZEN_CONTAINMENT_BRIDGE"
+  }
+}
