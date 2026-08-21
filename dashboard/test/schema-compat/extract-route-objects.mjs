@@ -126,7 +126,14 @@ if (routeFiles.length === 0) die(`no route files found under ${API_ROOT}`);
  * of comment-stripping in the tree; they are now one definition, parsed by the
  * TypeScript compiler rather than approximated by hand.
  */
-export { stripComments } from "../containment/source-scan.mjs";
+// IMPORTED as well as re-exported. `export { x } from "…"` creates no LOCAL
+// binding, and this module calls stripComments itself — so consolidating the
+// seventh copy into a bare re-export left every call site referencing a name
+// that did not exist. It failed with `ReferenceError: stripComments is not
+// defined` in the schema-compatibility job, which is the one gate that runs
+// this file and is not part of `npm test`.
+import { stripComments } from "../containment/source-scan.mjs";
+export { stripComments };
 
 // ---------------------------------------------------------------------------
 // 3. Import resolution (local modules only)
