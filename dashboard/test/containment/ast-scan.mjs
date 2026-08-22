@@ -26,10 +26,19 @@ import ts from "typescript";
 const WRITE_METHODS = new Set(["insert", "update", "upsert", "delete"]);
 // Receivers whose `.from(...)` is ordinary library code, never a Supabase table
 // select. `Array.from`, `Buffer.from`, `Date.from`-likes, collection builders.
+// The list must include EVERY builtin with a real static `.from`, or a module
+// that legitimately uses one plus any ordinary write method (`h.delete(...)`,
+// `map.delete(...)`) is falsely flagged as a table write — the pairing below is
+// deliberately coarse (a non-builtin `.from(...)` anywhere + a write anywhere).
+// Readable/ReadableStream/Iterator all ship static `.from` and turn up in
+// perfectly ordinary streaming code; omitting them was REACH-7. Names with no
+// static `.from` (Object/Date/Promise/Map/Set/…) are harmless to keep and no
+// credible data-plane client is ever named for one.
 const BUILTIN_FROM_RECEIVERS = new Set([
   "Array", "Buffer", "Object", "Date", "Promise", "Map", "Set", "WeakMap", "WeakSet",
   "Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array",
   "Int32Array", "Uint32Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array",
+  "Readable", "ReadableStream", "Iterator", "AsyncIterator",
 ]);
 
 function scriptKind(fileName) {
@@ -142,11 +151,39 @@ export function scanDataPlane(src, fileName, rel) {
   // taken by reference or destructured is only unclassifiable if the binding is
   // actually CALLED later — `const a = params["from"]` that is merely read is an
   // ordinary record access, not a deferred data-plane call.
+  //
+  // calledMembers: member names invoked as `X.m(...)` / `X["m"](...)`. A `.from`
+  // laundered into a PROPERTY (`holder.f = svc.from`) and called as `holder.f(t)`
+  // escapes calledNames (the target is not an identifier binding) but its member
+  // name lands here — that was REACH-1.
+  //
+  // exportedNames: local names introduced by `export const/let/var` or re-exported
+  // by `export { x }`. A `.from`/`.rpc` reference exported for another module to
+  // call cannot be paired locally (the call is in the importer); flagging the
+  // export is the only per-module foothold on it — that was REACH-2.
   const calledNames = new Set();
+  const calledMembers = new Set();
+  const exportedNames = new Set();
   walk(sf, (n) => {
     if (ts.isCallExpression(n)) {
       const c = unwrap(n.expression);
       if (ts.isIdentifier(c)) calledNames.add(c.text);
+      const cm = member(c);
+      if (cm && cm.name) calledMembers.add(cm.name);
+    }
+    // export const/let/var NAME = ...
+    if (ts.isVariableStatement(n) && n.modifiers &&
+        n.modifiers.some((mod) => mod.kind === ts.SyntaxKind.ExportKeyword)) {
+      for (const d of n.declarationList.declarations) {
+        if (ts.isIdentifier(d.name)) exportedNames.add(d.name.text);
+      }
+    }
+    // export { local } / export { local as exported }
+    if (ts.isExportDeclaration(n) && n.exportClause && ts.isNamedExports(n.exportClause)) {
+      for (const el of n.exportClause.elements) {
+        const local = el.propertyName ? el.propertyName : el.name;   // the local binding
+        if (ts.isIdentifier(local)) exportedNames.add(local.text);
+      }
     }
   });
 
@@ -162,10 +199,30 @@ export function scanDataPlane(src, fileName, rel) {
         const boundName =
           n.parent && ts.isVariableDeclaration(n.parent) && ts.isIdentifier(n.parent.name) ? n.parent.name.text : null;
         const boundAndCalled = boundName !== null && calledNames.has(boundName);
-        if (n.name.text === "rpc" && (isFurtherAccessed || boundAndCalled)) {
+        // REACH-2: exported for another module to call — `export const tbl = svc.from`.
+        const boundAndExported = boundName !== null && exportedNames.has(boundName);
+        // REACH-1: laundered through an assignment target that is itself called —
+        // `holder.f = svc.from; holder.f("t").delete()` or `g = svc.from; g("t")…`.
+        // The RHS of `=`; the target is either an identifier later called, or a
+        // property/element whose member name is later called.
+        let assignedToCalledTarget = false, assignHow = "";
+        if (n.parent && ts.isBinaryExpression(n.parent) &&
+            n.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && n.parent.right === n) {
+          const lhs = unwrap(n.parent.left);
+          if (ts.isIdentifier(lhs) && calledNames.has(lhs.text)) { assignedToCalledTarget = true; assignHow = lhs.text; }
+          else {
+            const lm = member(lhs);
+            if (lm && lm.name && calledMembers.has(lm.name)) { assignedToCalledTarget = true; assignHow = `.${lm.name}`; }
+          }
+        }
+        const escapes = boundAndCalled || boundAndExported || assignedToCalledTarget;
+        const via = assignedToCalledTarget ? `assigned to \`${assignHow}\` and called later`
+          : boundAndExported ? `exported as \`${boundName}\` for another module to call`
+          : `taken by reference as \`${boundName}\` and called later`;
+        if (n.name.text === "rpc" && (isFurtherAccessed || escapes)) {
           errors.push(`${rel}: .rpc is not a direct call (alias/.bind/reference) — not a direct call, cannot be classified`);
-        } else if (n.name.text === "from" && boundAndCalled) {
-          errors.push(`${rel}: \`.from\` is taken by reference as \`${boundName}\` and called later — cannot be classified`);
+        } else if (n.name.text === "from" && escapes) {
+          errors.push(`${rel}: \`.from\` is ${via} — cannot be classified`);
         }
       }
     }
@@ -254,8 +311,10 @@ export function scanDataPlane(src, fileName, rel) {
     const m = ts.isElementAccessExpression(init) ? member(init) : null;
     const boundName = ts.isIdentifier(n.name) ? n.name.text : null;
     // Only a COMPUTED (element-access) reference, only to a data-plane method,
-    // and only when the binding is actually called later.
-    if (m && (m.name === "rpc" || m.name === "from") && boundName && calledNames.has(boundName)) {
+    // and only when the binding is actually called later — or exported for
+    // another module to call (`export const later = svc["rpc"]`, REACH-2).
+    if (m && (m.name === "rpc" || m.name === "from") && boundName &&
+        (calledNames.has(boundName) || exportedNames.has(boundName))) {
       errors.push(`${rel}: the data-plane method ${m.name} is taken by computed reference as \`${boundName}\` and called later — cannot be classified`);
     }
   });

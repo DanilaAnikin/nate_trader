@@ -954,6 +954,98 @@ PYX
 }
 expect_green "61 a tombstoned name in a COMMENT is not a finding" c61
 
+# ── XVI. reference-laundering the AST rewrite left open (REACH-1, -2, -6, -7) ─
+# A final adversarial audit of the AST rewrite found four more shapes, all
+# reproduced against the rewrite with a standalone probe before this section
+# existed. reachability read "clean" for 62 and 63 and falsely flagged the 64/65
+# payloads, exactly as the audit reported; the analyzer changes in the same
+# commit close each, and these lock them.
+
+# REACH-1: `.from` laundered through a PROPERTY that is itself called —
+# `holder.f = svc.from; holder.f("accounts").delete()`. The old binding rule saw
+# only `const NAME = svc.from`; a property target slipped through.
+m62(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nconst holderR1: { f?: (t: string) => any } = {};\n'
+      'export function wipeAssigned(svc: { from: (t: string) => any }, id: string) {\n'
+      '  holderR1.f = svc.from;\n'
+      '  return holderR1.f("accounts").delete().eq("id", id);\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_red "62 a .from laundered through a called property is unclassifiable" m62 \
+  "is assigned to"
+
+# REACH-2: a `.from` reference EXPORTED for an importing module to call —
+# `export const tbl = svc.from`. No per-module rule could pair it: the bind is
+# here, the call is in the importer. The export itself is now the foothold.
+m63(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nconst svcR2 = (globalThis as any).__svc as { from: (t: string) => any };\n'
+      'export const tblR2 = svcR2.from;\n')
+p.write_text(s)
+PYX
+}
+expect_red "63 a .from reference exported for an importer to call is unclassifiable" m63 \
+  "exported as"
+
+# REACH-7 (control): Readable.from is a real builtin static `.from`. A module
+# that streams rows and also calls an ordinary write (h.delete) must NOT read as
+# a table write. Before Readable joined the allowlist this was a false FINDING.
+c64(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s = 'import { Readable } from "node:stream";\n' + s
+s += ('\n\nexport function streamRowsR7(rows: string[], h: Headers) {\n'
+      '  h.delete("x-internal");\n'
+      '  return Readable.from(rows);\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_green "64 Readable.from beside an ordinary .delete is not a table write" c64
+
+# REACH-6 (control + mutant): the builtin-.from allowlist must be load-bearing.
+# c65 pairs a builtin .from (Array.from) with an ordinary write and stays clean;
+# m66 empties the allowlist in the analyzer itself and the SAME payload is then
+# flagged — which is what proves the skip is doing the work and cannot quietly
+# grow into a hole unnoticed.
+c65(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport function ordinaryFromWriteR6(xs: Iterable<number>, m: Map<string, number>) {\n'
+      '  const a = Array.from(xs);\n'
+      '  m.delete("k");\n'
+      '  return a.length;\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_green "65 Array.from beside a Map.delete is not a table write" c65
+
+m66(){ python3 - "$1" <<'PYX'
+import pathlib,sys,re
+d=pathlib.Path(sys.argv[1])
+a=d/"test/containment/ast-scan.mjs"; t=a.read_text()
+t2=re.sub(r"const BUILTIN_FROM_RECEIVERS = new Set\(\[.*?\]\);",
+          "const BUILTIN_FROM_RECEIVERS = new Set([]);", t, count=1, flags=re.S)
+assert t2!=t, "allowlist literal not found"
+a.write_text(t2)
+p=d/"lib/status/broker.ts"; s=p.read_text()
+s += ('\n\nexport function ordinaryFromWriteR6(xs: Iterable<number>, m: Map<string, number>) {\n'
+      '  const a = Array.from(xs);\n'
+      '  m.delete("k");\n'
+      '  return a.length;\n'
+      '}\n')
+p.write_text(s)
+PYX
+}
+expect_red "66 emptying the builtin-.from allowlist flags ordinary Array.from+write" m66 \
+  "mutation surface in a production entrypoint closure"
+
 echo
 echo "reachability falsification: $MUTANTS mutations, $OK detected, $BAD missed; ${CONTROLS_OK}/${CONTROLS} green controls held"
 [[ $BAD -eq 0 ]] && { echo "FALSIFICATION GREEN — every mutation is detected, each for its own reason"; exit 0; } \
