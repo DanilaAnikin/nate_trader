@@ -215,6 +215,12 @@ describe("PortfolioClient", () => {
     await waitFor(() =>
       expect(screen.getByText("Frozen V11 plan")).toBeInTheDocument(),
     );
+    // The construction rules now live behind a "Target-construction rules"
+    // <details> disclosure to keep the page from being a wall of prose. The text
+    // stays in the DOM (present, just collapsed), so it is still asserted here.
+    expect(
+      screen.getByText(/Target-construction rules/i),
+    ).toBeInTheDocument();
     const text = document.body.textContent ?? "";
     expect(text).toContain("target-construction");
     expect(text).toContain("no fixed per-position stop-loss");

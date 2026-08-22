@@ -294,8 +294,15 @@ export const CLOCK_SKEW_TOLERANCE_SECONDS = 5 * MINUTE;
 /** Compact relative age such as `4m ago`, `2h 10m ago`, `3d ago`. */
 export function formatAge(ageSeconds: number | null): string {
   if (ageSeconds === null || !Number.isFinite(ageSeconds)) return "unknown age";
-  const abs = Math.abs(Math.round(ageSeconds));
-  const suffix = ageSeconds < 0 ? "from now" : "ago";
+  const rounded = Math.round(ageSeconds);
+  // The subscribed clock (use-now) is floored to 30-second buckets, so a
+  // timestamp set at the true "now" — a just-finished read, say — can read as
+  // up to ~30s in the FUTURE against that coarse clock. A read/collection age
+  // is never genuinely in the future, so a small negative is a clock artifact,
+  // not "12s from now". Show "just now" for anything within a minute either way.
+  if (rounded > -MINUTE && rounded < 5) return "just now";
+  const abs = Math.abs(rounded);
+  const suffix = rounded < 0 ? "from now" : "ago";
   if (abs < 45) return `${abs}s ${suffix}`;
   if (abs < HOUR) return `${Math.round(abs / MINUTE)}m ${suffix}`;
   if (abs < DAY) {

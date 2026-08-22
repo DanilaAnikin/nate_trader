@@ -3,6 +3,7 @@
 import { decimal, integer, money, percent, points } from "@/lib/status/client";
 import type { StrategyStatusPayload } from "@/lib/status/types";
 import PageState from "./status/PageState";
+import { ComparisonBars, Disclosure, SERIES, SignedBars } from "./status/charts";
 import {
   Dash,
   Fact,
@@ -181,6 +182,16 @@ function MetricsTable({
   warn?: boolean;
 }) {
   if (rows.length === 0) return null;
+  // V11 vs SPY CAGR, one grouped pair per cost row — only real numbers, never a
+  // fabricated 0. A row with a missing V11 or SPY figure is left out entirely.
+  const sorted = [...rows].sort((a, b) => a.slippageBps - b.slippageBps);
+  const cagrData = sorted
+    .filter((r) => r.cagrPct !== null && r.spyCagrPct !== null)
+    .map((r) => ({
+      label: `${r.slippageBps} bps`,
+      v11: r.cagrPct as number,
+      spy: r.spyCagrPct as number,
+    }));
   return (
     <div>
       <h3 className="text-xs font-semibold uppercase tracking-wide text-secondary mb-2 flex flex-wrap items-center gap-2">
@@ -192,6 +203,20 @@ function MetricsTable({
           {rows[0].startDate} → {rows[0].endDate} · {rows[0].sessions} sessions
         </span>
       </h3>
+      {cagrData.length > 0 && (
+        <div className="mb-3">
+          <ComparisonBars
+            title="V11 vs SPY — CAGR"
+            data={cagrData}
+            series={[
+              { key: "v11", name: "V11", color: SERIES.primary },
+              { key: "spy", name: "SPY", color: SERIES.benchmark },
+            ]}
+            valueFormatter={(v) => percent(Number(v))}
+            height={200}
+          />
+        </div>
+      )}
       <TableScroll>
         <table className="data">
           <caption className="sr-only">{heading} metrics by cost scenario</caption>
@@ -249,6 +274,12 @@ function LimitationsPanel({ payload }: { payload: StrategyStatusPayload }) {
   const warnings = payload.validation.data?.warnings ?? [];
   return (
     <Panel title="Limitations that must accompany these metrics">
+      <p className="text-xs text-secondary max-w-prose">
+        These are backtest diagnostics with survivorship bias and a reused
+        temporal check — <strong>not</strong> fresh out-of-sample evidence and not
+        a promise of alpha. Only frozen-rule forward paper performance settles it.
+      </p>
+      <Disclosure summary="Read the full limitations">
       <ul className="space-y-2 text-xs text-secondary max-w-prose list-disc pl-5">
         <li>
           The later 2025–2026 interval is a{" "}
@@ -282,7 +313,35 @@ function LimitationsPanel({ payload }: { payload: StrategyStatusPayload }) {
           </li>
         ))}
       </ul>
+      </Disclosure>
     </Panel>
+  );
+}
+
+function CandidateExcessChart({
+  candidates,
+}: {
+  candidates: NonNullable<StrategyStatusPayload["tournament"]["data"]>["candidates"];
+}) {
+  // Development excess CAGR over SPY, one bar per candidate — real numbers only.
+  const data = candidates
+    .filter((c) => c.developmentExcessCagrPct !== null)
+    .map((c) => ({
+      name: c.name,
+      value: c.developmentExcessCagrPct as number,
+    }));
+  if (data.length === 0) return null;
+  return (
+    <div className="mb-3">
+      <p className="mb-2 text-[11px] uppercase tracking-wide text-muted">
+        Development excess CAGR vs SPY, per candidate
+      </p>
+      <SignedBars
+        data={data}
+        valueFormatter={(v) => points(v)}
+        labelWidth={170}
+      />
+    </div>
   );
 }
 
@@ -328,6 +387,7 @@ function TournamentPanel({ payload }: { payload: StrategyStatusPayload }) {
           <h3 className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-secondary">
             Candidates at the primary {tournament.primaryCostBps} bps assumption
           </h3>
+          <CandidateExcessChart candidates={tournament.candidates} />
           <TableScroll>
             <table className="data">
               <caption className="sr-only">
@@ -389,24 +449,26 @@ function TournamentPanel({ payload }: { payload: StrategyStatusPayload }) {
             </table>
           </TableScroll>
 
-          <ul className="mt-4 space-y-2 text-xs text-secondary max-w-prose list-disc pl-5">
-            <li>
-              No challenger passed all return, drawdown, cost, delay, capacity,
-              stability and multiple-testing gates, so{" "}
-              <strong>production did not change</strong>.
-            </li>
-            <li>
-              These metrics come from the tournament runner, not the canonical
-              validator. The two experiments report slightly different V11
-              reused-period numbers and must not be combined.
-            </li>
-            {tournament.warnings.map((warning) => (
-              <li key={warning.code}>
-                <code className="font-mono text-[11px]">{warning.code}</code> —{" "}
-                {warning.message}
+          <p className="mt-4 text-xs text-secondary max-w-prose">
+            No challenger passed all return, drawdown, cost, delay, capacity,
+            stability and multiple-testing gates, so{" "}
+            <strong>production did not change</strong>.
+          </p>
+          <Disclosure summary="Tournament caveats">
+            <ul className="space-y-2 text-xs text-secondary max-w-prose list-disc pl-5">
+              <li>
+                These metrics come from the tournament runner, not the canonical
+                validator. The two experiments report slightly different V11
+                reused-period numbers and must not be combined.
               </li>
-            ))}
-          </ul>
+              {tournament.warnings.map((warning) => (
+                <li key={warning.code}>
+                  <code className="font-mono text-[11px]">{warning.code}</code> —{" "}
+                  {warning.message}
+                </li>
+              ))}
+            </ul>
+          </Disclosure>
         </>
       ) : (
         <UnavailableBlock
