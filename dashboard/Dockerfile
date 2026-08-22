@@ -44,20 +44,34 @@ LABEL org.opencontainers.image.revision=$BUILD_SHA
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 # NO PACKAGE MANAGER IN A FROZEN ARTIFACT.
 #
-# A Next standalone server runs `node server.js`; npm is never invoked at
-# runtime. It is nonetheless present in the base image, and it brings its own
-# bundled dependency tree — which is where EVERY vulnerability in this image
-# came from. Measured on the sealed artifact at 3eb8f0ad: 1 CRITICAL, 7 HIGH
-# and 8 MEDIUM, all sixteen under usr/local/lib/node_modules/npm/node_modules/
-# (tar, brace-expansion, ip-address, picomatch, sigstore), and not one of them
-# an application dependency. Bumping this project's lockfile would have fixed
-# none of them.
+# A Next standalone server runs `node server.js`; no package manager is invoked
+# at runtime. The base image nonetheless ships several — npm and npx, yarn and
+# yarnpkg (/opt/yarn-v*), and corepack — and npm's own bundled dependency tree
+# is where EVERY vulnerability in this image came from. Measured on the sealed
+# artifact at 3eb8f0ad: 1 CRITICAL, 7 HIGH and 8 MEDIUM, all sixteen under
+# usr/local/lib/node_modules/npm/node_modules/ (tar, brace-expansion,
+# ip-address, picomatch, sigstore), and not one of them an application
+# dependency. Bumping this project's lockfile would have fixed none of them.
 #
-# Removing it is also the right shape for this artifact independently of any
-# CVE: a container whose entire purpose is that it cannot change should not
-# carry the tool for changing it.
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
- && ! command -v npm >/dev/null 2>&1
+# Removing npm alone is not enough and is not what the header claims: corepack
+# exists specifically to fetch and activate npm/pnpm/yarn from the network, so
+# a lone `corepack enable` would put a package manager back. So every manager
+# and every shim goes, and the build then FAILS if any of them is still on PATH
+# — a base image that relocates or reintroduces one fails here instead of
+# silently shipping it again. (dockerfile-package-manager.test.ts pins this.)
+# Removing them is also the right shape independently of any CVE: a container
+# whose entire purpose is that it cannot change should not carry the tools for
+# changing it.
+RUN rm -rf \
+      /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+      /usr/local/lib/node_modules/corepack /usr/local/bin/corepack \
+      /opt/yarn-v* /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+ && for pm in npm npx yarn yarnpkg corepack pnpm pnpx; do \
+      if command -v "$pm" >/dev/null 2>&1; then \
+        echo "FROZEN ARTIFACT: package manager '$pm' survived removal at $(command -v "$pm")" >&2; \
+        exit 1; \
+      fi; \
+    done
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
