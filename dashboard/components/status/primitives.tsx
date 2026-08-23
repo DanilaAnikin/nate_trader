@@ -244,12 +244,39 @@ export function UnavailableBlock({
   detail?: string | null;
   source?: string;
 }) {
+  // NOT_APPLICABLE is an expected, by-design state (e.g. an observer account
+  // that is not the production executor), so it reads calm and informational
+  // rather than as a broken panel. A short detail shows inline; a long one is
+  // tucked behind a details toggle so the page is not a wall of the same
+  // sentence repeated in every gated panel.
+  const byDesign = state === "NOT_APPLICABLE";
+  const longDetail = !!detail && detail.length > 90;
   return (
-    <div className="flex flex-col items-start gap-2 rounded-md border border-dashed border-border-strong bg-surface/60 px-4 py-5">
-      <StatePill state={state} />
-      <p className="text-sm font-medium text-foreground">{title}</p>
-      {detail && <p className="text-xs text-secondary max-w-prose">{detail}</p>}
-      {source && <p className="text-[11px] text-muted">Source: {source}</p>}
+    <div
+      className="flex flex-col items-start gap-1.5 rounded-md border px-3 py-3"
+      style={{
+        borderColor: byDesign ? "var(--border)" : "var(--border-strong)",
+        borderStyle: byDesign ? "solid" : "dashed",
+        background: "var(--bg-surface)",
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <StatePill state={state} size="xs" />
+        <p className="text-[13px] font-medium text-foreground">{title}</p>
+      </div>
+      {detail && !longDetail && (
+        <p className="text-xs text-muted max-w-prose">{detail}</p>
+      )}
+      {detail && longDetail && (
+        <details className="group text-xs text-muted">
+          <summary className="cursor-pointer list-none text-[11px] font-medium text-secondary hover:text-foreground">
+            <span className="mr-1 inline-block transition-transform group-open:rotate-90" aria-hidden="true">▸</span>
+            Details
+          </summary>
+          <p className="mt-1 max-w-prose">{detail}</p>
+        </details>
+      )}
+      {source && <p className="text-[11px] text-muted/80">Source: {source}</p>}
     </div>
   );
 }

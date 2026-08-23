@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { integer, money, percent } from "@/lib/status/client";
 import type { StrategyStatusPayload } from "@/lib/status/types";
+import EquityPanel from "./EquityPanel";
 import ForwardPerformancePanel from "./ForwardPerformancePanel";
 import PageState from "./status/PageState";
 import {
@@ -23,6 +24,7 @@ export default function OverviewClient() {
       {(payload) => (
         <div className="space-y-5">
           <BrokerPanel payload={payload} />
+          <EquityPanel />
           <MarketRiskPanel payload={payload} />
           <ConvergencePanel payload={payload} />
           <OperationsPanel payload={payload} />

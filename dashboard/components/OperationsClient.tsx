@@ -3,6 +3,7 @@
 import { integer } from "@/lib/status/client";
 import type { StrategyStatusPayload, WorkflowAttemptInfo } from "@/lib/status/types";
 import PageState from "./status/PageState";
+import { Disclosure } from "./status/charts";
 import {
   Dash,
   Fact,
@@ -478,13 +479,18 @@ function ReadOnlyNotice() {
     <Panel title="Why there are no controls here">
       <p className="text-xs text-secondary max-w-prose">
         Execution is owned by the guarded <code>V11 Paper Production</code>{" "}
-        workflow, which checks out only the approved release SHA, requires a
-        green release gate for that exact commit, and runs a preflight before it
-        touches the broker. Adding an execute, cancel or approve control to a
-        web session would bypass those gates, so this page is read-only by
-        design. Emergency procedures live in{" "}
-        <code>strategy/PRODUCTION_RUNBOOK.md</code>.
+        workflow — this page cannot execute, cancel or approve anything.
       </p>
+      <Disclosure summary="How the guard works">
+        <p>
+          The workflow checks out only the approved release SHA, requires a green
+          release gate for that exact commit, and runs a preflight before it
+          touches the broker. Adding an execute, cancel or approve control to a
+          web session would bypass those gates, so this page is read-only by
+          design. Emergency procedures live in{" "}
+          <code>strategy/PRODUCTION_RUNBOOK.md</code>.
+        </p>
+      </Disclosure>
     </Panel>
   );
 }

@@ -10,6 +10,15 @@ import type {
 } from "@/lib/status/types";
 import PageState from "./status/PageState";
 import {
+  AllocationDonut,
+  CATEGORY_COLORS,
+  ComparisonBars,
+  Disclosure,
+  Legend,
+  SERIES,
+  SignedBars,
+} from "./status/charts";
+import {
   Dash,
   Fact,
   FactList,
@@ -121,15 +130,83 @@ function PlanContext({ payload }: { payload: StrategyStatusPayload }) {
           source={payload.strategy.provenance.source}
         />
       )}
-      <p className="mt-4 text-xs text-secondary max-w-prose">
-        Top-10, the 9% single-name cap and the 20% sector cap are{" "}
-        <strong>target-construction</strong> rules. A temporary 9-of-10 book or
-        a weight slightly above 9% after a price move is drift, not a strategy
-        failure. V11 has no fixed per-position stop-loss; exits come from
-        reranking, monthly convergence, the SPY trend gate and{" "}
-        <code className="font-mono">HALT</code>.
-      </p>
+      <Disclosure summary="Target-construction rules">
+        <p>
+          Top-10, the 9% single-name cap and the 20% sector cap are{" "}
+          <strong>target-construction</strong> rules. A temporary 9-of-10 book or
+          a weight slightly above 9% after a price move is drift, not a strategy
+          failure. V11 has no fixed per-position stop-loss; exits come from
+          reranking, monthly convergence, the SPY trend gate and{" "}
+          <code className="font-mono">HALT</code>.
+        </p>
+      </Disclosure>
     </Panel>
+  );
+}
+
+/**
+ * Allocation and P&L charts derived straight from the holding rows. No value is
+ * fabricated: the donut and bars only plot numbers already present, and a chart
+ * is omitted entirely rather than drawn empty when its input is absent.
+ */
+function HoldingsCharts({ rows }: { rows: PortfolioRow[] }) {
+  const allocation = rows
+    .filter((r) => typeof r.marketValue === "number" && r.marketValue > 0)
+    .map((r, i) => ({
+      name: r.symbol,
+      value: r.marketValue as number,
+      color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
+    }));
+  const totalGross = allocation.reduce((sum, r) => sum + r.value, 0);
+
+  const pnl = rows
+    .filter((r) => typeof r.unrealizedPl === "number")
+    .map((r) => ({ name: r.symbol, value: r.unrealizedPl as number }));
+
+  const targeted = rows.filter((r) => r.targetWeightPct !== null);
+  const comparison = targeted.map((r) => ({
+    label: r.symbol,
+    actual: r.actualWeightPct ?? 0,
+    target: r.targetWeightPct ?? 0,
+  }));
+
+  if (allocation.length === 0 && pnl.length === 0) return null;
+
+  return (
+    <div className="mb-5 space-y-5">
+      <div className="grid gap-6 md:grid-cols-2">
+        {allocation.length > 0 && (
+          <div className="min-w-0">
+            <AllocationDonut
+              data={allocation}
+              valueFormatter={(v) => money(v, true)}
+              centerValue={money(totalGross, true)}
+              centerLabel="gross"
+            />
+            <Legend items={allocation.map((a) => ({ name: a.name, color: a.color }))} />
+          </div>
+        )}
+        {pnl.length > 0 && (
+          <div className="min-w-0">
+            <p className="mb-2 text-[11px] uppercase tracking-wide text-muted">
+              Unrealized P&amp;L by holding
+            </p>
+            <SignedBars data={pnl} valueFormatter={(v) => money(v, true)} />
+          </div>
+        )}
+      </div>
+      {comparison.length > 0 && (
+        <ComparisonBars
+          title="Actual weight vs V11 target"
+          data={comparison}
+          series={[
+            { key: "actual", name: "Actual %", color: SERIES.primary },
+            { key: "target", name: "V11 target %", color: SERIES.benchmark },
+          ]}
+          valueFormatter={(v) => percent(Number(v))}
+        />
+      )}
+    </div>
   );
 }
 
@@ -197,7 +274,9 @@ function Holdings({ payload }: { payload: StrategyStatusPayload }) {
           source={provenance.source}
         />
       ) : (
-        <TableScroll>
+        <>
+          <HoldingsCharts rows={rows} />
+          <TableScroll>
           <table className="data">
             <caption className="sr-only">
               Actual holdings against V11 target weights
@@ -295,7 +374,8 @@ function Holdings({ payload }: { payload: StrategyStatusPayload }) {
               ))}
             </tbody>
           </table>
-        </TableScroll>
+          </TableScroll>
+        </>
       )}
       <p className="mt-3 text-[11px] text-muted max-w-prose">
         Unrealized P&amp;L is broker accounting for the selected account. It is
