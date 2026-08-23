@@ -64,6 +64,20 @@ describe("formatAge", () => {
   it("does not print a fake age for an unknown timestamp", () => {
     expect(formatAge(null)).toBe("unknown age");
   });
+
+  it("reads a small negative age as 'just now', not 'from now'", () => {
+    // The subscribed clock is floored to 30s buckets, so a just-set timestamp
+    // can be up to ~30s ahead of it. That must never render as "12s from now".
+    expect(formatAge(-1)).toBe("just now");
+    expect(formatAge(-12)).toBe("just now");
+    expect(formatAge(-30)).toBe("just now");
+    expect(formatAge(0)).toBe("just now");
+    expect(formatAge(3)).toBe("just now");
+  });
+
+  it("still names a genuinely future instant beyond the clock window", () => {
+    expect(formatAge(-120)).toBe("2m from now");
+  });
 });
 
 describe("provenance", () => {

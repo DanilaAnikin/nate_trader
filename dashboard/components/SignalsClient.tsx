@@ -2,6 +2,7 @@
 
 import { integer, percent } from "@/lib/status/client";
 import type { StrategyStatusPayload } from "@/lib/status/types";
+import { Disclosure } from "./status/charts";
 import PageState from "./status/PageState";
 import {
   Dash,
@@ -169,13 +170,15 @@ function FunnelPanel({ payload }: { payload: StrategyStatusPayload }) {
           </tbody>
         </table>
       </TableScroll>
-      <p className="mt-3 text-xs text-secondary max-w-prose">
-        The production runner records only the aggregate eligible count, not
-        the per-filter census or the 12-1 / 6-1 rank table. Reimplementing the
-        V11 ranking in the browser would create a second, unvalidated strategy,
-        so these rows stay <strong>UNAVAILABLE</strong> until the runner exports
-        a sanitized ranking diagnostic.
-      </p>
+      <Disclosure summary="Why these rows are UNAVAILABLE">
+        <p>
+          The production runner records only the aggregate eligible count, not
+          the per-filter census or the 12-1 / 6-1 rank table. Reimplementing the
+          V11 ranking in the browser would create a second, unvalidated strategy,
+          so these rows stay <strong>UNAVAILABLE</strong> until the runner exports
+          a sanitized ranking diagnostic.
+        </p>
+      </Disclosure>
     </Panel>
   );
 }
@@ -342,14 +345,17 @@ function BasketPanel({ payload }: { payload: StrategyStatusPayload }) {
 function ArchiveNote() {
   return (
     <Panel title="Retired V10 screener signals">
-      <p className="text-xs text-secondary max-w-prose">
-        The legacy confidence score with a 65 threshold, most-active lists, top
-        movers, trending tickers and news/AI sentiment are{" "}
-        <strong>not used by V11</strong> and no longer appear in the trading UI.
-        They were part of the retired V10 process; V11 authorizes a position
-        only through 12-1 momentum ranking, the eligibility filters, the SPY
-        trend gate, breadth scaling and the portfolio-damage tier.
+      <p className="text-xs text-secondary">
+        Legacy confidence scores, most-active/top-mover lists, trending tickers
+        and news/AI sentiment are <strong>not used by V11</strong>.
       </p>
+      <Disclosure summary="What V11 uses instead">
+        <p>
+          Those V10 signals no longer appear in the trading UI. V11 authorizes a
+          position only through 12-1 momentum ranking, the eligibility filters,
+          the SPY trend gate, breadth scaling and the portfolio-damage tier.
+        </p>
+      </Disclosure>
     </Panel>
   );
 }
