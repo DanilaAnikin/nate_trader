@@ -68,3 +68,31 @@ V11 on all gates. With that caveat, the diagnosis points at *exposure*, not pick
 performance across several monthly rebalances, including at least one weak market.**
 Backtest "improvements" on this reused window are not evidence and must not be
 promoted or wired to real money.
+
+
+## Empirical confirmation (2026-08-24/25)
+
+Two follow-ups, on data refreshed through 2026-08-21:
+
+1. **Universe hygiene helps, but does not fix it.** Removing 5 delisted names
+   (EA, LBRDA, NSA, SAIL, SOFI) from the watchlist lifted the reused-period
+   excess from -4.96% to **-2.81%** at 15 bps (-1.91% at 7 bps) -- the delisted
+   names were a real drag -- but the gate still **FAILS**: V11 still trails SPY
+   in the bull. (EQR/WBS remain flagged only because their last bar is one
+   session behind SPY's -- a freshness artifact, not a delisting.)
+
+2. **Tuning the exposure parameters does nothing.** A "less-defensive" variant
+   (lower max_cash_pct/min_cash_pct in NEUTRAL and BEAR, via the engine's
+   research override) came out **indistinguishable from baseline** over
+   2025->2026: alpha -2.01%/yr vs -1.91%/yr, same Sharpe (0.63), same drawdown
+   (-15.9% vs -15.8%). The cash knobs are not what drive the de-risking.
+
+**Conclusion -- the defensiveness is structural, not a parameter.** The all-or-
+nothing move to 100% cash comes from the hardcoded SPY-SMA200 gate, not any
+tunable field, so no override recovers the bull-capture. A genuine improvement
+(a gross-exposure floor, or a graduated gate instead of a hard exit) is a *code
+change to the gate* -- a new strategy variant with its own identity and its own
+validation -- and, because 2025-2026 is already inspected, it can only be
+validated by FUTURE frozen forward paper performance. Nothing here may be
+promoted, and it reinforces why V11 must not be wired to real money on this
+evidence.

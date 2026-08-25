@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-05-16",
+  "updated_at": "2026-08-24",
   "symbols": {
     "SPY": {
       "sector": "Benchmark",
@@ -744,12 +744,6 @@
       "max_allocation_pct": 5,
       "tradeable": true,
       "notes": "v6.1 universe \u2014 Dating apps"
-    },
-    "EA": {
-      "sector": "Communication",
-      "max_allocation_pct": 5,
-      "tradeable": true,
-      "notes": "v6.1 universe \u2014 Game publisher \u2014 sports"
     },
     "TTWO": {
       "sector": "Communication",
@@ -2455,12 +2449,6 @@
       "tradeable": true,
       "notes": "v9 Phase 1 \u2014 small/mid-cap materials momentum candidate"
     },
-    "LBRDA": {
-      "sector": "Communication",
-      "max_allocation_pct": 5,
-      "tradeable": true,
-      "notes": "v9 Phase 1 \u2014 small/mid-cap comm momentum candidate"
-    },
     "LBRT": {
       "sector": "Energy",
       "max_allocation_pct": 5,
@@ -2682,12 +2670,6 @@
       "max_allocation_pct": 5,
       "tradeable": true,
       "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
-    },
-    "NSA": {
-      "sector": "RealEstate",
-      "max_allocation_pct": 5,
-      "tradeable": true,
-      "notes": "v9 Phase 1 \u2014 small/mid-cap REIT momentum candidate"
     },
     "NTLA": {
       "sector": "Healthcare",
@@ -2989,12 +2971,6 @@
       "tradeable": true,
       "notes": "v9 Phase 1 \u2014 small/mid-cap industrial momentum candidate"
     },
-    "SAIL": {
-      "sector": "Technology",
-      "max_allocation_pct": 5,
-      "tradeable": true,
-      "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
-    },
     "SANM": {
       "sector": "Technology",
       "max_allocation_pct": 5,
@@ -3036,12 +3012,6 @@
       "max_allocation_pct": 5,
       "tradeable": true,
       "notes": "v9 Phase 1 \u2014 small/mid-cap tech momentum candidate"
-    },
-    "SOFI": {
-      "sector": "Financial",
-      "max_allocation_pct": 5,
-      "tradeable": true,
-      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
     },
     "SR": {
       "sector": "Utilities",
