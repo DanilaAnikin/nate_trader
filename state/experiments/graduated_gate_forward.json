@@ -12,6 +12,30 @@
       "protocol": "strategy/experiments/graduated_gate_forward_protocol.md",
       "status": "PENDING_FORWARD_DATA",
       "note": "No forward sessions yet \u2014 data ends 2026-08-21, epoch starts 2026-08-25. The experiment is registered; evidence accrues as time passes."
+    },
+    {
+      "generated_at": "2026-08-25T20:35:15Z",
+      "epoch_start": "2026-08-25",
+      "floor_pct": 50,
+      "data_boundary": "2026-08-25",
+      "protocol": "strategy/experiments/graduated_gate_forward_protocol.md",
+      "status": "ACCRUING",
+      "forward_sessions": 0,
+      "incumbent": {
+        "annual_return_pct": 0.0,
+        "spy_annual_return_pct": -0.0,
+        "sharpe_ratio": 0.0,
+        "max_drawdown_pct": 0.0,
+        "n_trades": 0
+      },
+      "challenger": {
+        "annual_return_pct": 0.0,
+        "spy_annual_return_pct": -0.0,
+        "sharpe_ratio": 0.0,
+        "max_drawdown_pct": 0.0,
+        "n_trades": 0
+      },
+      "note": "Not enough forward sessions to judge; see the protocol's success criteria."
     }
   ]
 }
