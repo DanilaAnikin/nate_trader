@@ -1,0 +1,17 @@
+{
+  "experiment": "graduated_gate_forward",
+  "epoch_start": "2026-08-25",
+  "floor_pct": 50,
+  "protocol": "strategy/experiments/graduated_gate_forward_protocol.md",
+  "snapshots": [
+    {
+      "generated_at": "2026-08-25T20:22:58Z",
+      "epoch_start": "2026-08-25",
+      "floor_pct": 50,
+      "data_boundary": "2026-08-21",
+      "protocol": "strategy/experiments/graduated_gate_forward_protocol.md",
+      "status": "PENDING_FORWARD_DATA",
+      "note": "No forward sessions yet \u2014 data ends 2026-08-21, epoch starts 2026-08-25. The experiment is registered; evidence accrues as time passes."
+    }
+  ]
+}
