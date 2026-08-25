@@ -96,3 +96,51 @@ validation -- and, because 2025-2026 is already inspected, it can only be
 validated by FUTURE frozen forward paper performance. Nothing here may be
 promoted, and it reinforces why V11 must not be wired to real money on this
 evidence.
+
+
+## Pre-registered experiment: a graduated gate (2026-08-25)
+
+Hypothesis, fixed before running: the bull-lag is the all-or-nothing SPY-SMA200
+exit to 100% cash. A graduated gate that keeps an exposure FLOOR below SMA200
+(scaled by the usual breadth/vol/diversification scalers) instead of liquidating
+should recover bull-capture. Implemented as a research param
+`momentum_below_sma200_floor_pct` (default 0.0 = V11 unchanged, byte-for-byte);
+tested at 30% and 50% on both segments, at the 7 bps research cost.
+
+| Variant | Reused excess | Reused Sharpe / DD | Dev excess | Dev Sharpe / DD |
+|---|---|---|---|---|
+| baseline (hard exit) | -1.91 pp | 0.63 / -15.8% | +5.20 pp | 0.72 / -33.5% |
+| floor 30% | -3.27 pp | 0.57 / -16.9% | +9.16 pp | 0.84 / -29.4% |
+| floor 50% | +0.98 pp | 0.71 / -19.0% | +9.92 pp | 0.85 / -29.3% |
+
+**What the data shows.** A 50% floor improves BOTH periods, and in the
+development period it is a *Pareto* improvement — higher return AND lower
+drawdown. That is the signature of a **whipsaw cost**: the hard exit sold into
+dips, sat in cash through the rebound, and re-entered higher. A floor avoids the
+worst of that. It even flips the reused excess marginally positive.
+
+**What this is NOT.** It is not validation, and it must not be deployed or
+promoted on this evidence:
+- The reused 2025-2026 window is already inspected — a positive result there is
+  not fresh out-of-sample evidence.
+- The development period is in-sample by definition (the model was built on it).
+- I tested two floor values and 50% won; picking the best of a small search is
+  exactly the multiple-testing trap the gates exist to stop. "50%" is a round
+  number, not a theoretically derived level.
+- The results are at the optimistic 7 bps cost. At the realistic 15 bps the
+  reused edge (+0.98 pp) is thin and likely negative; the dev improvement is more
+  robust across costs but is in-sample.
+
+**Honest conclusion.** The graduated gate is the most promising lead so far — the
+whipsaw cost is real and visible — but it is a **hypothesis**, not a fix. The
+only thing that can validate it is a PRE-REGISTERED forward paper experiment:
+freeze one design (e.g. floor 50%) now, run it forward alongside V11 for several
+monthly rebalances including a real down-market, and let FUTURE data decide.
+Nothing here changes the production V11, and nothing here may be wired to real
+money.
+
+The experiment code (the graduated-gate param and the engine change) lives on
+the `research/graduated-gate` branch. It is deliberately NOT merged to main:
+editing scripts/adaptive_momentum.py or scripts/backtest/engine.py changes the
+strategy-identity hash, so merging it would break the committed validation'''s
+identity match. V11'''s identity on main is left untouched.
