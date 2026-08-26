@@ -33,14 +33,31 @@ RECORD = os.path.join(os.path.dirname(__file__), "..", "..",
                       "state", "experiments", "graduated_gate_forward.json")
 
 
+def _spy_path() -> str:
+    return os.path.join(os.path.dirname(__file__), "..", "..",
+                        "state", "backtest", "bars", "SPY.json")
+
+
 def _latest_data_date() -> str | None:
-    spy = os.path.join(os.path.dirname(__file__), "..", "..",
-                       "state", "backtest", "bars", "SPY.json")
     try:
-        with open(spy) as fh:
+        with open(_spy_path()) as fh:
             return json.load(fh).get("to")
     except Exception:
         return None
+
+
+def _forward_sessions(end: str) -> int:
+    """SPY trading sessions strictly after the epoch start, up to `end`. The
+    forward window only has evidence once at least a couple of sessions have
+    actually completed past the epoch — before that, any backtest metric is a
+    divide-by-nothing artifact and must not be recorded as if it meant anything.
+    """
+    try:
+        with open(_spy_path()) as fh:
+            bars = json.load(fh).get("bars", [])
+        return sum(1 for b in bars if EPOCH_START < str(b.get("date", "")) <= end)
+    except Exception:
+        return 0
 
 
 def _pick(metrics: dict) -> dict:
@@ -64,11 +81,16 @@ def main(argv: list[str]) -> int:
         "protocol": "strategy/experiments/graduated_gate_forward_protocol.md",
     }
 
-    if end is None or end < EPOCH_START:
+    fwd = _forward_sessions(end) if (end and end >= EPOCH_START) else 0
+    snapshot["forward_sessions"] = fwd
+    if fwd < 2:
+        # Not enough completed sessions past the epoch to compute anything
+        # meaningful — record the registration, not a divide-by-nothing metric.
         snapshot["status"] = "PENDING_FORWARD_DATA"
         snapshot["note"] = (
-            f"No forward sessions yet — data ends {end}, epoch starts {EPOCH_START}. "
-            "The experiment is registered; evidence accrues as time passes."
+            f"Only {fwd} forward session(s) so far (data ends {end}, epoch "
+            f"{EPOCH_START}). The experiment is registered; evidence accrues as "
+            "time passes."
         )
         _append(snapshot)
         print(json.dumps(snapshot, indent=2))
@@ -81,17 +103,14 @@ def main(argv: list[str]) -> int:
     )
     inc_m = incumbent.get("metrics", incumbent)
     chl_m = challenger.get("metrics", challenger)
-    sessions = int(inc_m.get("n_trading_days", 0) or 0)
 
-    snapshot["status"] = (
-        "ACCRUING" if sessions < MIN_FORWARD_SESSIONS else "COMPARABLE"
-    )
-    snapshot["forward_sessions"] = sessions
+    snapshot["status"] = "ACCRUING" if fwd < MIN_FORWARD_SESSIONS else "COMPARABLE"
     snapshot["incumbent"] = _pick(inc_m)
     snapshot["challenger"] = _pick(chl_m)
     snapshot["note"] = (
-        "Not enough forward sessions to judge; see the protocol's success criteria."
-        if sessions < MIN_FORWARD_SESSIONS
+        "Forward metrics are still noisy (below the minimum session count); the "
+        "verdict is only evaluated once the protocol's window criteria are met."
+        if fwd < MIN_FORWARD_SESSIONS
         else "Forward metrics; the verdict is only evaluated once the window closes."
     )
     _append(snapshot)
