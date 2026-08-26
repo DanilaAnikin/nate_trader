@@ -144,3 +144,21 @@ the `research/graduated-gate` branch. It is deliberately NOT merged to main:
 editing scripts/adaptive_momentum.py or scripts/backtest/engine.py changes the
 strategy-identity hash, so merging it would break the committed validation'''s
 identity match. V11'''s identity on main is left untouched.
+
+## Forward experiment — now running (2026-08-26)
+
+The graduated-gate hypothesis is under a live, pre-registered forward paper test:
+
+- **Protocol (frozen):** `strategy/experiments/graduated_gate_forward_protocol.md`
+  (on `research/graduated-gate`) — floor-50 challenger vs V11 vs SPY, epoch
+  2026-08-25, judged only after ≥6 monthly rebalances including a down-market
+  month, against fixed success criteria set before any forward data existed.
+- **Harness:** `scripts/experiments/graduated_gate_forward.py` — re-runs both
+  arms from the frozen epoch on current data and appends a dated snapshot to
+  `state/experiments/graduated_gate_forward.json`. Paper/shadow only; no broker.
+- **Automation:** `.github/workflows/graduated-gate-shadow.yml` (on main) runs it
+  weekly (and on demand), extending the record on `research/graduated-gate`. It
+  never touches production, the release, the broker, or main's V11 identity.
+
+The verdict is future work, settled by fresh market data — not by a backtest and
+not by choice. Nothing here is promoted, and no live-money path exists.
