@@ -245,9 +245,7 @@ function toAttempt(
 }
 
 /** Load the persisted V11 forward-validation epoch baseline, if one exists. */
-export async function getEpochBaseline(
-  approvedSha: string | null,
-): Promise<V11EpochBaseline | null> {
+export async function getEpochBaseline(): Promise<V11EpochBaseline | null> {
   const inline = process.env.V11_EPOCH_BASELINE?.trim();
   if (inline) {
     try {
@@ -257,8 +255,12 @@ export async function getEpochBaseline(
       // Malformed server configuration must not fabricate a baseline.
     }
   }
-  const ref = approvedSha ?? GITHUB_STATE_REF;
-  const document = await fetchRepoJson<unknown>(EPOCH_BASELINE_PATH, ref, 600);
+  // Fetch the baseline file at the state ref (main), NOT at approvedSha. The
+  // baseline is committed AFTER a release is cut, so the approved release commit
+  // predates the file and fetching at ref=approvedSha 404s for every such
+  // release. The caller independently enforces baseline.releaseSha===approvedSha
+  // afterward, so reading the latest committed baseline from main is safe.
+  const document = await fetchRepoJson<unknown>(EPOCH_BASELINE_PATH, GITHUB_STATE_REF, 600);
   return document ? parseEpochBaseline(document) : null;
 }
 

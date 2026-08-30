@@ -413,6 +413,16 @@ function OperationsPanel({ payload }: { payload: StrategyStatusPayload }) {
             {execution?.marketEntryAllowed === null ||
             execution?.marketEntryAllowed === undefined ? (
               "—"
+            ) : execution.marketEntryAllowed &&
+              payload.validationGate.effective !== "PASS" ? (
+              // This is the LAST executor cycle's recorded decision, made when the
+              // gate still authorized buys. It is history, not the current
+              // authorization — rendering it PASS-green beside a non-PASS effective
+              // gate reads as a contradiction. Mute it and mark it as last-cycle.
+              <span className="text-xs text-muted">
+                allowed · last cycle (effective gate now{" "}
+                {payload.validationGate.effective})
+              </span>
             ) : (
               <StatePill
                 size="xs"
