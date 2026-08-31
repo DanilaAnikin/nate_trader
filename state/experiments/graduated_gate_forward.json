@@ -13,6 +13,30 @@
       "forward_sessions": 0,
       "status": "PENDING_FORWARD_DATA",
       "note": "Only 0 forward session(s) so far (data ends 2026-08-21, epoch 2026-08-25). The experiment is registered; evidence accrues as time passes."
+    },
+    {
+      "generated_at": "2026-08-31T13:55:12Z",
+      "epoch_start": "2026-08-25",
+      "floor_pct": 50,
+      "data_boundary": "2026-08-31",
+      "protocol": "strategy/experiments/graduated_gate_forward_protocol.md",
+      "forward_sessions": 4,
+      "status": "ACCRUING",
+      "incumbent": {
+        "annual_return_pct": -10.0232,
+        "spy_annual_return_pct": 10.0906,
+        "sharpe_ratio": -0.539,
+        "max_drawdown_pct": -1.4517,
+        "n_trades": 0
+      },
+      "challenger": {
+        "annual_return_pct": -10.0232,
+        "spy_annual_return_pct": 10.0906,
+        "sharpe_ratio": -0.539,
+        "max_drawdown_pct": -1.4517,
+        "n_trades": 0
+      },
+      "note": "Forward metrics are still noisy (below the minimum session count); the verdict is only evaluated once the protocol's window criteria are met."
     }
   ]
 }
