@@ -237,7 +237,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     );
   }
 
-  const baseline = await getEpochBaseline(approved.sha);
+  const baseline = await getEpochBaseline();
   if (!baseline) {
     return respond(
       id,
