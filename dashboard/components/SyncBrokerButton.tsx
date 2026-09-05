@@ -21,9 +21,14 @@ import { useRouter } from "next/navigation";
 export default function SyncBrokerButton({
   accountId,
   disabled,
+  onSynced,
 }: {
   accountId: string | null;
   disabled?: boolean;
+  /** Called after a successful publish so the client re-reads the freshly
+   *  written mirrors (equity curve, forward performance) instead of showing the
+   *  pre-sync series until a full reload. */
+  onSynced?: () => void;
 }) {
   const [pending, startTransition] = useTransition();
   const [outcome, setOutcome] = useState<string | null>(null);
@@ -46,6 +51,7 @@ export default function SyncBrokerButton({
             `Synced: ${body?.equityWritten ?? 0} session(s), ${body?.flowsWritten ?? 0} cash flow(s).`,
           );
           router.refresh();
+          onSynced?.();
           return;
         }
         // A refusal is a named outcome with the mirrors intact, not an error

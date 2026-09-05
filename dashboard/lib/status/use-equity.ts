@@ -32,7 +32,15 @@ export type EquityState =
   | { kind: "ready"; curve: EquityCurve }
   | { kind: "error"; message: string };
 
-export function useAccountEquity(accountId: string | null): EquityState {
+/**
+ * @param refreshKey — bump this (e.g. StatusProvider.lastRefreshedAt) to force a
+ * re-fetch after Re-read/Sync. Without it the curve fetched once per account and
+ * never updated, so "Sync broker data" wrote new snapshots the chart never showed.
+ */
+export function useAccountEquity(
+  accountId: string | null,
+  refreshKey?: string | number | null,
+): EquityState {
   const [state, setState] = useState<EquityState>({ kind: "idle" });
   const requestRef = useRef(0);
 
@@ -89,7 +97,7 @@ export function useAccountEquity(accountId: string | null): EquityState {
     // during the effect (mirrors StatusProvider's refresh scheduling).
     void Promise.resolve().then(() => load(accountId, controller.signal));
     return () => controller.abort();
-  }, [accountId, load]);
+  }, [accountId, refreshKey, load]);
 
   return state;
 }

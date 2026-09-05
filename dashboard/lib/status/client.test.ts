@@ -79,6 +79,29 @@ describe("systemIndicators", () => {
     expect(indicators.find((i) => i.key === "runtime")?.state).toBe("STALE");
   });
 
+  it("surfaces a STALE operations source as STALE, never a green scheduler from the last attempt", () => {
+    const base = buildPayload();
+    const payload = buildPayload({
+      operations: section(
+        provenance({
+          source: base.operations.provenance.source,
+          scope: base.operations.provenance.scope,
+          asOf: "2026-08-01T16:05:05Z",
+          now: Date.parse("2026-08-07T17:00:00Z"),
+          freshness: "STALE",
+          detail: "older than its 36-hour contract",
+        }),
+        base.operations.data,
+      ),
+    });
+    const scheduler = systemIndicators(payload).find(
+      (indicator) => indicator.key === "scheduler",
+    );
+    // Even though the latest attempt succeeded, a STALE source must not render a
+    // green PASS — stale data never degrades into a green check.
+    expect(scheduler?.state).toBe("STALE");
+  });
+
   it("marks an infrastructure workflow failure WARN, not FAIL", () => {
     const base = buildPayload();
     const payload = buildPayload({

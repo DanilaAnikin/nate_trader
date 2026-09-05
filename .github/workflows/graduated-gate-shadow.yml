@@ -67,4 +67,11 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git add state/experiments/graduated_gate_forward.json
           git commit -m "research: forward experiment snapshot $(date -u +%Y-%m-%d)"
+          # Rebase onto origin before pushing so a commit that landed on the
+          # branch since checkout (e.g. a manual edit) makes this a fast-forward
+          # rather than a rejected non-fast-forward that silently drops the week's
+          # snapshot. The harness appends only to the record file, so a rebase
+          # re-applies this commit cleanly.
+          git fetch origin "${EXPERIMENT_BRANCH}"
+          git rebase "origin/${EXPERIMENT_BRANCH}"
           git push origin HEAD:${EXPERIMENT_BRANCH}

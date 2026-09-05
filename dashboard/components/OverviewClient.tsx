@@ -500,7 +500,10 @@ function EvidencePanel({ payload }: { payload: StrategyStatusPayload }) {
                 validation.identityMatchesRuntime === "PASS" &&
                 validation.universeMatchesRuntime === "PASS"
                   ? "PASS"
-                  : "UNAVAILABLE"
+                  : validation.identityMatchesRuntime === "FAIL" ||
+                      validation.universeMatchesRuntime === "FAIL"
+                    ? "FAIL"
+                    : "UNAVAILABLE"
               }
             />
           </MetricGrid>
