@@ -329,8 +329,34 @@ def main(argv: list[str]) -> None:
             failures.append(symbol)
             log.error(str(exc))
     log.info(f"Done. Total bars cached: {total:,}")
-    if failures:
-        log.error(f"Refresh failed for {len(failures)} symbol(s): {', '.join(failures)}")
+
+    # A refresh fails ONLY when a symbol the strategy/validator universally needs
+    # is missing (SPY market gate, BIL risk-free metric infra, the SPDR sector
+    # auxiliaries used by the sector recompute — the "SPY/BIL/sector auxiliary"
+    # the validation contract requires). A watchlist name that has delisted or
+    # lost coverage is NOT a refresh failure: the fixed-parameter validator
+    # independently rejects any candidate with missing/stale bars, so it — not
+    # this fetcher — is the coverage authority. Exiting 1 on any single delisted
+    # name previously masked-then-annotated successful runs and, worse, let a
+    # future critical-symbol failure look the same as a benign one.
+    critical = {"SPY", "BIL", "XLK", "XLF", "XLV", "XLI", "XLY", "XLE",
+                "XLB", "XLU", "XLRE", "XLC", "XLP"}
+    critical_failures = sorted(s for s in failures if s in critical)
+    noncritical_failures = sorted(s for s in failures if s not in critical)
+    if noncritical_failures:
+        log.warning(
+            f"{len(noncritical_failures)} non-critical symbol(s) had no fresh bars "
+            f"(delisted / no coverage): {', '.join(noncritical_failures)}. "
+            "The validator drops candidates missing bars; this does not fail the refresh."
+        )
+    if total == 0:
+        log.error("No bars were cached at all — the refresh did not run.")
+        raise SystemExit(1)
+    if critical_failures:
+        log.error(
+            f"Refresh failed for {len(critical_failures)} CRITICAL symbol(s) "
+            f"(SPY/BIL/sector auxiliary): {', '.join(critical_failures)}"
+        )
         raise SystemExit(1)
 
 
