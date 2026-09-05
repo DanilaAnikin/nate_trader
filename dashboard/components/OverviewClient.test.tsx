@@ -76,6 +76,29 @@ describe("OverviewClient", () => {
     expect(within(breadthRow).getByText("UNAVAILABLE")).toBeInTheDocument();
   });
 
+  it("shows a real identity/universe mismatch as FAIL, not a neutral UNAVAILABLE", async () => {
+    const base = buildPayload();
+    const payload = {
+      ...base,
+      validation: {
+        ...base.validation,
+        data: {
+          ...base.validation.data!,
+          identityMatchesRuntime: "FAIL",
+          universeMatchesRuntime: "PASS",
+        },
+      },
+    } as StrategyStatusPayload;
+    renderOverview(payload);
+    const row = (
+      await screen.findByText("Identity / universe match")
+    ).closest("div") as HTMLElement;
+    // The pill renders exact "FAIL" (distinct from the value text "FAIL / PASS")
+    // and must not fall back to the neutral grey UNAVAILABLE.
+    expect(within(row).getByText("FAIL")).toBeInTheDocument();
+    expect(within(row).queryByText("UNAVAILABLE")).not.toBeInTheDocument();
+  });
+
   it("never renders forward performance without a persisted epoch baseline", async () => {
     renderOverview();
     await waitFor(() =>

@@ -243,3 +243,38 @@ def test_fetch_failure_preserves_existing_cache_and_raises(tmp_path, monkeypatch
         )
 
     assert json.loads(path.read_text()) == original
+
+
+def test_main_warns_on_noncritical_failure_but_does_not_exit(monkeypatch):
+    """A delisted watchlist name must not fail the whole refresh — the validator
+    is the coverage authority and drops such candidates itself."""
+    def fake(symbol, start, end, *, rebuild=False):
+        if symbol == "AAPL":
+            raise RuntimeError("delisted / no coverage")
+        return 100
+
+    monkeypatch.setattr(download_history, "download_symbol", fake)
+    # SPY (critical) succeeds; AAPL (non-critical) fails → returns, no SystemExit.
+    download_history.main(["SPY", "AAPL"])
+
+
+def test_main_exits_on_critical_symbol_failure(monkeypatch):
+    """A SPY/BIL/sector-auxiliary failure IS a hard refresh failure."""
+    def fake(symbol, start, end, *, rebuild=False):
+        if symbol == "SPY":
+            raise RuntimeError("network unavailable")
+        return 100
+
+    monkeypatch.setattr(download_history, "download_symbol", fake)
+    with pytest.raises(SystemExit):
+        download_history.main(["SPY", "AAPL"])
+
+
+def test_main_exits_when_nothing_cached(monkeypatch):
+    """If not a single bar was cached, the refresh did not run."""
+    def fake(symbol, start, end, *, rebuild=False):
+        raise RuntimeError("no data at all")
+
+    monkeypatch.setattr(download_history, "download_symbol", fake)
+    with pytest.raises(SystemExit):
+        download_history.main(["AAPL"])  # non-critical only, but total == 0

@@ -22,7 +22,7 @@ const ROLE_LABEL: Record<AccountRole, string> = {
  * context.
  */
 export default function AppHeader() {
-  const { data, selectedAccount, status } = useStrategyStatus();
+  const { data, selectedAccount, status, refresh } = useStrategyStatus();
   const binding = data?.accountBinding.data ?? null;
 
   return (
@@ -77,7 +77,12 @@ export default function AppHeader() {
               </span>
             )}
           </div>
-          <SyncBrokerButton accountId={selectedAccount?.id ?? null} />
+          <SyncBrokerButton
+            accountId={selectedAccount?.id ?? null}
+            onSynced={() => {
+              void refresh();
+            }}
+          />
           <RefreshButton />
         </div>
         <SystemStatusBar />
