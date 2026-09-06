@@ -6,6 +6,24 @@
 # mutation below reintroduces a way for a production entrypoint to reach a
 # tombstoned routine — or blinds the analyzer — and the analyzer MUST report it.
 #
+# THE VEHICLE, AND WHY IT CHANGED
+# -------------------------------
+# Most mutations below reach the mutation surface through one import. That
+# import used to be `purgeCredentials` from lib/accounts/credentials.ts, which
+# called `vault_delete_secret` directly. It no longer calls any vault_* wrapper
+# — account creation, rotation and deletion moved into the atomic routines
+# (create_account_atomic, rotate_account_credentials, delete_account_atomic) —
+# so credentials.ts is validation-only and is not mutation surface any more.
+# A mutant importing it would reach nothing, and an undetected mutant reads as
+# a hole in the analyzer when it is a hole in the mutant.
+#
+# The vehicle is lib/accounts/service.ts, which qualifies twice over: it writes
+# `accounts` through PostgREST and it names `resolve_create_operation`, one of
+# the routines the derivation reads out of the migrations. Mutants 25 and 26
+# deliberately do not use it — they build their own writer and a renamed copy,
+# so the claim stays "the derivation finds writers" rather than "the harness
+# knows one filename".
+#
 # WHAT THE PROOF-HONESTY AUDIT CHANGED HERE
 # -----------------------------------------
 # The previous version of this file had three defects of its own, and the first
@@ -179,24 +197,24 @@ fi
 REACH="reaches\|names tombstoned\|mutation surface"
 
 # ── I. forms the analyzer already recognised ────────────────────────────────
-m1(){ sed -i '1i import { purgeCredentials } from "@/lib/accounts/credentials";' "$1/app/api/accounts/route.ts"; }
-expect_red "1 route imports credentials directly" m1 "app/api/accounts/route.ts -> lib/accounts/credentials.ts"
+m1(){ sed -i '1i import { deleteAccount } from "@/lib/accounts/service";' "$1/app/api/accounts/route.ts"; }
+expect_red "1 route imports the write service directly" m1 "app/api/accounts/route.ts -> lib/accounts/service.ts"
 
 m2(){ cat > "$1/lib/helper-hop.ts" <<'EOF'
-import { purgeCredentials } from "@/lib/accounts/credentials";
-export const hop = purgeCredentials;
+import { deleteAccount } from "@/lib/accounts/service";
+export const hop = deleteAccount;
 EOF
   sed -i '1i import { hop } from "@/lib/helper-hop";' "$1/app/api/accounts/route.ts"; }
-expect_red "2 route imports it through one helper" m2 "app/api/accounts/route.ts -> lib/accounts/credentials.ts"
+expect_red "2 route imports it through one helper" m2 "app/api/accounts/route.ts -> lib/accounts/service.ts"
 
 m3(){ cat > "$1/lib/reexport-a.ts" <<'EOF'
-export { purgeCredentials } from "@/lib/accounts/credentials";
+export { deleteAccount } from "@/lib/accounts/service";
 EOF
   cat > "$1/lib/reexport-b.ts" <<'EOF'
-export { purgeCredentials } from "@/lib/reexport-a";
+export { deleteAccount } from "@/lib/reexport-a";
 EOF
-  sed -i '1i import { purgeCredentials } from "@/lib/reexport-b";' "$1/app/api/accounts/route.ts"; }
-expect_red "3 route imports it through a re-export chain" m3 "app/api/accounts/route.ts -> lib/accounts/credentials.ts"
+  sed -i '1i import { deleteAccount } from "@/lib/reexport-b";' "$1/app/api/accounts/route.ts"; }
+expect_red "3 route imports it through a re-export chain" m3 "app/api/accounts/route.ts -> lib/accounts/service.ts"
 
 m4(){ sed -i 's|import { listAccounts } from "@/lib/accounts/read";|import { listAccounts } from "@/lib/accounts/service";|' "$1/app/api/accounts/route.ts"; }
 expect_red "4 GET imports the combined service" m4 "mutation surface in a production entrypoint closure"
@@ -220,24 +238,24 @@ m7(){ python3 - "$1" <<'PY'
 import pathlib,sys,glob
 d=pathlib.Path(sys.argv[1])
 q=pathlib.Path(sorted(glob.glob(str(d/"app/(app)/*/page.tsx")))[0])
-q.write_text('import { purgeCredentials } from "@/lib/accounts/credentials";\nvoid purgeCredentials;\n'+q.read_text())
+q.write_text('import { deleteAccount } from "@/lib/accounts/service";\nvoid deleteAccount;\n'+q.read_text())
 PY
 }
-expect_red "7 tombstoned reach from a page" m7 "app/(app)/accounts/page.tsx -> lib/accounts/credentials.ts"
+expect_red "7 tombstoned reach from a page" m7 "app/(app)/accounts/page.tsx -> lib/accounts/service.ts"
 
-m8(){ sed -i '1i import { purgeCredentials } from "@/lib/accounts/credentials";' "$1/proxy.ts"; }
-expect_red "8 tombstoned reach from the proxy" m8 "proxy.ts -> lib/accounts/credentials.ts"
+m8(){ sed -i '1i import { deleteAccount } from "@/lib/accounts/service";' "$1/proxy.ts"; }
+expect_red "8 tombstoned reach from the proxy" m8 "proxy.ts -> lib/accounts/service.ts"
 
 m9(){ python3 - "$1" <<'PY'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
-s='import { purgeCredentials } from "@/lib/accounts/credentials";\n'+s
+s='import { deleteAccount } from "@/lib/accounts/service";\n'+s
 s=s.replace('export async function POST(): Promise<Response> {',
- 'export async function POST(): Promise<Response> {\n  if (false as boolean) { await purgeCredentials(null as never, null as never, null as never); }')
+ 'export async function POST(): Promise<Response> {\n  if (false as boolean) { await deleteAccount(null as never, null as never, null as never); }')
 p.write_text(s)
 PY
 }
-expect_red "9 hidden behind a constant-false branch" m9 "app/api/accounts/route.ts -> lib/accounts/credentials.ts"
+expect_red "9 hidden behind a constant-false branch" m9 "app/api/accounts/route.ts -> lib/accounts/service.ts"
 
 m10(){ python3 - "$1" <<'PY'
 import pathlib,sys
@@ -250,11 +268,11 @@ PY
 expect_red "10 computed RPC name is unclassifiable" m10 "cannot be classified"
 
 m11(){ mkdir -p "$1/app/api/sneaky"; cat > "$1/app/api/sneaky/route.ts" <<'EOF'
-import { purgeCredentials } from "@/lib/accounts/credentials";
-export async function GET() { void purgeCredentials; return new Response("x"); }
+import { deleteAccount } from "@/lib/accounts/service";
+export async function GET() { void deleteAccount; return new Response("x"); }
 EOF
 }
-expect_red "11 a newly added .ts route is enumerated" m11 "app/api/sneaky/route.ts -> lib/accounts/credentials.ts"
+expect_red "11 a newly added .ts route is enumerated" m11 "app/api/sneaky/route.ts -> lib/accounts/service.ts"
 
 m12(){ sed -i '1i import { nope } from "@/lib/does-not-exist";' "$1/app/api/accounts/route.ts"; }
 expect_red "12 unresolved import fails closed" m12 "unresolved import"
@@ -272,21 +290,21 @@ m15(){ python3 - "$1" <<'PY'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
 s=s.replace('const accounts = await listAccounts(user.id);',
- 'const { purgeCredentials } = await import("@/lib/accounts/credentials");\n    void purgeCredentials;\n    const accounts = await listAccounts(user.id);')
+ 'const { deleteAccount } = await import("@/lib/accounts/service");\n    void deleteAccount;\n    const accounts = await listAccounts(user.id);')
 p.write_text(s)
 PY
 }
-expect_red "15 dynamic import() is an edge" m15 "app/api/accounts/route.ts -> lib/accounts/credentials.ts"
+expect_red "15 dynamic import() is an edge" m15 "app/api/accounts/route.ts -> lib/accounts/service.ts"
 
 m16(){ python3 - "$1" <<'PY'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
 s=s.replace('const accounts = await listAccounts(user.id);',
- 'const c = require("@/lib/accounts/credentials");\n    void c;\n    const accounts = await listAccounts(user.id);')
+ 'const c = require("@/lib/accounts/service");\n    void c;\n    const accounts = await listAccounts(user.id);')
 p.write_text(s)
 PY
 }
-expect_red "16 require() is an edge" m16 "app/api/accounts/route.ts -> lib/accounts/credentials.ts"
+expect_red "16 require() is an edge" m16 "app/api/accounts/route.ts -> lib/accounts/service.ts"
 
 m17(){ cat >> "$1/lib/accounts/read.ts" <<'EOF'
 
@@ -308,11 +326,11 @@ EOF
 expect_red "18 an aliased .rpc cannot be classified" m18 "not a direct call"
 
 m19(){ mkdir -p "$1/app/api/danger"; cat > "$1/app/api/danger/route.js" <<'EOF'
-import { purgeCredentials } from "@/lib/accounts/credentials";
-export async function POST(req) { const b = await req.json(); await purgeCredentials(null, b.k, b.s); return new Response("{}"); }
+import { deleteAccount } from "@/lib/accounts/service";
+export async function POST(req) { const b = await req.json(); await deleteAccount(null, b.k, b.s); return new Response("{}"); }
 EOF
 }
-expect_red "19 a .js route is discovered, not just resolved" m19 "app/api/danger/route.js -> lib/accounts/credentials.ts"
+expect_red "19 a .js route is discovered, not just resolved" m19 "app/api/danger/route.js -> lib/accounts/service.ts"
 
 m20(){ cat > "$1/lib/ledger-actions.ts" <<'EOF'
 /* ------------------------------------------------------------------------
@@ -322,11 +340,11 @@ m20(){ cat > "$1/lib/ledger-actions.ts" <<'EOF'
  * all. The directive below is legal and Next.js honours it.
  * --------------------------------------------------------------------- */
 "use server";
-import { purgeCredentials } from "@/lib/accounts/credentials";
-export async function reap(id: string) { void purgeCredentials; void id; }
+import { deleteAccount } from "@/lib/accounts/service";
+export async function reap(id: string) { void deleteAccount; void id; }
 EOF
 }
-expect_red "20 a directive past byte 200 is still a Server Action" m20 "lib/ledger-actions.ts -> lib/accounts/credentials.ts"
+expect_red "20 a directive past byte 200 is still a Server Action" m20 "lib/ledger-actions.ts -> lib/accounts/service.ts"
 
 # IN A FILE THAT IS NOT OTHERWISE AN ENTRYPOINT. This mutant used to append
 # its action to app/(app)/*/page.tsx — a file ROUTE_FILE_RE already makes an
@@ -342,12 +360,12 @@ d=pathlib.Path(sys.argv[1])
  'const BANNER = 1;\n'
  'export async function reapAccountAction(id: string) {\n'
  '  "use server";\n'
- '  const creds = await import("@/lib/accounts/credentials");\n'
+ '  const svc = await import("@/lib/accounts/service");\n'
  '  void creds; void id; void BANNER;\n'
  '}\n')
 PYX
 }
-expect_red "21 a function-level \"use server\" is a Server Action" m21 "lib/reap-actions.ts -> lib/accounts/credentials.ts"
+expect_red "21 a function-level \"use server\" is a Server Action" m21 "lib/reap-actions.ts -> lib/accounts/service.ts"
 
 m22(){ ln -s /nonexistent/target "$1/app/api/dangling.ts"; }
 expect_red "22 a dangling symlink is an error, not a crash" m22 "cannot stat"
@@ -356,7 +374,7 @@ m23(){ python3 - "$1" <<'PY'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
 s=s.replace('const accounts = await listAccounts(user.id);',
- 'const mod = "@/lib/accounts/" + "credentials"; await import(mod);\n    const accounts = await listAccounts(user.id);')
+ 'const mod = "@/lib/accounts/" + "service"; await import(mod);\n    const accounts = await listAccounts(user.id);')
 p.write_text(s)
 PY
 }
@@ -376,20 +394,39 @@ PY
 expect_red "24 a shrunken tombstone list is not accepted" m24 "expected at least 5"
 
 # ── III. the module the hand-pinned list used to miss ───────────────────────
-m25(){ sed -i '1i import { backfillEquity } from "@/lib/accounts/equity-backfill";' "$1/app/api/accounts/route.ts"; }
-expect_red "25 equity-backfill in a closure (the old list missed it)" m25 "mutation surface in a production entrypoint closure"
+# A module that is on NO list anywhere — written by the mutation itself — and
+# is mutation surface for the only reason that counts: it writes a table. This
+# used to import lib/accounts/equity-backfill.ts, a real module the old
+# hand-pinned two-entry list missed. That module no longer writes anything
+# (main's refresh path publishes through `publish_broker_refresh`), so pointing
+# at it would assert nothing. A file the derivation has never seen is the
+# stronger form of the same claim.
+m25(){ python3 - "$1" <<'PYX'
+import pathlib,sys
+d=pathlib.Path(sys.argv[1])
+(d/"lib/accounts/ledger-writer.ts").write_text(
+ 'import { getSupabaseService } from "@/lib/supabase/service";\n'
+ 'export async function stampLedger(id: string) {\n'
+ '  const svc = getSupabaseService();\n'
+ '  await svc.from("accounts").update({ nickname: "x" }).eq("id", id);\n'
+ '}\n')
+p=d/"app/api/accounts/route.ts"
+p.write_text('import { stampLedger } from "@/lib/accounts/ledger-writer";\nvoid stampLedger;\n'+p.read_text())
+PYX
+}
+expect_red "25 a writer on no list at all (the derivation, not a list, must find it)" m25 "mutation surface in a production entrypoint closure"
 
 m26(){ python3 - "$1" <<'PYX'
 import pathlib,sys,shutil
 d=pathlib.Path(sys.argv[1])
 # a renamed copy of the mutation surface: the hand-pinned list was defeated by
 # exactly this, which is why the set is derived rather than listed
-shutil.copy(d/"lib/accounts/credentials.ts", d/"lib/accounts/creds2.ts")
+shutil.copy(d/"lib/accounts/service.ts", d/"lib/accounts/service2.ts")
 p=d/"app/api/accounts/route.ts"
-p.write_text('import * as c2 from "@/lib/accounts/creds2";\nvoid c2;\n'+p.read_text())
+p.write_text('import * as c2 from "@/lib/accounts/service2";\nvoid c2;\n'+p.read_text())
 PYX
 }
-expect_red "26 a RENAMED copy of the mutation surface" m26 "app/api/accounts/route.ts -> lib/accounts/creds2.ts"
+expect_red "26 a RENAMED copy of the mutation surface" m26 "app/api/accounts/route.ts -> lib/accounts/service2.ts"
 
 m27(){ python3 - "$1" <<'PYX'
 import pathlib,sys
@@ -473,24 +510,24 @@ expect_red "31 a silently-shrunken inline scan is an error" m31 "the inline-tomb
 
 # The import scanner was anchored `(?:^|\n)\s*`, so only the FIRST import on a
 # physical line existed. Measured: the two-specifier line below yielded exactly
-# one edge, ["@/lib/status/broker"], and no error — the credentials subgraph
+# one edge, ["@/lib/status/broker"], and no error — the write-service subgraph
 # entered a route closure with modulesWalked unchanged.
 m32(){ python3 - "$1" <<'PYX'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1])/"app/api/accounts/route.ts"; s=p.read_text()
 s=('import { brokerStatus } from "@/lib/status/broker"; '
-   'import { purgeCredentials } from "@/lib/accounts/credentials";\n') + s
+   'import { deleteAccount } from "@/lib/accounts/service";\n') + s
 p.write_text(s)
 PYX
 }
-# Asserts the EDGE — the offence naming lib/accounts/credentials.ts — rather
-# than one particular wording. credentials.ts is now reported with the more
-# specific "names tombstoned routine" reason, because the offence loop applies
+# Asserts the EDGE — the offence naming lib/accounts/service.ts — rather
+# than one particular wording. service.ts is reported with the more specific
+# "names tombstoned routine" reason, because the offence loop applies
 # the table-write rule to the module it is holding instead of looking the name
 # up in a list; either way the point of this mutant is that the second
 # specifier on the line produced an import edge at all.
 expect_red "32 a second import on the same line is an edge, not a silence" m32 \
-  "-> lib/accounts/credentials.ts"
+  "-> lib/accounts/service.ts"
 
 # `.rpc` was matched as /\.rpc\b/, which computed access does not contain, and
 # the concatenated name is not a literal — so BOTH RPC controls missed it.
@@ -676,12 +713,12 @@ m43(){ python3 - "$1" <<'PYX'
 import pathlib,sys
 d=pathlib.Path(sys.argv[1]); (d/"app/api/e2e").mkdir(parents=True, exist_ok=True)
 (d/"app/api/e2e/route.ts").write_text(
- 'import { purgeCredentials } from "@/lib/accounts/credentials";\n'
- 'export async function POST() { void purgeCredentials; return new Response("x"); }\n')
+ 'import { deleteAccount } from "@/lib/accounts/service";\n'
+ 'export async function POST() { void deleteAccount; return new Response("x"); }\n')
 PYX
 }
 expect_red "43 a route inside a skipped directory is still an entrypoint" m43 \
-  "app/api/e2e/route.ts -> lib/accounts/credentials.ts"
+  "app/api/e2e/route.ts -> lib/accounts/service.ts"
 
 # A literal-table write held far from its .from(, so the windowed rule cannot
 # pair them. The table name IS a literal, so the non-literal rule is silent too.
