@@ -45,7 +45,7 @@ test.describe("accessibility", () => {
 
   test("interactive controls show a visible focus ring", async ({ page }) => {
     await page.goto("/");
-    for (const name of [/Re-read/, /Sync broker data/]) {
+    for (const name of [/Re-read/]) {
       const control = page.getByRole("button", { name });
       await control.focus();
       const outline = await control.evaluate(
@@ -55,20 +55,21 @@ test.describe("accessibility", () => {
     }
   });
 
-  test("the read control and the broker write are not both called Refresh", async ({
+  test("the read control is not called Refresh, and no write control is offered", async ({
     page,
   }) => {
-    // They used to be one button labelled "Refresh", and a broker refresh was
-    // a side effect of reading. An operator clicking it could reasonably
-    // believe the equity curve had just been re-fetched from Alpaca; it had
-    // not. The two are now separate controls with separate names, and only one
-    // of them writes.
+    // The read and the broker write used to be one button labelled "Refresh",
+    // and a broker refresh was a side effect of reading. An operator clicking
+    // it could reasonably believe the equity curve had just been re-fetched
+    // from Alpaca; it had not. On this artifact the write control does not
+    // exist at all — nothing here can publish a mirror — so what must hold is
+    // that the read is named for what it does and no control claims to sync.
     await page.goto("/");
     await expect(page.getByRole("button", { name: /^Re-read$/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Refresh$/ })).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: /Sync broker data/ }),
-    ).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Refresh$/ })).toHaveCount(0);
+    ).toHaveCount(0);
   });
 
   test("reduced motion disables decorative animation", async ({ browser }) => {

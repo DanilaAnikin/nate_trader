@@ -17,9 +17,12 @@
 # A mutant importing it would reach nothing, and an undetected mutant reads as
 # a hole in the analyzer when it is a hole in the mutant.
 #
-# The vehicle is lib/accounts/service.ts, which qualifies twice over: it writes
-# `accounts` through PostgREST and it names `resolve_create_operation`, one of
-# the routines the derivation reads out of the migrations. Mutants 25 and 26
+# The vehicle is lib/accounts/service.ts, which is in the derived mutation
+# surface because it NAMES `resolve_create_operation`, one of the routines the
+# derivation reads out of the migrations. It does NOT write a table: its two
+# `.from("accounts")` calls are `.select()`, and every write it performs goes
+# through a SECURITY DEFINER routine. Saying otherwise would make this
+# repointing look like it follows a fact that is not there. Mutants 25 and 26
 # deliberately do not use it — they build their own writer and a renamed copy,
 # so the claim stays "the derivation finds writers" rather than "the harness
 # knows one filename".

@@ -67,10 +67,16 @@
  * does is static, not runtime, so it is only as good as that classifier, which
  * is why its head-of-file window was closed.
  *
- * (2) THIS IMAGE DOES PERFORM ONE WRITE. `app/auth/actions.ts`'s `signOut()`
- * runs server-side and calls GoTrue, which deletes from `auth.sessions` and
- * `auth.refresh_tokens` in the same self-hosted Postgres. The carve-out above
- * is written as though the Auth exception were only the browser's; it is not.
+ * (2) THIS IMAGE DOES PERFORM TWO SERVER-SIDE WRITES, AND BOTH ARE AUTH.
+ * `app/auth/actions.ts`'s `signOut()` calls GoTrue, which deletes from
+ * `auth.sessions` and `auth.refresh_tokens` in the same self-hosted Postgres.
+ * `app/auth/callback/route.ts`'s `exchangeCodeForSession()` is the other half
+ * of the same exchange and INSERTS into those tables. It is a GET, so neither
+ * the edge matcher nor the handler stubs cover it, and it must not be covered:
+ * freezing it would break signing in. The count said "one write" and named
+ * only the sign-out; an audit that finds a second one the file did not name is
+ * how a disclosure stops being believed. The carve-out above is written as
+ * though the Auth exception were only the browser's; it is not.
  * The write is to the identity provider's own tables, never to application
  * data, and it is the same category the browser exception already permits —
  * but "this image performs no writes", unqualified, is false, and it is better

@@ -207,9 +207,28 @@ const FORBIDDEN_ROUTINES = forbiddenRoutines();
  * immediately, which is the whole reason the guard is there. A derivation you
  * cannot see failing is not better than the list it replaced.
  *
- * Measured on this tree: three modules qualify — credentials.ts (tombstoned
- * RPCs), service.ts (table writes), and equity-backfill.ts (table writes),
- * which the old two-entry list MISSED.
+ * MEASURED ON THIS TREE, AND IT IS ONE MODULE, NOT THREE. This paragraph used
+ * to name credentials.ts (tombstoned RPCs), service.ts (table writes) and
+ * equity-backfill.ts (table writes). All three statements have since stopped
+ * being true and the comment outlived them, which is its own small version of
+ * the defect this file exists to prevent — a proof that documents coverage it
+ * no longer has. What is true now:
+ *
+ *   - credentials.ts calls no vault_* wrapper any more: creation, rotation and
+ *     deletion moved into create_account_atomic, rotate_account_credentials
+ *     and delete_account_atomic. It is validation-only.
+ *   - equity-backfill.ts fetches and parses Alpaca activities and writes
+ *     nothing; the module that published the mirrors is not in this image.
+ *   - service.ts qualifies, but under the ROUTINE-NAME rule — it names
+ *     `resolve_create_operation` — not the table-write rule. Its two
+ *     `.from("accounts")` calls are `.select()`.
+ *
+ * So the table-write rule currently has NO resident true positive: every write
+ * this codebase performs goes through a SECURITY DEFINER routine. That is a
+ * fact about the tree, not a hole in the rule, and it is exactly why the rule's
+ * non-vacuity is established by falsification rather than by a resident
+ * example — see the floor below and mutants 25, 26 and 44 in
+ * reachability-mutants.sh, which introduce writers and require detection.
  */
 
 /** THE RULE, in one place, so the set that is DERIVED and the set that is
@@ -264,10 +283,20 @@ function forbiddenModules() {
   // It used to name credentials.ts as well. That stopped being true when
   // account creation moved into the create_account_atomic / resolve_create_
   // operation routines (migration 0020 onwards): credentials.ts no longer calls
-  // any vault_* wrapper and is validation-only, while service.ts names those
-  // routines directly — so it, not credentials.ts, is where the writes live
-  // now. The guard follows the writes; it does not pin a filename that has
-  // gone quiet, because a guard that fails for a false reason gets relaxed.
+  // any vault_* wrapper and is validation-only. The guard follows the code; it
+  // does not pin a filename that has gone quiet, because a guard that fails for
+  // a false reason gets relaxed.
+  //
+  // WHAT THIS FLOOR DOES AND DOES NOT ANCHOR. service.ts is in the derived set
+  // because it NAMES `resolve_create_operation`, so this floor holds the
+  // routine-name rule up and nothing else. The table-write rule has no resident
+  // true positive on this tree — every write goes through a SECURITY DEFINER
+  // routine — so no filename can anchor it here, and pretending one does would
+  // be worse than saying so. Its non-vacuity is established by falsification
+  // instead: reachability-mutants.sh introduces table writers (mutants 25, 26,
+  // 44, 58, 60, 66) and requires each to be detected, and the suite is red
+  // unless the baseline is green. A rule proven by mutation is proven over
+  // every shape it must catch, not over the one shape a tree happens to hold.
   for (const known of ["lib/accounts/service.ts"]) {
     if (!found.includes(known)) {
       errors.push(`mutation-surface derivation did not find ${known} — the rule is not working`);

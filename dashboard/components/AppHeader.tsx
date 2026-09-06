@@ -1,7 +1,6 @@
 "use client";
 
 import RefreshButton from "@/components/RefreshButton";
-import SyncBrokerButton from "@/components/SyncBrokerButton";
 import SystemStatusBar from "@/components/status/SystemStatusBar";
 import { StatePill } from "@/components/status/primitives";
 import { useStrategyStatus } from "@/components/status/StatusProvider";
@@ -22,7 +21,7 @@ const ROLE_LABEL: Record<AccountRole, string> = {
  * context.
  */
 export default function AppHeader() {
-  const { data, selectedAccount, status, refresh } = useStrategyStatus();
+  const { data, selectedAccount, status } = useStrategyStatus();
   const binding = data?.accountBinding.data ?? null;
 
   return (
@@ -77,12 +76,12 @@ export default function AppHeader() {
               </span>
             )}
           </div>
-          <SyncBrokerButton
-            accountId={selectedAccount?.id ?? null}
-            onSynced={() => {
-              void refresh();
-            }}
-          />
+          {/* No broker-sync control. This artifact publishes nothing: the
+              refresh route is an unconditional refusal and the publisher is
+              not in the image, so a sync button could only ever report its own
+              failure — and an operator could not tell that refusal from an
+              Alpaca outage. The equity curve's own freshness says how old the
+              stored mirrors are. */}
           <RefreshButton />
         </div>
         <SystemStatusBar />

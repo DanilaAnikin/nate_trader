@@ -17,8 +17,10 @@ import { Timestamp } from "@/components/status/primitives";
  * re-fetched from Alpaca. It had not; nothing here touches Alpaca's portfolio
  * history or activity feed.
  *
- * Re-fetching from the broker is `SyncBrokerButton`, which is a separate,
- * audited command.
+ * Re-fetching from the broker is a command this artifact does not have: the
+ * refresh route is an unconditional refusal and the publisher is not in the
+ * image. What the equity and performance panels show is the mirror as last
+ * published, and their freshness says how old that is.
  */
 export default function RefreshButton() {
   const [pending, startTransition] = useTransition();

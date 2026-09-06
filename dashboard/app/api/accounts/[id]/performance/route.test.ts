@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { clearGithubCache } from "@/lib/status/github-api";
 import { APPROVED_SHA, OTHER_SHA } from "@/test/fixtures";
 import { fakeTable } from "@/test/supabase-fake";
@@ -104,30 +106,10 @@ vi.mock("@/lib/supabase/service", () => ({
   }),
 }));
 
-let equityBackfillError: Error | null = null;
-let cashFlowResult: {
-  complete: boolean;
-  incompleteReason: string | null;
-  detail: string | null;
-  latestActivityAt: string | null;
-} = {
-  complete: true,
-  incompleteReason: null,
-  detail: null,
-  latestActivityAt: "2026-08-05T20:00:00.000Z",
-};
-let cashFlowError: Error | null = null;
 
-vi.mock("@/lib/accounts/equity-backfill", () => ({
-  backfillEquity: async () => {
-    if (equityBackfillError) throw equityBackfillError;
-    return equityRows.length;
-  },
-  backfillCashFlows: async () => {
-    if (cashFlowError) throw cashFlowError;
-    return { written: 0, pagesRead: 1, refreshedAt: "", ...cashFlowResult };
-  },
-}));
+// No backfill mock. The route performs no refresh and imports no publisher:
+// this image ships none. A mock of exports that do not exist would be inert,
+// and an inert mock reads as coverage.
 
 let benchmarkBars: { date: string; close: number }[] | null = null;
 
@@ -207,14 +189,6 @@ beforeEach(() => {
   flowError = null;
   equityRanges = [];
   flowRanges = [];
-  equityBackfillError = null;
-  cashFlowError = null;
-  cashFlowResult = {
-    complete: true,
-    incompleteReason: null,
-    detail: null,
-    latestActivityAt: "2026-08-05T20:00:00.000Z",
-  };
   baselineDocument = baseline();
   equityRows = [
     { snapshot_date: "2026-08-03", equity: 1_000_000 },
@@ -359,10 +333,21 @@ describe("GET /api/accounts/[id]/performance", () => {
   // mock rather than the route.
   it("performs no backfill at all: this is a read", async () => {
     // The handler used to refresh both mirrors on every call, so a page that
-    // polled wrote two financial tables per poll. Refreshing is an explicit
-    // command in the candidate image; here it must not happen.
-    equityBackfillError = new Error("this backfill must never run");
-    cashFlowError = new Error("this backfill must never run");
+    // polled wrote two financial tables per poll. Asserted at the SOURCE, not
+    // through a mock: this image ships no publisher, so a mock of one would be
+    // a mock of a module the route cannot import, and a mock that cannot be
+    // reached cannot fail.
+    const source = readFileSync(
+      fileURLToPath(new URL("./route.ts", import.meta.url)),
+      "utf8",
+    );
+    expect(source).not.toMatch(
+      /from "@\/lib\/accounts\/(broker-refresh|equity-backfill)"/,
+    );
+    expect(source).not.toMatch(
+      /\.rpc\(\s*"(publish_broker_refresh|replace_equity_snapshots|reconcile_cash_flow_mirror)"/,
+    );
+    expect(source).not.toMatch(/\.(insert|upsert|delete)\(/);
     const { body } = await request();
     expect(body.status).not.toBe("UNAVAILABLE");
     expect(body.performance).not.toBeNull();
