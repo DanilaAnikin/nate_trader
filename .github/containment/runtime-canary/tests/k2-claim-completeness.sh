@@ -67,6 +67,15 @@ VS="${RC}/sensor/verify-sensor.sh"
 MANIFEST="${RC}/expected/k2-fixture-manifest.json"
 MATRIX_MANIFEST="${RC}/expected/request-manifest.json"
 
+# DERIVED, NOT RESTATED. Every count below used to be the literal 10, and the
+# route surface is not a constant: adding one frozen mutating handler makes the
+# generator emit two more requests per cell, and a suite that pins the old
+# number then fails for a reason that is about the pin. The manifest is the one
+# statement of the shape; these read it.
+REQ_PER_CELL="$(node -e 'process.stdout.write(String(require(process.argv[1]).requestsPerCell))' "$MANIFEST")"
+N_CLAIMS="$(node -e 'process.stdout.write(String(require(process.argv[1]).claims.length))' "$MANIFEST")"
+RECORDS_PER_CELL=$(( REQ_PER_CELL * N_CLAIMS ))
+
 IMAGE="${NT_CANARY_IMAGE:-nt-canary/dashboard:frozen}"
 # The fixture image is content-keyed; see tests/lib-schema-base.sh.
 # shellcheck source=lib-schema-base.sh
@@ -511,12 +520,12 @@ if want F0; then
   f0c_vio="$(claim_count refusalIdentity violated)"
   if [[ "$f0_sat" == "-" || "$f0c_vio" == "-" ]]; then
     bad "F0 verdict-scope.json carried no refusalIdentity tally (satisfied=${f0_sat} controlViolated=${f0c_vio})"
-  elif (( f0c_vio < 10 || f0c_sat > 0 )); then
-    bad "F0 negative control failed: an unrelated 503 with NO freeze flags still satisfied refusalIdentity ${f0c_sat}/10 (violated ${f0c_vio}); F0 cannot discriminate"
-  elif (( f0_sat == 10 && f0_vio == 0 )); then
-    ok "F0 with DASHBOARD_MAINTENANCE_MODE/SIDECAR_ONLY/FREEZE_BYPASS_USERS all ABSENT, 10/10 refusals still carry the frozen identity (control: an unrelated 503 violates it 10/10)"
+  elif (( f0c_vio < REQ_PER_CELL || f0c_sat > 0 )); then
+    bad "F0 negative control failed: an unrelated 503 with NO freeze flags still satisfied refusalIdentity ${f0c_sat}/${REQ_PER_CELL} (violated ${f0c_vio}); F0 cannot discriminate"
+  elif (( f0_sat == REQ_PER_CELL && f0_vio == 0 )); then
+    ok "F0 with DASHBOARD_MAINTENANCE_MODE/SIDECAR_ONLY/FREEZE_BYPASS_USERS all ABSENT, ${REQ_PER_CELL}/${REQ_PER_CELL} refusals still carry the frozen identity (control: an unrelated 503 violates it ${REQ_PER_CELL}/${REQ_PER_CELL})"
   else
-    bad "F0 the freeze is CONFIGURATION-DEPENDENT: with no freeze flag set, refusalIdentity was satisfied ${f0_sat}/10 and violated ${f0_vio}/10"
+    bad "F0 the freeze is CONFIGURATION-DEPENDENT: with no freeze flag set, refusalIdentity was satisfied ${f0_sat}/${REQ_PER_CELL} and violated ${f0_vio}/${REQ_PER_CELL}"
     printf '       this is either a pre-freeze image (check the revision label above) or a\n'
     printf '       real regression of bridge commit 86654b552; the two are told apart by\n'
     printf '       whether the proxy chunk still names DASHBOARD_MAINTENANCE_MODE.\n'
@@ -532,8 +541,8 @@ if want P; then
   n_viol="$(sed -n 's/.*requests with a violated claim *: *\([0-9]*\).*/\1/p' "$OUT/verdict.txt" | head -1)"
   n_req="$(sed -n 's/.*requests driven *: *\([0-9]*\).*/\1/p' "$OUT/verdict.txt" | head -1)"
   n_records="$(sed -n 's/.*claim records evaluated *: *\([0-9]*\).*/\1/p' "$OUT/verdict.txt" | head -1)"
-  if [[ "$n_req" == "10" && "$n_records" == "160" && "$n_viol" == "0" && "$n_indet" == "0" && "$VRC" == "4" ]]; then
-    ok "P baseline: 10 requests x 16 claims = 160 records, 0 violated, 0 indeterminate (rc=$VRC PARTIAL)"
+  if [[ "$n_req" == "$REQ_PER_CELL" && "$n_records" == "$RECORDS_PER_CELL" && "$n_viol" == "0" && "$n_indet" == "0" && "$VRC" == "4" ]]; then
+    ok "P baseline: ${REQ_PER_CELL} requests x ${N_CLAIMS} claims = ${RECORDS_PER_CELL} records, 0 violated, 0 indeterminate (rc=$VRC PARTIAL)"
   else
     bad "P baseline: req=$n_req records=$n_records violated=$n_viol indeterminate=$n_indet rc=$VRC"
     sed -n '1,60p' "$OUT/verdict.txt" | sed 's/^/       /'
@@ -611,8 +620,8 @@ if want 11d; then
     bad "11d positive control failed: the tally reader could not see expectedResponseClass=violated even for mutant 9 (got ${POS_ERC_VIOLATED})"
   elif [[ "$erc_sat" == "-" || "$erc_vio" == "-" || "$rid_vio" == "-" ]]; then
     bad "11d verdict-scope.json carried no claim tally (satisfied=${erc_sat} violated=${erc_vio} identity=${rid_vio})"
-  elif (( erc_sat == 10 && erc_vio == 0 && rid_vio == 10 )); then
-    ok "11d respond_503_unrelated: expectedResponseClass satisfied 10/10 while refusalIdentity violated 10/10 (reader proven live by mutant 9: ${POS_ERC_VIOLATED} violations seen)"
+  elif (( erc_sat == REQ_PER_CELL && erc_vio == 0 && rid_vio == REQ_PER_CELL )); then
+    ok "11d respond_503_unrelated: expectedResponseClass satisfied ${REQ_PER_CELL}/${REQ_PER_CELL} while refusalIdentity violated ${REQ_PER_CELL}/${REQ_PER_CELL} (reader proven live by mutant 9: ${POS_ERC_VIOLATED} violations seen)"
   else
     bad "11d the two response claims did not discriminate (expectedResponseClass satisfied=${erc_sat} violated=${erc_vio}; refusalIdentity violated=${rid_vio})"
   fi
@@ -626,8 +635,8 @@ if want C1; then
   cp "$f" "$OUT/card-backup.json"
   rewrite_cell "$f" 'j.results.pop();' 
   verdict_for card
-  if [[ "$VRC" == "3" ]] && grep -q 'requests, the manifest requires 10' "$OUT/verdict.txt"; then
-    ok "C1 a cell that drove 9 of 10 manifest requests is refused (rc=$VRC)"
+  if [[ "$VRC" == "3" ]] && grep -q "requests, the manifest requires ${REQ_PER_CELL}" "$OUT/verdict.txt"; then
+    ok "C1 a cell that drove $(( REQ_PER_CELL - 1 )) of ${REQ_PER_CELL} manifest requests is refused (rc=$VRC)"
   else
     bad "C1 a short cell was not refused (rc=$VRC)"
     sed -n '1,20p' "$OUT/verdict.txt" | sed 's/^/       /'
