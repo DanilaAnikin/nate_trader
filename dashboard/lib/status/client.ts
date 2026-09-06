@@ -99,18 +99,34 @@ export function systemIndicators(
   // other freshness indicator — grouping STALE with CURRENT let a workflow that
   // last succeeded days ago render a green PASS, which is exactly the
   // "stale data degrading into a green check" the vocabulary forbids.
+  // TWO INDEPENDENT FACTS, AND NEITHER MAY HIDE THE OTHER.
+  //
+  // Freshness says how old the reading is. The attempt says what the reading
+  // recorded. This used to return freshness whenever it was not CURRENT, which
+  // fixed one direction and broke the other: measured in production, the pill
+  // read STALE while the Operations panel directly below it read "Latest
+  // scheduled attempt FAILED" for the same run. An age label had overwritten a
+  // failure, which is the one direction a status pill must never move in.
+  //
+  // The asymmetry is the point. A stale SUCCESS is not a current success, so
+  // staleness must win there. A FAILURE that happens to be old is still a
+  // failure, so the outcome must win there. The age is not lost either way:
+  // it is rendered beside the pill.
+  const attemptState: SystemIndicator["state"] = !latest
+    ? "UNAVAILABLE"
+    : latest.status !== "completed"
+      ? "PENDING"
+      : latest.conclusion === "success"
+        ? "PASS"
+        : latest.infrastructureFailure
+          ? "WARN"
+          : "FAIL";
+
+  const schedulerFreshness = payload.operations.provenance.freshness;
   const schedulerState: SystemIndicator["state"] =
-    payload.operations.provenance.freshness !== "CURRENT"
-      ? payload.operations.provenance.freshness
-      : !latest
-        ? "UNAVAILABLE"
-        : latest.status !== "completed"
-          ? "PENDING"
-          : latest.conclusion === "success"
-            ? "PASS"
-            : latest.infrastructureFailure
-              ? "WARN"
-              : "FAIL";
+    schedulerFreshness === "CURRENT" || attemptState !== "PASS"
+      ? attemptState
+      : schedulerFreshness;
 
   const schedulerDetail = !latest
     ? "no scheduled attempt was found"

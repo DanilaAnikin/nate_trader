@@ -10,6 +10,7 @@ import {
   systemIndicators,
 } from "./client";
 import { provenance, section, unavailable } from "./vocab";
+import type { Freshness } from "./vocab";
 import { buildPayload } from "@/test/payload-builder";
 
 const IDENTITY = { id: "acc-1", nickname: "Paper prod", mode: "paper" as const };
@@ -231,5 +232,59 @@ describe("formatters", () => {
     expect(text).toContain("America/New_York");
     expect(absoluteTimestamps(null)).toBe("No timestamp recorded");
     expect(absoluteTimestamps("junk")).toBe("No timestamp recorded");
+  });
+});
+
+describe("the scheduler pill never lets age hide an outcome", () => {
+  // Measured in production: the pill read STALE while the Operations panel
+  // read "Latest scheduled attempt FAILED" for the same run. Freshness and the
+  // recorded outcome are different facts and the pill must not move in the
+  // safe-looking direction.
+  function withScheduler(freshness: Freshness, conclusion: string, infra = false) {
+    const base = buildPayload();
+    return buildPayload({
+      operations: section(
+        provenance({
+          source: base.operations.provenance.source,
+          scope: base.operations.provenance.scope,
+          asOf: base.operations.provenance.asOf,
+          freshness,
+          detail: null,
+        }),
+        {
+          ...base.operations.data!,
+          latestAttempt: {
+            ...base.operations.data!.latestAttempt!,
+            status: "completed",
+            conclusion,
+            infrastructureFailure: infra,
+            failureKind: infra ? "infrastructure" : "strategy-or-broker",
+          },
+        },
+      ),
+    });
+  }
+  const scheduler = (p: ReturnType<typeof buildPayload>) =>
+    systemIndicators(p).find((i) => i.key === "scheduler")?.state;
+
+  it("reports FAIL for a failed attempt whose reading is stale", () => {
+    expect(scheduler(withScheduler("STALE", "failure"))).toBe("FAIL");
+  });
+
+  it("reports FAIL for a failed attempt whose reading has expired", () => {
+    expect(scheduler(withScheduler("EXPIRED", "failure"))).toBe("FAIL");
+  });
+
+  it("keeps WARN for an infrastructure failure, however old", () => {
+    expect(scheduler(withScheduler("STALE", "failure", true))).toBe("WARN");
+  });
+
+  it("still refuses to call a stale success current", () => {
+    expect(scheduler(withScheduler("STALE", "success"))).toBe("STALE");
+    expect(scheduler(withScheduler("EXPIRED", "success"))).toBe("EXPIRED");
+  });
+
+  it("reports PASS only when the reading is current", () => {
+    expect(scheduler(withScheduler("CURRENT", "success"))).toBe("PASS");
   });
 });

@@ -372,3 +372,66 @@ describe("computeForwardPerformance", () => {
     expect(rounded.ok).toBe(true);
   });
 });
+
+describe("an anchor refusal names the two numbers that disagree", () => {
+  // A refusal an operator cannot act on leaves the panel dead forever. The
+  // benchmark anchor tripped in production and said only "does not match the
+  // baseline close", which names nothing to re-anchor to and nothing to
+  // investigate. Both mismatches must state what was read and what was
+  // recorded.
+  const baseline = parseEpochBaseline({
+    schemaVersion: 1,
+    strategyVersion: "v11-adaptive-momentum",
+    releaseSha: "0".repeat(40),
+    accountId: "acc-1",
+    startedAt: "2026-08-11T13:30:00.000Z",
+    startSessionDate: "2026-08-11",
+    startingEquity: 1_000_000,
+    benchmarkSymbol: "SPY",
+    benchmarkBaselineDate: "2026-08-11",
+    benchmarkBaselineClose: 770.56,
+    note: null,
+  });
+
+  it("states the observed and recorded benchmark close", () => {
+    const result = computeForwardPerformance({
+      accountId: "acc-1",
+      baseline: baseline!,
+      equity: [
+        { date: "2026-08-11", equity: 1_000_000 },
+        { date: "2026-08-12", equity: 1_010_000 },
+      ],
+      cashFlows: [],
+      benchmark: [
+        { date: "2026-08-11", close: 761.02 },
+        { date: "2026-08-12", close: 765.0 },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("BASELINE_OBSERVATION_MISMATCH");
+    expect(result.detail).toContain("761.02");
+    expect(result.detail).toContain("770.56");
+  });
+
+  it("states the observed and recorded starting equity", () => {
+    const result = computeForwardPerformance({
+      accountId: "acc-1",
+      baseline: baseline!,
+      equity: [
+        { date: "2026-08-11", equity: 987_654 },
+        { date: "2026-08-12", equity: 1_010_000 },
+      ],
+      cashFlows: [],
+      benchmark: [
+        { date: "2026-08-11", close: 770.56 },
+        { date: "2026-08-12", close: 775.0 },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("BASELINE_OBSERVATION_MISMATCH");
+    expect(result.detail).toContain("987654");
+    expect(result.detail).toContain("1000000");
+  });
+});

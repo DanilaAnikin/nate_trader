@@ -253,6 +253,14 @@ export type ForwardPerformanceResult =
  * Relative tolerance for anchoring the baseline. Equity and closes are stored
  * rounded, so an exact float comparison would be brittle; anything beyond this
  * means the baseline describes a different series.
+ *
+ * It is deliberately tight, and it is NOT widened to make a mismatch go away:
+ * a benchmark series that has been re-adjusted, or that comes from a different
+ * venue than the one the baseline was recorded from, is a different series and
+ * the number computed from it would not be the one the baseline anchors. What
+ * the refusals below must do instead is say WHICH two numbers disagree — a
+ * refusal an operator cannot act on leaves the panel dead forever, and this one
+ * did: "does not match the baseline close" names no value to re-anchor to.
  */
 const ANCHOR_RELATIVE_TOLERANCE = 1e-6;
 
@@ -321,7 +329,11 @@ export function computeForwardPerformance(input: {
     return {
       ok: false,
       reason: "BASELINE_OBSERVATION_MISMATCH",
-      detail: `Equity on ${baseline.startSessionDate} does not match the baseline starting equity.`,
+      detail:
+        `Equity on ${baseline.startSessionDate} is ${startEquityObservation.equity}, ` +
+        `and the baseline records ${baseline.startingEquity}. One of the two describes ` +
+        `a different series; re-anchor the epoch baseline deliberately or find why the ` +
+        `stored equity moved.`,
     };
   }
 
@@ -341,7 +353,13 @@ export function computeForwardPerformance(input: {
     return {
       ok: false,
       reason: "BASELINE_OBSERVATION_MISMATCH",
-      detail: `The ${baseline.benchmarkSymbol} close on ${baseline.benchmarkBaselineDate} does not match the baseline close.`,
+      detail:
+        `The ${baseline.benchmarkSymbol} close on ${baseline.benchmarkBaselineDate} reads ` +
+        `${benchmarkObservation.close}, and the baseline records ` +
+        `${baseline.benchmarkBaselineClose}. A benchmark re-adjusted for a later ` +
+        `distribution, or read from a different feed than the baseline was recorded ` +
+        `from, is a different series. Re-anchor the epoch baseline to the value above ` +
+        `once you have confirmed which source is right.`,
     };
   }
 
