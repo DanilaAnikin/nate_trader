@@ -220,6 +220,7 @@ CANARY_ROOT="$(cd "${HERE}/.." && pwd)"
 RC="$CANARY_ROOT"
 VERDICT="${CANARY_ROOT}/driver/verdict.mjs"
 MANIFEST="${CANARY_ROOT}/expected/request-manifest.json"
+REQ_PER_CELL="$(node -e 'process.stdout.write(String(require(process.argv[1]).requestsPerCell))' "$MANIFEST")"
 
 # ---------------------------------------------------------------------------
 # ROUND-7 AUDIT (R7-1). EVERY PLANTING HELPER READS JSONL THROUGH ONE MODULE
@@ -465,8 +466,14 @@ fi
     [[ "$(scope "$BASE" "s.sensorVerdict['$s'].derivedFrom")" == "sensor-report-${s}.txt" ]] \
       || problems="${problems} ${s}:sensor-verdict-not-from-the-report"
   done
-  [[ "$w" == "480" ]] || problems="${problems} windows=${w}(want 480)"
-  [[ "$a" == "480" ]] || problems="${problems} attestationsMatched=${a}(want 480)"
+  # DERIVED, NOT PINNED. This was the literal 480 — 24 cells x 10 requests x 2
+  # generations — and the route surface is not a constant: one more frozen
+  # mutating handler makes the generator emit two more requests per cell, and a
+  # pinned total then fails for a reason that is about the pin. The manifest is
+  # the one statement of the shape.
+  want_windows=$(node -e 'const m=require(process.argv[1]);process.stdout.write(String(m.cells*m.requestsPerCell*m.schemas.length))' "$MANIFEST")
+  [[ "$w" == "$want_windows" ]] || problems="${problems} windows=${w}(want ${want_windows})"
+  [[ "$a" == "$want_windows" ]] || problems="${problems} attestationsMatched=${a}(want ${want_windows})"
   [[ "$(scope "$BASE" 's.pgImagePinned')" == "true" ]] || problems="${problems} pgImagePinned-not-recorded"
 
   # ADV-1: the attribution pass must have looked at EVERY line of EVERY
@@ -545,7 +552,7 @@ fi
     [[ -z "$ov" ]] || problems="${problems} ${s}:observationVersionsSeen=${ov}(want none: every attestation at the current version)"
   done
   if [[ -z "$problems" ]]; then
-    ok "MEASURED the PASS was reached having read 480 gateway-defined windows, matched 480 request"
+    ok "MEASURED the PASS was reached having read ${want_windows} gateway-defined windows, matched ${want_windows} request"
     printf '       observations against the copy the gateway wrote, ACCOUNTED FOR every line of every instrument\n'
     printf '       log, and verified the sealed sensor report, its manifest MAC and every ledger line MAC\n'
   else
@@ -608,7 +615,7 @@ verdict "$D1"
   [[ "$oo" == "2" ]] || problems="${problems} eventsOnlyInObserverLog=${oo}(want 2)"
   if [[ -z "$problems" ]]; then
     ok "D1 two events in the image's own log -> refused (rc=$RC), and noBodyParse/noBrokerCall are"
-    printf '       recorded VIOLATED rather than "480 satisfied, 0 violated"\n'
+    printf '       recorded VIOLATED rather than "%s satisfied, 0 violated"\n' "$want_windows"
   else
     bad "D1 the planted events did not decide the claims:${problems}"
   fi
@@ -855,25 +862,30 @@ verdict "$F2"
 # instrument patches fetch/socket/tls/dns process-wide at module load.
 # ---------------------------------------------------------------------------
 ADV1="$(copy_of adv1)"
-node -e '
+K14_MANIFEST="$MANIFEST" node -e '
 const fs = require("node:fs");
 const J = require(process.env.K14_JSONL);
 const [dir] = process.argv.slice(1);
 const S = "0023", CELL = "m-off__s-off__b-probe";
+// The LAST request window of the cell, read from the manifest rather than
+// written here as #10: the surface grew by one frozen route, #10 stopped being
+// the last one, and the plant then landed inside a later window instead of
+// after them all, so this case could not run.
+const LAST = require(process.env.K14_MANIFEST).requestsPerCell;
 const runs = [];
 for (const e of J.read(`${dir}/sink-${S}.jsonl`).rows) {
   if (typeof e.cell === "string" && e.cell !== "(unset)" &&
       (!runs.length || runs[runs.length - 1].tag !== e.cell)) runs.push({ tag: e.cell, t: e.t });
 }
-const i = runs.findIndex((r) => r.tag === `${CELL}#10`);
-if (i < 0 || i + 1 >= runs.length) { console.error("k14: no bounded window for " + CELL + "#10"); process.exit(2); }
+const i = runs.findIndex((r) => r.tag === `${CELL}#${LAST}`);
+if (i < 0 || i + 1 >= runs.length) { console.error("k14: no bounded window for " + CELL + "#" + LAST); process.exit(2); }
 const closed = runs[i + 1].t;                 // the #idle POST terminates the last window
 const t = closed + 742;
 // The gap must really be a gap: if the next cell started sooner than 742 ms
 // later the plant would land in ITS window and this case would be measuring
 // the clock rather than the check.
 if (i + 2 < runs.length && t >= runs[i + 2].t) {
-  console.error("k14: the idle gap after " + CELL + "#10 is under 742 ms"); process.exit(2);
+  console.error("k14: the idle gap after " + CELL + "#" + LAST + " is under 742 ms"); process.exit(2);
 }
 const p = `${dir}/instr/${S}-${CELL}.jsonl`;
 const evs = J.read(p).rows;
@@ -897,7 +909,7 @@ verdict "$ADV1"
   has_pass_banner "$FLAT" && problems="${problems} printed-the-PASS-banner"
   says "are UNATTRIBUTED" || problems="${problems} the-refusal-does-not-name-the-class"
   says "paper-api.alpaca.markets" || problems="${problems} the-message-does-not-name-the-host"
-  says "nor inside any of the 10 bounded request windows" \
+  says "nor inside any of the ${REQ_PER_CELL} bounded request windows" \
     || problems="${problems} the-message-does-not-say-what-would-have-accounted-for-them"
   un="$(scope "$ADV1" "s.claimEvidence['0023'].eventsUnattributed")"
   [[ "$un" == "3" ]] || problems="${problems} eventsUnattributed=${un}(want 3)"
@@ -1565,21 +1577,24 @@ fi
 # request window closes — inside the #idle bookend ADV-1 measured at ~89% of
 # the cell's timeline.
 plant_post_window_fetch() {   # dir mode(wellformed|onebyte)  -> prints the line number
-  node -e '
+  K14_MANIFEST="$MANIFEST" node -e '
 const fs = require("node:fs");
 const J = require(process.env.K14_JSONL);
 const [dir, mode] = process.argv.slice(1);
 const S = "0023", CELL = "m-off__s-off__b-probe";
+// The LAST window of the cell, from the manifest. See the note on the other
+// planting block: #10 stopped being the last one when the surface grew.
+const LAST = require(process.env.K14_MANIFEST).requestsPerCell;
 const runs = [];
 for (const e of J.read(`${dir}/sink-${S}.jsonl`).rows) {
   if (typeof e.cell === "string" && e.cell !== "(unset)" &&
       (!runs.length || runs[runs.length - 1].tag !== e.cell)) runs.push({ tag: e.cell, t: e.t });
 }
-const i = runs.findIndex((r) => r.tag === `${CELL}#10`);
-if (i < 0 || i + 1 >= runs.length) { console.error("k14: no bounded window for " + CELL + "#10"); process.exit(2); }
+const i = runs.findIndex((r) => r.tag === `${CELL}#${LAST}`);
+if (i < 0 || i + 1 >= runs.length) { console.error("k14: no bounded window for " + CELL + "#" + LAST); process.exit(2); }
 const t = runs[i + 1].t + 742;
 if (i + 2 < runs.length && t >= runs[i + 2].t) {
-  console.error("k14: the idle gap after " + CELL + "#10 is under 742 ms"); process.exit(2);
+  console.error("k14: the idle gap after " + CELL + "#" + LAST + " is under 742 ms"); process.exit(2);
 }
 const p = `${dir}/instr/${S}-${CELL}.jsonl`;
 const evs = J.read(p).rows;
