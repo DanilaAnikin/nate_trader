@@ -1,15 +1,15 @@
 {
   "note": "COMMITTED request manifest. The matrix is generated from the route filesystem; this states what that generation MUST produce. A run that drives a different shape is refused before any verdict, so a suite cannot pass by driving less.",
-  "note_cellIds": "The 24 cell IDENTITIES, pinned. A verdict used to check only HOW MANY cell result files existed, so twenty-four copies of one cell — the most frozen combination — rendered a PASS over one driven combination. The driven set must now EQUAL this list, and each cell must have been observed running its own environment (cellEnv, below), read back out of the container by the instrument.",
-  "note_cellEnv": "The freeze flags each cell must be OBSERVED to have been running, as instrument.cjs reports them at /env under raw_freeze_flags: null means the variable was absent from the environment, \"\" means present and empty. __PROBE_USER_ID__ is substituted with the run’s disposable probe user id.",
+  "note_cellIds": "The 24 cell IDENTITIES, pinned. A verdict used to check only HOW MANY cell result files existed, so twenty-four copies of one cell \u2014 the most frozen combination \u2014 rendered a PASS over one driven combination. The driven set must now EQUAL this list, and each cell must have been observed running its own environment (cellEnv, below), read back out of the container by the instrument.",
+  "note_cellEnv": "The freeze flags each cell must be OBSERVED to have been running, as instrument.cjs reports them at /env under raw_freeze_flags: null means the variable was absent from the environment, \"\" means present and empty. __PROBE_USER_ID__ is substituted with the run\u2019s disposable probe user id.",
   "note_schemas": "Both migration generations are part of the claim. A single-schema run is PARTIAL, never a PASS: 24 cells x 2 schemas = 48 environment/schema combinations.",
-  "note_schemaWitness": "What each generation IS, as the running database reports itself. Audit finding B1: a cell result carried no generation marker at all — the schema appeared only in the filename prefix that verdict.mjs supplied when it globbed result-<schema>-*, so one generation's 24 result files copied onto the other generation's filenames satisfied every cell-identity check (filename, cell field, cellTags and raw_freeze_flags are all generation-independent) and 24 driven combinations were certified as 48. sink.mjs now reads this fingerprint out of the running database on every cell — md5 over every public relation's columns, every public routine's identity signature and every public constraint — returns it to the driver AND logs it in its own file, and verdict.mjs requires it to equal the value pinned here for the generation the filename claims. Re-record deliberately if a migration changes: boot the generation's fixture and read NT_GEN_FINGERPRINT, or take the value verdict.mjs prints when it refuses.",
-  "note_pinnedPgImage": "The postgres image a certifying run must have used, by digest. Audit finding E: --pg-image-substituted was argv-only. run.sh recorded pgImage/pgImagePinned in provenance.json and verdict.mjs read neither, so re-verdicting a run that had used a different database image — which every re-verification path does, because it cannot know to pass the flag — printed the full certifying PASS. verdict.mjs now recomputes 'was it the pinned image' from provenance.pgImage against THIS value, rather than believing either the run's boolean or an absent command-line flag.",
+  "note_schemaWitness": "What each generation IS, as the running database reports itself. Audit finding B1: a cell result carried no generation marker at all \u2014 the schema appeared only in the filename prefix that verdict.mjs supplied when it globbed result-<schema>-*, so one generation's 24 result files copied onto the other generation's filenames satisfied every cell-identity check (filename, cell field, cellTags and raw_freeze_flags are all generation-independent) and 24 driven combinations were certified as 48. sink.mjs now reads this fingerprint out of the running database on every cell \u2014 md5 over every public relation's columns, every public routine's identity signature and every public constraint \u2014 returns it to the driver AND logs it in its own file, and verdict.mjs requires it to equal the value pinned here for the generation the filename claims. Re-record deliberately if a migration changes: boot the generation's fixture and read NT_GEN_FINGERPRINT, or take the value verdict.mjs prints when it refuses.",
+  "note_pinnedPgImage": "The postgres image a certifying run must have used, by digest. Audit finding E: --pg-image-substituted was argv-only. run.sh recorded pgImage/pgImagePinned in provenance.json and verdict.mjs read neither, so re-verdicting a run that had used a different database image \u2014 which every re-verification path does, because it cannot know to pass the flag \u2014 printed the full certifying PASS. verdict.mjs now recomputes 'was it the pinned image' from provenance.pgImage against THIS value, rather than believing either the run's boolean or an absent command-line flag.",
   "pinnedPgImage": "supabase/postgres@sha256:f371b5f3f2ac0a05703f33d6e6134515fb2498cab708fb948a0aeb7481467c00",
   "certifying": true,
   "cells": 24,
-  "requestsPerCell": 10,
-  "totalRequests": 240,
+  "requestsPerCell": 12,
+  "totalRequests": 288,
   "schemas": [
     "0008",
     "0023"
@@ -209,6 +209,8 @@
     "PATCH /api/profile auth=true",
     "POST /api/accounts auth=false",
     "POST /api/accounts auth=true",
+    "POST /api/accounts/:id/refresh auth=false",
+    "POST /api/accounts/:id/refresh auth=true",
     "POST /api/accounts/:id/verify auth=false",
     "POST /api/accounts/:id/verify auth=true"
   ],

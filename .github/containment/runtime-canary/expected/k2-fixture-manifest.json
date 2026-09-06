@@ -3,8 +3,8 @@
   "certifying": false,
   "cellIdPattern": "^k2-[A-Za-z0-9_-]+$",
   "cells": 1,
-  "requestsPerCell": 10,
-  "totalRequests": 10,
+  "requestsPerCell": 12,
+  "totalRequests": 12,
   "schemas": [
     "0008",
     "0023"
@@ -36,6 +36,8 @@
     "PATCH /api/profile auth=true",
     "POST /api/accounts auth=false",
     "POST /api/accounts auth=true",
+    "POST /api/accounts/:id/refresh auth=false",
+    "POST /api/accounts/:id/refresh auth=true",
     "POST /api/accounts/:id/verify auth=false",
     "POST /api/accounts/:id/verify auth=true"
   ],
