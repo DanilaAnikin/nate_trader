@@ -257,10 +257,18 @@ function forbiddenModules() {
     }
   }
   // Non-vacuity: a derivation that finds nothing would make the whole rule
-  // silently inert, which is exactly the failure being repaired. These two are
-  // known to write and must always be in the derived set; if they are not, the
+  // silently inert, which is exactly the failure being repaired. This module is
+  // known to write and must always be in the derived set; if it is not, the
   // derivation is broken rather than the tree being clean.
-  for (const known of ["lib/accounts/credentials.ts", "lib/accounts/service.ts"]) {
+  //
+  // It used to name credentials.ts as well. That stopped being true when
+  // account creation moved into the create_account_atomic / resolve_create_
+  // operation routines (migration 0020 onwards): credentials.ts no longer calls
+  // any vault_* wrapper and is validation-only, while service.ts names those
+  // routines directly — so it, not credentials.ts, is where the writes live
+  // now. The guard follows the writes; it does not pin a filename that has
+  // gone quiet, because a guard that fails for a false reason gets relaxed.
+  for (const known of ["lib/accounts/service.ts"]) {
     if (!found.includes(known)) {
       errors.push(`mutation-surface derivation did not find ${known} — the rule is not working`);
     }

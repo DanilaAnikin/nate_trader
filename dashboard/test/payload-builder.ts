@@ -6,7 +6,13 @@ import {
   STRATEGY_STATUS_SOURCE,
 } from "@/lib/status/types";
 import { provenance, section, unavailable, type Section } from "@/lib/status/vocab";
-import { APPROVED_SHA, DASHBOARD_SHA, REPO_SHA, UNIVERSE_HASH } from "./fixtures";
+import {
+  APPROVED_SHA,
+  DASHBOARD_SHA,
+  REPO_SHA,
+  STRATEGY_IDENTITY,
+  UNIVERSE_HASH,
+} from "./fixtures";
 
 const NOW = new Date("2026-08-07T17:00:00Z");
 
@@ -155,8 +161,11 @@ export function buildPayload(
         expiryBasis: "bar-boundary" as const,
         checksPassed: 8,
         checksEvaluated: 8,
-        strategyIdentityValue: "identity",
+        strategyIdentityValue: STRATEGY_IDENTITY,
         rankingUniverseSha256: UNIVERSE_HASH,
+        barSnapshotSha256: "b".repeat(64),
+        contractSchemaVersion: 1,
+        contractAlgorithm: "sha256",
         rankingUniverseCount: 540,
         startingCapital: 1_000_000,
         slippageScenariosBps: [7, 15],

@@ -166,6 +166,7 @@ describe("the refusal never touches Auth, Supabase or the request body", () => {
       ["@/app/api/accounts/route", ["POST"]],
       ["@/app/api/accounts/[id]/route", ["PATCH", "DELETE"]],
       ["@/app/api/accounts/[id]/verify/route", ["POST"]],
+      ["@/app/api/accounts/[id]/refresh/route", ["POST"]],
       ["@/app/api/profile/route", ["PATCH"]],
     ] as const) {
       const mod = (await import(path)) as Record<string, () => Promise<Response>>;

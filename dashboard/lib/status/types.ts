@@ -239,6 +239,15 @@ export interface ValidationInfo {
   readonly identityMatchesRuntime: CheckState;
   readonly universeMatchesRuntime: CheckState;
   readonly reportSha256: string | null;
+  /**
+   * Evidence the Python gate recomputes and TypeScript cannot: the adjusted-bar
+   * prefix digest and its boundary. The dashboard can only check that they are
+   * present and well-formed, and then defer to the persisted preflight verdict.
+   */
+  readonly barSnapshotSha256: string | null;
+  /** The whole-report digest block, as recorded. */
+  readonly contractSchemaVersion: number | null;
+  readonly contractAlgorithm: string | null;
   readonly metrics: readonly ValidationSegmentMetric[];
   readonly warnings: readonly { code: string; message: string }[];
   readonly readAtRef: string;

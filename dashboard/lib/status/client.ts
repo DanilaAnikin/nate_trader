@@ -94,9 +94,13 @@ export function systemIndicators(
   const operations = payload.operations.data;
   const latest = operations?.latestAttempt ?? null;
 
+  // Only derive the scheduler dot from the latest attempt when the operations
+  // source is CURRENT. A STALE source must surface as STALE (amber) like every
+  // other freshness indicator — grouping STALE with CURRENT let a workflow that
+  // last succeeded days ago render a green PASS, which is exactly the
+  // "stale data degrading into a green check" the vocabulary forbids.
   const schedulerState: SystemIndicator["state"] =
-    payload.operations.provenance.freshness !== "CURRENT" &&
-    payload.operations.provenance.freshness !== "STALE"
+    payload.operations.provenance.freshness !== "CURRENT"
       ? payload.operations.provenance.freshness
       : !latest
         ? "UNAVAILABLE"

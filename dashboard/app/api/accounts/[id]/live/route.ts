@@ -29,6 +29,8 @@ export interface BrokerSnapshotPayload {
  * GET /api/accounts/[id]/live — a fresh, read-only broker snapshot for one
  * ownership-checked account.
  *
+ * **Side-effect free**: it reads the broker and writes nothing.
+ *
  * Used by the accounts screen, which needs per-account equity without paying
  * for the full strategy read model. Credentials are decrypted server-side and
  * never appear in the response.

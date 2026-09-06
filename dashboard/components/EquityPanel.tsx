@@ -30,8 +30,10 @@ function seriesStats(points: EquitySnapshot[]) {
 }
 
 export default function EquityPanel() {
-  const { selectedAccount } = useStrategyStatus();
-  const state = useAccountEquity(selectedAccount?.id ?? null);
+  const { selectedAccount, lastRefreshedAt } = useStrategyStatus();
+  // lastRefreshedAt bumps on Re-read and (via onSynced) after Sync, so the curve
+  // re-fetches instead of showing a stale pre-sync series until a full reload.
+  const state = useAccountEquity(selectedAccount?.id ?? null, lastRefreshedAt);
 
   const title = "Account equity curve";
   const subtitle = "Broker accounting for the selected account — not the strategy's forward return";

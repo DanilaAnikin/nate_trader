@@ -11,6 +11,7 @@ import type { BrokerInfo } from "./types";
 import {
   APPROVED_SHA,
   DASHBOARD_SHA,
+  failedPreflightJson,
   frozenPlanJson,
   lastRunJson,
   OTHER_SHA,
@@ -103,17 +104,28 @@ interface RunSpec {
   updatedAt: string;
   /** Artifacts attached to this run. */
   runtimeArtifactName?: string | null;
-  runtimeZip?: Buffer | "corrupt";
-  diagnostics?: Buffer | null;
+  runtimeZip?: Buffer | "corrupt" | "gone";
+  diagnostics?: Buffer | typeof DEFAULT_DIAGNOSTICS | null;
 }
+
+/**
+ * A diagnostics artifact stamped for the run it is attached to.
+ *
+ * A fixed `checked_at` on every run was fiction: a real report is written by
+ * the preflight step of *that* run, and the selector now binds it to that
+ * step's window. The stub builds it lazily so the fixture cannot claim a
+ * report that predates its own run by hours.
+ */
+const DEFAULT_DIAGNOSTICS = "default-diagnostics" as const;
 
 function runtimeZipBuffer(
   perf: Record<string, unknown> = performanceJson(),
   run: Record<string, unknown> = lastRunJson(),
+  positions: Record<string, unknown> = positionsJson(),
 ): Buffer {
   return buildZip([
     { name: "performance.json", content: JSON.stringify(perf) },
-    { name: "positions.json", content: JSON.stringify(positionsJson()) },
+    { name: "positions.json", content: JSON.stringify(positions) },
     { name: "production/last_run.json", content: JSON.stringify(run) },
   ]);
 }
@@ -137,7 +149,7 @@ function defaultRuns(): RunSpec[] {
       updatedAt: "2026-08-07T16:06:00Z",
       runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
       runtimeZip: runtimeZipBuffer(),
-      diagnostics: diagnosticsZipBuffer(),
+      diagnostics: DEFAULT_DIAGNOSTICS,
     },
     {
       id: 800,
@@ -147,16 +159,66 @@ function defaultRuns(): RunSpec[] {
       updatedAt: "2026-08-05T16:51:00Z",
       runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
       runtimeZip: runtimeZipBuffer(),
-      diagnostics: diagnosticsZipBuffer(),
+      diagnostics: DEFAULT_DIAGNOSTICS,
     },
   ];
+}
+
+/**
+ * The jobs GitHub really returns for a paper-production run: one job, with the
+ * named steps and their own windows. The selectors bind every artifact and
+ * every recorded timestamp to these, so a stub that omitted them was testing
+ * a shape production never sees.
+ */
+function runJob(run: RunSpec): Record<string, unknown> {
+  const step = (name: string, conclusion: string) => ({
+    name,
+    status: "completed",
+    conclusion,
+    started_at: run.updatedAt,
+    completed_at: run.updatedAt,
+  });
+  const steps: Record<string, unknown>[] = [
+    step("Set up job", "success"),
+    step("Verify immutable release approval", "success"),
+  ];
+  steps.push(
+    step(
+      "Verify paper broker and deployment health",
+      run.diagnostics ? "success" : "skipped",
+    ),
+  );
+  steps.push(
+    step(
+      "Execute one guarded paper cycle",
+      run.runtimeArtifactName ? "success" : "skipped",
+    ),
+  );
+  steps.push(
+    step(
+      "Preserve private runtime state",
+      run.runtimeArtifactName ? "success" : "skipped",
+    ),
+  );
+  steps.push(step("Preserve preflight diagnostics", "success"));
+  return {
+    name: "Guarded paper forward-validation",
+    status: "completed",
+    conclusion: run.conclusion,
+    steps,
+  };
 }
 
 interface RouteOptions {
   approvedShaVariable?: string | null;
   runs?: RunSpec[];
   validation?: Record<string, unknown> | null;
-  latestRunJobs?: { steps: unknown[] }[];
+  /** Overrides the jobs of the *newest* run only. */
+  latestRunJobs?: { status?: string; steps: unknown[] }[];
+  /** Patch one run's runtime artifact metadata (expiry, creation time). */
+  runtimeArtifactPatch?: { runId: number; patch: Record<string, unknown> };
+  /** `run_attempt` as GitHub reports it; null omits the field entirely. */
+  runAttempt?: number | null;
   releaseGate?: { conclusion: string; event: string } | null;
 }
 
@@ -165,12 +227,29 @@ function stubGithub(options: RouteOptions = {}) {
     approvedShaVariable = APPROVED_SHA,
     runs = defaultRuns(),
     validation = validationJson(),
-    latestRunJobs = [{ steps: [{ name: "checkout" }] }],
+    latestRunJobs,
+    runtimeArtifactPatch,
+    runAttempt = 1,
     releaseGate = { conclusion: "success", event: "push" },
   } = options;
 
+  /**
+   * GitHub always states `total_count` on a paged listing, and the reader now
+   * reconciles the page against it. The stub does the same so it keeps
+   * mirroring the real API rather than a laxer version of it.
+   */
+  const withTotalCount = (body: unknown) => {
+    if (typeof body !== "object" || body === null) return body;
+    const record = body as Record<string, unknown>;
+    for (const field of ["workflow_runs", "artifacts", "jobs"]) {
+      if (Array.isArray(record[field]) && record.total_count === undefined) {
+        return { ...record, total_count: (record[field] as unknown[]).length };
+      }
+    }
+    return body;
+  };
   const json = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body), {
+    new Response(JSON.stringify(withTotalCount(body)), {
       status,
       headers: { "content-type": "application/json" },
     });
@@ -211,7 +290,7 @@ function stubGithub(options: RouteOptions = {}) {
         workflow_runs: slice.map((run) => ({
           id: run.id,
           run_number: run.runNumber,
-          run_attempt: 1,
+          ...(runAttempt === null ? {} : { run_attempt: runAttempt }),
           status: "completed",
           conclusion: run.conclusion,
           event: run.event,
@@ -247,8 +326,24 @@ function stubGithub(options: RouteOptions = {}) {
         ],
       });
     }
-    const jobsMatch = url.match(/\/actions\/runs\/(\d+)\/jobs/);
-    if (jobsMatch) return json({ jobs: latestRunJobs });
+    // Attempt-scoped, exactly like GitHub: `/runs/{id}/attempts/{n}/jobs`.
+    const jobsMatch = url.match(/\/actions\/runs\/(\d+)\/attempts\/(\d+)\/jobs/);
+    if (jobsMatch) {
+      const runId = Number(jobsMatch[1]);
+      if (latestRunJobs && runs.length > 0 && runs[0].id === runId) {
+        return json({
+          jobs: latestRunJobs.map((job) => ({
+            name: "Guarded paper forward-validation",
+            status: job.status ?? "completed",
+            conclusion: "success",
+            steps: job.steps,
+          })),
+        });
+      }
+      const run = runs.find((entry) => entry.id === runId);
+      if (!run) return json({ jobs: [] });
+      return json({ jobs: [runJob(run)] });
+    }
 
     const artifactsMatch = url.match(/\/actions\/runs\/(\d+)\/artifacts/);
     if (artifactsMatch) {
@@ -262,6 +357,9 @@ function stubGithub(options: RouteOptions = {}) {
           size_in_bytes: 4271,
           expired: false,
           created_at: run.updatedAt,
+          ...(runtimeArtifactPatch?.runId === run.id
+            ? runtimeArtifactPatch.patch
+            : {}),
         });
       }
       if (run.diagnostics) {
@@ -290,11 +388,16 @@ function stubGithub(options: RouteOptions = {}) {
           const bad = Buffer.from("this is not a zip archive at all");
           return zipResponse(bad);
         }
+        if (run.runtimeZip === "gone") return json({ message: "gone" }, 410);
         if (!run.runtimeZip) return json({ message: "gone" }, 404);
         return zipResponse(run.runtimeZip);
       }
       if (!run.diagnostics) return json({ message: "gone" }, 404);
-      return zipResponse(run.diagnostics);
+      return zipResponse(
+        run.diagnostics === DEFAULT_DIAGNOSTICS
+          ? diagnosticsZipBuffer(preflightJson({ checked_at: run.updatedAt }))
+          : run.diagnostics,
+      );
     }
 
     if (url.includes("/contents/state/backtest/v11_validation.json")) {
@@ -523,6 +626,7 @@ describe("healthy production viewer", () => {
     expect(payload.universe.data?.rankingUniverseSha256).toBe(UNIVERSE_HASH);
     expect(payload.convergence.data?.targetCount).toBe(10);
     expect(payload.validation.data?.identityMatchesRuntime).toBe("PASS");
+    expect(payload.validationGate.reasons).toEqual([]);
     expect(payload.validationGate.effective).toBe("PASS");
     expect(payload.validationGate.reportAssessment).toBe("PASS");
   });
@@ -617,7 +721,7 @@ describe("independent runtime source selection", () => {
       updatedAt: "2026-08-07T16:06:00Z",
       runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
       runtimeZip: runtimeZipBuffer(),
-      diagnostics: diagnosticsZipBuffer(),
+      diagnostics: DEFAULT_DIAGNOSTICS,
     };
     stubGithub({ runs: [preflightOnly, execution] });
 
@@ -656,7 +760,7 @@ describe("independent runtime source selection", () => {
       // Newest first, all after the execution below.
       updatedAt: `2026-08-08T${String(9 + index).padStart(2, "0")}:00:00Z`,
       runtimeArtifactName: null,
-      diagnostics: diagnosticsZipBuffer(),
+      diagnostics: DEFAULT_DIAGNOSTICS,
     })).reverse();
 
     stubGithub({
@@ -670,7 +774,7 @@ describe("independent runtime source selection", () => {
           updatedAt: "2026-08-07T16:06:00Z",
           runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
           runtimeZip: runtimeZipBuffer(),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -706,7 +810,7 @@ describe("independent runtime source selection", () => {
           Date.parse("2026-08-09T09:00:00Z") - index * 60_000,
         ).toISOString(),
         runtimeArtifactName: null,
-        diagnostics: diagnosticsZipBuffer(),
+        diagnostics: DEFAULT_DIAGNOSTICS,
       }),
     );
 
@@ -721,7 +825,7 @@ describe("independent runtime source selection", () => {
           updatedAt: "2026-08-07T16:06:00Z",
           runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
           runtimeZip: runtimeZipBuffer(),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -756,6 +860,191 @@ describe("independent runtime source selection", () => {
     expect(payload.preflight.provenance.scope).toContain("#200");
   });
 
+  it.each([
+    [
+      "an expired runtime artifact",
+      { expired: true },
+      "has expired",
+    ],
+    [
+      "a runtime artifact created outside its upload step",
+      { created_at: "2026-08-06T09:00:00Z" },
+      "not created inside the window",
+    ],
+  ])(
+    "does not fall back to an older cycle when a newer run has %s",
+    async (_label, artifactPatch, expected) => {
+      // A newer *successful* run that executed a cycle is the authority for
+      // what production did. If its runtime state cannot be read, the answer
+      // is UNAVAILABLE — showing the previous cycle's equity, positions and
+      // risk tier as if they were current is the failure being prevented.
+      stubGithub({
+        runs: [
+          {
+            id: 960,
+            runNumber: 48,
+            conclusion: "success",
+            event: "schedule",
+            updatedAt: "2026-08-07T18:30:00Z",
+            runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+            runtimeZip: runtimeZipBuffer(),
+            diagnostics: DEFAULT_DIAGNOSTICS,
+          },
+          {
+            id: 900,
+            runNumber: 43,
+            conclusion: "success",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:06:00Z",
+            runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+            runtimeZip: runtimeZipBuffer(),
+            diagnostics: DEFAULT_DIAGNOSTICS,
+          },
+        ],
+        runtimeArtifactPatch: { runId: 960, patch: artifactPatch },
+      });
+      const payload = await buildStrategyStatus({
+        viewer: OWNER,
+        account: PRODUCTION_ACCOUNT,
+        broker: OK_BROKER,
+        now: new Date("2026-08-07T19:00:00Z"),
+      });
+      expect(payload.execution.data).toBeNull();
+      expect(payload.execution.provenance.scope).not.toContain("#43");
+      expect(payload.execution.provenance.detail ?? "").toContain(expected);
+    },
+  );
+
+  it("does not fall back when a newer successful run uploaded no runtime state", async () => {
+    // The execute step ran (it is not `skipped`), so the artifact should
+    // exist. Its absence is an upload failure, not a preflight-only dispatch.
+    const step = (name: string, conclusion: string) => ({
+      name,
+      status: "completed",
+      conclusion,
+      started_at: "2026-08-07T18:29:00Z",
+      completed_at: "2026-08-07T18:30:00Z",
+    });
+    stubGithub({
+      runs: [
+        {
+          id: 961,
+          runNumber: 49,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T18:30:00Z",
+          runtimeArtifactName: null,
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+      latestRunJobs: [
+        {
+          steps: [
+            step("Verify paper broker and deployment health", "success"),
+            step("Execute one guarded paper cycle", "success"),
+            step("Preserve private runtime state", "failure"),
+          ],
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: new Date("2026-08-07T19:00:00Z"),
+    });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.execution.provenance.detail ?? "").toContain(
+      "produced no runtime-state artifact",
+    );
+  });
+
+  it("refuses a re-run rather than attributing run-level artifacts to it", async () => {
+    // `/runs/{id}/artifacts` is run-level: a re-run serves attempt 1's
+    // artifacts alongside attempt 2's with no attempt field to tell them
+    // apart. Showing either as "this attempt's" would be a guess.
+    stubGithub({ runAttempt: 2 });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.preflight.data).toBeNull();
+    expect(payload.execution.provenance.detail ?? "").toContain("attempt 2");
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("still serves the ordinary first attempt", async () => {
+    stubGithub({ runAttempt: 1 });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).not.toBeNull();
+    expect(payload.preflight.data).not.toBeNull();
+  });
+
+  it("fails closed when the newest run is unreadable, rather than skipping it", async () => {
+    // The listing used to filter unparseable runs out, so a malformed newest
+    // run vanished and the previous run's PASS became "current".
+    stubGithub({ runAttempt: null });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.preflight.data).toBeNull();
+    expect(payload.execution.provenance.scope).not.toContain("#43");
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("drops a run whose attempt GitHub did not state", async () => {
+    // `run_attempt` used to default to 1. Every attempt-scoped lookup and
+    // every step window keys on it, so an unstated attempt is not a run this
+    // model can reason about.
+    stubGithub({ runAttempt: null });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.preflight.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("reads the jobs of the attempt on screen, not the latest attempt", async () => {
+    const handler = stubGithub({ runAttempt: 3 });
+    await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    const jobCalls = handler.mock.calls
+      .map(([input]) => String(input))
+      .filter((url) => url.includes("/jobs"));
+    expect(jobCalls.length).toBeGreaterThan(0);
+    expect(jobCalls.every((url) => url.includes("/attempts/3/jobs"))).toBe(true);
+  });
+
   it("stops at the freshness boundary instead of scanning forever", async () => {
     stubGithub({
       runs: [
@@ -767,7 +1056,7 @@ describe("independent runtime source selection", () => {
           updatedAt: "2026-01-02T16:06:00Z",
           runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
           runtimeZip: runtimeZipBuffer(),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -791,7 +1080,7 @@ describe("independent runtime source selection", () => {
           event: "workflow_dispatch",
           updatedAt: "2026-08-07T18:30:00Z",
           runtimeArtifactName: null,
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
         {
           id: 900,
@@ -828,7 +1117,7 @@ describe("lineage mismatch is fail-closed", () => {
           updatedAt: "2026-08-07T16:06:00Z",
           runtimeArtifactName: `paper-runtime-state-${OTHER_SHA}`,
           runtimeZip: runtimeZipBuffer(),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -866,7 +1155,7 @@ describe("lineage mismatch is fail-closed", () => {
             performanceJson(),
             lastRunJson({ release_sha: OTHER_SHA }),
           ),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -979,7 +1268,7 @@ describe("lineage mismatch is fail-closed", () => {
             performanceJson(),
             lastRunJson({ strategy_version: "v12-experimental" }),
           ),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -1052,7 +1341,7 @@ describe("lineage mismatch is fail-closed", () => {
               adaptive_rebalance_pending: frozenPlanJson({ signal_date: null }),
             }),
           ),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -1081,7 +1370,7 @@ describe("lineage mismatch is fail-closed", () => {
           updatedAt: "2026-08-07T16:06:00Z",
           runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
           runtimeZip: "corrupt",
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -1114,12 +1403,16 @@ describe("effective validation gate", () => {
     expect(payload.validationGate.reasons).toContain("EXPIRED");
   });
 
-  it("is FAIL on a strategy-identity mismatch", async () => {
+  it("is FAIL when the canonical report's identity disagrees with production", async () => {
+    // The canonical report is now the *authority* the preflight and plan are
+    // compared against, so a report describing a different build breaks
+    // lineage first and withholds every dependent section — a stronger outcome
+    // than the identity mismatch alone, and it must still fail the gate.
     stubGithub({
       validation: validationJson({
         strategy: {
           version: "v11-adaptive-momentum",
-          identity: { value: "a-different-identity" },
+          identity: { value: "b".repeat(64) },
         },
       }),
     });
@@ -1130,9 +1423,14 @@ describe("effective validation gate", () => {
       now: NOW,
     });
     expect(payload.validationGate.effective).toBe("FAIL");
-    expect(payload.validationGate.reasons).toContain(
-      "STRATEGY_IDENTITY_MISMATCH",
-    );
+    expect(payload.validationGate.reasons).toContain("LINEAGE_MISMATCH");
+    expect(
+      payload.validationGate.reasons.some((reason) =>
+        reason.startsWith("STRATEGY_IDENTITY_"),
+      ),
+    ).toBe(true);
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.preflight.data).toBeNull();
   });
 
   it("is FAIL when the approved SHA is only derived from an artifact name", async () => {
@@ -1193,7 +1491,7 @@ describe("operations and risk states", () => {
             performanceJson({ risk_tier: "CAUTIOUS" }),
             lastRunJson({ risk_tier: "NORMAL" }),
           ),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -1232,7 +1530,7 @@ describe("operations and risk states", () => {
             }),
             lastRunJson({ risk_tier: "HALT", market_entry_allowed: false }),
           ),
-          diagnostics: diagnosticsZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
         },
       ],
     });
@@ -1328,5 +1626,912 @@ describe("operations and risk states", () => {
       now: NOW,
     });
     expect(payload.warnings.join(" ")).toContain("GITHUB_TOKEN");
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * A future timestamp is broken data, not fresh data. Every independently-aging
+ * source is exercised, because each is classified by its own contract.
+ * ------------------------------------------------------------------------- */
+
+describe("future-dated sources are never CURRENT", () => {
+  function futureRuns(offsetMs: number): RunSpec[] {
+    const at = new Date(NOW.getTime() + offsetMs).toISOString();
+    return [
+      {
+        id: 900,
+        runNumber: 43,
+        conclusion: "success",
+        event: "schedule",
+        updatedAt: at,
+        runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+        runtimeZip: runtimeZipBuffer(
+          performanceJson({ updated_at: at }),
+          lastRunJson({ completed_at: at }),
+        ),
+        diagnostics: diagnosticsZipBuffer(preflightJson({ checked_at: at })),
+      },
+    ];
+  }
+
+  it.each([
+    ["1 hour", 60 * 60 * 1000],
+    ["23 hours", 23 * 60 * 60 * 1000],
+  ])(
+    "marks runtime, preflight, execution and workflow MISMATCH %s ahead",
+    async (_label, offsetMs) => {
+      stubGithub({ runs: futureRuns(offsetMs) });
+      const payload = await buildStrategyStatus({
+        viewer: OWNER,
+        account: PRODUCTION_ACCOUNT,
+        broker: OK_BROKER,
+        now: NOW,
+      });
+
+      for (const key of ["strategy", "preflight", "execution", "operations"] as const) {
+        expect(
+          payload[key].provenance.freshness,
+          `${key} must not be CURRENT`,
+        ).not.toBe("CURRENT");
+      }
+      // The run record claiming to finish in the future is itself a lineage
+      // conflict, so the dependent sections are withheld outright.
+      expect(payload.strategy.data).toBeNull();
+      expect(payload.execution.data).toBeNull();
+      expect(payload.convergence.data).toBeNull();
+      expect(payload.validationGate.effective).not.toBe("PASS");
+    },
+  );
+
+  it("still accepts a timestamp inside the clock-skew tolerance", async () => {
+    stubGithub({ runs: futureRuns(60 * 1000) });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).not.toBeNull();
+    expect(payload.execution.provenance.freshness).toBe("CURRENT");
+  });
+
+  it("withholds when the run record has no completion timestamp at all", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(
+            performanceJson(),
+            lastRunJson({ completed_at: null }),
+          ),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("gives every non-CURRENT section a usable explanation", async () => {
+    stubGithub({ runs: futureRuns(23 * 60 * 60 * 1000) });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    for (const [key, value] of Object.entries(payload)) {
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        !("provenance" in value)
+      ) {
+        continue;
+      }
+      const section = value as { provenance: { freshness: string; detail: string | null } };
+      if (section.provenance.freshness === "CURRENT") continue;
+      expect(section.provenance.detail, `${key} has no detail`).toBeTruthy();
+    }
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * A failing preflight check must break the gate even when the check's own
+ * detail text still parses into a syntactically valid hash.
+ * ------------------------------------------------------------------------- */
+
+describe("a failing ranking_universe check is fatal", () => {
+  it("breaks lineage even though its detail still contains a valid hash", async () => {
+    const base = preflightJson();
+    const checks = (base.checks as { name: string; passed: boolean; detail: string }[]).map(
+      (check) =>
+        check.name === "ranking_universe" ? { ...check, passed: false } : check,
+    );
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: diagnosticsZipBuffer({ ...base, checks }),
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    // The hash still matches the plan's, so a hash-only comparison agrees.
+    expect(payload.universe.data).toBeNull();
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.execution.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+    expect(payload.warnings.join(" ")).toContain("ranking universe");
+  });
+
+  it("also fails the gate when the executor's own validation check failed", async () => {
+    const base = preflightJson();
+    const checks = (base.checks as { name: string; passed: boolean; detail: string }[]).map(
+      (check) =>
+        check.name === "canonical_validation_gate"
+          ? { ...check, passed: false }
+          : check,
+    );
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: diagnosticsZipBuffer({ ...base, checks }),
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.reasons).toContain("PREFLIGHT_GATE_FAILED");
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * The preflight comes from the latest COMPLETED run, not the latest successful
+ * one.
+ *
+ * The preflight runs before the executor and writes its report whatever
+ * happens next — a run usually fails *because* the preflight refused. Skipping
+ * failed runs therefore skipped exactly the reports that matter and fell back
+ * to an older green one, so the screen showed a passing preflight while
+ * production had just refused to trade.
+ * ------------------------------------------------------------------------- */
+
+describe("preflight selection follows completion, not conclusion", () => {
+  /** Newer failed run with diagnostics; older successful execution+preflight. */
+  function newerFailureRuns(diagnostics: Buffer): RunSpec[] {
+    return [
+      {
+        // Modelled on run 30747478499: workflow_dispatch, completed, failure,
+        // diagnostics written, no runtime artifact.
+        id: 30747478499,
+        runNumber: 2,
+        conclusion: "failure",
+        event: "workflow_dispatch",
+        updatedAt: "2026-08-07T16:40:00Z",
+        runtimeArtifactName: null,
+        diagnostics,
+      },
+      {
+        id: 900,
+        runNumber: 43,
+        conclusion: "success",
+        event: "schedule",
+        updatedAt: "2026-08-07T16:06:00Z",
+        runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+        runtimeZip: runtimeZipBuffer(),
+        diagnostics: DEFAULT_DIAGNOSTICS,
+      },
+    ];
+  }
+
+  it("takes the newer failed run's preflight and refuses to pass the gate", async () => {
+    const refused = failedPreflightJson({
+      checks: (
+        failedPreflightJson().checks as {
+          name: string;
+          passed: boolean;
+          detail: string;
+        }[]
+      ).map((check) =>
+        check.name === "canonical_validation_gate"
+          ? { ...check, passed: false, detail: "validation refused" }
+          : check,
+      ),
+    });
+    stubGithub({ runs: newerFailureRuns(diagnosticsZipBuffer(refused)) });
+
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+
+    // The newer failed run supplied the preflight, not the older green one.
+    expect(payload.preflight.provenance.scope).toContain("#2");
+    expect(payload.preflight.provenance.scope).toContain("failure");
+    // And nothing about it authorizes a buy.
+    expect(payload.validationGate.effective).not.toBe("PASS");
+    expect(payload.validationGate.reasons).toContain("PREFLIGHT_GATE_FAILED");
+    expect(payload.validationGate.reasons).toContain("PREFLIGHT_NOT_PASS");
+  });
+
+  it("does not fall back to an older green preflight for the gate", async () => {
+    stubGithub({ runs: newerFailureRuns(diagnosticsZipBuffer(failedPreflightJson())) });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.preflight.data?.status).toBe("FAIL");
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("still keeps the older execution — only the preflight is superseded", async () => {
+    stubGithub({ runs: newerFailureRuns(diagnosticsZipBuffer(failedPreflightJson())) });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    // The failed run produced no runtime state, so the last successful
+    // executor cycle is still the one on screen.
+    expect(payload.execution.data?.runUrl).toContain("/runs/900");
+  });
+
+  it("skips a newer completed run that produced no preflight at all", async () => {
+    // An infrastructure failure that ended before the preflight step
+    // demonstrably supersedes nothing.
+    stubGithub({
+      runs: [
+        {
+          id: 950,
+          runNumber: 44,
+          conclusion: "failure",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:50:00Z",
+          runtimeArtifactName: null,
+          diagnostics: null,
+        },
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.preflight.data).not.toBeNull();
+    expect(payload.preflight.provenance.scope).toContain("#43");
+    expect(payload.validationGate.effective).toBe("PASS");
+  });
+
+  it.each([
+    ["a job whose step list is empty", [{ steps: [] }]],
+    ["a run that reports no jobs at all", []],
+  ])(
+    "does not reach past a newer run when the evidence is %s",
+    async (_label, latestRunJobs) => {
+      // Both shapes were observed on a real cancelled paper-production run.
+      // Neither proves the preflight was skipped, so neither may license an
+      // older green report.
+      stubGithub({
+        runs: [
+          {
+            id: 952,
+            runNumber: 46,
+            conclusion: "failure",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:50:00Z",
+            runtimeArtifactName: null,
+            diagnostics: null,
+          },
+          {
+            id: 900,
+            runNumber: 43,
+            conclusion: "success",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:06:00Z",
+            runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+            runtimeZip: runtimeZipBuffer(),
+            diagnostics: DEFAULT_DIAGNOSTICS,
+          },
+        ],
+        latestRunJobs,
+      });
+      const payload = await buildStrategyStatus({
+        viewer: OWNER,
+        account: PRODUCTION_ACCOUNT,
+        broker: OK_BROKER,
+        now: NOW,
+      });
+      expect(payload.preflight.data).toBeNull();
+      expect(payload.preflight.provenance.freshness).toBe("UNAVAILABLE");
+      // Crucially, it did not silently show run #43's green report instead.
+      expect(payload.preflight.provenance.scope).not.toContain("#43");
+      expect(payload.validationGate.effective).not.toBe("PASS");
+    },
+  );
+
+  it.each([
+    ["cancelled", { conclusion: "cancelled" }],
+    ["still running", { status: "in_progress", conclusion: null }],
+    ["without a conclusion", { conclusion: null }],
+    ["renamed", { name: "Verify broker health" }],
+  ])(
+    "does not reach past a newer run whose preflight step is %s",
+    async (_label, patch) => {
+      // `DID_NOT_RUN` requires an explicit completed+skipped. None of these
+      // shapes proves the step never produced a report, so none may license
+      // an older green one.
+      const step = (name: string, conclusion: string | null) => ({
+        name,
+        status: "completed",
+        conclusion,
+        started_at: "2026-08-07T16:49:00Z",
+        completed_at: "2026-08-07T16:50:00Z",
+      });
+      stubGithub({
+        runs: [
+          {
+            id: 953,
+            runNumber: 47,
+            conclusion: "failure",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:50:00Z",
+            runtimeArtifactName: null,
+            diagnostics: null,
+          },
+          {
+            id: 900,
+            runNumber: 43,
+            conclusion: "success",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:06:00Z",
+            runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+            runtimeZip: runtimeZipBuffer(),
+            diagnostics: DEFAULT_DIAGNOSTICS,
+          },
+        ],
+        latestRunJobs: [
+          {
+            steps: [
+              {
+                ...step("Verify paper broker and deployment health", "success"),
+                ...patch,
+              },
+            ],
+          },
+        ],
+      });
+      const payload = await buildStrategyStatus({
+        viewer: OWNER,
+        account: PRODUCTION_ACCOUNT,
+        broker: OK_BROKER,
+        now: NOW,
+      });
+      expect(payload.preflight.data).toBeNull();
+      expect(payload.preflight.provenance.freshness).toBe("UNAVAILABLE");
+      expect(payload.preflight.provenance.scope).not.toContain("#43");
+      expect(payload.validationGate.effective).not.toBe("PASS");
+    },
+  );
+
+  it.each([
+    ["a corrupt runtime ZIP", { runtimeZip: "corrupt" as const }, {}],
+    ["a missing runtime artifact", { runtimeArtifactName: null }, {}],
+    ["a runtime download that fails", { runtimeZip: "gone" as const }, {}],
+    [
+      "a runtime artifact whose performance.json is schema-invalid",
+      { runtimeZip: runtimeZipBuffer({ ...performanceJson(), equity: "no" }) },
+      {},
+    ],
+    [
+      "a runtime artifact whose last_run.json is schema-invalid",
+      {
+        runtimeZip: runtimeZipBuffer(performanceJson(), {
+          ...lastRunJson(),
+          paper_only: false,
+        }),
+      },
+      {},
+    ],
+    [
+      "a runtime artifact recording a different release",
+      {
+        runtimeZip: runtimeZipBuffer(performanceJson(), {
+          ...lastRunJson(),
+          release_sha: "d".repeat(40),
+        }),
+      },
+      {},
+    ],
+    [
+      "an expired runtime artifact",
+      {},
+      { runtimeArtifactPatch: { runId: 900, patch: { expired: true } } },
+    ],
+    [
+      "an oversized runtime artifact",
+      {},
+      {
+        runtimeArtifactPatch: {
+          runId: 900,
+          patch: { size_in_bytes: 900_000_000 },
+        },
+      },
+    ],
+  ])(
+    "REPRO 1: does not report PASS with a valid preflight but %s",
+    async (_label, patch, stubExtras) => {
+      // The gate takes `executionRunId` from the *selector's run metadata*,
+      // which is populated even when the selection failed. So a run whose
+      // preflight is a genuine 18/18 PASS and whose runtime artifact cannot be
+      // read at all satisfies the cycle check — the preflight and the
+      // (nonexistent) execution "agree" because they name the same run — and
+      // the gate goes green with no execution evidence whatsoever.
+      stubGithub({
+        runs: [
+          {
+            id: 900,
+            runNumber: 43,
+            conclusion: "success",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:06:00Z",
+            runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+            runtimeZip: runtimeZipBuffer(),
+            diagnostics: DEFAULT_DIAGNOSTICS,
+            ...patch,
+          },
+        ],
+        ...stubExtras,
+      });
+      const payload = await buildStrategyStatus({
+        viewer: OWNER,
+        account: PRODUCTION_ACCOUNT,
+        broker: OK_BROKER,
+        now: NOW,
+      });
+      expect(payload.execution.data).toBeNull();
+      expect(payload.validationGate.effective).not.toBe("PASS");
+      expect(payload.validationGate.reasons).toContain("EXECUTION_UNAVAILABLE");
+    },
+  );
+
+  it("the same run with a readable runtime artifact does reach PASS", async () => {
+    // The control. Without it the cases above could all be passing because
+    // something unrelated in the fixture is broken.
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).not.toBeNull();
+    expect(payload.validationGate.reasons).not.toContain("EXECUTION_UNAVAILABLE");
+    expect(payload.validationGate.effective).toBe("PASS");
+  });
+
+  it.each([
+    ["recorded FAIL", { status: "FAIL", market_entry_allowed: false }],
+    ["recorded DEGRADED", { status: "DEGRADED" }],
+    ["market_entry_allowed false", { market_entry_allowed: false }],
+    ["market_entry_allowed null", { market_entry_allowed: null }],
+    ["market_entry_allowed absent", { market_entry_allowed: undefined }],
+    [
+      "a blocking action",
+      { blocking_actions: [{ action: "SHORT_DETECTED", symbol: "AAPL" }] },
+    ],
+  ])(
+    "REPRO 1: the gate must not report PASS for a cycle that %s",
+    async (_label, runPatch) => {
+      // The gate proves the evidence documents are *readable*. It never reads
+      // what they say. A cycle that ran, wrote a perfectly well-formed runtime
+      // artifact, and recorded `status: "FAIL"` with `market_entry_allowed:
+      // false` satisfies every existing condition.
+      stubGithub({
+        runs: [
+          {
+            id: 900,
+            runNumber: 43,
+            conclusion: "success",
+            event: "schedule",
+            updatedAt: "2026-08-07T16:06:00Z",
+            runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+            runtimeZip: runtimeZipBuffer(performanceJson(), {
+              ...lastRunJson(),
+              ...runPatch,
+            }),
+            diagnostics: DEFAULT_DIAGNOSTICS,
+          },
+        ],
+      });
+      const payload = await buildStrategyStatus({
+        viewer: OWNER,
+        account: PRODUCTION_ACCOUNT,
+        broker: OK_BROKER,
+        now: NOW,
+      });
+      expect(payload.validationGate.effective).not.toBe("PASS");
+    },
+  );
+
+  it("REPRO 1b: a present but unusable frozen plan invalidates the runtime", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(
+            performanceJson({ adaptive_rebalance_pending: { not: "a plan" } }),
+          ),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("REPRO 1c: performance.json from another day is a mixed artifact", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(
+            performanceJson({ updated_at: "2026-07-01T16:05:05+00:00" }),
+          ),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("fails closed on a corrupt newest diagnostics instead of searching back", async () => {
+    stubGithub({
+      runs: [
+        {
+          id: 951,
+          runNumber: 45,
+          conclusion: "failure",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:50:00Z",
+          runtimeArtifactName: null,
+          diagnostics: Buffer.from("this is not a zip archive at all"),
+        },
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.preflight.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+});
+
+/**
+ * Fifth audit round: the runtime authorization holes, end to end.
+ *
+ * Each of these builds a real payload through `buildStrategyStatus` with a
+ * mutated runtime artifact, so what is asserted is what the page would show —
+ * not what a unit test of the gate says in isolation. Every one of them
+ * reaches `PASS` on `b645cf572`.
+ */
+describe("REPRO 5: positions.json was required but never read", () => {
+  function withPositions(positions: Record<string, unknown>) {
+    return {
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success" as const,
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(performanceJson(), lastRunJson(), positions),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    };
+  }
+
+  async function build() {
+    return buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+  }
+
+  it("refuses a runtime state recording a short position", async () => {
+    // A short is *the* blocking reconciliation state in V11: every manager
+    // stops until the account is flat. An artifact recording one, presented
+    // as evidence that the cycle was healthy, is the inversion the gate
+    // exists to prevent — and the file was required by the contract and then
+    // never opened.
+    const shorted = positionsJson();
+    const rows = (shorted.positions as Record<string, unknown>[]).map((row, index) =>
+      index === 0 ? { ...row, qty: -100, side: "PositionSide.SHORT" } : row,
+    );
+    stubGithub(withPositions({ ...shorted, positions: rows }));
+    const payload = await build();
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.details.join(" ")).toContain("short position");
+  });
+
+  it("refuses a position count that contradicts performance.num_positions", async () => {
+    // Two documents written from one broker snapshot. The count is the one
+    // number both state independently, so a disagreement means the artifact
+    // is a mixture of two cycles.
+    const short = positionsJson();
+    stubGithub(
+      withPositions({
+        ...short,
+        positions: (short.positions as unknown[]).slice(0, 3),
+      }),
+    );
+    const payload = await build();
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.details.join(" ")).toContain("num_positions");
+  });
+
+  it.each([
+    ["a zero quantity", { qty: 0 }],
+    ["a negative price", { current_price: -1 }],
+    ["a zero entry price", { avg_entry_price: 0 }],
+    ["an unclassifiable side", { side: "PositionSide.SIDEWAYS" }],
+    ["a long marked with a negative quantity", { qty: -5, side: "long" }],
+    ["a non-finite market value", { market_value: null }],
+    ["a malformed symbol", { symbol: "not a ticker" }],
+  ])("refuses a position list with %s", async (_label, patch) => {
+    const base = positionsJson();
+    const rows = (base.positions as Record<string, unknown>[]).map((row, index) =>
+      index === 0 ? { ...row, ...patch } : row,
+    );
+    stubGithub(withPositions({ ...base, positions: rows }));
+    const payload = await build();
+    expect(payload.validationGate.effective).toBe("FAIL");
+  });
+
+  it("refuses a positions file stamped in a different cycle", async () => {
+    const base = positionsJson();
+    stubGithub(withPositions({ ...base, updated_at: "2026-08-05 12:05:05" }));
+    const payload = await build();
+    expect(payload.validationGate.effective).toBe("FAIL");
+  });
+
+  it("refuses a positions file with no usable timestamp", async () => {
+    const base = positionsJson();
+    stubGithub(withPositions({ ...base, updated_at: "recently" }));
+    const payload = await build();
+    expect(payload.validationGate.effective).toBe("FAIL");
+  });
+
+  it("accepts the healthy artifact, so the refusals above mean something", async () => {
+    stubGithub(withPositions(positionsJson()));
+    const payload = await build();
+    expect(payload.validationGate.effective).toBe("PASS");
+  });
+});
+
+describe("REPRO 6: an ended cycle is not an authorizing one", () => {
+  function withLastRun(patch: Record<string, unknown>) {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(performanceJson(), {
+            ...lastRunJson(),
+            ...patch,
+          }),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    return buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+  }
+
+  it("refuses a cycle that ended on a deferred infrastructure cancellation", async () => {
+    // It *is* a terminal action — the cycle reached its own end — but what it
+    // says it reached the end of is a cancellation it could not complete. It
+    // ends a cycle; it does not authorize the next one.
+    const payload = await withLastRun({
+      action_counts: {
+        ADAPTIVE_PLAN: 1,
+        ADAPTIVE_DEFERRED_INFRASTRUCTURE_CANCELLATION: 1,
+      },
+    });
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.details.join(" ")).toContain(
+      "deferred infrastructure cancellation",
+    );
+  });
+
+  it.each([
+    "REBALANCE_PENDING_CANCELLATIONS",
+    "ORDER_BOOK_RECONCILIATION_PENDING_CANCELLATIONS",
+    "SHORT_RECONCILIATION_PENDING_CANCELLATIONS",
+    "SELL_CAPACITY_RECONCILIATION_PENDING_CANCELLATIONS",
+    "POSITION_SNAPSHOT_RECONCILIATION_PENDING_CANCELLATIONS",
+    "PENDING_CANCELLATION",
+  ])("refuses a cycle that left %s outstanding", async (action) => {
+    const payload = await withLastRun({
+      action_counts: { ADAPTIVE_PLAN_DEFERRED: 1, [action]: 1 },
+    });
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.details.join(" ")).toContain("cancellation");
+  });
+
+  it("still accepts an ordinary deferred plan", async () => {
+    // The distinction has to bite in one direction only: deferring the
+    // replacement buys to a later boundary is the monthly V11 path.
+    const payload = await withLastRun({
+      action_counts: { ADAPTIVE_PLAN: 1, ADAPTIVE_PLAN_DEFERRED: 1 },
+    });
+    expect(payload.validationGate.effective).toBe("PASS");
+  });
+});
+
+describe("REPRO 7: the two documents must agree about the risk tier", () => {
+  async function withTiers(runTier: string, perfTier: string) {
+    stubGithub({
+      runs: [
+        {
+          id: 900,
+          runNumber: 43,
+          conclusion: "success",
+          event: "schedule",
+          updatedAt: "2026-08-07T16:06:00Z",
+          runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}`,
+          runtimeZip: runtimeZipBuffer(
+            performanceJson({ risk_tier: perfTier }),
+            lastRunJson({ risk_tier: runTier }),
+          ),
+          diagnostics: DEFAULT_DIAGNOSTICS,
+        },
+      ],
+    });
+    return buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+  }
+
+  it.each([
+    ["NORMAL", "HALT"],
+    ["HALT", "NORMAL"],
+    ["NORMAL", "CAUTIOUS"],
+    ["CAUTIOUS", "NORMAL"],
+    ["CAUTIOUS", "HALT"],
+  ])("refuses last_run=%s beside performance=%s", async (runTier, perfTier) => {
+    // Written from one snapshot seconds apart, so a disagreement is not a
+    // race — it is two cycles in one artifact. `NORMAL` beside `HALT` is the
+    // dangerous direction: it authorizes a buy on an account the risk policy
+    // has halted.
+    const payload = await withTiers(runTier, perfTier);
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.details.join(" ")).toMatch(
+      /riskTierAgrees|HALT/,
+    );
+  });
+
+  it("refuses a consistent HALT, which is agreement about a stop", async () => {
+    const payload = await withTiers("HALT", "HALT");
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.details.join(" ")).toContain("HALT");
+  });
+
+  it("accepts a consistent CAUTIOUS, which is agreement about trading on", async () => {
+    const payload = await withTiers("CAUTIOUS", "CAUTIOUS");
+    expect(payload.validationGate.effective).toBe("PASS");
   });
 });

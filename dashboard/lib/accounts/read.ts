@@ -26,7 +26,7 @@ import { maskAccountNumber } from "./mask";
  * `service.ts` re-exports these so the many type-only importers are unaffected.
  */
 
-type AccountRow = Database["public"]["Tables"]["accounts"]["Row"];
+export type AccountRow = Database["public"]["Tables"]["accounts"]["Row"];
 
 /**
  * The account shape the browser is allowed to see.

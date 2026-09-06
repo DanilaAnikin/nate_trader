@@ -21,6 +21,8 @@
 
 import type { LastRunSnapshot, PerformanceRuntimeSnapshot } from "./parse";
 import type { PreflightInfo } from "./types";
+import { CLOCK_SKEW_TOLERANCE_SECONDS } from "./vocab";
+import { isCalendarDate } from "@/lib/calendar-date";
 
 export const V11_STRATEGY_VERSION = "v11-adaptive-momentum";
 
@@ -28,15 +30,17 @@ export const V11_STRATEGY_VERSION = "v11-adaptive-momentum";
 const SHA256_RE = /^[0-9a-f]{64}$/;
 /** Lower-case hex git object name, exactly 40 characters. */
 const GIT_SHA_RE = /^[0-9a-f]{40}$/;
-/** Strict `YYYY-MM-DD`; calendar validity is checked separately. */
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Matches the shared freshness tolerance in `vocab.ts`. */
+const CLOCK_SKEW_TOLERANCE_MS = CLOCK_SKEW_TOLERANCE_SECONDS * 1000;
 
 export type LineageField =
   | "approvedReleaseSha"
   | "strategyIdentity"
   | "strategyVersion"
   | "rankingUniverseHash"
-  | "signalDate";
+  | "signalDate"
+  | "completedAt";
 
 /**
  * Why a field failed.
@@ -93,16 +97,6 @@ function isSha256(value: unknown): value is string {
   return typeof value === "string" && SHA256_RE.test(value);
 }
 
-/**
- * A strict ISO calendar date. `2026-02-30` matches the shape but is not a real
- * date, so the parsed value is round-tripped to reject it.
- */
-function isIsoDate(value: unknown): value is string {
-  if (typeof value !== "string" || !ISO_DATE_RE.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime())) return false;
-  return parsed.toISOString().slice(0, 10) === value;
-}
 
 /**
  * Cross-check every mandatory lineage field across the selected documents.
@@ -120,7 +114,23 @@ export function evaluateLineage(input: {
   /** Artifact name the runtime state actually came from, when known. */
   runtimeArtifactName: string | null;
   expectedRuntimeArtifactName: string | null;
+  /**
+   * Identity and universe recorded by the canonical promotion report.
+   *
+   * This is the authority, and it is available even when no frozen plan
+   * exists. Comparing the preflight only against the plan meant a cycle with
+   * no pending rebalance — the ordinary state between monthly rebalances — had
+   * nothing to check its identity against at all, so a preflight describing a
+   * different build passed unnoticed.
+   */
+  validated?: {
+    strategyIdentity: string | null;
+    rankingUniverseSha256: string | null;
+  } | null;
+  /** Evaluation instant; injectable so "in the future" is testable. */
+  now?: Date;
 }): LineageVerdict {
+  const nowMs = (input.now ?? new Date()).getTime();
   const conflicts: LineageConflict[] = [];
   const add = (
     field: LineageField,
@@ -193,6 +203,35 @@ export function evaluateLineage(input: {
         "MISMATCH",
         "the executor run record names a different release than the approved paper release",
       );
+    }
+  }
+
+  // --- the run record must say when it happened -----------------------------
+  // `completed_at` anchors the whole execution section's freshness and is the
+  // only thing the plan's signal date can be checked against. A run record
+  // without a usable one cannot be placed in time at all.
+  if (lastRun !== null) {
+    if (!present(lastRun.completedAt)) {
+      add(
+        "completedAt",
+        "MISSING_EVIDENCE",
+        "the executor run record does not say when the cycle completed",
+      );
+    } else {
+      const completed = Date.parse(lastRun.completedAt);
+      if (!Number.isFinite(completed)) {
+        add(
+          "completedAt",
+          "MISSING_EVIDENCE",
+          "the executor run record's completion timestamp is unparseable",
+        );
+      } else if (completed - nowMs > CLOCK_SKEW_TOLERANCE_MS) {
+        add(
+          "completedAt",
+          "MISMATCH",
+          "the executor run record claims to have completed in the future",
+        );
+      }
     }
   }
 
@@ -280,6 +319,38 @@ export function evaluateLineage(input: {
     );
   }
 
+  // The canonical report is the authority, and unlike the plan it is always
+  // there. Between monthly rebalances no plan exists, which used to leave the
+  // preflight's identity unchecked entirely.
+  const validatedIdentity = input.validated?.strategyIdentity ?? null;
+  if (isSha256(preflightIdentity) && isSha256(validatedIdentity) &&
+      preflightIdentity !== validatedIdentity) {
+    add(
+      "strategyIdentity",
+      "MISMATCH",
+      "the preflight strategy identity does not match the canonical validation report",
+    );
+  }
+  if (isSha256(planIdentity) && isSha256(validatedIdentity) &&
+      planIdentity !== validatedIdentity) {
+    add(
+      "strategyIdentity",
+      "MISMATCH",
+      "the frozen plan's strategy identity does not match the canonical validation report",
+    );
+  }
+  if (
+    (preflight !== null || plan !== null) &&
+    input.validated !== undefined &&
+    !isSha256(validatedIdentity)
+  ) {
+    add(
+      "strategyIdentity",
+      "MISSING_EVIDENCE",
+      "the canonical validation report records no usable strategy identity to compare against",
+    );
+  }
+
   // --- ranking universe -----------------------------------------------------
   const planUniverse = plan?.rankingUniverseSha256 ?? null;
   const preflightUniverse = preflight?.universeSha256 ?? null;
@@ -298,6 +369,29 @@ export function evaluateLineage(input: {
       "the frozen plan's ranking-universe hash is not a SHA-256 digest",
     );
   }
+  // The hash is scraped out of the check's own detail text, which is still
+  // present and still syntactically valid when the check *failed* — that is
+  // exactly the case where the running universe does not match the validated
+  // one. Comparing the two hashes would then agree and hide the failure, so the
+  // check's verdict is required in its own right.
+  if (preflight !== null) {
+    const universeCheck = preflight.checks.find(
+      (check) => check.name === "ranking_universe",
+    );
+    if (!universeCheck) {
+      add(
+        "rankingUniverseHash",
+        "MISSING_EVIDENCE",
+        "the preflight report does not contain the ranking_universe check",
+      );
+    } else if (!universeCheck.passed) {
+      add(
+        "rankingUniverseHash",
+        "MISMATCH",
+        "the preflight reports that the running ranking universe does not match the validated one",
+      );
+    }
+  }
   if (
     isSha256(planUniverse) &&
     isSha256(preflightUniverse) &&
@@ -307,6 +401,34 @@ export function evaluateLineage(input: {
       "rankingUniverseHash",
       "MISMATCH",
       "the preflight ranking-universe hash does not match the frozen plan's hash",
+    );
+  }
+  const validatedUniverse = input.validated?.rankingUniverseSha256 ?? null;
+  if (isSha256(preflightUniverse) && isSha256(validatedUniverse) &&
+      preflightUniverse !== validatedUniverse) {
+    add(
+      "rankingUniverseHash",
+      "MISMATCH",
+      "the preflight ranking universe does not match the canonical validation report",
+    );
+  }
+  if (isSha256(planUniverse) && isSha256(validatedUniverse) &&
+      planUniverse !== validatedUniverse) {
+    add(
+      "rankingUniverseHash",
+      "MISMATCH",
+      "the frozen plan's ranking universe does not match the canonical validation report",
+    );
+  }
+  if (
+    (preflight !== null || plan !== null) &&
+    input.validated !== undefined &&
+    !isSha256(validatedUniverse)
+  ) {
+    add(
+      "rankingUniverseHash",
+      "MISSING_EVIDENCE",
+      "the canonical validation report records no usable ranking universe to compare against",
     );
   }
 
@@ -326,7 +448,7 @@ export function evaluateLineage(input: {
         "MISSING_EVIDENCE",
         "the frozen plan does not record the completed session it was built from",
       );
-    } else if (!isIsoDate(plan.signalDate)) {
+    } else if (!isCalendarDate(plan.signalDate)) {
       add(
         "signalDate",
         "MISSING_EVIDENCE",

@@ -6,6 +6,9 @@
  * rather than a production screen.
  */
 
+import { parsePreflight } from "@/lib/status/parse";
+import type { PreflightInfo, ValidationInfo } from "@/lib/status/types";
+
 export const APPROVED_SHA = "0cb02c0765ebf91e60e5efd7f51334e9b538fbcb";
 export const OTHER_SHA = "1111111111111111111111111111111111111111";
 export const DASHBOARD_SHA = "d11bbad8aad7ec98596b0d290cb938706982d069";
@@ -15,6 +18,12 @@ export const STRATEGY_IDENTITY =
   "0cedd11966adff49ecb32b8cd84947efacbe5be8eeb35c1182f4c2f0411982be";
 export const UNIVERSE_HASH =
   "c86dc489c62625cd380dae6c105e28ee3dbe9aa124363b4dcd1a9f932bafa074";
+/** Adjusted-bar prefix digest, as `state/backtest/v11_validation.json` records it. */
+export const BAR_SNAPSHOT_SHA256 =
+  "d55b0f56c52ee23b351fb8746f7b984a6b0ace3dd34bbfeffcd2ada25a56ade3";
+/** Whole-report tamper-evident digest. */
+export const REPORT_SHA256 =
+  "33c94500a23d3e29834e7196c96b70e630cd3ab4afe8718f9bde02f3d380e5bc";
 
 export const TARGET_SYMBOLS = [
   "ASML",
@@ -122,7 +131,11 @@ export function lastRunJson(
     market_entry_allowed: true,
     risk_tier: "CAUTIOUS",
     action_counts: {
+      // Trimmed, then deferred the replacement buys to a later boundary — the
+      // ordinary shape of a completed cycle that had sells to settle first.
+      // `ADAPTIVE_PLAN_DEFERRED` is the terminal proof that it finished.
       ADAPTIVE_PLAN: 1,
+      ADAPTIVE_PLAN_DEFERRED: 1,
       ADAPTIVE_TRIM: 10,
       REBALANCE_PENDING_SELLS: 1,
     },
@@ -131,7 +144,9 @@ export function lastRunJson(
   };
 }
 
-export function positionsJson(): Record<string, unknown> {
+export function positionsJson(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     updated_at: "2026-08-07 12:05:05",
     positions: TARGET_SYMBOLS.map((symbol) => ({
@@ -144,6 +159,7 @@ export function positionsJson(): Record<string, unknown> {
       unrealized_plpc: 0,
       side: "PositionSide.LONG",
     })),
+    ...overrides,
   };
 }
 
@@ -158,12 +174,26 @@ export function preflightJson(
     allowed_mode: "paper",
     checks_passed: 18,
     checks_evaluated: 18,
+    // The real report carries all 18 checks; the summary counts below must
+    // describe exactly these, because the gate now verifies that they do.
     checks: [
       { name: "trading_mode", passed: true, detail: "paper" },
+      { name: "alpaca_api_key", passed: true, detail: "present" },
+      { name: "alpaca_secret_key", passed: true, detail: "present" },
+      { name: "python_runtime", passed: true, detail: "3.12.11" },
+      { name: "dependency_lock", passed: true, detail: "requirements.lock" },
+      { name: "runtime_alpaca-py", passed: true, detail: "0.43.5" },
+      { name: "runtime_numpy", passed: true, detail: "2.5.1" },
+      { name: "runtime_pandas", passed: true, detail: "3.0.5" },
       {
         name: "frozen_v11_policy",
         passed: true,
         detail: "breadth-scaled top-10 policy",
+      },
+      {
+        name: "canonical_validation_gate",
+        passed: true,
+        detail: "v11 fixed-strategy validation passed for paper testing",
       },
       {
         name: "strategy_identity",
@@ -175,10 +205,15 @@ export function preflightJson(
         passed: true,
         detail: `540 symbols; hash=${UNIVERSE_HASH}`,
       },
+      { name: "paper_endpoint", passed: true, detail: "paper-api.alpaca.markets" },
+      { name: "paper_account", passed: true, detail: "ACTIVE" },
+      { name: "broker_clock", passed: true, detail: "open" },
+      { name: "no_short_positions", passed: true, detail: "0 shorts" },
+      { name: "open_order_snapshot", passed: true, detail: "0 open orders" },
       {
-        name: "canonical_validation_gate",
+        name: "fresh_risk_snapshot",
         passed: true,
-        detail: "v11 fixed-strategy validation passed for paper testing",
+        detail: "fresh broker account and rolling-history snapshot",
       },
     ],
     details: {
@@ -203,6 +238,44 @@ export function preflightJson(
       universe_source: "validated-watchlist-fallback",
       validation_status: "PASS",
     },
+    ...overrides,
+  };
+}
+
+/**
+ * A preflight from a run that **failed**, modelled on the real
+ * `paper-diagnostics` of run 30747478499 (`workflow_dispatch`, run #2,
+ * `conclusion: failure`, 2026-08-02).
+ *
+ * The shape is the point: the preflight ran, wrote its report, and reported
+ * `FAIL` with 17 of 18 checks passing — `fresh_risk_snapshot` refused. That
+ * run produced diagnostics and no runtime artifact, which is precisely the
+ * case a selector filtered on `conclusion === "success"` used to skip in
+ * favour of an older green report.
+ */
+export function failedPreflightJson(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const base = preflightJson();
+  const checks = (base.checks as { name: string; passed: boolean; detail: string }[]).map(
+    (check) =>
+      check.name === "fresh_risk_snapshot"
+        ? {
+            ...check,
+            passed: false,
+            detail:
+              "available=False, tier=NORMAL, reason=rolling broker history unavailable",
+          }
+        : check,
+  );
+  return {
+    ...base,
+    checked_at: "2026-08-07T16:30:00.000000+00:00",
+    status: "FAIL",
+    allowed_mode: "no-execution",
+    checks_passed: 17,
+    checks_evaluated: 18,
+    checks,
     ...overrides,
   };
 }
@@ -255,9 +328,13 @@ export function validationJson(
     },
     slippage_scenarios_bps: [7.0, 15.0],
     evidence: {
+      schema_version: 1,
       ranking_universe_count: 540,
       ranking_universe_sha256: UNIVERSE_HASH,
       bar_snapshot_through_date: "2026-07-10",
+      bar_snapshot_sha256: BAR_SNAPSHOT_SHA256,
+      bar_symbols_requested: 552,
+      bar_symbols_observed: 552,
     },
     warnings: [
       {
@@ -312,9 +389,9 @@ export function validationJson(
       },
     ],
     contract: {
+      schema_version: 1,
       algorithm: "sha256",
-      report_sha256:
-        "33c94500a23d3e29834e7196c96b70e630cd3ab4afe8718f9bde02f3d380e5bc",
+      report_sha256: REPORT_SHA256,
     },
     ...overrides,
   };
@@ -371,4 +448,38 @@ export function tournamentJson(
     ],
     ...overrides,
   };
+}
+
+/* --------------------------------------------- parsed, gate-ready shapes */
+
+/**
+ * A canonical report in the shape the gate consumes, already bound to the
+ * runtime. Used where a test needs a *healthy* report and does not care how
+ * the fields got there.
+ */
+export function healthyValidationInfo(): ValidationInfo {
+  return {
+    status: "PASS",
+    allowedMode: "paper-validation-eligible",
+    generatedAt: "2026-08-02T15:56:49Z",
+    barBoundaryDate: "2026-07-10",
+    expiresAt: "2026-09-06T15:56:49Z",
+    strategyIdentityValue: STRATEGY_IDENTITY,
+    rankingUniverseSha256: UNIVERSE_HASH,
+    barSnapshotSha256: "b".repeat(64),
+    reportSha256: "c".repeat(64),
+    contractSchemaVersion: 1,
+    contractAlgorithm: "sha256",
+    checksEvaluated: 8,
+    checksPassed: 8,
+    identityMatchesRuntime: "PASS",
+    universeMatchesRuntime: "PASS",
+    segments: [],
+    warnings: [],
+  } as unknown as ValidationInfo;
+}
+
+/** The complete 18-check preflight, parsed. */
+export function healthyPreflightInfo(): PreflightInfo {
+  return parsePreflight(preflightJson(), null) as PreflightInfo;
 }

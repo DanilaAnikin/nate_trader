@@ -11,6 +11,8 @@
  *  - anything that cannot be aligned is `UNAVAILABLE`, never zero.
  */
 
+import { isCalendarDate } from "@/lib/calendar-date";
+
 export interface EquityPoint {
   readonly date: string;
   readonly equity: number;
@@ -44,7 +46,6 @@ export interface V11EpochBaseline {
   readonly note: string | null;
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Format an instant as its America/New_York calendar (session) date. */
 export function nySessionDate(instant: Date | string | number): string {
@@ -107,11 +108,11 @@ export function parseEpochBaseline(
     !startedAt ||
     !Number.isFinite(Date.parse(startedAt)) ||
     !startSessionDate ||
-    !ISO_DATE.test(startSessionDate) ||
+    !isCalendarDate(startSessionDate) ||
     startingEquity === null ||
     startingEquity <= 0 ||
     !benchmarkBaselineDate ||
-    !ISO_DATE.test(benchmarkBaselineDate) ||
+    !isCalendarDate(benchmarkBaselineDate) ||
     benchmarkBaselineClose === null ||
     benchmarkBaselineClose <= 0
   ) {
@@ -203,13 +204,13 @@ export function alignSeries(
   const from = startSessionDate ?? "";
   const portfolioByDate = new Map<string, number>();
   for (const point of portfolio) {
-    if (!ISO_DATE.test(point.date) || !(point.equity > 0)) continue;
+    if (!isCalendarDate(point.date) || !(point.equity > 0)) continue;
     if (point.date < from) continue;
     portfolioByDate.set(point.date, point.equity);
   }
   const benchmarkByDate = new Map<string, number>();
   for (const bar of benchmark) {
-    if (!ISO_DATE.test(bar.date) || !(bar.close > 0)) continue;
+    if (!isCalendarDate(bar.date) || !(bar.close > 0)) continue;
     if (bar.date < from) continue;
     benchmarkByDate.set(bar.date, bar.close);
   }
@@ -238,6 +239,9 @@ export type ForwardPerformanceFailure =
   | "BASELINE_ACCOUNT_MISMATCH"
   | "BASELINE_OBSERVATION_MISSING"
   | "BASELINE_OBSERVATION_MISMATCH"
+  | "BASELINE_SESSION_HAS_CASH_FLOW"
+  | "CASH_FLOW_UNUSABLE"
+  | "CASH_FLOW_TIMING_UNVERIFIABLE"
   | "NO_COMMON_SESSIONS"
   | "UNCOMPUTABLE";
 
@@ -362,13 +366,58 @@ export function computeForwardPerformance(input: {
     };
   }
 
-  const relevantFlows = input.cashFlows.filter(
-    (flow) =>
-      ISO_DATE.test(flow.date) &&
-      Number.isFinite(flow.amount) &&
-      flow.date > aligned.startDate &&
-      flow.date <= aligned.endDate,
+  // A malformed ledger row is not something to filter away quietly: it means
+  // the ledger cannot be trusted to be complete for this window.
+  const malformed = input.cashFlows.find(
+    (flow) => !isCalendarDate(flow.date) || !Number.isFinite(flow.amount),
   );
+  if (malformed) {
+    return {
+      ok: false,
+      reason: "CASH_FLOW_UNUSABLE",
+      detail:
+        "A recorded cash flow has an unusable date or amount, so external movements cannot be removed from the return.",
+    };
+  }
+
+  // A flow dated on the baseline session itself is ambiguous: the recorded
+  // starting equity may be the value before it or after it, and nothing in the
+  // ledger says which. Folding it into the opening balance would silently pick
+  // one. The safe contract is a flow-free baseline session; anything else means
+  // the baseline must be re-anchored to a clean session.
+  const baselineSessionFlows = input.cashFlows.filter(
+    (flow) => flow.date === aligned.startDate,
+  );
+  if (baselineSessionFlows.length > 0) {
+    return {
+      ok: false,
+      reason: "BASELINE_SESSION_HAS_CASH_FLOW",
+      detail: `An external cash movement is dated on the baseline session ${aligned.startDate}, so the recorded starting equity cannot be read as an opening balance. Re-anchor the epoch baseline to a completed, flow-free session.`,
+    };
+  }
+
+  const relevantFlows = input.cashFlows.filter(
+    (flow) => flow.date > aligned.startDate && flow.date <= aligned.endDate,
+  );
+
+  // Daily equity is the only valuation available. With no external flow inside
+  // the window, chaining daily returns *is* exact time-weighted return.
+  //
+  // With a flow, it is not. `(E_t − flow) / E_{t−1}` places every movement at
+  // the end of its session; a morning deposit would need `E_{t−1} + flow` as
+  // the denominator instead. Without a valuation at the moment of the flow the
+  // two cannot be told apart, and the difference is real money. Reporting
+  // either as "cash-flow-adjusted TWR" would be presenting an approximation as
+  // an exact figure, so the number is withheld until intraday valuation
+  // evidence exists.
+  if (relevantFlows.length > 0) {
+    return {
+      ok: false,
+      reason: "CASH_FLOW_TIMING_UNVERIFIABLE",
+      detail: `${relevantFlows.length} external cash movement(s) fall inside the measured window, and no portfolio valuation exists at the moment of each. An exact time-weighted return cannot be evidenced, and an end-of-day approximation must not be presented as one.`,
+    };
+  }
+
   const portfolioTwr = timeWeightedReturn(aligned.portfolio, relevantFlows);
   if (portfolioTwr === null) {
     return {

@@ -57,6 +57,23 @@ describe("parseEpochBaseline", () => {
     expect(parseEpochBaseline({ ...BASELINE_JSON, schemaVersion: 2 })).toBeNull();
     expect(parseEpochBaseline(null)).toBeNull();
   });
+
+  it.each(["startSessionDate", "benchmarkBaselineDate"])(
+    "rejects an impossible %s rather than rolling it forward",
+    (key) => {
+      // `new Date("2026-02-30")` is 2 March. Anchoring a published return to a
+      // day the baseline never named is worse than having no baseline.
+      const rolled = {
+        ...BASELINE_JSON,
+        startSessionDate: "2026-02-30",
+        benchmarkBaselineDate: "2026-02-30",
+        startedAt: "2026-02-30T13:30:00Z",
+      };
+      expect(parseEpochBaseline({ ...BASELINE_JSON, [key]: "2026-02-30" })).toBeNull();
+      expect(parseEpochBaseline(rolled)).toBeNull();
+      expect(parseEpochBaseline({ ...BASELINE_JSON, [key]: "2026-04-31" })).toBeNull();
+    },
+  );
 });
 
 describe("timeWeightedReturn", () => {
@@ -216,7 +233,12 @@ describe("computeForwardPerformance", () => {
     });
   });
 
-  it("removes a deposit from the reported return", () => {
+  it("withholds the return rather than approximating around a deposit", () => {
+    // `timeWeightedReturn` would give exactly +1% here by booking the deposit
+    // at the close. That is Modified Dietz with an end-of-period assumption,
+    // not time-weighted return: a deposit received at the open needs
+    // `E_{t−1} + flow` as the denominator and yields a different figure.
+    // Daily equity cannot distinguish the two, so the number is withheld.
     const result = run({
       equity: [
         { date: "2026-08-03", equity: 1_000_000 },
@@ -225,11 +247,47 @@ describe("computeForwardPerformance", () => {
       ],
       cashFlows: [{ date: "2026-08-04", amount: 500_000 }],
     });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("CASH_FLOW_TIMING_UNVERIFIABLE");
+    expect(result.detail).toContain("1 external cash movement");
+  });
+
+  it("still computes exactly when the window has no external movement", () => {
+    const result = run({
+      equity: [
+        { date: "2026-08-03", equity: 1_000_000 },
+        { date: "2026-08-04", equity: 1_010_000 },
+        { date: "2026-08-05", equity: 1_020_000 },
+      ],
+      cashFlows: [],
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.performance.portfolioTwrPct).toBeCloseTo(1, 4);
-    expect(result.performance.netCashFlow).toBe(500_000);
-    expect(result.performance.cashFlowCount).toBe(1);
+    expect(result.performance.portfolioTwrPct).toBeCloseTo(2, 4);
+    expect(result.performance.cashFlowCount).toBe(0);
+  });
+
+  it("refuses a cash movement dated on the baseline session", () => {
+    const result = run({
+      cashFlows: [{ date: "2026-08-03", amount: 10_000 }],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("BASELINE_SESSION_HAS_CASH_FLOW");
+  });
+
+  it("refuses an unusable ledger row instead of filtering it away", () => {
+    for (const flow of [
+      { date: "not-a-date", amount: 1 },
+      { date: "2026-08-04", amount: Number.NaN },
+      { date: "2026-08-04", amount: Number.POSITIVE_INFINITY },
+    ]) {
+      const result = run({ cashFlows: [flow] });
+      expect(result.ok, JSON.stringify(flow)).toBe(false);
+      if (result.ok) continue;
+      expect(result.reason).toBe("CASH_FLOW_UNUSABLE");
+    }
   });
 
   it("refuses a baseline that belongs to another account", () => {

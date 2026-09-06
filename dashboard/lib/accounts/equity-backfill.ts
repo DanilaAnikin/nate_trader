@@ -1,8 +1,7 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
+import { isCalendarDate, parseRfc3339 } from "@/lib/calendar-date";
 
-type Service = SupabaseClient<Database>;
 type Mode = Database["public"]["Enums"]["account_mode"];
 
 const ALPACA_BASE: Record<Mode, string> = {
@@ -10,157 +9,214 @@ const ALPACA_BASE: Record<Mode, string> = {
   live: "https://api.alpaca.markets/v2",
 };
 
-type PortfolioHistory = {
-  timestamp?: number[];
-  equity?: (number | null)[];
-  profit_loss?: (number | null)[];
-  profit_loss_pct?: (number | null)[];
-};
-
-/**
- * Backfill an account's equity curve from Alpaca's Portfolio History — the
- * real, retroactive daily equity. Idempotent: upserts on
- * (account_id, snapshot_date). Returns the number of days written.
- *
- * This is what makes the dashboard equity chart correct (DEF-01) without
- * waiting for the scheduled agent — the equity API route calls it lazily the
- * first time an account is charted.
- */
-export async function backfillEquity(
-  svc: Service,
-  accountId: string,
-  mode: Mode,
-): Promise<number> {
-  const { data: cred, error: credErr } = await svc.rpc(
-    "get_account_credentials",
-    { acct: accountId },
-  );
-  if (credErr || !cred || cred.length === 0) {
-    throw new Error("account has no stored credentials");
-  }
-
-  const res = await fetch(
-    `${ALPACA_BASE[mode]}/account/portfolio/history?period=all&timeframe=1D`,
-    {
-      headers: {
-        "APCA-API-KEY-ID": cred[0].api_key,
-        "APCA-API-SECRET-KEY": cred[0].api_secret,
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
-    },
-  );
-  if (!res.ok) {
-    throw new Error(`Alpaca portfolio history HTTP ${res.status}`);
-  }
-
-  const hist = (await res.json()) as PortfolioHistory;
-  const ts = hist.timestamp ?? [];
-  const equity = hist.equity ?? [];
-  const pl = hist.profit_loss ?? [];
-  const plpc = hist.profit_loss_pct ?? [];
-
-  // Keyed by date so a duplicated day collapses to its last value.
-  const byDate = new Map<string, Database["public"]["Tables"]["equity_snapshots"]["Insert"]>();
-  // Alpaca's daily timestamps fall in the trading day's evening, which is the
-  // next calendar day in UTC — so a UTC slice mislabels Friday as Saturday and
-  // drops Mondays. Format in market time (ET) so dates match the chart's
-  // ET-dated SPY history. en-CA yields YYYY-MM-DD.
-  const etDate = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-  });
-  for (let i = 0; i < ts.length; i++) {
-    const eq = equity[i];
-    if (eq == null || eq <= 0) continue;
-    const date = etDate.format(new Date(ts[i] * 1000));
-    byDate.set(date, {
-      account_id: accountId,
-      snapshot_date: date,
-      equity: Math.round(eq * 100) / 100,
-      // Portfolio history carries no per-day cash; only equity drives the chart.
-      cash: 0,
-      profit_loss: pl[i] ?? null,
-      profit_loss_pct: plpc[i] ?? null,
-      source: "alpaca_portfolio_history",
-    });
-  }
-
-  const rows = [...byDate.values()];
-  if (rows.length > 0) {
-    const { error } = await svc
-      .from("equity_snapshots")
-      .upsert(rows, { onConflict: "account_id,snapshot_date" });
-    if (error) throw new Error(`equity_snapshots upsert failed: ${error.message}`);
-  }
-  return rows.length;
-}
-
 type Activity = {
   id?: unknown;
   activity_type?: unknown;
   date?: unknown;
   transaction_time?: unknown;
   net_amount?: unknown;
+  /** Present on instrument-bearing rows; see `looksLikeSecurities`. */
+  symbol?: unknown;
+  qty?: unknown;
 };
 
 /**
- * External cash movements. `ACATC` is an ACAT cash transfer — a real deposit
- * or withdrawal that would otherwise be read as investment return.
- */
-const CASH_ACTIVITY_TYPES = ["CSD", "CSW", "JNLC", "ACATC"] as const;
-const CASH_ACTIVITY_TYPE_SET: ReadonlySet<string> = new Set(CASH_ACTIVITY_TYPES);
-
-/**
- * External movements of *securities*, not cash.
+ * Every non-trade activity type Alpaca documents, classified explicitly.
  *
- * `ACATS` transfers positions in or out of the account, `JNLS` journals shares
- * between accounts, and `FOPT` is an option-related position adjustment. None
- * of them has a cash `net_amount` that could be booked as a flow, yet every one
- * changes equity without the strategy having traded. Time-weighted return has
- * no way to neutralise them from the activity record alone, so their presence
- * since the baseline makes the number unreportable rather than approximate.
+ * An allowlist of four cash types was the previous approach, and it was wrong
+ * in the one direction that loses money silently. The walk requested only the
+ * types it knew, so an activity type it had never heard of — a new transfer
+ * mechanism, a corporate action that moves cash, anything Alpaca adds later —
+ * was simply not returned, and the walk declared itself complete without it.
+ * A closed allowlist cannot see what it does not ask for.
  *
- * They are requested alongside the cash types precisely so they are *detected*.
+ * So the walk now requests **no** `activity_types` filter at all: it reads the
+ * whole non-trade feed and classifies every row. Three outcomes:
+ *
+ *   * `cash` — an external cash movement, mirrored into `cash_flows`;
+ *   * `non-cash-transfer` — moves securities with no cash leg, which makes
+ *     return unattributable rather than approximate, so it is fatal;
+ *   * `internal` — a strategy-caused P/L event (a fill, a dividend, interest).
+ *     These belong to the return and are deliberately *not* cash flows.
+ *
+ * Anything not in this table is `UNKNOWN_ACTIVITY_TYPE`: unrecognised is not
+ * the same as irrelevant, and the only safe reading of a type this build has
+ * never seen is that it might move money.
  */
-const NON_CASH_TRANSFER_TYPES = ["ACATS", "JNLS", "FOPT"] as const;
-const NON_CASH_TRANSFER_TYPE_SET: ReadonlySet<string> = new Set(
-  NON_CASH_TRANSFER_TYPES,
-);
+type ActivityClass =
+  | "cash"
+  | "non-cash-transfer"
+  | "internal"
+  /**
+   * Known to exist, and known not to be self-describing.
+   *
+   * `JNL` is the unqualified journal. Alpaca's qualified forms say what moved
+   * — `JNLC` cash, `JNLS` shares — and the bare one does not. Classifying it
+   * as cash was a guess in the direction that writes a row: a share journal
+   * booked as a deposit invents money that never arrived and inflates the
+   * return by its whole amount. Classifying it as a securities transfer would
+   * be the opposite guess, blocking reporting on an ordinary cash movement.
+   *
+   * There is no safe default, so the walk refuses and says why.
+   */
+  | "ambiguous";
 
-const REQUESTED_ACTIVITY_TYPES = [
-  ...CASH_ACTIVITY_TYPES,
-  ...NON_CASH_TRANSFER_TYPES,
-] as const;
+const ACTIVITY_CLASSIFICATION: Readonly<Record<string, ActivityClass>> = {
+  // --- external cash ------------------------------------------------------
+  CSD: "cash", // cash deposit
+  CSW: "cash", // cash withdrawal
+  JNLC: "cash", // journal of *cash* between accounts — the subtype says so
+  ACATC: "cash", // ACAT cash transfer
+  WIRE: "cash", // wire transfer in or out
+
+  // --- ambiguous: real, and not self-describing ---------------------------
+  JNL: "ambiguous", // an unqualified journal; JNLC/JNLS say which
+
+  // --- external movement of securities, no cash leg -----------------------
+  ACATS: "non-cash-transfer", // ACAT securities transfer
+  JNLS: "non-cash-transfer", // journal of shares between accounts
+  FOPT: "non-cash-transfer", // option position adjustment
+  CSR: "non-cash-transfer", // cash receipt from a spin-off/share issue
+  MA: "non-cash-transfer", // merger or acquisition
+  NC: "non-cash-transfer", // name change
+  REORG: "non-cash-transfer", // reorganisation
+  SSO: "non-cash-transfer", // stock spin-off
+  SSP: "non-cash-transfer", // stock split
+  SPIN: "non-cash-transfer", // spin-off
+  SPLIT: "non-cash-transfer", // split
+
+  // --- internal: the strategy's own P/L, already inside the equity curve ---
+  //
+  // Fees belong here, not with the cash movements above. A fee is the account
+  // paying for something — it is a *cost of running the strategy*, and the
+  // return is supposed to be net of it. Booking one as an external withdrawal
+  // adds it back: `(E_t - flow) / E_{t-1}` with `flow = -25` reports the
+  // account as if the 25 had been taken out by its owner rather than consumed
+  // by the strategy, so a fee-laden account shows a better return than it
+  // earned. `DIVFEE` was already classified this way; `FEE` and `CFEE` were
+  // not, and they are the ones that actually recur.
+  FEE: "internal", // generic fee
+  CFEE: "internal", // credit/administrative fee charged to the account
+  PTC: "internal", // pass-through charge
+  PTR: "internal", // pass-through rebate
+
+  // Distributions are the strategy's own return on what it holds, received in
+  // cash. They arrive as cash but nobody outside the account moved money in,
+  // so they belong inside the return exactly as an unrealised gain would.
+  CGD: "internal", // capital gains distribution
+
+  FILL: "internal",
+  DIV: "internal",
+  DIVCGL: "internal",
+  DIVCGS: "internal",
+  DIVFEE: "internal",
+  DIVFT: "internal",
+  DIVNRA: "internal",
+  DIVROC: "internal",
+  DIVTW: "internal",
+  DIVTXEX: "internal",
+  INT: "internal",
+  INTNRA: "internal",
+  INTTW: "internal",
+  SC: "internal", // symbol change
+  SWP: "internal", // sweep
+  OPASN: "internal",
+  OPEXP: "internal",
+  OPXRC: "internal",
+};
+
+function classifyActivity(type: string): ActivityClass | null {
+  return ACTIVITY_CLASSIFICATION[type] ?? null;
+}
 
 const ACTIVITY_PAGE_SIZE = 100;
-const MAX_ACTIVITY_PAGES = 50;
 
 /**
- * Alpaca's `after` filter is applied to the activity's own date, but the record
- * a transfer agent posts can settle on a different day than the one the event
- * is finally dated to, and corrections re-date existing rows. Asking for a
- * window that starts this many days *before* the baseline makes such a shift
- * visible; rows are then deduplicated by activity id and filtered on the real
- * occurrence date, so the overlap can only add evidence, never double-count.
+ * The walk reads the account's **entire** activity history for the requested
+ * types, back to the account's own beginning.
+ *
+ * A bounded window was the previous approach and it could not prove what it
+ * claimed. Alpaca's `after` filter is applied server-side to the activity
+ * record, not to the settlement date the ledger books against, and a
+ * correction can re-date or withdraw a record after the fact. Any finite
+ * lookback therefore has an edge that a late or amended activity can cross
+ * unseen, and "I looked back ten days" is not evidence that nothing older
+ * moved.
+ *
+ * Reading everything removes the edge. 500 pages of 100 is 50 000 activities;
+ * a paper account that exceeds that gets UNAVAILABLE, not a partial ledger.
  */
-export const ACTIVITY_OVERLAP_DAYS = 10;
+const MAX_ACTIVITY_PAGES = 500;
+
+/**
+ * The window the walk is authoritative for when no baseline bounds it.
+ *
+ * Alpaca accounts cannot predate the broker, so this is "everything".
+ */
+const EPOCH_START = "1970-01-01";
+
+/** Same tolerance the read model uses for a timestamp ahead of our clock. */
+const ACTIVITY_CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
+
+/**
+ * Alpaca's own sign convention for the two unambiguous cash types.
+ *
+ * `CSD` is a deposit and `CSW` is a withdrawal, so their `net_amount` signs are
+ * fixed. A `CSD` booked negative (or a `CSW` booked positive) means the feed
+ * and the ledger disagree about direction, and booking it anyway would move the
+ * return the wrong way by twice the amount. `JNLC` and `ACATC` legitimately go
+ * either way and are not constrained.
+ */
+const REQUIRED_SIGN: Readonly<Record<string, 1 | -1>> = {
+  CSD: 1,
+  CSW: -1,
+};
 
 export type CashFlowIncompleteReason =
   | "MALFORMED_ACTIVITY"
-  | "UNEXPECTED_ACTIVITY_TYPE"
+  | "CONTRADICTORY_DUPLICATE"
+  | "UNKNOWN_ACTIVITY_TYPE"
+  | "AMBIGUOUS_ACTIVITY_TYPE"
   | "NON_CASH_EXTERNAL_TRANSFER"
+  | "FUTURE_DATED_ACTIVITY"
   | "NO_PAGINATION_TOKEN"
+  | "PAGINATION_STALLED"
+  | "BROKER_UNREACHABLE"
+  | "LEDGER_RECONCILE_FAILED"
   | "PAGE_LIMIT_REACHED";
 
-export interface CashFlowBackfillResult {
-  readonly written: number;
-  /** True only when every page back to the baseline boundary was read. */
+/**
+ * The activity walk's result, with **no database access of its own**.
+ *
+ * Publishing moved to `refreshBrokerDatasets`, which holds both datasets and
+ * writes them in one transaction. A walk that writes as it goes cannot be
+ * combined with anything else atomically, and its partial output is exactly
+ * what a reconciliation misreads as a retraction.
+ */
+export interface CashFlowWalkResult {
   readonly complete: boolean;
   readonly incompleteReason: CashFlowIncompleteReason | null;
   readonly detail: string | null;
   readonly pagesRead: number;
-  readonly refreshedAt: string;
-  /** Newest activity timestamp seen, for freshness reporting. */
+  /**
+   * Activities examined, including ones outside the window.
+   *
+   * This is *evidence*, not a statistic: it is how the database distinguishes
+   * "this account genuinely has no cash activities" from "the broker returned
+   * an empty page". It is only ever non-zero on a walk that finished.
+   */
+  readonly scanned: number;
+  /** True only when the walk ended on an explicit empty page. */
+  readonly sawEmptyTerminalPage: boolean;
+  /** Rows to publish, in the shape `publish_broker_refresh` expects. */
+  readonly rows: readonly {
+    external_id: string;
+    flow_date: string;
+    amount: number;
+    kind: string;
+  }[];
+  /** Inclusive market-time date the walk is authoritative for. */
+  readonly windowFrom: string;
   readonly latestActivityAt: string | null;
 }
 
@@ -196,111 +252,257 @@ export function parseNetAmount(value: unknown): number | null {
 export function resolveActivityDate(
   activity: Activity,
   etDate: Intl.DateTimeFormat,
-): { readonly date: string; readonly instant: string } | null {
-  if (typeof activity.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(activity.date)) {
-    const noon = Date.parse(`${activity.date}T12:00:00Z`);
-    if (Number.isFinite(noon)) {
-      // Midday UTC is inside the ET day for every US offset, so formatting
-      // cannot roll the date backwards.
-      return { date: activity.date, instant: new Date(noon).toISOString() };
-    }
+): {
+  readonly date: string;
+  readonly instant: string;
+  /**
+   * True only when `instant` came from a real `transaction_time`.
+   *
+   * A date-only activity has no time of day, so its instant below is a
+   * *fabricated* midday UTC. Treating that as an observed timestamp would make
+   * every same-day activity look hours into the future when read early in the
+   * morning — so freshness rules must apply the calendar-date test to these
+   * and the clock test only to real ones.
+   */
+  readonly instantIsReal: boolean;
+} | null {
+  // A real instant, when the record carries one.
+  // Strict RFC 3339 only. `Date.parse` accepted `2026-02-30T12:00:00Z` and
+  // returned 2 March, which books a flow on a session that never happened —
+  // and the session it lands on gets its return adjusted by someone else's
+  // cash. A malformed timestamp is not a reason to guess.
+  const rawTime = activity.transaction_time;
+  const hasTimeField = typeof rawTime === "string" && rawTime.trim() !== "";
+  const parsedTime = hasTimeField ? parseRfc3339(rawTime.trim()) : null;
+  if (hasTimeField && parsedTime === null) return null;
+  const hasRealInstant = parsedTime !== null;
+
+  // The occurrence date. `date` wins when present and a real calendar day: it
+  // is the settlement day the ledger books against, and it can differ from the
+  // record's creation time across a boundary.
+  //
+  // A *present* `date` is authoritative and must be usable. It used to be
+  // accepted only when it matched `\d{4}-\d{2}-\d{2}`, and anything else fell
+  // through to `transaction_time` — so `"08/04/2026"`, `"2026-8-4"` or
+  // `"yesterday"` silently switched the ledger to a different field, which
+  // books the record's *creation* day rather than its settlement day. Those
+  // differ across a boundary, and the boundary is where corrections happen.
+  // A malformed present date is now a refusal, never a fallback.
+  //
+  // "Present" means the property exists — not that it holds something usable.
+  // `null`, `""` and `"   "` are all a `date` the feed *tried* to give and
+  // could not, and treating them as absent falls back to `transaction_time`,
+  // which is the record's creation day rather than its settlement day.
+  let date: string | null = null;
+  const hasDateField = "date" in activity;
+  if (hasDateField) {
+    const rawDate = activity.date;
+    if (!isCalendarDate(rawDate)) return null;
+    date = rawDate;
+  } else if (hasRealInstant) {
+    date = etDate.format(new Date(parsedTime));
   }
-  const raw =
-    typeof activity.date === "string" && activity.date.trim()
-      ? activity.date
-      : typeof activity.transaction_time === "string"
-        ? activity.transaction_time
-        : "";
-  if (!raw.trim()) return null;
-  const parsed = Date.parse(raw);
-  if (!Number.isFinite(parsed)) return null;
-  const at = new Date(parsed);
-  return { date: etDate.format(at), instant: at.toISOString() };
+  if (!date) return null;
+
+  if (hasRealInstant) {
+    return {
+      date,
+      instant: new Date(parsedTime).toISOString(),
+      instantIsReal: true,
+    };
+  }
+  // No time of day exists. Midday UTC is inside the ET day for every US
+  // offset, so formatting it cannot roll the date backwards — but it is a
+  // stand-in, never an observation.
+  return {
+    date,
+    instant: new Date(Date.parse(`${date}T12:00:00Z`)).toISOString(),
+    instantIsReal: false,
+  };
 }
 
 /** The market-time calendar day an ISO instant (or plain date) falls on. */
 function boundaryDate(iso: string, etDate: Intl.DateTimeFormat): string | null {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
-  const parsed = Date.parse(iso);
-  if (!Number.isFinite(parsed)) return null;
+  if (isCalendarDate(iso)) return iso;
+  const parsed = parseRfc3339(iso);
+  if (parsed === null) return null;
   return etDate.format(new Date(parsed));
 }
 
-/** Shift an ISO instant (or plain date) by whole days, as an ISO instant. */
-function shiftIsoDays(iso: string, days: number): string | null {
-  const parsed = Date.parse(
-    /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T00:00:00Z` : iso,
-  );
-  if (!Number.isFinite(parsed)) return null;
-  return new Date(parsed + days * 24 * 60 * 60 * 1000).toISOString();
+/**
+ * A rejected `fetch` says why in several different shapes.
+ *
+ * `AbortSignal.timeout` throws a `TimeoutError` DOMException; an explicit
+ * abort throws `AbortError`; DNS, TLS and connection failures throw a
+ * `TypeError` whose real reason is on `cause`. All of them must produce a
+ * named, human-readable outcome rather than an unhandled rejection.
+ */
+export /**
+ * Whether a row is describing an instrument rather than a cash movement.
+ *
+ * Alpaca's non-trade activities reuse one envelope, so a share journal and a
+ * cash journal differ by which fields are populated. A row with a `symbol` and
+ * a `qty` and a zero (or absent) `net_amount` moved securities: booking it as
+ * a $0 cash event would declare the walk complete while an unaccounted
+ * position change sits inside the equity curve.
+ */
+function looksLikeSecurities(activity: Activity): boolean {
+  const symbol =
+    typeof activity.symbol === "string" ? activity.symbol.trim() : "";
+  const qty = activity.qty;
+  const hasQty =
+    (typeof qty === "number" && Number.isFinite(qty) && qty !== 0) ||
+    (typeof qty === "string" && qty.trim() !== "" && Number(qty) !== 0);
+  if (symbol === "" && !hasQty) return false;
+  const amount = parseNetAmount(activity.net_amount);
+  return amount === null || amount === 0;
+}
+
+/**
+ * Every field that decides what an activity *is* or how much it moves.
+ *
+ * The fingerprint used to be four values — type, date, instant, `net_amount` —
+ * and that left the two fields the securities heuristic classifies on,
+ * `symbol` and `qty`, invisible to it. A feed could serve one id twice, once
+ * as an ordinary cash row and once carrying instrument fields, and the second
+ * copy was dropped as a permitted repeat before it was ever classified.
+ *
+ * So the comparison covers the whole record instead of an enumerated subset.
+ * Enumerating is what failed: any field added to Alpaca's payload, or any
+ * field this build starts classifying on later, would silently fall outside a
+ * list. A repeat that differs anywhere is a feed that cannot serve one id
+ * consistently, and completeness cannot be proven from it.
+ *
+ * The record is canonicalized (keys sorted, values stringified) so key order
+ * and JSON number formatting do not manufacture a difference — but a numeric
+ * `1000` and a string `"1000"` stay distinct, because a feed that cannot agree
+ * with itself on the type of an amount is not one to book money from.
+ */
+function activityFingerprint(
+  activity: Activity,
+  type: string,
+  occurred: { date: string; instant: string; instantIsReal: boolean },
+): string {
+  const record = activity as Record<string, unknown>;
+  const canonical = Object.keys(record)
+    .sort()
+    .map((key) => [key, canonicalValue(record[key])] as const);
+  return JSON.stringify([
+    type,
+    occurred.date,
+    occurred.instantIsReal ? occurred.instant : null,
+    canonical,
+  ]);
+}
+
+/** Stable, type-preserving rendering of one JSON value. */
+function canonicalValue(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "number") return `n:${value}`;
+  if (typeof value === "string") return `s:${value}`;
+  if (typeof value === "boolean") return `b:${value}`;
+  if (Array.isArray(value)) return `a:[${value.map(canonicalValue).join(",")}]`;
+  if (typeof value === "object") {
+    const nested = value as Record<string, unknown>;
+    return `o:{${Object.keys(nested)
+      .sort()
+      .map((key) => `${key}=${canonicalValue(nested[key])}`)
+      .join(",")}}`;
+  }
+  return `?:${String(value)}`;
+}
+
+export function describeFetchFailure(caught: unknown): string {
+  if (caught instanceof DOMException) {
+    if (caught.name === "TimeoutError") return "the request timed out";
+    if (caught.name === "AbortError") return "the request was aborted";
+    return caught.name;
+  }
+  if (caught instanceof Error) {
+    const cause = (caught as { cause?: unknown }).cause;
+    const causeMessage =
+      cause instanceof Error
+        ? cause.message
+        : typeof cause === "string"
+          ? cause
+          : null;
+    return causeMessage ? `${caught.message} (${causeMessage})` : caught.message;
+  }
+  return "an unknown network failure";
 }
 
 function incomplete(
   reason: CashFlowIncompleteReason,
   detail: string,
   pagesRead: number,
-): CashFlowBackfillResult {
+): CashFlowWalkResult {
+  // An incomplete walk carries no rows at all. Returning what it managed to
+  // read would invite a caller to publish a partial ledger.
   return {
-    written: 0,
     complete: false,
     incompleteReason: reason,
     detail,
     pagesRead,
-    refreshedAt: new Date().toISOString(),
+    scanned: 0,
+    sawEmptyTerminalPage: false,
+    rows: [],
+    windowFrom: EPOCH_START,
     latestActivityAt: null,
   };
 }
 
 /**
- * Mirror external cash movements (deposits, withdrawals, cash journals, ACAT
- * cash transfers) into `cash_flows`.
+ * Read the account's entire non-trade activity feed and classify every row.
  *
  * Without these rows a $10k deposit looks like $10k of profit, so time-weighted
  * return depends on them being *complete*. Every activity must be fully usable:
- * a missing id, timestamp or type, an unparseable amount, or a type outside the
- * requested set makes the whole walk incomplete rather than being skipped —
- * a silently dropped deposit is exactly the failure this guards.
+ * a missing id, timestamp or type, an unparseable amount, or a type this build
+ * does not recognise makes the whole walk incomplete rather than being skipped
+ * — a silently dropped deposit is exactly the failure this guards.
  *
- * Alpaca caps a page at 100 items and paginates by passing the last id as
- * `page_token`; a full page without a usable token is also incomplete. Rows are
- * idempotent on the Alpaca activity id. Read-only against the broker.
+ * **Termination is by an explicit empty page, never by a short one.**
+ * `page_size` is a maximum, not a contract: a broker under load, a filtered
+ * page, or a page boundary that happens to fall short all produce fewer rows
+ * than requested while more data remains. Treating that as EOF ends the walk
+ * early, and an early end is indistinguishable downstream from "the account
+ * has no older activities" — which is how a truncated ledger gets published as
+ * a complete one. The walk therefore continues until Alpaca returns `[]`, and
+ * separately proves it is making progress: the page token must advance, and a
+ * page whose ids were all seen before is a loop, not a page.
+ *
+ * Read-only against the broker; no database access at all.
  */
-export async function backfillCashFlows(
-  svc: Service,
-  accountId: string,
+export async function fetchCashActivities(
+  apiKey: string,
+  apiSecret: string,
   mode: Mode,
-  options: { since?: string } = {},
-): Promise<CashFlowBackfillResult> {
-  const { data: cred, error: credErr } = await svc.rpc(
-    "get_account_credentials",
-    { acct: accountId },
-  );
-  if (credErr || !cred || cred.length === 0) {
-    throw new Error("account has no stored credentials");
-  }
-
+  since?: string,
+): Promise<CashFlowWalkResult> {
+  const options = { since };
   const etDate = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
   });
   const rows = new Map<
     string,
-    Database["public"]["Tables"]["cash_flows"]["Insert"]
+    { external_id: string; flow_date: string; amount: number; kind: string }
   >();
+  /** Every activity the walk looked at, window or not. */
+  let scanned = 0;
 
   let pageToken: string | null = null;
   let pagesRead = 0;
   let complete = false;
   let latestActivityAt: string | null = null;
-  /** Every activity id already accounted for, across pages and the overlap. */
-  const seen = new Set<string>();
+  /**
+   * Every activity id seen anywhere in the history, mapped to a fingerprint
+   * of its contents, so a repeat can be checked for agreement rather than
+   * assumed to be one.
+   */
+  const seen = new Map<string, string>();
 
-  // The requested window starts before the baseline (see ACTIVITY_OVERLAP_DAYS)
-  // so a re-dated or late-settling transfer cannot fall through the boundary.
   const baselineDate = options.since ? boundaryDate(options.since, etDate) : null;
-  const queryAfter = options.since
-    ? shiftIsoDays(options.since, -ACTIVITY_OVERLAP_DAYS)
-    : null;
-  if (options.since && (baselineDate === null || queryAfter === null)) {
+  if (options.since && baselineDate === null) {
     // Without a usable boundary the walk cannot say what it covered.
     return incomplete(
       "MALFORMED_ACTIVITY",
@@ -309,33 +511,86 @@ export async function backfillCashFlows(
     );
   }
 
+  // No `after` filter: the whole history is read (see MAX_ACTIVITY_PAGES). The
+  // baseline is applied afterwards, to each activity's real occurrence date, so
+  // a server-side filter on the wrong field cannot hide anything.
+  const nowMs = Date.now();
+  const latestAllowedDate = etDate.format(
+    new Date(nowMs + ACTIVITY_CLOCK_SKEW_TOLERANCE_MS),
+  );
+
+  /** Page tokens already requested, so a repeated one is recognised as a loop. */
+  const tokensUsed = new Set<string>();
+  let sawEmptyTerminalPage = false;
+
   for (let page = 0; page < MAX_ACTIVITY_PAGES; page++) {
+    // No `activity_types` filter: a closed allowlist cannot return a type it
+    // was never told to ask for, and an unrequested cash movement is exactly
+    // what must not be missed. Everything is read and classified below.
     const query = new URLSearchParams({
-      activity_types: REQUESTED_ACTIVITY_TYPES.join(","),
       page_size: String(ACTIVITY_PAGE_SIZE),
       direction: "desc",
     });
-    if (queryAfter) query.set("after", queryAfter);
     if (pageToken) query.set("page_token", pageToken);
 
-    const res = await fetch(`${ALPACA_BASE[mode]}/account/activities?${query}`, {
-      headers: {
-        "APCA-API-KEY-ID": cred[0].api_key,
-        "APCA-API-SECRET-KEY": cred[0].api_secret,
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) throw new Error(`Alpaca activities HTTP ${res.status}`);
+    let res: Response;
+    try {
+      res = await fetch(`${ALPACA_BASE[mode]}/account/activities?${query}`, {
+        headers: {
+          "APCA-API-KEY-ID": apiKey,
+          "APCA-API-SECRET-KEY": apiSecret,
+        },
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (caught) {
+      // A rejected fetch is a timeout, an abort, a DNS or TLS failure, or a
+      // dropped connection. It used to propagate as an unhandled rejection and
+      // surface as a raw 500; it is an ordinary incomplete walk.
+      return incomplete(
+        "BROKER_UNREACHABLE",
+        `The Alpaca activity feed could not be reached: ${describeFetchFailure(caught)}.`,
+        pagesRead,
+      );
+    }
+    if (!res.ok) {
+      return incomplete(
+        "BROKER_UNREACHABLE",
+        `Alpaca activities returned HTTP ${res.status}.`,
+        pagesRead,
+      );
+    }
 
-    const activities = (await res.json()) as Activity[];
+    let activities: unknown;
+    try {
+      activities = await res.json();
+    } catch {
+      return incomplete(
+        "MALFORMED_ACTIVITY",
+        "An Alpaca activities page was not valid JSON.",
+        pagesRead,
+      );
+    }
     if (!Array.isArray(activities)) {
-      throw new Error("Alpaca activities returned an unreadable payload");
+      return incomplete(
+        "MALFORMED_ACTIVITY",
+        "Alpaca activities returned a payload that is not an array.",
+        pagesRead,
+      );
     }
     pagesRead++;
 
+    // The only EOF this walk accepts.
+    if (activities.length === 0) {
+      complete = true;
+      sawEmptyTerminalPage = true;
+      break;
+    }
+
     let lastId: string | null = null;
-    for (const activity of activities) {
+    let freshOnThisPage = 0;
+    for (const raw of activities as Activity[]) {
+      const activity = raw;
       const id = typeof activity.id === "string" ? activity.id.trim() : "";
       const type =
         typeof activity.activity_type === "string"
@@ -352,6 +607,7 @@ export async function backfillCashFlows(
       // Pagination is by id, so it must advance even for a row that is skipped
       // as pre-baseline or already seen.
       lastId = id;
+      scanned++;
       if (!type) {
         return incomplete(
           "MALFORMED_ACTIVITY",
@@ -359,16 +615,41 @@ export async function backfillCashFlows(
           pagesRead,
         );
       }
-      if (
-        !CASH_ACTIVITY_TYPE_SET.has(type) &&
-        !NON_CASH_TRANSFER_TYPE_SET.has(type)
-      ) {
+
+      const activityClass = classifyActivity(type);
+      if (activityClass === null) {
         return incomplete(
-          "UNEXPECTED_ACTIVITY_TYPE",
-          `Alpaca returned activity type ${type}, which was not requested.`,
+          "UNKNOWN_ACTIVITY_TYPE",
+          `Alpaca returned activity type ${type}, which this build does not classify. An unrecognised type may move cash or securities, so the ledger cannot be proven complete without it.`,
           pagesRead,
         );
       }
+      if (activityClass === "ambiguous") {
+        // A bare `JNL` does not say whether cash or shares moved, and both
+        // readings are wrong in a costly direction: booked as cash it invents
+        // a deposit that never arrived; treated as a securities transfer it
+        // blocks reporting on an ordinary journal. The qualified subtypes
+        // exist precisely so this does not have to be guessed.
+        return incomplete(
+          "AMBIGUOUS_ACTIVITY_TYPE",
+          `Alpaca activity ${id} is a bare ${type} journal, which does not state whether cash or securities moved. ` +
+            `Its qualified forms (JNLC, JNLS) do; without one, whether this is a cash flow cannot be determined.`,
+          pagesRead,
+        );
+      }
+      // **Order matters here.** An *internal* type is fully classified by its
+      // type, and `FILL` is the clearest case: Alpaca's documented shape
+      // carries `symbol`, `qty`, `price`, `side` and **no** `net_amount` —
+      // exactly the shape `looksLikeSecurities` was written to catch. Running
+      // the heuristic first turned every ordinary trade into a fatal
+      // NON_CASH_EXTERNAL_TRANSFER, which made the refresh impossible for any
+      // account that had actually traded.
+      //
+      // The heuristic exists to disambiguate rows whose *type* leaves the
+      // question open. A known internal P/L event is already answered, so it
+      // never reaches the heuristic; the check itself lives below, after the
+      // dedup bookkeeping, next to the other classification outcomes.
+      // https://docs.alpaca.markets/us/docs/account-activities
 
       const occurred = resolveActivityDate(activity, etDate);
       if (!occurred) {
@@ -379,22 +660,82 @@ export async function backfillCashFlows(
         );
       }
 
-      // The overlap window deliberately reaches behind the baseline. Those rows
-      // prove nothing was re-dated across the boundary, but they belong to the
-      // pre-V11 era and are neither written nor counted.
-      if (baselineDate !== null && occurred.date < baselineDate) continue;
-      // Deduplicate by activity id: the overlap and a re-dated correction can
-      // both surface the same activity twice.
-      if (seen.has(id)) continue;
-      seen.add(id);
+      // A real timestamp is held to the clock: five minutes of skew, no more.
+      // Seven hours ahead is not a scheduled transfer, it is a broken feed.
+      if (
+        occurred.instantIsReal &&
+        Date.parse(occurred.instant) - nowMs > ACTIVITY_CLOCK_SKEW_TOLERANCE_MS
+      ) {
+        return incomplete(
+          "FUTURE_DATED_ACTIVITY",
+          `Alpaca activity ${id} is timestamped ${occurred.instant}, more than five minutes ahead of this server, so the activity feed cannot be trusted.`,
+          pagesRead,
+        );
+      }
+      // A date-only activity has no time of day to compare, so it is held to
+      // the calendar instead: it may not be dated after today's ET session.
+      if (!occurred.instantIsReal && occurred.date > latestAllowedDate) {
+        return incomplete(
+          "FUTURE_DATED_ACTIVITY",
+          `Alpaca activity ${id} is dated ${occurred.date}, after the current New York session date, so the activity feed cannot be trusted.`,
+          pagesRead,
+        );
+      }
 
-      if (latestActivityAt === null || occurred.instant > latestActivityAt) {
+      // A repeated id is only acceptable when the two copies say the same
+      // thing. `continue` on any repeat kept whichever arrived first, so a
+      // feed reporting one id with two different amounts silently booked one
+      // of them and declared the walk complete — a guess about how much money
+      // moved, made invisibly. Paging by id legitimately re-serves the cursor
+      // row, so an *identical* repeat is expected and permitted.
+      const fingerprint = activityFingerprint(activity, type, occurred);
+      const previous = seen.get(id);
+      if (previous !== undefined) {
+        if (previous !== fingerprint) {
+          return incomplete(
+            "CONTRADICTORY_DUPLICATE",
+            `Alpaca reported activity ${id} twice with different contents, so how much money moved cannot be determined from this walk.`,
+            pagesRead,
+          );
+        }
+        continue;
+      }
+      seen.set(id, fingerprint);
+      freshOnThisPage++;
+
+      // An internal P/L event — a fill, a dividend, interest — is already
+      // inside the equity curve. It is understood, and deliberately not a
+      // flow, and it never reaches the securities heuristic below.
+      if (activityClass === "internal") continue;
+
+      // Only for the types whose classification leaves the question open. A
+      // `cash` or transfer row carrying instrument fields and no cash amount
+      // is describing an instrument, whatever it calls itself.
+      if (looksLikeSecurities(activity)) {
+        return incomplete(
+          "NON_CASH_EXTERNAL_TRANSFER",
+          `Alpaca activity ${id} (${type}) carries instrument fields (symbol/qty) and no cash amount, so it moves positions without a cash flow. No return can be attributed across it.`,
+          pagesRead,
+        );
+      }
+
+      // Activities before the baseline are read (they prove nothing was
+      // re-dated across the boundary) but belong to the pre-V11 era, so they
+      // are neither written nor counted.
+      if (baselineDate !== null && occurred.date < baselineDate) continue;
+
+      // Only a genuine timestamp is reported as one; a fabricated midday
+      // instant must never be handed to a caller that will clock-check it.
+      if (
+        occurred.instantIsReal &&
+        (latestActivityAt === null || occurred.instant > latestActivityAt)
+      ) {
         latestActivityAt = occurred.instant;
       }
 
       // A securities transfer changes equity with no cash leg to book. Return
       // is not merely imprecise here — it is unattributable.
-      if (NON_CASH_TRANSFER_TYPE_SET.has(type)) {
+      if (activityClass === "non-cash-transfer") {
         return incomplete(
           "NON_CASH_EXTERNAL_TRANSFER",
           `An external securities transfer (${type}, ${occurred.date}) settled in this account after the V11 epoch baseline. It moves positions without a cash flow, so no return or alpha can be attributed to the strategy.`,
@@ -410,33 +751,55 @@ export async function backfillCashFlows(
           pagesRead,
         );
       }
+      const requiredSign = REQUIRED_SIGN[type];
+      if (requiredSign !== undefined && amount !== 0 && Math.sign(amount) !== requiredSign) {
+        return incomplete(
+          "MALFORMED_ACTIVITY",
+          `Alpaca activity ${id} is a ${type} with net_amount ${amount}, which contradicts its own direction.`,
+          pagesRead,
+        );
+      }
 
       // A zero-amount cash activity moves no money and is not a flow, but it
       // was still fully understood, so it does not break completeness.
       if (amount === 0) continue;
 
       rows.set(id, {
-        account_id: accountId,
+        external_id: id,
         flow_date: occurred.date,
         amount: Math.round(amount * 100) / 100,
         kind: amount > 0 ? "deposit" : "withdrawal",
-        source: "alpaca_activities",
-        external_id: id,
       });
     }
 
-    // A short page is the last page; a full page means there may be more.
-    if (activities.length < ACTIVITY_PAGE_SIZE) {
-      complete = true;
-      break;
-    }
+    // A non-empty page must produce a usable cursor, or there is no way to
+    // reach what is behind it.
     if (!lastId) {
       return incomplete(
         "NO_PAGINATION_TOKEN",
-        "A full page of activities produced no usable pagination id, so older activities cannot be reached.",
+        "A page of activities produced no usable pagination id, so older activities cannot be reached.",
         pagesRead,
       );
     }
+    // Progress, proved two ways: the cursor must move, and the page must have
+    // shown something new. A repeated token or an all-duplicate page means the
+    // feed is looping, and looping until MAX_ACTIVITY_PAGES would report
+    // PAGE_LIMIT_REACHED for what is really a broken cursor.
+    if (tokensUsed.has(lastId)) {
+      return incomplete(
+        "PAGINATION_STALLED",
+        `The Alpaca activity cursor returned to ${lastId} instead of advancing, so the walk cannot reach older activities.`,
+        pagesRead,
+      );
+    }
+    if (freshOnThisPage === 0) {
+      return incomplete(
+        "PAGINATION_STALLED",
+        "An entire page of activities repeated ids already seen, so the cursor is not advancing.",
+        pagesRead,
+      );
+    }
+    tokensUsed.add(lastId);
     pageToken = lastId;
   }
 
@@ -448,20 +811,20 @@ export async function backfillCashFlows(
     );
   }
 
-  const list = [...rows.values()];
-  if (list.length > 0) {
-    const { error } = await svc
-      .from("cash_flows")
-      .upsert(list, { onConflict: "account_id,external_id" });
-    if (error) throw new Error(`cash_flows upsert failed: ${error.message}`);
-  }
+  // The walk writes nothing. Its rows go to `publish_broker_refresh` together
+  // with the portfolio history, so both mirrors move in one transaction under
+  // one generation — a walk that wrote as it went could not be combined with
+  // anything else atomically, and its partial output is exactly what a
+  // reconciliation misreads as a retraction.
   return {
-    written: list.length,
     complete: true,
     incompleteReason: null,
     detail: null,
     pagesRead,
-    refreshedAt: new Date().toISOString(),
+    scanned,
+    sawEmptyTerminalPage,
+    rows: [...rows.values()],
+    windowFrom: baselineDate ?? EPOCH_START,
     latestActivityAt,
   };
 }

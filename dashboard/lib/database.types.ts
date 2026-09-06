@@ -21,6 +21,10 @@ export type Database = {
           alpaca_secret_secret_id: string | null
           color: string
           created_at: string
+          /** Bumped by rotation and deletion; bound into every refresh token. */
+          credential_version: number
+          /** Client-generated, unique: makes a retried creation idempotent. */
+          create_operation_id: string | null
           deleted_at: string | null
           id: string
           is_active: boolean
@@ -635,14 +639,166 @@ export type Database = {
         }[]
       }
       owns_account: { Args: { acct: string }; Returns: boolean }
-      vault_create_secret: {
-        Args: { p_name?: string; p_secret: string }
-        Returns: string
+      account_history_row_limit: { Args: Record<string, never>; Returns: number }
+      account_history_snapshot: {
+        Args: { p_account: string; p_owner: string; p_from?: string | null }
+        Returns: Json
       }
-      vault_delete_secret: { Args: { p_id: string }; Returns: undefined }
-      vault_update_secret: {
-        Args: { p_id: string; p_secret: string }
-        Returns: undefined
+      reconcile_cash_flow_mirror: {
+        Args: {
+          p_account: string
+          p_owner: string
+          p_from: string
+          p_rows: Json
+        }
+        Returns: Json
+      }
+      replace_equity_snapshots: {
+        Args: { p_account: string; p_owner: string; p_rows: Json }
+        Returns: Json
+      }
+      begin_broker_refresh: {
+        Args: { p_account: string; p_owner: string }
+        /** `{ token, generation, credential_version, mode, account_number }` */
+        Returns: Json
+      }
+      begin_broker_refresh_with_credentials: {
+        Args: { p_account: string; p_owner: string }
+        /**
+         * The same reservation plus `api_key` and `api_secret`, read inside
+         * the transaction that writes the token so the two cannot disagree.
+         */
+        Returns: Json
+      }
+      publish_broker_refresh: {
+        Args: {
+          p_token: string
+          p_equity: Json
+          p_equity_complete: boolean
+          p_flows: Json
+          p_flows_from: string
+          p_flows_complete: boolean
+          p_flows_scanned: number
+          p_flows_saw_empty_page: boolean
+        }
+        Returns: Json
+      }
+      retract_equity_snapshot: {
+        Args: {
+          p_account: string
+          p_owner: string
+          p_date: string
+          p_reason: string
+        }
+        Returns: boolean
+      }
+      retract_cash_flow: {
+        Args: {
+          p_account: string
+          p_owner: string
+          p_external_id: string
+          p_reason: string
+        }
+        Returns: boolean
+      }
+      create_account_operation: {
+        Args: {
+          p_owner: string
+          p_operation_id: string
+          p_fingerprint: string
+          p_nickname: string
+          p_mode: Database["public"]["Enums"]["account_mode"]
+          p_color: string
+          p_api_key: string
+          p_api_secret: string
+          p_account_number: string
+        }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
+      }
+      resolve_create_operation: {
+        /**
+         * The fingerprint is mandatory (0022). Matching the operation id alone
+         * reported *some* account this owner created earlier as the thing just
+         * created; a mismatch is now an explicit `conflict`.
+         */
+        Args: { p_owner: string; p_operation_id: string; p_fingerprint: string }
+        /** `{ outcome: "created" | "absent" | "no_account" | "conflict", account_id? }` */
+        Returns: Json
+      }
+      begin_account_verification: {
+        Args: { p_account: string; p_owner: string }
+        /**
+         * `{ token, generation, expires_at, mode, credential_version,
+         *    account_number, api_key, api_secret }`
+         */
+        Returns: Json
+      }
+      cancel_account_verification: {
+        /**
+         * Closes a token that concluded nothing — a network error, a timeout,
+         * a 5xx or an unreadable body. Not a status write: nothing was learned
+         * about the credentials, so nothing is recorded about them.
+         */
+        Args: {
+          p_token: string
+          p_reason:
+            | "network_error"
+            | "timeout"
+            | "broker_unavailable"
+            | "malformed_response"
+            | "abandoned"
+        }
+        Returns: boolean
+      }
+      finish_account_verification: {
+        Args: {
+          p_token: string
+          p_status: Database["public"]["Enums"]["account_status"]
+          p_account_number?: string | null
+        }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
+      }
+      find_account_by_operation: {
+        Args: { p_owner: string; p_operation_id: string }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
+      }
+      purge_unassigned_credential_pair: {
+        Args: {
+          p_key: string
+          p_secret: string
+          p_owner: string
+          /** A closed reason code (0022): the reason lands in an owner-readable audit row. */
+          p_reason:
+            | "orphaned_after_failed_create"
+            | "orphaned_after_failed_rotation"
+            | "operator_cleanup"
+            | "integrity_repair"
+        }
+        Returns: number
+      }
+      update_account_metadata: {
+        Args: {
+          p_account: string
+          p_owner: string
+          p_nickname?: string | null
+          p_color?: string | null
+          p_is_active?: boolean | null
+        }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
+      }
+      delete_account_atomic: {
+        Args: { p_account: string; p_owner: string; p_purge_history?: boolean }
+        Returns: boolean
+      }
+      rotate_account_credentials: {
+        Args: {
+          p_account: string
+          p_owner: string
+          p_api_key: string
+          p_api_secret: string
+          p_account_number: string
+        }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
       }
     }
     Enums: {

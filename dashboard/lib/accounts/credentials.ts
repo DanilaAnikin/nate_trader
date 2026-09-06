@@ -1,10 +1,8 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 
 export type AccountMode = Database["public"]["Enums"]["account_mode"];
 
-type Service = SupabaseClient<Database>;
 
 const ALPACA_BASE: Record<AccountMode, string> = {
   paper: "https://paper-api.alpaca.markets/v2",
@@ -69,53 +67,16 @@ export async function validateAlpacaKeys(
   return { ok: true, accountNumber: body.account_number };
 }
 
-/**
- * Write both Alpaca secrets into Supabase Vault. Returns the two secret UUIDs
- * that get stored on the `accounts` row. If the second write fails, the first
- * is rolled back so Vault never holds an orphan.
+/*
+ * `storeCredentials` and `purgeCredentials` used to live here.
+ *
+ * Both wrote Vault directly, through `vault_create_secret` and
+ * `vault_delete_secret`, and both existed to compensate a creation whose
+ * secrets were written *before* the account row. 0021 moved that inside one
+ * transaction, so there has been nothing to compensate since — and 0022
+ * retired the underlying RPCs, because a general-purpose Vault mutation with
+ * no remaining caller is a door that only an attacker has a use for.
+ *
+ * Deleted rather than deprecated: a helper kept "just in case" is how the
+ * two-phase creation comes back.
  */
-export async function storeCredentials(
-  svc: Service,
-  apiKey: string,
-  apiSecret: string,
-): Promise<{ keyId: string; secretId: string }> {
-  const keyRes = await svc.rpc("vault_create_secret", { p_secret: apiKey });
-  if (keyRes.error || !keyRes.data) {
-    throw new Error(`Vault store (key) failed: ${keyRes.error?.message ?? "no id"}`);
-  }
-  const secretRes = await svc.rpc("vault_create_secret", { p_secret: apiSecret });
-  if (secretRes.error || !secretRes.data) {
-    await svc.rpc("vault_delete_secret", { p_id: keyRes.data });
-    throw new Error(
-      `Vault store (secret) failed: ${secretRes.error?.message ?? "no id"}`,
-    );
-  }
-  return { keyId: keyRes.data, secretId: secretRes.data };
-}
-
-/** Overwrite the two Vault secrets in place, keeping the same UUIDs. */
-export async function rotateCredentials(
-  svc: Service,
-  keyId: string,
-  secretId: string,
-  apiKey: string,
-  apiSecret: string,
-): Promise<void> {
-  const k = await svc.rpc("vault_update_secret", { p_id: keyId, p_secret: apiKey });
-  if (k.error) throw new Error(`Vault rotate (key) failed: ${k.error.message}`);
-  const s = await svc.rpc("vault_update_secret", {
-    p_id: secretId,
-    p_secret: apiSecret,
-  });
-  if (s.error) throw new Error(`Vault rotate (secret) failed: ${s.error.message}`);
-}
-
-/** Permanently delete the Vault secrets backing an account. */
-export async function purgeCredentials(
-  svc: Service,
-  keyId: string | null,
-  secretId: string | null,
-): Promise<void> {
-  if (keyId) await svc.rpc("vault_delete_secret", { p_id: keyId });
-  if (secretId) await svc.rpc("vault_delete_secret", { p_id: secretId });
-}

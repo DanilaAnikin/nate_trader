@@ -15,12 +15,15 @@ type Ctx = { params: Promise<{ id: string }> };
 /**
  * GET /api/accounts/[id]/status — the single, account-scoped V11 read model.
  *
+ * **Side-effect free.** It reads the broker, the GitHub artifacts and the
+ * database, and writes nothing to any of them.
+ *
  * Everything the UI shows comes from here: broker snapshot, approved release,
  * private runtime artifact, canonical validation, scheduler health and
  * research evidence, each with its own source, scope, timestamp and freshness.
  *
- * **Strictly read-only, with no exceptions.** It cannot place, replace or
- * cancel a broker order, and it writes nothing to the database either — and it never returns credentials, Vault identifiers, full
+ * This endpoint is strictly read-only. It cannot place, replace or cancel a
+ * broker order, and it never returns credentials, Vault identifiers, full
  * broker account numbers, raw artifacts or order identifiers.
  */
 export async function GET(_req: Request, { params }: Ctx) {
@@ -56,11 +59,10 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   // No write here, deliberately. This handler used to set `status` to
   // `auth_failed` when Alpaca rejected the credentials, which made a GET
-  // mutate the account: unaudited, from a path with no CSRF protection and no
-  // user intent, and reachable by any page that happened to poll. It also
-  // meant the write freeze could not cover it without blanking the screen.
-  // The rejection is reported in the payload; recording it belongs to
-  // `POST /api/accounts/[id]/verify`.
+  // mutate the account — unaudited, from a path with no CSRF protection and
+  // no user intent, and reachable by any page that happened to poll. The
+  // broker rejection is reported in the payload; recording it is the job of
+  // `POST /api/accounts/[id]/verify`, which does it atomically and audits it.
 
   const payload = await buildStrategyStatus({
     viewer: { userId: user.id },

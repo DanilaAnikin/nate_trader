@@ -8,6 +8,7 @@ import {
   parseTournament,
   parseValidation,
   validationExpiry,
+  MAX_PREFLIGHT_CHECKS,
 } from "./parse";
 import {
   APPROVED_SHA,
@@ -30,9 +31,11 @@ describe("parseLastRun", () => {
     expect(run?.riskTier).toBe("CAUTIOUS");
     expect(run?.actionCounts).toEqual({
       ADAPTIVE_PLAN: 1,
+      ADAPTIVE_PLAN_DEFERRED: 1,
       ADAPTIVE_TRIM: 10,
       REBALANCE_PENDING_SELLS: 1,
     });
+    expect(run?.passWorthy).toBe(true);
   });
 
   it("rejects a record that is not the paper-only V11 schema", () => {
@@ -47,12 +50,17 @@ describe("parseLastRun", () => {
     const run = parseLastRun(
       lastRunJson({
         status: "DEGRADED",
-        blocking_actions: [{ action: "ABORT_SHORT_DETECTED", symbol: "TQQQ" }],
+        action_counts: { ADAPTIVE_PLAN: 1, ABORT_SHORT_RECONCILIATION: 1 },
+        blocking_actions: [
+          { action: "ABORT_SHORT_RECONCILIATION", symbol: "TQQQ" },
+        ],
       }),
     );
     const execution = executionFromLastRun(run!, null);
-    expect(execution.status).toBe("WARN");
-    expect(execution.blockingReason).toBe("ABORT_SHORT_DETECTED (TQQQ)");
+    // A stopped cycle is a failure, not a warning, whatever the producer
+    // chose to call it.
+    expect(execution.status).toBe("FAIL");
+    expect(execution.blockingReason).toBe("ABORT_SHORT_RECONCILIATION (TQQQ)");
   });
 
   it("reports a runner crash as FAIL with its failure type", () => {
@@ -91,7 +99,8 @@ describe("parseFrozenPlan", () => {
       targetWeightPct: 4.5,
       status: "submitted",
       attempt: 1,
-      submittedAt: "2026-08-07T12:05:03.000Z",
+      // 12:05:03 in the runner's America/New_York wall clock is 16:05:03Z.
+      submittedAt: "2026-08-07T16:05:03.000Z",
     });
   });
 
@@ -138,7 +147,7 @@ describe("parsePerformanceRuntime", () => {
     expect(runtime?.plan?.planId).toBe("f8756105eb63dde2");
   });
 
-  it("treats an absent recovery latch as not armed, and a junk latch as unknown", () => {
+  it("treats an absent recovery latch as not armed, and refuses a junk one", () => {
     expect(parsePerformanceRuntime(performanceJson())?.recoveryLatchArmed).toBe(
       false,
     );
@@ -147,24 +156,123 @@ describe("parsePerformanceRuntime", () => {
         performanceJson({ adaptive_risk_off_latched: true }),
       )?.recoveryLatchArmed,
     ).toBe(true);
+    // A latch that is neither armed nor disarmed is a document this build
+    // cannot read. It used to be published as `null`, which the risk view
+    // renders indistinguishably from "not armed".
     expect(
       parsePerformanceRuntime(
         performanceJson({ adaptive_risk_off_latched: "yes" }),
-      )?.recoveryLatchArmed,
+      ),
     ).toBeNull();
   });
 
-  it("does not invent a plan when the persisted plan is malformed", () => {
-    const runtime = parsePerformanceRuntime(
-      performanceJson({ adaptive_rebalance_pending: { schema_version: 2 } }),
-    );
-    expect(runtime?.plan).toBeNull();
+  it("refuses the runtime when a *present* plan cannot be read", () => {
+    // `parseFrozenPlan` returns null both for "absent" and for "present and
+    // unreadable". Publishing the second as the first claimed there was no
+    // pending rebalance when there was one nobody could read — and the
+    // rebalance is what the next cycle acts on.
+    expect(
+      parsePerformanceRuntime(
+        performanceJson({ adaptive_rebalance_pending: { schema_version: 2 } }),
+      ),
+    ).toBeNull();
+    expect(
+      parsePerformanceRuntime(
+        performanceJson({ adaptive_rebalance_pending: { not: "a plan" } }),
+      ),
+    ).toBeNull();
   });
 
-  it("keeps missing numbers null rather than zero", () => {
-    const runtime = parsePerformanceRuntime({ updated_at: "2026-08-07 12:00:00" });
-    expect(runtime?.equity).toBeNull();
-    expect(runtime?.rollingDrawdownPct).toBeNull();
+  it("accepts a genuinely absent plan, which is normal between rebalances", () => {
+    const absent = { ...performanceJson() };
+    delete (absent as Record<string, unknown>).adaptive_rebalance_pending;
+    expect(parsePerformanceRuntime(absent)?.plan).toBeNull();
+    expect(
+      parsePerformanceRuntime(
+        performanceJson({ adaptive_rebalance_pending: null }),
+      )?.plan,
+    ).toBeNull();
+  });
+
+  it.each([
+    ["a negative equity", { equity: -1 }],
+    ["a zero equity", { equity: 0 }],
+    ["a fractional position count", { num_positions: 2.5 }],
+    ["a negative position count", { num_positions: -1 }],
+    ["an unrecognised risk tier", { risk_tier: "SPICY" }],
+    ["an unreadable rolling drawdown", { rolling_drawdown_pct: "n/a" }],
+    ["an unreadable risk_tier_updated", { risk_tier_updated: "2026-02-30T00:00:00Z" }],
+    ["a missing daily_history", { daily_history: undefined }],
+    ["a null daily_history", { daily_history: null }],
+    ["a non-positive session equity", { daily_history: [{ date: "2026-08-03", equity: 0 }] }],
+  ])("refuses a runtime document with %s", (_label, patch) => {
+    const doc = { ...performanceJson(), ...patch };
+    if ((patch as Record<string, unknown>).daily_history === undefined
+        && "daily_history" in patch) {
+      delete (doc as Record<string, unknown>).daily_history;
+    }
+    expect(parsePerformanceRuntime(doc)).toBeNull();
+  });
+
+  it("refuses a document that cannot state its own equity, cash or positions", () => {
+    // These used to come back as `null` beside a parsed document, and the risk
+    // view renders a null equity as an observation rather than an absence.
+    expect(parsePerformanceRuntime({ updated_at: "2026-08-07 12:00:00" })).toBeNull();
+    for (const key of ["equity", "cash", "num_positions", "updated_at"]) {
+      const broken = { ...performanceJson() };
+      delete (broken as Record<string, unknown>)[key];
+      expect(parsePerformanceRuntime(broken), `missing ${key}`).toBeNull();
+    }
+    // Optional analytics stay optional.
+    const partial = { ...performanceJson() };
+    delete (partial as Record<string, unknown>).rolling_drawdown_pct;
+    expect(parsePerformanceRuntime(partial)?.rollingDrawdownPct).toBeNull();
+  });
+
+  it("refuses the whole document for one unusable daily_history row", () => {
+    // `continue` used to drop the row and publish the rest — and this is the
+    // series the rolling drawdown and the risk tier are computed from, so a
+    // history quietly missing its worst day reports a calmer account than the
+    // one that exists.
+    const base = performanceJson();
+    // The last row must be the ET session of `updated_at` and carry the same
+    // equity as the scalar field, so the "good" case is built to agree.
+    const good = [
+      { date: "2026-08-06", equity: 1000 },
+      { date: "2026-08-07", equity: base.equity as number },
+    ];
+    expect(
+      parsePerformanceRuntime({ ...base, daily_history: good })?.dailyHistory,
+    ).toHaveLength(2);
+
+    for (const [label, history] of [
+      ["a non-object row", [...good, 42]],
+      ["a missing date", [...good, { equity: 1 }]],
+      ["a missing equity", [...good, { date: "2026-08-08" }]],
+      ["an unusable equity", [...good, { date: "2026-08-08", equity: "x" }]],
+      ["an impossible date", [...good, { date: "2026-02-30", equity: 1 }]],
+      ["a duplicate session", [...good, { date: "2026-08-07", equity: 1 }]],
+      [
+        "an out-of-order session",
+        [{ date: "2026-08-07", equity: 1 }, { date: "2026-08-06", equity: 2 }],
+      ],
+      ["a non-array history", { date: "2026-08-03", equity: 1 }],
+    ] as const) {
+      expect(
+        parsePerformanceRuntime({ ...base, daily_history: history }),
+        label,
+      ).toBeNull();
+    }
+  });
+
+  it("refuses a daily_history longer than the bounded window", () => {
+    const long = Array.from({ length: 2001 }, (_, index) => ({
+      date: new Date(Date.UTC(2020, 0, 1 + index)).toISOString().slice(0, 10),
+      equity: 1000 + index,
+    }));
+    expect(
+      parsePerformanceRuntime({ ...performanceJson(), daily_history: long }),
+    ).toBeNull();
   });
 });
 
@@ -271,5 +379,130 @@ describe("parseTournament", () => {
 
   it("rejects an artifact without a selection decision", () => {
     expect(parseTournament(tournamentJson({ selection: {} }), "main")).toBeNull();
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * The preflight is the document the effective validation gate defers to, so
+ * anything the parser cannot fully understand it refuses. Every case below
+ * used to produce a *parsed* report that described less than the file did.
+ * ------------------------------------------------------------------------- */
+
+describe("parsePreflight refuses what it cannot fully read", () => {
+  it("accepts the real report", () => {
+    const parsed = parsePreflight(preflightJson(), null);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.checks).toHaveLength(18);
+    expect(parsed!.checksEvaluated).toBe(18);
+    expect(parsed!.allowedMode).toBe("paper");
+  });
+
+  it.each([
+    ["a non-array checks field", { checks: "eighteen" }],
+    ["a null checks field", { checks: null }],
+    ["a missing checks field", { checks: undefined }],
+  ])("refuses %s instead of reading it as empty", (_label, override) => {
+    expect(parsePreflight({ ...preflightJson(), ...override }, null)).toBeNull();
+  });
+
+  it("refuses a malformed check rather than skipping it", () => {
+    for (const broken of [
+      { name: "x" }, // no `passed`
+      { name: "x", passed: "true" }, // not a boolean
+      { passed: true }, // no name
+      { name: "", passed: true }, // empty name
+      { name: "x", passed: true, detail: 42 }, // non-string detail
+      "not-an-object",
+      null,
+    ]) {
+      const document = {
+        ...preflightJson(),
+        checks: [...(preflightJson().checks as unknown[]), broken],
+        checks_passed: 19,
+        checks_evaluated: 19,
+      };
+      expect(parsePreflight(document, null), JSON.stringify(broken)).toBeNull();
+    }
+  });
+
+  it("refuses a 65th check rather than truncating at 64", () => {
+    // Truncation would silently discard evidence — and a failing check placed
+    // past the cut would simply disappear.
+    const filler = Array.from({ length: MAX_PREFLIGHT_CHECKS + 1 }, (_, i) => ({
+      name: `check_${i}`,
+      passed: true,
+      detail: "",
+    }));
+    expect(
+      parsePreflight(
+        {
+          ...preflightJson(),
+          checks: filler,
+          checks_passed: filler.length,
+          checks_evaluated: filler.length,
+        },
+        null,
+      ),
+    ).toBeNull();
+    // Exactly at the limit is still readable.
+    const atLimit = filler.slice(0, MAX_PREFLIGHT_CHECKS);
+    expect(
+      parsePreflight(
+        {
+          ...preflightJson(),
+          checks: atLimit,
+          checks_passed: atLimit.length,
+          checks_evaluated: atLimit.length,
+        },
+        null,
+      ),
+    ).not.toBeNull();
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["a string", "18"],
+    ["negative", -1],
+    ["fractional", 17.5],
+  ])("refuses %s check counts rather than inventing them", (_label, value) => {
+    expect(
+      parsePreflight({ ...preflightJson(), checks_passed: value }, null),
+    ).toBeNull();
+    expect(
+      parsePreflight({ ...preflightJson(), checks_evaluated: value }, null),
+    ).toBeNull();
+  });
+
+  it("requires status PASS and allowed_mode paper to agree", () => {
+    // The runner writes `paper` only when everything passed. A report claiming
+    // one and not the other describes no coherent cycle.
+    expect(
+      parsePreflight(
+        { ...preflightJson(), status: "PASS", allowed_mode: "no-execution" },
+        null,
+      ),
+    ).toBeNull();
+    expect(
+      parsePreflight(
+        { ...preflightJson(), status: "FAIL", allowed_mode: "paper" },
+        null,
+      ),
+    ).toBeNull();
+    // The two coherent combinations are accepted.
+    expect(
+      parsePreflight(
+        { ...preflightJson(), status: "FAIL", allowed_mode: "no-execution" },
+        null,
+      ),
+    ).not.toBeNull();
+  });
+
+  it("refuses an unknown allowed_mode", () => {
+    for (const mode of ["live", "", null, undefined, "PAPER"]) {
+      expect(
+        parsePreflight({ ...preflightJson(), allowed_mode: mode }, null),
+      ).toBeNull();
+    }
   });
 });

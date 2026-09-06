@@ -370,7 +370,7 @@ function OperationsPanel({ payload }: { payload: StrategyStatusPayload }) {
               execution happened in that attempt.
             </Fact>
           )}
-          <Fact label="Last successful preflight">
+          <Fact label="Latest completed preflight">
             {preflight ? (
               <span className="inline-flex items-center gap-2">
                 <StatePill size="xs" state={preflight.status} />
@@ -500,7 +500,10 @@ function EvidencePanel({ payload }: { payload: StrategyStatusPayload }) {
                 validation.identityMatchesRuntime === "PASS" &&
                 validation.universeMatchesRuntime === "PASS"
                   ? "PASS"
-                  : "UNAVAILABLE"
+                  : validation.identityMatchesRuntime === "FAIL" ||
+                      validation.universeMatchesRuntime === "FAIL"
+                    ? "FAIL"
+                    : "UNAVAILABLE"
               }
             />
           </MetricGrid>

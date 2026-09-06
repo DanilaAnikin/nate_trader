@@ -9,9 +9,16 @@ import { Timestamp } from "@/components/status/primitives";
 /**
  * Re-read every observability source.
  *
- * This is a read refresh only — it re-requests the account-scoped status model
- * and re-renders the page. It never triggers a workflow, an execution or a
- * broker order.
+ * **This is a read, and its label says so.** It re-requests the account-scoped
+ * status model and re-renders the page: it never triggers a workflow, an
+ * execution, a broker order, or a broker-mirror refresh. It used to be called
+ * "Refresh", which is what the broker-mirror command is also called, and an
+ * operator clicking it could reasonably believe the equity curve had just been
+ * re-fetched from Alpaca. It had not; nothing here touches Alpaca's portfolio
+ * history or activity feed.
+ *
+ * Re-fetching from the broker is `SyncBrokerButton`, which is a separate,
+ * audited command.
  */
 export default function RefreshButton() {
   const [pending, startTransition] = useTransition();
@@ -27,8 +34,8 @@ export default function RefreshButton() {
       router.refresh();
       setAnnouncement(
         ok
-          ? "Status re-read from all sources."
-          : "Status refresh finished; some sources are unavailable.",
+          ? "Status re-read. The broker mirrors were not re-fetched."
+          : "Status re-read finished; some sources are unavailable.",
       );
     });
   }
@@ -47,7 +54,7 @@ export default function RefreshButton() {
         type="button"
         onClick={handleClick}
         disabled={pending}
-        title="Re-read broker, runtime, workflow and validation sources. Read-only."
+        title="Re-read the stored status, runtime artifacts and validation evidence. Read-only: it does not re-fetch the broker mirrors."
         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border bg-card text-secondary hover:text-foreground hover:bg-card-hover disabled:cursor-wait disabled:opacity-60"
       >
         <svg
@@ -66,7 +73,7 @@ export default function RefreshButton() {
           <polyline points="1 20 1 14 7 14" />
           <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
         </svg>
-        {pending ? "Reading…" : "Refresh"}
+        {pending ? "Reading…" : "Re-read"}
       </button>
     </div>
   );

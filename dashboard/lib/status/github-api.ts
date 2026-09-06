@@ -1,5 +1,6 @@
 import "server-only";
 import { MAX_ARCHIVE_BYTES } from "./zip";
+import { isRfc3339 } from "@/lib/calendar-date";
 
 /**
  * Server-only GitHub reader for the observability read model.
@@ -50,6 +51,104 @@ function cacheSet(key: string, value: unknown, ttlSeconds: number): void {
 /** Drop every cached GitHub response (used by the explicit refresh action). */
 export function clearGithubCache(): void {
   cache.clear();
+}
+
+/* ------------------------------------------------------- strict readers */
+
+/**
+ * Why these are strict rather than tolerant.
+ *
+ * Every listing below feeds a *newest wins* selector. Dropping an entry that
+ * cannot be read does not shorten a list; it promotes the next entry into the
+ * position the selector reads, so a malformed newest artifact silently becomes
+ * yesterday's artifact and yesterday's PASS is presented as today's. That
+ * substitution happens one layer beneath the selectors, where they cannot see
+ * it. A page that cannot be read whole is therefore UNAVAILABLE.
+ */
+
+/** A GitHub numeric identifier: a positive, exactly representable integer. */
+function positiveId(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
+}
+
+function nonNegativeInt(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
+/** RFC 3339, strictly — never `Date.parse`, which accepts "2026" and worse. */
+function instant(value: unknown): string | null {
+  return isRfc3339(value) ? (value as string) : null;
+}
+
+/** A full 40-character hexadecimal commit SHA. */
+const FULL_SHA = /^[0-9a-f]{40}$/i;
+
+/** The lifecycle states the Actions API documents for runs, jobs and steps. */
+const RUN_STATUSES: ReadonlySet<string> = new Set([
+  "queued",
+  "in_progress",
+  "completed",
+  "waiting",
+  "requested",
+  "pending",
+]);
+
+/** The conclusions the Actions API documents. `null` means "not concluded". */
+const CONCLUSIONS: ReadonlySet<string> = new Set([
+  "success",
+  "failure",
+  "neutral",
+  "cancelled",
+  "skipped",
+  "timed_out",
+  "action_required",
+  "stale",
+  "startup_failure",
+]);
+
+/**
+ * Events that may trigger the workflows this dashboard reads.
+ *
+ * Deliberately narrow: `paper-production.yml` is `schedule` plus a manual
+ * `workflow_dispatch`, and the release gate adds `push` and `pull_request`. An
+ * event outside this set means the run came from a trigger this build was not
+ * written against.
+ */
+const EVENTS: ReadonlySet<string> = new Set([
+  "schedule",
+  "workflow_dispatch",
+  "push",
+  "pull_request",
+  "workflow_run",
+  "repository_dispatch",
+  "dynamic",
+]);
+
+function enumValue(value: unknown, allowed: ReadonlySet<string>): string | null {
+  return typeof value === "string" && allowed.has(value) ? value : null;
+}
+
+/**
+ * Whether the page GitHub returned is the whole answer.
+ *
+ * A page shorter than `total_count` with no `rel="next"` lost entries in
+ * transit, and the newest may be among them. `total_count` itself must be
+ * present: without it there is nothing to reconcile against.
+ */
+function pageIsComplete(
+  response: Response,
+  totalCount: unknown,
+  returned: number,
+): boolean {
+  const total = nonNegativeInt(totalCount);
+  if (total === null) return false;
+  if (returned === total) return true;
+  if (returned > total) return false;
+  return /\brel="next"/.test(response.headers.get("link") ?? "");
 }
 
 function headers(accept: string): Record<string, string> {
@@ -178,21 +277,56 @@ interface RawWorkflowRun {
 }
 
 function toRunSummary(run: RawWorkflowRun): WorkflowRunSummary | null {
-  if (typeof run.id !== "number" || typeof run.head_sha !== "string") return null;
+  const id = positiveId(run.id);
+  const runNumber = positiveId(run.run_number);
+  // `run_attempt` used to default to 1 when absent. That is an invention, and
+  // it is the one field that distinguishes an original run from a re-run of
+  // the same id — the cycle binding, the attempt-scoped jobs and the step
+  // windows all key on it.
+  const attempt = positiveId(run.run_attempt);
+  const status = enumValue(run.status, RUN_STATUSES);
+  const event = enumValue(run.event, EVENTS);
+  const createdAt = instant(run.created_at);
+  const updatedAt = instant(run.updated_at);
+  // `run_started_at` is absent on a queued run; when present it must parse.
+  const runStartedAt =
+    run.run_started_at === undefined || run.run_started_at === null
+      ? createdAt
+      : instant(run.run_started_at);
+  // A conclusion is genuinely absent until the run concludes, but a string
+  // outside the documented set is a value this build cannot interpret.
+  const conclusion =
+    run.conclusion === undefined || run.conclusion === null
+      ? null
+      : enumValue(run.conclusion, CONCLUSIONS);
+  if (
+    id === null ||
+    runNumber === null ||
+    attempt === null ||
+    status === null ||
+    event === null ||
+    createdAt === null ||
+    updatedAt === null ||
+    runStartedAt === null ||
+    (run.conclusion !== undefined && run.conclusion !== null && conclusion === null) ||
+    typeof run.head_sha !== "string" ||
+    !FULL_SHA.test(run.head_sha)
+  ) {
+    return null;
+  }
+  if (run.html_url !== undefined && typeof run.html_url !== "string") return null;
   return {
-    id: run.id,
-    runNumber: typeof run.run_number === "number" ? run.run_number : 0,
-    attempt: typeof run.run_attempt === "number" ? run.run_attempt : 1,
-    status: typeof run.status === "string" ? run.status : "unknown",
-    conclusion: typeof run.conclusion === "string" ? run.conclusion : null,
-    event: typeof run.event === "string" ? run.event : "unknown",
+    id,
+    runNumber,
+    attempt,
+    status,
+    conclusion,
+    event,
     headSha: run.head_sha,
-    createdAt: run.created_at ?? null,
-    runStartedAt: run.run_started_at ?? run.created_at ?? null,
-    updatedAt: run.updated_at ?? null,
-    url:
-      run.html_url ??
-      `https://github.com/${GITHUB_REPO}/actions/runs/${run.id}`,
+    createdAt,
+    runStartedAt,
+    updatedAt,
+    url: run.html_url ?? `https://github.com/${GITHUB_REPO}/actions/runs/${id}`,
   };
 }
 
@@ -223,15 +357,41 @@ export async function fetchWorkflowRuns(
     return null;
   }
   const body = (await response.json().catch(() => null)) as {
+    total_count?: unknown;
     workflow_runs?: RawWorkflowRun[];
   } | null;
-  const runs = Array.isArray(body?.workflow_runs)
-    ? body.workflow_runs
-        .map(toRunSummary)
-        .filter((run): run is WorkflowRunSummary => run !== null)
-    : null;
+  // Fail the whole page rather than filtering. Dropping a run this reader
+  // cannot understand makes it *disappear*: the next-oldest run becomes the
+  // newest, and the selectors happily report its PASS as current. That is the
+  // substitution the selectors exist to prevent, performed one layer beneath
+  // them where they cannot see it. An unreadable listing is UNAVAILABLE.
+  let runs: WorkflowRunSummary[] | null = null;
+  if (Array.isArray(body?.workflow_runs)) {
+    const parsed = body.workflow_runs.map(toRunSummary);
+    runs =
+      parsed.some((run) => run === null) ||
+      !pageIsComplete(response, body.total_count, parsed.length)
+        ? null
+        : (parsed as WorkflowRunSummary[]);
+  }
   cacheSet(key, runs, runs ? (options.ttlSeconds ?? 60) : 30);
   return runs;
+}
+
+export interface WorkflowStepSummary {
+  readonly name: string;
+  readonly status: string;
+  readonly conclusion: string | null;
+  /**
+   * The step's own window.
+   *
+   * A report or artifact produced by a step must be datable to that step. The
+   * run's window is too wide: on a re-run it spans work from a different
+   * attempt entirely, and within one run it cannot distinguish a preflight
+   * report from anything else the job wrote.
+   */
+  readonly startedAt: string | null;
+  readonly completedAt: string | null;
 }
 
 export interface WorkflowJobSummary {
@@ -239,43 +399,149 @@ export interface WorkflowJobSummary {
   readonly status: string;
   readonly conclusion: string | null;
   readonly stepCount: number;
+  /**
+   * The job's steps, with their own conclusions.
+   *
+   * A run's conclusion says nothing about *which* steps ran. Deciding whether
+   * a report should exist — and therefore whether its absence is "it never
+   * ran" or "the upload failed" — requires the step, not the run.
+   */
+  readonly steps: readonly WorkflowStepSummary[];
+}
+
+interface RawStep {
+  name?: unknown;
+  status?: unknown;
+  conclusion?: unknown;
+  started_at?: unknown;
+  completed_at?: unknown;
+}
+
+interface RawJob {
+  name?: unknown;
+  status?: unknown;
+  conclusion?: unknown;
+  steps?: unknown;
+}
+
+function toStepSummary(step: unknown): WorkflowStepSummary | null {
+  if (typeof step !== "object" || step === null) return null;
+  const raw = step as RawStep;
+  const status = enumValue(raw.status, RUN_STATUSES);
+  const conclusion =
+    raw.conclusion === undefined || raw.conclusion === null
+      ? null
+      : enumValue(raw.conclusion, CONCLUSIONS);
+  if (
+    typeof raw.name !== "string" ||
+    raw.name.trim() === "" ||
+    status === null ||
+    (raw.conclusion !== undefined && raw.conclusion !== null && conclusion === null)
+  ) {
+    return null;
+  }
+  // A queued step has neither timestamp and an in-progress one has no
+  // completion; both are states. A *present* timestamp that cannot be read is
+  // not.
+  const startedAt =
+    raw.started_at === undefined || raw.started_at === null
+      ? null
+      : instant(raw.started_at);
+  const completedAt =
+    raw.completed_at === undefined || raw.completed_at === null
+      ? null
+      : instant(raw.completed_at);
+  if (raw.started_at !== undefined && raw.started_at !== null && startedAt === null) {
+    return null;
+  }
+  if (
+    raw.completed_at !== undefined &&
+    raw.completed_at !== null &&
+    completedAt === null
+  ) {
+    return null;
+  }
+  // A window that ends before it begins is not a window.
+  if (startedAt !== null && completedAt !== null) {
+    if (Date.parse(completedAt) < Date.parse(startedAt)) return null;
+  }
+  return { name: raw.name, status, conclusion, startedAt, completedAt };
+}
+
+function toJobSummary(job: unknown): WorkflowJobSummary | null {
+  if (typeof job !== "object" || job === null) return null;
+  const raw = job as RawJob;
+  const status = enumValue(raw.status, RUN_STATUSES);
+  const conclusion =
+    raw.conclusion === undefined || raw.conclusion === null
+      ? null
+      : enumValue(raw.conclusion, CONCLUSIONS);
+  if (
+    typeof raw.name !== "string" ||
+    raw.name.trim() === "" ||
+    status === null ||
+    (raw.conclusion !== undefined && raw.conclusion !== null && conclusion === null) ||
+    !Array.isArray(raw.steps)
+  ) {
+    return null;
+  }
+  const steps = raw.steps.map(toStepSummary);
+  if (steps.some((step) => step === null)) return null;
+  return {
+    name: raw.name,
+    status,
+    conclusion,
+    stepCount: steps.length,
+    steps: steps as WorkflowStepSummary[],
+  };
 }
 
 /**
- * Jobs of one run. A completed run whose job never executed a single step
- * failed in GitHub's infrastructure (for example no hosted runner could be
- * acquired) — no strategy, preflight or broker work happened in that attempt.
+ * Jobs of **one attempt** of one run.
+ *
+ * `/runs/{id}/jobs` returns the latest attempt's jobs, which is the wrong
+ * answer whenever a run has been re-run: the artifacts, the report and the
+ * step conclusions on screen belong to a specific attempt, and reading another
+ * attempt's steps to decide whether that one's preflight ran is exactly the
+ * substitution the selector exists to prevent. The attempt is therefore
+ * required, and the attempt-scoped endpoint is used.
+ *
+ * A completed run whose job never executed a single step failed in GitHub's
+ * infrastructure (for example no hosted runner could be acquired).
  */
 export async function fetchRunJobs(
   runId: number,
+  attempt: number,
   ttlSeconds = 120,
 ): Promise<WorkflowJobSummary[] | null> {
-  const key = `run-jobs:${runId}`;
+  if (!Number.isInteger(attempt) || attempt < 1) return null;
+  const key = `run-jobs:${runId}:${attempt}`;
   const cached = cacheGet<WorkflowJobSummary[] | null>(key);
   if (cached !== undefined) return cached;
 
-  const url = `${API_ROOT}/repos/${GITHUB_REPO}/actions/runs/${runId}/jobs?per_page=50`;
+  const url = `${API_ROOT}/repos/${GITHUB_REPO}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=50`;
   const response = await request(url, "application/vnd.github+json");
   if (!response || !response.ok) {
     cacheSet(key, null, 60);
     return null;
   }
   const body = (await response.json().catch(() => null)) as {
-    jobs?: {
-      name?: string;
-      status?: string;
-      conclusion?: string | null;
-      steps?: unknown[];
-    }[];
+    total_count?: unknown;
+    jobs?: RawJob[];
   } | null;
-  const jobs = Array.isArray(body?.jobs)
-    ? body.jobs.map((job) => ({
-        name: typeof job.name === "string" ? job.name : "job",
-        status: typeof job.status === "string" ? job.status : "unknown",
-        conclusion: typeof job.conclusion === "string" ? job.conclusion : null,
-        stepCount: Array.isArray(job.steps) ? job.steps.length : 0,
-      }))
-    : null;
+  // Whole page or nothing. A step whose window could not be read used to
+  // become `{startedAt: null, completedAt: null}`, and every window check
+  // treats a null window as "no constraint" — so an unreadable step silently
+  // stopped constraining the artifact it was supposed to date.
+  let jobs: WorkflowJobSummary[] | null = null;
+  if (Array.isArray(body?.jobs)) {
+    const parsed = body.jobs.map(toJobSummary);
+    jobs =
+      parsed.some((entry) => entry === null) ||
+      !pageIsComplete(response, body.total_count, parsed.length)
+        ? null
+        : (parsed as WorkflowJobSummary[]);
+  }
   cacheSet(key, jobs, jobs ? ttlSeconds : 30);
   return jobs;
 }
@@ -324,14 +590,28 @@ interface RawArtifact {
 }
 
 function toArtifact(raw: RawArtifact): ArtifactMeta | null {
-  if (typeof raw.id !== "number" || typeof raw.name !== "string") return null;
+  const id = positiveId(raw.id);
+  const size = nonNegativeInt(raw.size_in_bytes);
+  const createdAt = instant(raw.created_at);
+  // `expired` decides whether the artifact is worth downloading at all, and
+  // `created_at` is what dates it to a step window. A missing one used to
+  // become `false` and `null` respectively — the permissive reading of both.
+  if (
+    id === null ||
+    size === null ||
+    createdAt === null ||
+    typeof raw.name !== "string" ||
+    raw.name.trim() === "" ||
+    typeof raw.expired !== "boolean"
+  ) {
+    return null;
+  }
   return {
-    id: raw.id,
+    id,
     name: raw.name,
-    sizeInBytes:
-      typeof raw.size_in_bytes === "number" ? raw.size_in_bytes : Number.NaN,
-    expired: raw.expired === true,
-    createdAt: raw.created_at ?? null,
+    sizeInBytes: size,
+    expired: raw.expired,
+    createdAt,
   };
 }
 
@@ -351,13 +631,21 @@ export async function fetchRunArtifacts(
     return null;
   }
   const body = (await response.json().catch(() => null)) as {
+    total_count?: unknown;
     artifacts?: RawArtifact[];
   } | null;
-  const artifacts = Array.isArray(body?.artifacts)
-    ? body.artifacts
-        .map(toArtifact)
-        .filter((artifact): artifact is ArtifactMeta => artifact !== null)
-    : null;
+  // Whole page or nothing, for the same reason as the run listing: the
+  // runtime selector takes the newest matching artifact, so filtering the
+  // newest hands it an older cycle's state presented as this run's.
+  let artifacts: ArtifactMeta[] | null = null;
+  if (Array.isArray(body?.artifacts)) {
+    const parsed = body.artifacts.map(toArtifact);
+    artifacts =
+      parsed.some((entry) => entry === null) ||
+      !pageIsComplete(response, body.total_count, parsed.length)
+        ? null
+        : (parsed as ArtifactMeta[]);
+  }
   cacheSet(key, artifacts, artifacts ? ttlSeconds : 30);
   return artifacts;
 }

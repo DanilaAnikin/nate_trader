@@ -69,6 +69,7 @@ import {
 } from "./validation-gate";
 import {
   classifyAge,
+  CLOCK_SKEW_TOLERANCE_SECONDS,
   DAY,
   HOUR,
   isFullSha,
@@ -214,6 +215,26 @@ async function resolveApprovedSha(
   }
 
   return { sha: null, source: null, detail: null, authoritative: false };
+}
+
+type CanonicalValidation = Omit<
+  ValidationInfo,
+  "identityMatchesRuntime" | "universeMatchesRuntime"
+>;
+
+/**
+ * The canonical promotion report at an explicit ref.
+ *
+ * Read before the preflight selection so its recorded strategy identity and
+ * ranking universe can be the authority everything else is compared against —
+ * a cycle with no frozen plan still has to describe the validated strategy.
+ */
+async function readCanonicalValidation(
+  approvedSha: string | null,
+): Promise<CanonicalValidation | null> {
+  const ref = approvedSha ?? GITHUB_STATE_REF;
+  const document = await fetchRepoJson<unknown>(VALIDATION_PATH, ref, 600);
+  return document ? parseValidation(document, ref) : null;
 }
 
 function toAttempt(
@@ -478,26 +499,42 @@ function validationSection(
   const mismatch =
     identityMatchesRuntime === "FAIL" || universeMatchesRuntime === "FAIL";
 
+  // The report must be able to say when it was produced, and that must not be
+  // in the future. Without a usable `generated_at` the whole freshness
+  // calculation — including the 35-day deadline — rests on nothing, so the
+  // section cannot be CURRENT however green its contents look.
+  const generatedAtMs = report.generatedAt ? Date.parse(report.generatedAt) : NaN;
+  const generatedAtMissing = !Number.isFinite(generatedAtMs);
+  const generatedAtFuture =
+    Number.isFinite(generatedAtMs) &&
+    generatedAtMs - now.getTime() > CLOCK_SKEW_TOLERANCE_SECONDS * 1000;
+
   return section(
     provenance({
       source,
       scope,
       asOf: report.generatedAt,
       now,
-      freshness: mismatch
+      freshness: mismatch || generatedAtFuture
         ? "MISMATCH"
-        : expired
-          ? "EXPIRED"
-          : nearExpiry
-            ? "STALE"
-            : "CURRENT",
+        : generatedAtMissing
+          ? "UNAVAILABLE"
+          : expired
+            ? "EXPIRED"
+            : nearExpiry
+              ? "STALE"
+              : "CURRENT",
       detail: mismatch
         ? "the promotion evidence does not match the running strategy or ranking universe"
-        : expired
-          ? "the promotion evidence is past its 35-day freshness deadline and can no longer authorize a paper buy"
-          : nearExpiry
-            ? "the promotion evidence expires within seven days"
-            : null,
+        : generatedAtFuture
+          ? "the promotion evidence claims to have been generated in the future"
+          : generatedAtMissing
+            ? "the promotion evidence has no usable generation timestamp, so its freshness cannot be established"
+            : expired
+              ? "the promotion evidence is past its 35-day freshness deadline and can no longer authorize a paper buy"
+              : nearExpiry
+                ? "the promotion evidence expires within seven days"
+                : null,
     }),
     { ...report, identityMatchesRuntime, universeMatchesRuntime },
   );
@@ -506,6 +543,7 @@ function validationSection(
 /* ------------------------------------------------------------- assembly */
 
 /** Assemble the complete, sanitized read model for one viewer and account. */
+
 export async function buildStrategyStatus(input: {
   viewer: StatusViewer;
   account: StatusAccount;
@@ -616,10 +654,12 @@ export async function buildStrategyStatus(input: {
   let latestJobs: { stepCount: number }[] | null = null;
   let executionSelection: ExecutionSelection = {
     performance: null,
+    positions: null,
     lastRun: null,
     run: null,
     artifactName: null,
     artifactCreatedAt: null,
+    executeStep: null,
     errors: [],
     lineageMismatch: false,
   };
@@ -632,6 +672,7 @@ export async function buildStrategyStatus(input: {
   };
   let releaseGate: CheckState = "NOT_APPLICABLE";
   let gateRun: WorkflowRunSummary | null = null;
+  let canonicalReport: CanonicalValidation | null = null;
 
   if (authorized) {
     // Paged source: a long run of manual preflight-only invocations must not
@@ -650,15 +691,24 @@ export async function buildStrategyStatus(input: {
 
     approved = await resolveApprovedSha(latestSuccessfulRun);
 
+    // The canonical report is read first, because it — not the frozen plan —
+    // is the authority a preflight's identity must agree with. A cycle that
+    // produced no plan still has to describe the validated strategy.
+    canonicalReport = await readCanonicalValidation(approved.sha);
+
     // Independent selection: a manual preflight-only run must not hide an
     // older, still-valid execution, and vice versa.
     executionSelection = await selectLatestExecution(approved.sha, runPage, now);
     preflightSelection = await selectLatestPreflight(
       runPage,
-      executionSelection.performance?.plan?.strategyIdentityValue ?? null,
+      canonicalReport?.strategyIdentityValue ??
+        executionSelection.performance?.plan?.strategyIdentityValue ??
+        null,
       now,
     );
-    latestJobs = latestRun ? await fetchRunJobs(latestRun.id) : null;
+    latestJobs = latestRun
+      ? await fetchRunJobs(latestRun.id, latestRun.attempt)
+      : null;
 
     // A release gate is only a gate when a *push* run for the exact approved
     // commit completed successfully. A pull-request or manual dispatch success
@@ -742,6 +792,15 @@ export async function buildStrategyStatus(input: {
         expectedRuntimeArtifactName: approved.sha
           ? `${RUNTIME_ARTIFACT_PREFIX}${approved.sha}`
           : null,
+        // The canonical report is the authority for identity and universe, and
+        // unlike the frozen plan it exists between rebalances too.
+        validated: canonicalReport
+          ? {
+              strategyIdentity: canonicalReport.strategyIdentityValue,
+              rankingUniverseSha256: canonicalReport.rankingUniverseSha256,
+            }
+          : null,
+        now,
       })
     : LINEAGE_OK;
 
@@ -779,13 +838,13 @@ export async function buildStrategyStatus(input: {
   const validationRef = authorized
     ? (approved.sha ?? GITHUB_STATE_REF)
     : GITHUB_STATE_REF;
-  const validationDocument = await fetchRepoJson<unknown>(
-    VALIDATION_PATH,
-    validationRef,
-    600,
-  );
+  // Authorized viewers already read it above; an unauthorized viewer reads the
+  // repository default so the research page still works.
+  const parsedValidation = authorized
+    ? canonicalReport
+    : await readCanonicalValidation(null);
   const validation = validationSection(
-    validationDocument ? parseValidation(validationDocument, validationRef) : null,
+    parsedValidation,
     executionSelection,
     preflightSelection,
     validationRef,
@@ -799,6 +858,32 @@ export async function buildStrategyStatus(input: {
         report: validation.data,
         approvedReleaseSha: approved.sha,
         approvedReleaseAuthoritative: approved.authoritative,
+        // The executor's own gate result, bound to the cycle it ran in.
+        preflight: preflightSelection.preflight,
+        preflightRunId: preflightSelection.run?.id ?? null,
+        preflightAttempt: preflightSelection.run?.attempt ?? null,
+        // Only a fully readable, lineage-valid execution counts as evidence.
+        // The selector reports the run it was *looking at* even when it could
+        // not use it, so reading the run id straight off the selection let a
+        // corrupt or absent runtime artifact pass for one.
+        // The parsed documents, not a summary of them. The gate hands these
+        // to `proof.ts`, which is the only module that can mint a proof — so
+        // no condition here can be asserted, only derived.
+        executionEvidence:
+          executionSelection.run &&
+          executionSelection.lastRun &&
+          executionSelection.performance &&
+          executionSelection.errors.length === 0 &&
+          !executionSelection.lineageMismatch
+            ? {
+                runId: executionSelection.run.id,
+                attempt: executionSelection.run.attempt,
+                lastRun: executionSelection.lastRun,
+                performance: executionSelection.performance,
+                positions: executionSelection.positions,
+                executeStep: executionSelection.executeStep,
+              }
+            : null,
         lineageOk: !lineageBroken,
         now,
       })
@@ -807,12 +892,12 @@ export async function buildStrategyStatus(input: {
   const preflight: Section<PreflightInfo> = !authorized
     ? withheld<PreflightInfo>(
         DIAGNOSTICS_SOURCE,
-        "last successful production preflight",
+        "latest completed production preflight",
       )
     : lineageBroken
       ? unavailable<PreflightInfo>(
           DIAGNOSTICS_SOURCE,
-          "last successful production preflight",
+          "latest completed production preflight",
           lineage.detail ??
             preflightSelection.errors[0] ??
             "the preflight report does not match the running strategy identity",
@@ -823,8 +908,8 @@ export async function buildStrategyStatus(input: {
             provenance({
               source: DIAGNOSTICS_SOURCE,
               scope: preflightSelection.run
-                ? `last successful preflight · run #${preflightSelection.run.runNumber} (${preflightSelection.run.event})`
-                : "last successful production preflight",
+                ? `latest completed preflight · run #${preflightSelection.run.runNumber} (${preflightSelection.run.event}, ${preflightSelection.run.conclusion ?? "unknown"})`
+                : "latest completed production preflight",
               asOf: preflightSelection.preflight.checkedAt,
               now,
               freshness: classifyAge(
@@ -837,7 +922,7 @@ export async function buildStrategyStatus(input: {
           )
         : unavailable<PreflightInfo>(
             DIAGNOSTICS_SOURCE,
-            "last successful production preflight",
+            "latest completed production preflight",
             preflightSelection.errors[0] ?? "no preflight report is available",
           );
 

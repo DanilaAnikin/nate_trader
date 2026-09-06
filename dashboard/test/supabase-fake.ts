@@ -1,13 +1,15 @@
 /**
  * A minimal PostgREST-shaped query builder for tests.
  *
- * It exists for one reason: `.range()` must behave like the real thing. A mock
- * that ignores ranges and returns the whole array on every call makes a paging
- * bug invisible, and paging is exactly what the equity and cash-flow readers
- * must get right — Supabase caps a response at 1000 rows without an error.
+ * It exists so paging behaves like the real thing. A mock that ignores the
+ * cursor and returns the whole array on every call makes a paging bug
+ * invisible, and paging is exactly what the equity and cash-flow readers must
+ * get right — a server truncates a response silently.
  *
- * Filters (`eq`, `gte`, …) are accepted and ignored: a test controls the row
- * set directly. Ordering and slicing are real.
+ * What is real: `gt` (the keyset cursor), `limit`, `range` (the offset window
+ * the bridge's `readAllRows` pages with), `order`, the server-side row cap, and
+ * the exact count. What is ignored: `eq`/`gte`/`is` filters, because a test
+ * controls the row set directly.
  */
 
 export interface FakeQueryError {
@@ -17,8 +19,12 @@ export interface FakeQueryError {
 export interface FakeTableState<T> {
   rows: readonly T[];
   error?: FakeQueryError | null;
-  /** Ranges the builder was actually asked for, in order. */
+  /** Cursors the builder was actually asked for, in order. */
+  cursors?: (string | number | null)[];
+  /** Offset ranges the builder was actually asked for, in order. */
   ranges?: [number, number][];
+  /** The server's own per-response row cap, like `db-max-rows`. */
+  cap?: number;
 }
 
 type Order = { column: string; ascending: boolean };
@@ -31,11 +37,14 @@ export function fakeTable<T extends Record<string, unknown>>(
   state: FakeTableState<T>,
 ) {
   const orders: Order[] = [];
+  let cursorColumn: string | null = null;
+  let cursorValue: string | number | null = null;
+  let limit = Number.MAX_SAFE_INTEGER;
   let from = 0;
   let to = Number.MAX_SAFE_INTEGER;
 
   const resolve = () => {
-    if (state.error) return { data: null, error: state.error };
+    if (state.error) return { data: null, error: state.error, count: null };
     let rows = [...state.rows];
     for (const order of [...orders].reverse()) {
       rows.sort((a, b) => {
@@ -46,8 +55,19 @@ export function fakeTable<T extends Record<string, unknown>>(
         return order.ascending ? cmp : -cmp;
       });
     }
+    // The exact count ignores the cursor and the limit, exactly like
+    // PostgREST's `count=exact`.
+    const count = rows.length;
+    if (cursorColumn !== null && cursorValue !== null) {
+      rows = rows.filter(
+        (row) => (row[cursorColumn!] as never) > (cursorValue as never),
+      );
+    }
+    // The offset window first (PostgREST applies the Range header after the
+    // filters and ordering), then the explicit limit and the server cap.
     rows = rows.slice(from, to + 1);
-    return { data: rows, error: null };
+    rows = rows.slice(0, Math.min(limit, state.cap ?? Number.MAX_SAFE_INTEGER));
+    return { data: rows, error: null, count };
   };
 
   const builder = {
@@ -58,6 +78,16 @@ export function fakeTable<T extends Record<string, unknown>>(
     lte: () => builder,
     order(column: string, options?: { ascending?: boolean }) {
       orders.push({ column, ascending: options?.ascending !== false });
+      return builder;
+    },
+    gt(column: string, value: string | number) {
+      cursorColumn = column;
+      cursorValue = value;
+      state.cursors?.push(value);
+      return builder;
+    },
+    limit(count: number) {
+      limit = count;
       return builder;
     },
     range(start: number, end: number) {
@@ -76,7 +106,11 @@ export function fakeTable<T extends Record<string, unknown>>(
     },
     // Awaiting the builder itself runs the query, exactly like PostgREST.
     then<R>(
-      onFulfilled: (value: { data: T[] | null; error: FakeQueryError | null }) => R,
+      onFulfilled: (value: {
+        data: T[] | null;
+        error: FakeQueryError | null;
+        count: number | null;
+      }) => R,
     ): Promise<R> {
       return Promise.resolve(resolve()).then(onFulfilled);
     },

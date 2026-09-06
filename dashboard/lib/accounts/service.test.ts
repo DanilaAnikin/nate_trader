@@ -29,6 +29,8 @@ const ROW: Database["public"]["Tables"]["accounts"]["Row"] = {
   created_at: "2026-05-01T00:00:00Z",
   updated_at: "2026-08-07T16:00:00Z",
   deleted_at: null,
+  credential_version: 1,
+  create_operation_id: null,
 };
 
 describe("toSafe", () => {
