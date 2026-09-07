@@ -227,7 +227,21 @@ export async function fetchBenchmarkBars(
       start: startDate,
       adjustment: "all",
       limit: "10000",
-      feed: "iex",
+      // THE CONSOLIDATED TAPE, NOT ONE VENUE.
+      //
+      // This read `feed: "iex"`, and IEX is a single exchange carrying a small
+      // share of volume: its daily bar is built from IEX prints only, so its
+      // close is near the official one but not it. Measured on this account,
+      // 2026-08-11: iex 770.52, sip 770.56 — four cents, and the epoch
+      // baseline was recorded from a consolidated source. That is larger than
+      // the anchor tolerance, so the forward-performance panel refused with
+      // BASELINE_OBSERVATION_MISMATCH and stayed dead. The benchmark return
+      // was also being computed from one venue's prints.
+      //
+      // A benchmark is a published series and it has one right value per
+      // session. `sip` is that value and this account is entitled to it
+      // (verified against the same endpoint before this change).
+      feed: "sip",
       sort: "asc",
     });
     if (pageToken) query.set("page_token", pageToken);
