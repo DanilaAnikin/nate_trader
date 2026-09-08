@@ -31,8 +31,14 @@ def check_strategy_config() -> list[str]:
                 "adaptive_momentum": True,
                 "momentum_top_n": 10,
                 "max_position_pct": 9.0,
-                "momentum_max_sector_pct": 20.0,
+                "momentum_max_sector_pct": 40.0,
                 "momentum_risk_on_reentry_days": 1,
+                # Below SPY's SMA200 the book de-risks to this share of normal
+                # gross rather than exiting to cash. Pinned here as well as in
+                # the policy because it decides how much money is at risk in a
+                # downtrend, which is exactly the class of value this check
+                # exists to stop from drifting silently.
+                "momentum_below_sma200_floor_pct": 75.0,
                 "min_cash_pct": 10.0,
                 "tqqq_pct": 0.0,
                 "upro_pct": 0.0,
@@ -51,8 +57,9 @@ def check_strategy_config() -> list[str]:
                 failures.append(f"{regime}/{tier}: SH hedge target is not disabled")
     if not failures:
         _ok(
-            "v11 targets: 10 names, 9% max, 20% sector, 10% cash, "
-            "one-shot recovery reentry, no leverage"
+            "v11 targets: 10 names, 9% max, 40% sector, 10% cash, "
+            "75% gross floor below SMA200, one-shot recovery reentry, "
+            "no leverage"
         )
     return failures
 

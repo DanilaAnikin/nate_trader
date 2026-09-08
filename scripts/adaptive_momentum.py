@@ -35,7 +35,17 @@ SECTOR_BENCHMARKS = {
 
 @dataclass(frozen=True)
 class AdaptiveMomentumConfig:
-    """Conservative production defaults chosen before holdout evaluation."""
+    """Conservative defaults for a config built with no params dict.
+
+    These are NOT the shipped policy. Two of them deliberately diverge from
+    ``_V11_POLICY`` after 2026-09-08, and both diverge toward caution:
+    ``max_sector_pct`` stays at 20 where the policy allows 40, and
+    ``below_sma200_floor_pct`` stays at 0 — a hard exit to cash below the
+    SMA200 — where the policy floors at 75.
+
+    A bare config is what a caller gets when it supplies nothing, so the right
+    failure for it is to risk less than production, never more.
+    """
 
     lookback_days: int = 252
     skip_recent_days: int = 21
