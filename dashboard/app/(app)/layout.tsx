@@ -21,6 +21,7 @@ export default async function AppLayout({
   let accounts: SafeAccount[] = [];
   let selectedId: string | null = null;
   let selectedAccount: SafeAccount | null = null;
+  let backendUnreachable = false;
 
   if (SUPABASE_CONFIGURED) {
     let user = null;
@@ -42,6 +43,7 @@ export default async function AppLayout({
       // project). Render the shell without a selection; the status provider
       // then fails closed instead of substituting legacy repository data.
       supabaseReachable = false;
+      backendUnreachable = true;
     }
 
     // redirect() throws NEXT_REDIRECT, so it must live outside the try/catch.
@@ -51,6 +53,7 @@ export default async function AppLayout({
   return (
     <StatusProvider
       enabled={SUPABASE_CONFIGURED}
+      backendUnreachable={backendUnreachable}
       selectedAccount={
         selectedAccount
           ? {

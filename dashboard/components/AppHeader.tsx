@@ -9,7 +9,12 @@ import type { AccountRole } from "@/lib/status/types";
 
 const ROLE_LABEL: Record<AccountRole, string> = {
   PRODUCTION_CONTROLLED_PAPER: "PRODUCTION-CONTROLLED PAPER ACCOUNT",
+  // Named so it cannot be skim-read as the paper role. A reader glancing at
+  // this pill must not have to notice one changed word to learn that the
+  // account on screen trades real money.
+  PRODUCTION_CONTROLLED_LIVE: "REAL-MONEY PRODUCTION ACCOUNT",
   OBSERVER_ONLY_PAPER: "OBSERVER-ONLY PAPER ACCOUNT",
+  OBSERVER_ONLY_LIVE: "OBSERVER-ONLY LIVE ACCOUNT",
   READ_ONLY_LIVE: "READ-ONLY LIVE ACCOUNT",
 };
 
@@ -24,6 +29,10 @@ const ROLE_LABEL: Record<AccountRole, string> = {
 export default function AppHeader() {
   const { data, selectedAccount, status, refresh } = useStrategyStatus();
   const binding = data?.accountBinding.data ?? null;
+  // Only a *bound* live account changes the badge. A live account the viewer
+  // is merely observing is not what the executor trades, and saying "live"
+  // for it would be its own kind of lie.
+  const liveProduction = binding?.role === "PRODUCTION_CONTROLLED_LIVE";
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
@@ -33,15 +42,26 @@ export default function AppHeader() {
             <h1 className="text-sm font-semibold text-foreground whitespace-nowrap">
               V11 Adaptive Momentum
             </h1>
+            {/*
+              Derived from the binding, not asserted. This badge sat next to
+              the strategy name saying PAPER on every screen; leaving it fixed
+              would have made the app quietly wrong the moment a real-money
+              account was wired, in the most-read spot on the page.
+            */}
             <span
               className="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded"
-              style={{
-                color: "var(--accent-blue)",
-                background: "var(--tint-blue)",
-              }}
-              title="The supported executor is hard-wired to Alpaca paper trading. This is forward validation, not a live-money release."
+              style={
+                liveProduction
+                  ? { color: "var(--accent-red)", background: "var(--tint-red)" }
+                  : { color: "var(--accent-blue)", background: "var(--tint-blue)" }
+              }
+              title={
+                liveProduction
+                  ? "The executor is configured to trade this real-money account. Orders settle against a funded brokerage account."
+                  : "The executor is configured for Alpaca paper trading. This is forward validation, not a live-money release."
+              }
             >
-              PAPER FORWARD VALIDATION
+              {liveProduction ? "LIVE REAL MONEY" : "PAPER FORWARD VALIDATION"}
             </span>
             {selectedAccount && (
               <span className="flex items-center gap-2 min-w-0">
@@ -62,11 +82,14 @@ export default function AppHeader() {
                   <StatePill
                     size="xs"
                     state={
-                      binding.role === "PRODUCTION_CONTROLLED_PAPER"
-                        ? "PASS"
-                        : binding.role === "READ_ONLY_LIVE"
-                          ? "NOT_APPLICABLE"
-                          : "UNAVAILABLE"
+                      binding.role === "PRODUCTION_CONTROLLED_LIVE"
+                        ? "FAIL"
+                        : binding.role === "PRODUCTION_CONTROLLED_PAPER"
+                          ? "PASS"
+                          : binding.role === "READ_ONLY_LIVE" ||
+                              binding.role === "OBSERVER_ONLY_LIVE"
+                            ? "NOT_APPLICABLE"
+                            : "UNAVAILABLE"
                     }
                     label={ROLE_LABEL[binding.role]}
                     title={binding.bindingDetail}

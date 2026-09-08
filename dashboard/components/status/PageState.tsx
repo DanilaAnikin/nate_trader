@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useStrategyStatus } from "./StatusProvider";
-import { UnavailableBlock } from "./primitives";
+import { StatePill, UnavailableBlock } from "./primitives";
 import type { StrategyStatusPayload } from "@/lib/status/types";
 
 /**
@@ -25,6 +25,15 @@ export default function PageState({
         state="NOT_APPLICABLE"
         title="Account backend is not configured"
         detail="This deployment has no Supabase account backend, so no account-scoped broker or strategy data can be shown."
+      />
+    );
+  }
+  if (status === "backend-unreachable") {
+    return (
+      <UnavailableBlock
+        state="UNAVAILABLE"
+        title="Account backend could not be reached"
+        detail="Supabase is configured but the server could not read your accounts, so no account-scoped data can be shown. This is an infrastructure fault, not a missing account — nothing has been added, removed or changed. Check that the Supabase project is running and that SUPABASE_SERVICE_ROLE_KEY is set on the dashboard server."
       />
     );
   }
@@ -63,5 +72,43 @@ export default function PageState({
     );
   }
 
-  return <>{children(data)}</>;
+  return (
+    <>
+      <ReadModelWarnings warnings={data.warnings} />
+      {children(data)}
+    </>
+  );
+}
+
+/**
+ * The read model already diagnoses why whole groups of panels are withheld —
+ * an unset GITHUB_TOKEN, a broken production lineage, a dashboard build that is
+ * not the approved release. Until now nothing rendered those strings, so a
+ * reader saw eight panels each saying "could not be read" and never the one
+ * sentence naming the cause. They belong above the page, once.
+ */
+function ReadModelWarnings({ warnings }: { warnings: readonly string[] }) {
+  if (warnings.length === 0) return null;
+  return (
+    <div
+      className="panel border-l-4 border-l-amber-500 p-4 space-y-2"
+      role="status"
+    >
+      <div className="flex items-center gap-2">
+        <StatePill size="xs" state="STALE" label="NEEDS ATTENTION" />
+        <span className="text-xs uppercase tracking-wide text-muted">
+          {warnings.length === 1
+            ? "1 configuration note"
+            : `${warnings.length} configuration notes`}
+        </span>
+      </div>
+      <ul className="space-y-1 text-sm">
+        {warnings.map((warning) => (
+          <li key={warning} className="leading-snug">
+            {warning}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }

@@ -140,8 +140,23 @@ function CanonicalPanel({ payload }: { payload: StrategyStatusPayload }) {
 function MetricsPanel({ payload }: { payload: StrategyStatusPayload }) {
   const validation = payload.validation.data;
   const metrics = validation?.metrics ?? [];
+  // Same rule as everywhere else: an unreadable source is reported, never
+  // silently omitted. Dropping the section made an unreadable validation
+  // report look like a page that simply has fewer panels.
   if (!validation || metrics.length === 0) {
-    return null;
+    return (
+      <Panel
+        title="Historical diagnostic metrics"
+        subtitle="Development and reused-temporal segments from the canonical validation report."
+        provenance={payload.validation.provenance}
+      >
+        <UnavailableBlock
+          state={payload.validation.provenance.freshness}
+          title="Validation metrics unavailable"
+          detail={payload.validation.provenance.detail}
+        />
+      </Panel>
+    );
   }
   const development = metrics.filter((row) => row.segment === "development");
   const reused = metrics.filter((row) => row.segment === "temporal_check");

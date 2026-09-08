@@ -12,6 +12,7 @@ import type { StatusIdentity } from "./client";
 export type StatusFetchStatus =
   | "disabled"
   | "no-account"
+  | "backend-unreachable"
   | "loading"
   | "ready"
   | "error";
@@ -34,8 +35,18 @@ export function scopeStatusState(input: {
   status: StatusFetchStatus;
   data: StrategyStatusPayload | null;
   error: StatusError | null;
+  /**
+   * The server rendered the shell without a selection because the account
+   * backend threw, not because the operator has no accounts. Without this the
+   * two are indistinguishable downstream and the screen tells a user with a
+   * funded account to go and add one.
+   */
+  backendUnreachable?: boolean;
 }): ScopedStatusState {
   if (!input.enabled) return { status: "disabled", data: null, error: null };
+  if (input.backendUnreachable) {
+    return { status: "backend-unreachable", data: null, error: null };
+  }
   if (!input.selectedAccount) {
     return { status: "no-account", data: null, error: null };
   }

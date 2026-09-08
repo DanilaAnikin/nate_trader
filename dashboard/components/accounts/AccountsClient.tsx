@@ -20,7 +20,12 @@ type LiveInfo = {
 
 const ROLE_LABEL: Record<AccountRole, string> = {
   PRODUCTION_CONTROLLED_PAPER: "PRODUCTION-CONTROLLED PAPER ACCOUNT",
+  // Named so it cannot be skim-read as the paper role. A reader glancing at
+  // this pill must not have to notice one changed word to learn that the
+  // account on screen trades real money.
+  PRODUCTION_CONTROLLED_LIVE: "REAL-MONEY PRODUCTION ACCOUNT",
   OBSERVER_ONLY_PAPER: "OBSERVER-ONLY PAPER ACCOUNT",
+  OBSERVER_ONLY_LIVE: "OBSERVER-ONLY LIVE ACCOUNT",
   READ_ONLY_LIVE: "READ-ONLY LIVE ACCOUNT",
 };
 
@@ -182,11 +187,14 @@ export default function AccountsClient({
                       <StatePill
                         size="xs"
                         state={
-                          binding.role === "PRODUCTION_CONTROLLED_PAPER"
-                            ? "PASS"
-                            : binding.role === "READ_ONLY_LIVE"
-                              ? "NOT_APPLICABLE"
-                              : "UNAVAILABLE"
+                          binding.role === "PRODUCTION_CONTROLLED_LIVE"
+                            ? "FAIL"
+                            : binding.role === "PRODUCTION_CONTROLLED_PAPER"
+                              ? "PASS"
+                              : binding.role === "READ_ONLY_LIVE" ||
+                                  binding.role === "OBSERVER_ONLY_LIVE"
+                                ? "NOT_APPLICABLE"
+                                : "UNAVAILABLE"
                         }
                         label={ROLE_LABEL[binding.role]}
                       />
@@ -261,8 +269,10 @@ export default function AccountsClient({
 
       <p className="text-[11px] text-muted max-w-prose">
         Alpaca keys are stored in Supabase Vault and are only ever decrypted
-        server-side. A live account is read-only monitoring: the V11 executor is
-        hard-wired to the Alpaca paper endpoint and never trades live money.
+        server-side. A live account is read-only monitoring unless the server is
+        explicitly configured to trade it; when it is, the account is labelled{" "}
+        <span className="font-semibold">REAL-MONEY PRODUCTION ACCOUNT</span> and
+        its orders settle against a funded brokerage account.
       </p>
 
       <AddAccountDialog

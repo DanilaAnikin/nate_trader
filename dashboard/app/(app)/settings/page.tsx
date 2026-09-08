@@ -307,7 +307,13 @@ export default function SettingsPage() {
 function EffectivePolicySummary() {
   const rows: [string, string][] = [
     ["Strategy", `${V11_POLICY.displayName} (${V11_POLICY.strategyVersion})`],
-    ["Execution mode", "Alpaca paper only — no supported live-money mode"],
+    [
+      "Execution mode",
+      "Alpaca paper by default. Real-money execution exists but is off unless " +
+        "TRADING_MODE=live is set together with separate live credentials, an " +
+        "explicit LIVE_TRADING_ENABLED, the account number it may trade, and " +
+        "absolute per-order and per-cycle dollar ceilings.",
+    ],
     ["Signal", `${V11_POLICY.signal}, 6-1 momentum as tie-break only`],
     ["Weighting", `${V11_POLICY.weighting}, up to ${V11_POLICY.topN} names`],
     ["Single-name cap", `${V11_POLICY.maxPositionPct}% of equity`],

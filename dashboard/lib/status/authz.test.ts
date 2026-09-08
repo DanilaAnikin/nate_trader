@@ -16,6 +16,7 @@ const FULL_CONFIG: ProductionAuthzConfig = {
   productionOwnerUserId: OWNER,
   productionAccountId: PROD_ACCOUNT,
   productionBrokerAccountNumber: BROKER_NUMBER,
+  productionAccountMode: "paper",
 };
 
 function authorize(overrides: Partial<Parameters<typeof authorizeProductionRuntime>[0]> = {}) {
@@ -31,7 +32,7 @@ function authorize(overrides: Partial<Parameters<typeof authorizeProductionRunti
 }
 
 describe("readProductionAuthzConfig", () => {
-  it("reads all three inputs and treats blanks as absent", () => {
+  it("reads all inputs and treats blanks as absent", () => {
     expect(
       readProductionAuthzConfig({
         PRODUCTION_OWNER_USER_ID: ` ${OWNER} `,
@@ -42,7 +43,33 @@ describe("readProductionAuthzConfig", () => {
       productionOwnerUserId: OWNER,
       productionAccountId: PROD_ACCOUNT,
       productionBrokerAccountNumber: null,
+      productionAccountMode: "paper",
     });
+  });
+
+  it("defaults the production mode to paper when it is unset", () => {
+    expect(readProductionAuthzConfig({}).productionAccountMode).toBe("paper");
+  });
+
+  it("reads live only from the exact word, case-insensitively", () => {
+    expect(
+      readProductionAuthzConfig({ PRODUCTION_ACCOUNT_MODE: "live" })
+        .productionAccountMode,
+    ).toBe("live");
+    expect(
+      readProductionAuthzConfig({ PRODUCTION_ACCOUNT_MODE: " LIVE " })
+        .productionAccountMode,
+    ).toBe("live");
+  });
+
+  it("falls back to paper for anything that is not exactly live", () => {
+    // A typo must land on the mode that cannot spend real money.
+    for (const value of ["", "  ", "yes", "true", "1", "livee", "live!", "real"]) {
+      expect(
+        readProductionAuthzConfig({ PRODUCTION_ACCOUNT_MODE: value })
+          .productionAccountMode,
+      ).toBe("paper");
+    }
   });
 });
 
@@ -72,6 +99,7 @@ describe("authorizeProductionRuntime", () => {
           productionOwnerUserId: null,
           productionAccountId: null,
           productionBrokerAccountNumber: null,
+          productionAccountMode: "paper",
         },
       }).reason,
     ).toBe("NOT_CONFIGURED");
@@ -105,8 +133,60 @@ describe("authorizeProductionRuntime", () => {
     );
   });
 
-  it("refuses a live account outright", () => {
-    expect(authorize({ mode: "live" }).reason).toBe("NOT_PAPER_MODE");
+  it("refuses a live account when the server declares a paper executor", () => {
+    // This used to be an outright ban, because the executor was paper-only.
+    // Live is now supported, so the rule became a *match*: the account's mode
+    // has to equal the mode the server declares out of band.
+    expect(authorize({ mode: "live" }).reason).toBe("ACCOUNT_MODE_MISMATCH");
+  });
+
+  it("refuses a paper account when the server declares a live executor", () => {
+    // The mismatch is refused in both directions. Showing a paper account
+    // under a live executor's runtime would tell the reader that real money is
+    // moving when it is not — a quieter error, and a worse one, than the
+    // reverse.
+    expect(
+      authorize({
+        mode: "paper",
+        config: { ...FULL_CONFIG, productionAccountMode: "live" },
+      }).reason,
+    ).toBe("ACCOUNT_MODE_MISMATCH");
+  });
+
+  it("authorizes a live account only when live is explicitly declared", () => {
+    const result = authorize({
+      mode: "live",
+      config: { ...FULL_CONFIG, productionAccountMode: "live" },
+    });
+    expect(result.authorized).toBe(true);
+    expect(result.detail).toContain("live mode");
+  });
+
+  it("still requires every other condition for a live production account", () => {
+    // Declaring live must not become a way around the rest of the AND-gate.
+    const liveConfig = { ...FULL_CONFIG, productionAccountMode: "live" as const };
+    expect(
+      authorize({ mode: "live", config: liveConfig, viewerUserId: OTHER_USER })
+        .reason,
+    ).toBe("NOT_PRODUCTION_OWNER");
+    expect(
+      authorize({ mode: "live", config: liveConfig, accountId: OTHER_ACCOUNT })
+        .reason,
+    ).toBe("NOT_PRODUCTION_ACCOUNT");
+    expect(
+      authorize({
+        mode: "live",
+        config: liveConfig,
+        liveBrokerAccountNumber: "PA9ZZZZZ9999",
+      }).reason,
+    ).toBe("BROKER_ACCOUNT_MISMATCH");
+    expect(
+      authorize({
+        mode: "live",
+        config: liveConfig,
+        liveBrokerAccountNumber: null,
+      }).reason,
+    ).toBe("BROKER_ACCOUNT_UNVERIFIED");
   });
 
   it("refuses when the configured account is not owned by the owner", () => {

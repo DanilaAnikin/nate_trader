@@ -28,6 +28,15 @@ export interface ProductionAuthzConfig {
    * stored in Supabase is never accepted, because that row is user-influenced.
    */
   readonly productionBrokerAccountNumber: string | null;
+  /**
+   * Which broker mode the configured production account is expected to be.
+   *
+   * Defaults to `paper`. A live production account requires this to say `live`
+   * *in as many words*, so the mode is never inferred from the account row —
+   * otherwise editing a row's mode in the database would silently promote a
+   * real-money account into the production view.
+   */
+  readonly productionAccountMode: AccountMode;
 }
 
 export function readProductionAuthzConfig(
@@ -37,10 +46,14 @@ export function readProductionAuthzConfig(
     const raw = env[name]?.trim();
     return raw ? raw : null;
   };
+  const declaredMode = value("PRODUCTION_ACCOUNT_MODE")?.toLowerCase() ?? null;
   return {
     productionOwnerUserId: value("PRODUCTION_OWNER_USER_ID"),
     productionAccountId: value("PRODUCTION_ACCOUNT_ID"),
     productionBrokerAccountNumber: value("PRODUCTION_ALPACA_ACCOUNT_NUMBER"),
+    // Anything that is not exactly "live" means paper. A typo must fall back to
+    // the safe mode, never to the one that moves real money.
+    productionAccountMode: declaredMode === "live" ? "live" : "paper",
   };
 }
 
@@ -49,7 +62,7 @@ export type ProductionDenialReason =
   | "BROKER_BINDING_NOT_CONFIGURED"
   | "NOT_PRODUCTION_OWNER"
   | "NOT_PRODUCTION_ACCOUNT"
-  | "NOT_PAPER_MODE"
+  | "ACCOUNT_MODE_MISMATCH"
   | "ACCOUNT_NOT_OWNED_BY_PRODUCTION_OWNER"
   | "BROKER_ACCOUNT_UNVERIFIED"
   | "BROKER_ACCOUNT_MISMATCH";
@@ -69,8 +82,8 @@ const DENIAL_DETAIL: Record<ProductionDenialReason, string> = {
     "The signed-in user is not the configured production owner. Central production runtime data is withheld.",
   NOT_PRODUCTION_ACCOUNT:
     "The selected account is not the configured production executor account.",
-  NOT_PAPER_MODE:
-    "The V11 executor is paper-only, so a live account can never be the production account.",
+  ACCOUNT_MODE_MISMATCH:
+    "The selected account's broker mode is not the mode configured for the production executor, so it cannot be the production account.",
   ACCOUNT_NOT_OWNED_BY_PRODUCTION_OWNER:
     "The configured production account is not owned by the signed-in production owner.",
   BROKER_ACCOUNT_UNVERIFIED:
@@ -116,8 +129,11 @@ export function authorizeProductionRuntime(input: {
   if (config.productionAccountId !== input.accountId) {
     return deny("NOT_PRODUCTION_ACCOUNT");
   }
-  if (input.mode !== "paper") {
-    return deny("NOT_PAPER_MODE");
+  // The account's own mode must equal the mode the server declares. Matching
+  // in both directions matters: a live row must not be shown as a paper
+  // executor either, or the reader would be told real money is paper.
+  if (input.mode !== config.productionAccountMode) {
+    return deny("ACCOUNT_MODE_MISMATCH");
   }
   if (input.accountOwnerId !== config.productionOwnerUserId) {
     return deny("ACCOUNT_NOT_OWNED_BY_PRODUCTION_OWNER");
@@ -137,6 +153,7 @@ export function authorizeProductionRuntime(input: {
     authorized: true,
     reason: null,
     detail:
-      "Signed-in production owner, configured production account, paper mode, account ownership and a freshly verified Alpaca account number all match.",
+      `Signed-in production owner, configured production account, ${config.productionAccountMode} mode, ` +
+      "account ownership and a freshly verified Alpaca account number all match.",
   };
 }

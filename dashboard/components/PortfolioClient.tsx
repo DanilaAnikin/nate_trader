@@ -388,7 +388,25 @@ function Holdings({ payload }: { payload: StrategyStatusPayload }) {
 function PendingIntents({ payload }: { payload: StrategyStatusPayload }) {
   const plan = payload.strategy.data?.plan ?? null;
   const actions = plan?.pendingActions ?? [];
-  if (!plan) return null;
+  // Vanishing is not a state. Without the panel a reader cannot tell "there
+  // are no order intents" from "the frozen plan could not be read", so the
+  // absence of a source is reported the same way every other section reports
+  // it, carrying the strategy section's own provenance.
+  if (!plan) {
+    return (
+      <Panel
+        title="Order intents recorded in the frozen plan"
+        subtitle="Submitted is not filled. Broker and client order identifiers are never exposed."
+        provenance={payload.strategy.provenance}
+      >
+        <UnavailableBlock
+          state={payload.strategy.provenance.freshness}
+          title="No frozen V11 plan is available"
+          detail={payload.strategy.provenance.detail}
+        />
+      </Panel>
+    );
+  }
 
   return (
     <Panel

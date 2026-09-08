@@ -46,7 +46,11 @@ export default async function AccountsPage() {
     const candidate = accounts.find((account) => account.id === candidateId);
     if (
       candidate &&
-      candidate.mode === "paper" &&
+      // The candidate's mode must be the one the server declares, in either
+      // direction. Probing only paper accounts would have left a declared live
+      // production account permanently BROKER_ACCOUNT_UNVERIFIED — the binding
+      // would fail for want of a read that was never attempted.
+      candidate.mode === config.productionAccountMode &&
       config.productionBrokerAccountNumber !== null &&
       config.productionOwnerUserId === user.id
     ) {

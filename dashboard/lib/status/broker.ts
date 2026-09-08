@@ -209,6 +209,15 @@ export interface BenchmarkBarRow {
 /**
  * Daily benchmark closes from Alpaca market data, dated by America/New_York
  * session so they line up with the equity mirror. Read-only market data.
+ *
+ * The feed is `sip`, the consolidated tape, and must stay that way. `iex` is a
+ * single exchange and builds its daily bar from its own prints alone: measured
+ * against this endpoint, SPY's 2026-08-11 close was 770.52 on iex and 770.56 on
+ * sip. The epoch baseline records the consolidated close, which is also what the
+ * local adjusted history holds, and four cents is more than the anchor
+ * tolerance — so an iex read makes the forward-performance panel refuse with
+ * BASELINE_OBSERVATION_MISMATCH and stay dead. Do not "fix" a future mismatch by
+ * re-anchoring the baseline to a single venue's print.
  */
 export async function fetchBenchmarkBars(
   cred: AlpacaCredentials,
@@ -227,7 +236,7 @@ export async function fetchBenchmarkBars(
       start: startDate,
       adjustment: "all",
       limit: "10000",
-      feed: "iex",
+      feed: "sip",
       sort: "asc",
     });
     if (pageToken) query.set("page_token", pageToken);
