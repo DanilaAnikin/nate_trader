@@ -38,9 +38,19 @@ on:
         type: string
 
 concurrency:
-  # Shares the paper trader's group on purpose. Two cycles must never converge
-  # the same strategy against two different brokers at the same time.
-  group: nate-trader-v11-production
+  # Shares the PAPER trader's group, which is what makes the property real: two
+  # cycles must never converge the same strategy against two different brokers
+  # at once. The group string was `nate-trader-v11-production` until 2026-09-08
+  # and the comment claimed it shared the paper trader's group — it did not.
+  # paper-production.yml uses `nate-trader-v11-paper-production`, so the two
+  # workflows had no mutual exclusion at all and the comment documented a
+  # safety property that did not exist.
+  #
+  # The name still says "paper" because paper-production.yml is a
+  # strategy-identity source: renaming its group would change the identity hash
+  # and invalidate every validation report, for cosmetics. Matching the existing
+  # string is the change that costs nothing and buys the exclusion.
+  group: nate-trader-v11-paper-production
   cancel-in-progress: false
 
 permissions:

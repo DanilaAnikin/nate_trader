@@ -58,15 +58,27 @@ Preserve these defaults unless a change is explicitly requested and validated:
   63-session volatility <= 80%, positive 12-1 momentum, close above SMA200,
   and a usable sector classification.
 - Select up to 10 names and equal weight them under a 9% single-name cap and a
-  20% sector cap.
+  40% sector cap. The sector budget was 20% until 2026-09-08; at a 9% name cap
+  that admitted only two names per sector, forcing a ten-name book across five
+  or more sectors and down the ranking to fill them. It is not a continuous
+  knob — it acts through `floor(cap / slot)` — and 15/20/25 score alike while
+  30/40/60 score alike, so 40 sits in the middle of a plateau. The cap still
+  binds, at four names per sector.
 - Cap normal gross exposure at 90%, retaining at least 10% cash. Scale down if
   fewer than eight names qualify, and multiply the target by the frozen
   broad-market breadth tier (100% / 80% / 55% / 25% at breadth thresholds
   60% / 45% / 30%).
-- Rebalance monthly. Check SPY against its SMA200 on every execution and exit
-  directional exposure when the gate is off. Persist zero-target intent until
-  the account is flat; after recovery, permit one D-close/D+1 fresh target on
-  the first completed SPY close above SMA200, then resume monthly cadence.
+- Rebalance monthly. Check SPY against its SMA200 on every execution and, when
+  the gate is off, de-risk to a floor of 75% of normal gross rather than
+  exiting to cash. That floor replaced a full exit on 2026-09-08: SPY spent 19%
+  of 2021-2026 below its own SMA200 and COMPOUNDED +15.4% during those
+  sessions, and crossed the line sixteen times in 2022, each crossing a full
+  liquidation and re-entry. The floor is a softening, never a removal — through
+  the 2008 crash, when SPY returned -46.5%, the floored gate returned -13.6%.
+  `HALT` and unreadable market data still force a complete exit. Persist
+  zero-target intent until the account is flat; after recovery, permit one
+  D-close/D+1 fresh target on the first completed SPY close above SMA200, then
+  resume monthly cadence.
 - Classify risk from the highest equity observation in the trailing 22 sessions
   plus the current daily return. `CAUTIOUS` activates at a 10% rolling
   drawdown or 5% daily loss and halves the next monthly target; it does not

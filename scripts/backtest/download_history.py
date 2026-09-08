@@ -61,7 +61,31 @@ def universe() -> list[str]:
 
 
 def fetch_bars(symbol: str, start: str, end: str) -> list[dict]:
-    """Daily OHLCV bars (split/div adjusted) between dates from Alpaca."""
+    """Daily OHLCV bars (split/div adjusted) between dates from Alpaca.
+
+    The feed is SIP, the consolidated tape, and must stay that way. It was IEX
+    until 2026-09-08, which is a single exchange holding a low single-digit
+    share of volume — and V11 admits a candidate only when its 60-session median
+    DOLLAR VOLUME clears $25m (``momentum_min_dollar_volume_usd``). Volume is
+    therefore a strategy input, not just a display column, and the venue it came
+    from is a strategy parameter in disguise.
+
+    Measured on the existing consolidated cache: 523 of 563 symbols clear the
+    $25m bar today. Re-deriving that filter from IEX-only volume, at plausible
+    haircuts of 20x/30x/50x, leaves 149/105/64 — a 70-88% collapse of the
+    ranking universe, which would have arrived in a commit labelled "refresh
+    adjusted history".
+
+    The existing cache was built by the yfinance fallback below, which returns
+    consolidated figures, so SIP also keeps a rebuild on the SAME basis as the
+    history it replaces. IEX would have silently mixed two bases: the symbols
+    that failed to refresh would keep ~30x the apparent liquidity of the ones
+    that succeeded, and the filter would then preferentially select whichever
+    names were stalest.
+
+    This is the second place the same mistake was found today; the dashboard's
+    benchmark series had it too (lib/status/broker.ts).
+    """
     if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
         return fetch_bars_yfinance(symbol, start, end)
     client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
@@ -70,7 +94,7 @@ def fetch_bars(symbol: str, start: str, end: str) -> list[dict]:
         timeframe=TimeFrame.Day,
         start=datetime.strptime(start, "%Y-%m-%d"),
         end=datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1),
-        feed=DataFeed.IEX,
+        feed=DataFeed.SIP,
         adjustment="all",
     )
     bars = client.get_stock_bars(request)
