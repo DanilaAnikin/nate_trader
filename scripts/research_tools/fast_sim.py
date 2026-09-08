@@ -1055,15 +1055,20 @@ def _simulate(
     }
 
 
-_SYM_IDX_CACHE: dict[int, dict[str, int]] = {}
-
-
 def scanner_index(panel: Panel, symbol: str) -> int:
-    cache = _SYM_IDX_CACHE.get(id(panel))
-    if cache is None:
-        cache = {s: i for i, s in enumerate(panel.symbols.tolist())}
-        _SYM_IDX_CACHE[id(panel)] = cache
-    return cache[symbol]
+    """Column index of ``symbol`` in this panel.
+
+    Delegates to ``Panel.symbol_index``, which memoizes on the instance. This
+    function previously kept its OWN cache in a module-level dict keyed on
+    ``id(panel)`` — a second copy of a lookup the panel already did correctly.
+    CPython reissues a freed object's address, so a sweep that builds a
+    535-symbol panel, drops it, and builds a 530-symbol panel could inherit the
+    first panel's column map and mark every position to a DIFFERENT symbol's
+    open. A universe sweep is exactly that access pattern, the in-range case
+    yields plausible wrong numbers rather than an error, and universe sweeps are
+    the measurements whose entire purpose is to be trusted.
+    """
+    return panel.symbol_index(symbol)
 
 
 GATE_SEARCH_DEPTH = 120          # matches adaptive_momentum.market_gate_state
@@ -1358,22 +1363,30 @@ def _shared_provider() -> BarProvider:
 VALIDATION_START = "2021-01-04"
 VALIDATION_END = "2026-09-04"
 
-# Authoritative scripts/backtest/engine.py results supplied with the task.
+# Authoritative scripts/backtest/engine.py results for the CURRENT _V11_POLICY.
+#
+# Re-recorded 2026-09-08 when the policy changed (below_sma200_floor 0 -> 75,
+# max_sector_pct 20 -> 40). "Baseline" means the shipped policy, so these move
+# whenever it does — and the table reported a 77% error against the previous
+# policy's numbers until they were updated. Every row was measured by running
+# scripts/backtest/engine.py, not by copying what this file produced.
 REFERENCE = [
     {"name": "baseline 15bps", "overrides": {}, "slippage": 15.0,
-     "annual_return_pct": 17.02, "excess_cagr_pct": 1.91,
-     "max_drawdown_pct": -34.53, "final_equity": 2_431_222},
+     "annual_return_pct": 29.4587, "excess_cagr_pct": 14.3443,
+     "max_drawdown_pct": -23.1348, "final_equity": 4_301_602},
     {"name": "baseline 7bps", "overrides": {}, "slippage": 7.0,
-     "annual_return_pct": 18.02, "excess_cagr_pct": 2.90,
-     "max_drawdown_pct": -33.50, "final_equity": 2_549_831},
-    {"name": "gate off (floor 90) 15bps",
+     "annual_return_pct": 30.3891, "excess_cagr_pct": 15.2747,
+     "max_drawdown_pct": -23.0299, "final_equity": 4_479_239},
+    # The floor saturates: at the shipped 75 the breadth and diversification
+    # scalers already hold gross below 90, so raising the cap changes nothing.
+    {"name": "floor 90 (saturated) 15bps",
      "overrides": {"momentum_below_sma200_floor_pct": 90.0}, "slippage": 15.0,
-     "annual_return_pct": 22.46, "excess_cagr_pct": 7.34,
-     "max_drawdown_pct": -27.76, "final_equity": 3_141_939},
+     "annual_return_pct": 29.4587, "excess_cagr_pct": 14.3443,
+     "max_drawdown_pct": -23.1348, "final_equity": 4_301_602},
     {"name": "floor 50 15bps",
      "overrides": {"momentum_below_sma200_floor_pct": 50.0}, "slippage": 15.0,
-     "annual_return_pct": 21.29, "excess_cagr_pct": 6.18,
-     "max_drawdown_pct": -29.95, "final_equity": 2_976_312},
+     "annual_return_pct": 27.88, "excess_cagr_pct": 12.77,
+     "max_drawdown_pct": -26.02, "final_equity": 4_014_139},
 ]
 
 KNOWN_DIVERGENCES = [
