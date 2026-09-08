@@ -89,15 +89,45 @@ def fetch_bars(symbol: str, start: str, end: str) -> list[dict]:
     if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
         return fetch_bars_yfinance(symbol, start, end)
     client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
+    # Alpaca's basic plan serves SIP history but refuses the most recent window
+    # with "subscription does not permit querying recent SIP data". The caller's
+    # default end is TODAY, and the +1 day below pushed the range into tomorrow,
+    # so every symbol failed and the run cached zero bars.
+    #
+    # Clamping the end back one day fixes that and is independently correct:
+    # today's daily bar is not complete until the close, and this file's own
+    # warning about using a partial snapshot as if it were a session is the
+    # look-ahead bias the strategy is most exposed to. The strategy reads
+    # completed sessions only, so nothing is lost.
+    exclusive_end = min(
+        datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1),
+        datetime.now() - timedelta(days=1),
+    )
     request = StockBarsRequest(
         symbol_or_symbols=symbol,
         timeframe=TimeFrame.Day,
         start=datetime.strptime(start, "%Y-%m-%d"),
-        end=datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1),
+        end=exclusive_end,
         feed=DataFeed.SIP,
         adjustment="all",
     )
-    bars = client.get_stock_bars(request)
+    try:
+        bars = client.get_stock_bars(request)
+    except Exception as exc:
+        # An entitlement refusal falls back to yfinance, which is ALSO
+        # consolidated and is what built the existing cache — so the volume
+        # basis stays the same either way. It must never fall back to IEX:
+        # single-venue volume would take the $25m liquidity filter from 523 of
+        # 563 symbols down to somewhere between 149 and 64, rewriting which
+        # stocks the strategy may hold under the label of a data refresh.
+        message = str(exc).lower()
+        if "subscription" in message or "permission" in message or "not permit" in message:
+            log.warning(
+                f"  {symbol}: Alpaca refused SIP ({exc}); using the yfinance "
+                "consolidated feed, which shares the same volume basis"
+            )
+            return fetch_bars_yfinance(symbol, start, end)
+        raise
     df = bars.df
     if df is None or df.empty:
         return []

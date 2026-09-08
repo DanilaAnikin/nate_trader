@@ -39,3 +39,37 @@ def test_the_yfinance_fallback_is_only_reached_without_credentials():
 
 def test_sip_is_a_real_feed_in_the_pinned_sdk():
     assert DataFeed.SIP.value == "sip"
+
+
+def test_an_entitlement_refusal_falls_back_to_a_consolidated_source():
+    """Alpaca's basic plan refuses SIP. The fallback must not be IEX.
+
+    Measured: the account behind the production secret answers
+    "subscription does not permit querying recent SIP data". Falling back to
+    IEX would look like a working refresh and quietly rewrite the eligible
+    universe; yfinance is consolidated, is what built the existing cache, and
+    therefore keeps the volume basis unchanged.
+    """
+    source = inspect.getsource(download_history.fetch_bars)
+    handler = source.split("except Exception")[1]
+    assert "fetch_bars_yfinance" in handler
+    # Match the CODE, not the prose. An earlier version of this assertion
+    # looked for the bare string "IEX" and failed on the comment explaining why
+    # IEX must never be the fallback — a test that cannot tell an instruction
+    # from an explanation of it.
+    assert "DataFeed.IEX" not in handler
+    for token in ("subscription", "permission", "not permit"):
+        assert token in handler
+
+
+def test_the_request_end_avoids_the_restricted_recent_window():
+    """The default end is today, and the request added a day on top of it.
+
+    That pushed the range into tomorrow, which is exactly what the basic plan
+    refuses, so every symbol failed and the run cached zero bars. Clamping is
+    also independently correct: today's daily bar is incomplete until the
+    close, and the strategy reads completed sessions only.
+    """
+    source = inspect.getsource(download_history.fetch_bars)
+    assert "exclusive_end = min(" in source
+    assert "datetime.now() - timedelta(days=1)" in source
