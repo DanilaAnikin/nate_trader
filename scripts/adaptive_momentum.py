@@ -58,6 +58,12 @@ class AdaptiveMomentumConfig:
     use_market_volatility_scaling: bool = False
     use_breadth_scaling: bool = False
     risk_on_reentry_confirmation_days: int = 0
+    # RESEARCH ONLY (default 0.0 = V11 unchanged). When > 0, the SPY-SMA200 gate
+    # becomes graduated instead of all-or-nothing: below SMA200 the book keeps up
+    # to this percent of gross (scaled by the same breadth/vol/diversification
+    # scalers) rather than exiting fully to cash. Never set in the fixed V11
+    # policy; usable only via a research override, so V11's identity is preserved.
+    below_sma200_floor_pct: float = 0.0
     require_sector_classification: bool = True
     excluded_symbols: frozenset[str] = frozenset(
         {
@@ -193,6 +199,9 @@ def config_from_params(params: dict) -> AdaptiveMomentumConfig:
         risk_on_reentry_confirmation_days=max(
             0,
             int(params.get("momentum_risk_on_reentry_days", 0)),
+        ),
+        below_sma200_floor_pct=max(
+            0.0, float(params.get("momentum_below_sma200_floor_pct", 0.0))
         ),
     )
 
@@ -554,7 +563,12 @@ def _target_gross_weight(
     risk_tier: str,
     cfg: AdaptiveMomentumConfig,
 ) -> float:
-    if market is None or not market.above_sma200:
+    if market is None:
+        return 0.0
+    below = not market.above_sma200
+    # V11 default: all-or-nothing exit below SMA200. The graduated floor only
+    # engages when the research param is set (never in the fixed V11 policy).
+    if below and cfg.below_sma200_floor_pct <= 0.0:
         return 0.0
     vol_scaler = 1.0
     if cfg.use_market_volatility_scaling:
@@ -579,7 +593,14 @@ def _target_gross_weight(
         * diversification_scaler
         * _risk_tier_scaler(risk_tier)
     )
-    return max(0.0, min(cfg.max_gross_exposure_pct / 100.0, gross))
+    cap = cfg.max_gross_exposure_pct / 100.0
+    if below:
+        # Graduated gate: below SMA200, cap gross at the research floor instead
+        # of exiting fully. The floor is still scaled by the ordinary risk
+        # scalers, so it de-risks — just not all the way to cash.
+        cap = min(cap, cfg.below_sma200_floor_pct / 100.0)
+        gross = min(gross, cap)
+    return max(0.0, min(cap, gross))
 
 
 def allocate_inverse_volatility(
