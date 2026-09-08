@@ -55,10 +55,18 @@ const StatusContext = createContext<StatusContextValue | null>(null);
 export default function StatusProvider({
   enabled,
   selectedAccount,
+  backendUnreachable = false,
   children,
 }: {
   enabled: boolean;
   selectedAccount: StatusIdentity | null;
+  /**
+   * True when the server shell caught a failure talking to Supabase. Without
+   * it a backend outage is indistinguishable from "this operator has no
+   * accounts", and every screen invites the user to add an account they
+   * already have.
+   */
+  backendUnreachable?: boolean;
   children: ReactNode;
 }) {
   const [status, setStatus] = useState<StatusFetchStatus>(
@@ -213,6 +221,7 @@ export default function StatusProvider({
       status,
       data,
       error,
+      backendUnreachable,
     });
     const scopedPerformance: PerformanceState =
       selectedAccount && performance?.accountId === selectedAccount.id
@@ -227,6 +236,7 @@ export default function StatusProvider({
       performance: scopedPerformance,
     };
   }, [
+    backendUnreachable,
     enabled,
     selectedAccount,
     requestAccountId,

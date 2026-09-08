@@ -3,18 +3,29 @@
 ## Mission and status
 
 Maintain and evaluate `v11-adaptive-momentum`, a causal US-equity momentum
-strategy for **Alpaca paper trading only**. The objective is to test whether it
-can produce positive benchmark-relative returns with controlled drawdown. Do
-not promise alpha, profit, or flawless operation.
+strategy running on Alpaca. **Paper is the default and the only scheduled
+mode**; real-money execution exists, is off unless fully configured, and is
+never started by a timer. The objective is to test whether the strategy can
+produce positive benchmark-relative returns with controlled drawdown. Do not
+promise alpha, profit, or flawless operation.
 
-There is one supported scheduled trader:
-`.github/workflows/paper-production.yml`. It runs only the V11 Alpaca paper
-path after release and broker preflight, with a private artifact for persistent
-runtime state. `.github/workflows/v11-release.yml` is the non-trading release
-gate. The paper workflow must check out the full SHA in the environment variable
-`PRODUCTION_RELEASE_SHA` and find a successful release gate for that exact SHA.
-A push triggers tests but never directly submits an order. Do not restore the
-archived optimizer/research/multi-account workflows.
+`.github/workflows/paper-production.yml` is the only **scheduled** trader. It
+runs the V11 Alpaca paper path after release and broker preflight, with a
+private artifact for persistent runtime state, and must check out the full SHA
+in `PRODUCTION_RELEASE_SHA` and find a successful release gate for that exact
+SHA.
+
+`.github/workflows/live-production.yml` is real money. It is manual-dispatch
+only — no `schedule:` block — runs in a `live-production` environment behind
+required reviewers, and needs a typed confirmation phrase before it will
+execute. It gates on the same release SHA, release gate, offline contract and
+preflight as the paper workflow: live is the paper path plus more refusals,
+never fewer. Its runtime state lives in a separate artifact namespace, and each
+workflow refuses to restore the other's lineage.
+
+`.github/workflows/v11-release.yml` is the non-trading release gate. A push
+triggers tests but never directly submits an order. Do not restore the archived
+optimizer/research/multi-account workflows.
 
 The authoritative strategy document is
 `strategy/v11_adaptive_momentum.md`. Older v3-v10 documents and code paths are
@@ -47,15 +58,27 @@ Preserve these defaults unless a change is explicitly requested and validated:
   63-session volatility <= 80%, positive 12-1 momentum, close above SMA200,
   and a usable sector classification.
 - Select up to 10 names and equal weight them under a 9% single-name cap and a
-  20% sector cap.
+  40% sector cap. The sector budget was 20% until 2026-09-08; at a 9% name cap
+  that admitted only two names per sector, forcing a ten-name book across five
+  or more sectors and down the ranking to fill them. It is not a continuous
+  knob — it acts through `floor(cap / slot)` — and 15/20/25 score alike while
+  30/40/60 score alike, so 40 sits in the middle of a plateau. The cap still
+  binds, at four names per sector.
 - Cap normal gross exposure at 90%, retaining at least 10% cash. Scale down if
   fewer than eight names qualify, and multiply the target by the frozen
   broad-market breadth tier (100% / 80% / 55% / 25% at breadth thresholds
   60% / 45% / 30%).
-- Rebalance monthly. Check SPY against its SMA200 on every execution and exit
-  directional exposure when the gate is off. Persist zero-target intent until
-  the account is flat; after recovery, permit one D-close/D+1 fresh target on
-  the first completed SPY close above SMA200, then resume monthly cadence.
+- Rebalance monthly. Check SPY against its SMA200 on every execution and, when
+  the gate is off, de-risk to a floor of 75% of normal gross rather than
+  exiting to cash. That floor replaced a full exit on 2026-09-08: SPY spent 19%
+  of 2021-2026 below its own SMA200 and COMPOUNDED +15.4% during those
+  sessions, and crossed the line sixteen times in 2022, each crossing a full
+  liquidation and re-entry. The floor is a softening, never a removal — through
+  the 2008 crash, when SPY returned -46.5%, the floored gate returned -13.6%.
+  `HALT` and unreadable market data still force a complete exit. Persist
+  zero-target intent until the account is flat; after recovery, permit one
+  D-close/D+1 fresh target on the first completed SPY close above SMA200, then
+  resume monthly cadence.
 - Classify risk from the highest equity observation in the trailing 22 sessions
   plus the current daily return. `CAUTIOUS` activates at a 10% rolling
   drawdown or 5% daily loss and halves the next monthly target; it does not
@@ -103,11 +126,27 @@ sector ETFs. Do not bypass the sector cap by fabricating a classification.
 
 ## Safety rules
 
-- The broker client must remain fixed to `paper=True`. There is no supported
-  live-money mode.
-- No-argument `python3 scripts/execute_trades.py` must remain a dry run.
+- The broker mode is decided in exactly one place, `scripts/broker_mode.py`.
+  Nothing else in the repository may construct a `TradingClient` with a literal
+  `paper=` value or compare `TRADING_MODE` to a string itself.
+- Real money is supported but is off by default and never inferred. A live run
+  requires ALL of: `TRADING_MODE=live`, separately-named
+  `ALPACA_LIVE_API_KEY`/`ALPACA_LIVE_SECRET_KEY` (never a fallback to the paper
+  pair, and refused if identical to it), an explicit `LIVE_TRADING_ENABLED`,
+  `LIVE_TRADING_ACCOUNT_NUMBER` verified against a fresh `/v2/account` read,
+  and both `LIVE_MAX_ORDER_NOTIONAL_USD` and `LIVE_MAX_CYCLE_NOTIONAL_USD`.
+  Any one missing refuses the run. An unrecognised `TRADING_MODE` — including a
+  typo — is a dry run, never a fallback to either broker.
+- The absolute dollar ceilings are not optional and are enforced in
+  `trade.place_limit_order`, the single order choke point. Every strategy limit
+  is a percentage of equity and therefore scales a bug with the account; these
+  do not. Sells are never capped, and the
+  `LIVE_TRADING_KILL_SWITCH_FILE` stops entries only — nothing may block a
+  risk-reducing exit.
+- No-argument `python3 scripts/execute_trades.py` must remain a dry run, and
+  every mutating execution path must require an explicitly configured broker
+  mode.
 - Dry run must have zero order and state mutations.
-- Every mutating execution path must require `TRADING_MODE=paper`.
 - Treat every short as a blocking reconciliation state. Cancel conflicting
   orders, cover it with a bounded idempotent BUY, and run no other V11 manager
   until a fresh broker snapshot is flat.

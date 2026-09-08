@@ -15,7 +15,15 @@ export type AccountMode = "paper" | "live";
 
 export type AccountRole =
   | "PRODUCTION_CONTROLLED_PAPER"
+  /**
+   * A real-money account the executor is configured to trade. Deliberately a
+   * separate member from the paper role rather than a boolean on one role:
+   * every switch over this type now has to decide what it means for real
+   * money, and the compiler says so at each site.
+   */
+  | "PRODUCTION_CONTROLLED_LIVE"
   | "OBSERVER_ONLY_PAPER"
+  | "OBSERVER_ONLY_LIVE"
   | "READ_ONLY_LIVE";
 
 /* ------------------------------------------------------------------ web */
@@ -138,7 +146,13 @@ export interface FrozenPlanInfo {
 
 export interface StrategyRuntimeInfo {
   readonly strategyVersion: string;
-  readonly paperOnly: true;
+  /**
+   * Whether the cycle behind this runtime record was a paper cycle. Was a
+   * literal `true`; it is now a fact carried from the runner's own record,
+   * because a display that hard-codes it would keep saying "paper" through a
+   * real-money run.
+   */
+  readonly paperOnly: boolean;
   /** V11 SPY/SMA200 gate outcome recorded by the runner, not recomputed here. */
   readonly marketGate: "RISK_ON" | "RISK_OFF" | null;
   readonly marketGateSource: string | null;

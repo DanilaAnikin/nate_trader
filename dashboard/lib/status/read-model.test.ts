@@ -508,7 +508,10 @@ describe("cross-tenant isolation", () => {
     expect(actionsCalls(handler)).toEqual([]);
   });
 
-  it("withholds the runtime for a live account", async () => {
+  it("withholds the runtime for a live account under a paper executor", async () => {
+    // The deployment declares a paper production account (PRODUCTION_ACCOUNT_
+    // MODE is unset in this suite, which means paper), so a live account is
+    // refused on the mode match and no private GitHub call is made for it.
     const handler = stubGithub();
     const payload = await buildStrategyStatus({
       viewer: OWNER,
@@ -516,8 +519,10 @@ describe("cross-tenant isolation", () => {
       broker: OK_BROKER,
       now: NOW,
     });
-    expect(payload.authorization.data?.denialReason).toBe("NOT_PAPER_MODE");
-    expect(payload.accountBinding.data?.role).toBe("READ_ONLY_LIVE");
+    expect(payload.authorization.data?.denialReason).toBe(
+      "ACCOUNT_MODE_MISMATCH",
+    );
+    expect(payload.accountBinding.data?.role).toBe("OBSERVER_ONLY_LIVE");
     expect(actionsCalls(handler)).toEqual([]);
   });
 

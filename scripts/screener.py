@@ -188,7 +188,15 @@ def run_full_screen() -> dict:
 
     # Pre-filter: check Alpaca asset name to remove leveraged/inverse ETFs
     from alpaca.trading.client import TradingClient
-    _tc = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+
+    from broker_mode import resolve_broker_mode
+
+    _resolved = resolve_broker_mode()
+    _tc = TradingClient(
+        _resolved.api_key or ALPACA_API_KEY,
+        _resolved.api_secret or ALPACA_SECRET_KEY,
+        paper=_resolved.paper,
+    )
     filtered_symbols = set()
     leveraged_keywords = [
         "2x", "3x", "-2x", "-3x", "leveraged", "inverse", "ultra",

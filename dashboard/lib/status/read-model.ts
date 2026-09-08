@@ -350,7 +350,7 @@ function strategySection(
     }),
     {
       strategyVersion: lastRun.strategyVersion,
-      paperOnly: true,
+      paperOnly: lastRun.paperOnly,
       marketGate: plan ? (plan.riskOff ? "RISK_OFF" : "RISK_ON") : null,
       marketGateSource: plan
         ? "frozen V11 plan risk_off flag recorded by the runner at the signal close"

@@ -113,12 +113,22 @@ export interface LastRunSnapshot {
 export function parseLastRun(value: unknown): LastRunSnapshot | null {
   if (!isRecord(value)) return null;
   if (value.schema_version !== 1) return null;
-  if (value.kind !== "v11_paper_production_run") return null;
+  // A live cycle writes a different `kind` so the two lineages can never be
+  // confused for one another. Both are parsed; which one this is stays in
+  // `paperOnly`, and the reader is shown it rather than being told.
+  const isPaperKind = value.kind === "v11_paper_production_run";
+  const isLiveKind = value.kind === "v11_live_production_run";
+  if (!isPaperKind && !isLiveKind) return null;
   const status = value.status;
   if (status !== "PASS" && status !== "DEGRADED" && status !== "FAIL") {
     return null;
   }
-  if (value.paper_only !== true) return null;
+  // The flag has to agree with the kind. A record claiming to be a paper cycle
+  // while flagged live (or the reverse) is assembled from two different runs,
+  // and we do not get to choose which half to believe.
+  const paperOnly = value.paper_only;
+  if (typeof paperOnly !== "boolean") return null;
+  if (paperOnly !== isPaperKind) return null;
 
   // `failure_type` belongs to the crash path, which writes FAIL and nothing
   // else. A PASS carrying one is a document assembled from two different
@@ -207,7 +217,9 @@ export function parseLastRun(value: unknown): LastRunSnapshot | null {
     releaseSha: str(value.release_sha),
     strategyVersion: str(value.strategy_version) ?? "unknown",
     status,
-    paperOnly: true,
+    // Read from the document, never asserted. This is the fact that tells a
+    // reader whether real money moved in the cycle they are looking at.
+    paperOnly,
     marketEntryAllowed:
       typeof value.market_entry_allowed === "boolean"
         ? value.market_entry_allowed

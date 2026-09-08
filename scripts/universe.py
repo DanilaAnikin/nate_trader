@@ -108,12 +108,24 @@ class UniverseDiscoveryError(RuntimeError):
 
 
 def _get_trading_client() -> Any:
-    """Create the Alpaca trading client on first network-backed use only."""
+    """Create the Alpaca trading client on first network-backed use only.
+
+    Asset discovery is read-only and the tradable-asset list is the same on both
+    endpoints, but the client still follows the resolved broker mode so a live
+    run never authenticates against the paper endpoint with live credentials.
+    """
     global _client
     if _client is None:
         from alpaca.trading.client import TradingClient
 
-        _client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+        from broker_mode import resolve_broker_mode
+
+        resolved = resolve_broker_mode()
+        _client = TradingClient(
+            resolved.api_key or ALPACA_API_KEY,
+            resolved.api_secret or ALPACA_SECRET_KEY,
+            paper=resolved.paper,
+        )
     return _client
 
 

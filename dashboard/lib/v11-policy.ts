@@ -14,6 +14,14 @@ export interface V11Policy {
   readonly minCashPct: number;
   readonly maxSectorPct: number;
   readonly maxGrossExposurePct: number;
+  /**
+   * Gross exposure retained while SPY is below its own SMA200, as a percentage
+   * of normal. Was an implicit 0 — the strategy exited entirely to cash — until
+   * 2026-09-08. Surfaced here because "the market gate is engaged" no longer
+   * means "the book is flat", and a reader of the Operations panel would
+   * otherwise infer the wrong position.
+   */
+  readonly belowSma200FloorPct: number;
   readonly cautiousGrossMultiplier: number;
   readonly breadthScalingEnabled: boolean;
   readonly riskOnReentryDays: number;

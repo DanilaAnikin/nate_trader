@@ -43,6 +43,9 @@ function IdentityPanel({ payload }: { payload: StrategyStatusPayload }) {
   const web = payload.web.data;
   const release = payload.release.data;
   const validation = payload.validation.data;
+  // The runtime section is withheld from an unauthorized viewer and absent
+  // when no cycle has been recorded, so this is null far more often than not.
+  const runtime = payload.strategy.data ?? null;
   return (
     <Panel
       title="Release identity and gates"
@@ -100,7 +103,20 @@ function IdentityPanel({ payload }: { payload: StrategyStatusPayload }) {
             {validation?.expiresAt?.slice(0, 10) ?? <Dash />}
           </Fact>
           <Fact label="Execution mode">
-            <StatePill size="xs" state="PASS" label="PAPER ONLY" />
+            {/*
+              Read from the runtime record, never asserted. A hard-coded
+              "PAPER ONLY" would keep reassuring the reader through a
+              real-money cycle, which is the one moment the label matters.
+              When no cycle has been recorded there is nothing to report, and
+              a dash is the honest answer.
+            */}
+            {runtime === null ? (
+              <Dash />
+            ) : runtime.paperOnly ? (
+              <StatePill size="xs" state="PASS" label="PAPER ONLY" />
+            ) : (
+              <StatePill size="xs" state="FAIL" label="LIVE REAL MONEY" />
+            )}
           </Fact>
           <Fact label="Dashboard build equals approved release">
             {release?.dashboardMatchesApprovedRelease === null ||

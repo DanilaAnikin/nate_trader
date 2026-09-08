@@ -60,7 +60,12 @@ describe("resolveAccountBinding", () => {
     expect(binding.bindingDetail).toContain("NOT_APPLICABLE");
   });
 
-  it("never binds a live account, even when authorization somehow succeeded", () => {
+  it("binds an authorized live account and says so in as many words", () => {
+    // This used to assert that a live account was never bound, because the
+    // executor was paper-only. Live is now supported, and the authorization
+    // decision — not the mode — is what grants a production role. What the
+    // binding must never do is understate it: the detail has to say real money
+    // before anything else.
     const binding = resolveAccountBinding({
       accountId: "acc-1",
       nickname: "Real money",
@@ -68,9 +73,36 @@ describe("resolveAccountBinding", () => {
       liveBrokerAccountNumber: "PA3ABCDE1234",
       authorization: AUTHORIZED,
     });
-    expect(binding.role).toBe("READ_ONLY_LIVE");
+    expect(binding.role).toBe("PRODUCTION_CONTROLLED_LIVE");
+    expect(binding.productionBound).toBe(true);
+    expect(binding.mode).toBe("live");
+    expect(binding.bindingDetail).toContain("REAL MONEY");
+  });
+
+  it("leaves an unauthorized live account observer-only", () => {
+    const binding = resolveAccountBinding({
+      accountId: "acc-1",
+      nickname: "Real money",
+      mode: "live",
+      liveBrokerAccountNumber: "PA3ABCDE1234",
+      authorization: DENIED,
+    });
+    expect(binding.role).toBe("OBSERVER_ONLY_LIVE");
     expect(binding.productionBound).toBe(false);
-    expect(binding.bindingDetail).toContain("never trades a live account");
+    expect(binding.bindingProof).toBeNull();
+    expect(binding.bindingDetail).toContain("monitoring only");
+  });
+
+  it("still exposes only a mask for a bound live account", () => {
+    // The mask rule cannot weaken for the mode where the number matters most.
+    const binding = resolveAccountBinding({
+      accountId: "acc-1",
+      nickname: "Real money",
+      mode: "live",
+      liveBrokerAccountNumber: "PA3ABCDE1234",
+      authorization: AUTHORIZED,
+    });
+    expect(JSON.stringify(binding)).not.toContain("PA3ABCDE1234");
   });
 
   it("only ever exposes a mask, never the number", () => {

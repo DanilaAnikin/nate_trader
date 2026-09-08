@@ -10,3 +10,11 @@ venv/
 
 # Node tooling caches (vitest/vite scratch at the repo root)
 node_modules/
+
+# Agent worktrees: isolated checkouts created for parallel work. They are whole
+# repositories, so committing them would nest a repo inside this one.
+.claude/worktrees/
+
+# Cached research panels. Derived from state/backtest/bars/ and rebuilt on
+# demand; tens of megabytes of numpy that would otherwise land in history.
+state/research/

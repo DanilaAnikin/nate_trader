@@ -46,7 +46,8 @@ from research import compute_confidence_score, compute_technicals  # noqa: E402
 from momentum_picker import (  # noqa: E402
     rank_universe, select_top_n, spy_12m_return, is_month_start,
 )
-from adaptive_momentum import (  # noqa: E402
+from adaptive_momentum import (
+    market_gate_state,  # noqa: E402
     build_target_portfolio,
     compute_market_state,
     config_from_params,
@@ -521,6 +522,104 @@ def _spy_above_sma50_and_sma200(provider: BarProvider, today: str) -> bool:
     return last > sma50 and last > sma200
 
 
+RESIDUAL_PARKING_MODES = frozenset({"cash", "spy_always", "spy_risk_off"})
+RESIDUAL_PARKING_CASH_BUFFER_PCT = 0.5
+
+
+def _residual_parking_mode(params: dict) -> str:
+    """RESEARCH ONLY (default ``cash`` = V11 unchanged).
+
+    ``spy_always``    — the un-invested residual is held in SPY every session.
+    ``spy_risk_off``  — the residual is held in SPY only while SPY is below its
+                        own SMA200, i.e. exactly the sessions V11 spends in cash.
+
+    Neither touches how the momentum sleeve is constructed; they only decide
+    what the *leftover* does. The parked leg is an ``is_base`` position, so the
+    directional exit/trim paths ignore it, as they already do for every other
+    infrastructure sleeve.
+    """
+    mode = str(params.get("momentum_residual_parking", "cash")).strip().lower()
+    return mode if mode in RESIDUAL_PARKING_MODES else "cash"
+
+
+def _park_residual(
+    portfolio: SimulatedPortfolio,
+    provider: BarProvider,
+    date: str,
+    signal_date: str,
+    params: dict,
+    slippage_bps: float,
+) -> None:
+    """Size the parked benchmark leg to the residual the stock book will leave.
+
+    Runs ONCE per session, BEFORE the momentum rebalance, and sizes from the
+    *intended* gross exposure rather than from today's holdings. Sizing from
+    holdings and correcting afterwards was tried first and is wrong: a frozen
+    plan keeps the correction armed every session, so the leg is sold and
+    re-bought daily and the slippage alone costs tens of percent a year.
+
+    Because it runs first, a risk-on transition sells the parked leg in the
+    same session that the stock book wants the cash, and a risk-off transition
+    parks the freed cash on the following session (the stocks are still held
+    when this runs). That one-session lag is deliberate: it never anticipates a
+    fill that has not happened yet.
+    """
+    mode = _residual_parking_mode(params)
+    if mode == "cash":
+        return
+
+    equity = portfolio.equity()
+    if equity <= 0:
+        return
+    bar = provider.bar_at(SPY_BASE_SYMBOL, date)
+    if bar is None:
+        return
+
+    cfg = config_from_params(params)
+    market = compute_market_state(provider, signal_date, config=cfg)
+    if market is None:
+        return
+    below = not market.above_sma200
+
+    if below:
+        # The stock book is flat (or floored) below SMA200; park what it leaves.
+        intended_gross = cfg.below_sma200_floor_pct / 100.0
+    elif mode == "spy_always":
+        intended_gross = cfg.max_gross_exposure_pct / 100.0
+    else:
+        # spy_risk_off holds nothing while the market gate is open.
+        intended_gross = 1.0
+
+    buffer_value = equity * (RESIDUAL_PARKING_CASH_BUFFER_PCT / 100.0)
+    target_value = max(0.0, equity * (1.0 - intended_gross) - buffer_value)
+
+    position = portfolio.get_position(SPY_BASE_SYMBOL)
+    current_value = (
+        position.market_value if (position is not None and position.is_base) else 0.0
+    )
+    delta = target_value - current_value
+    if abs(delta) / equity * 100.0 < BASE_REBALANCE_THRESHOLD_PCT:
+        return
+
+    if delta > 0:
+        fill = _buy_fill(bar["open"], slippage_bps)
+        qty = int(min(delta, portfolio.cash) / fill)
+        if qty >= 1:
+            portfolio.open(SPY_BASE_SYMBOL, qty, fill, date, is_base=True)
+        return
+
+    if position is None:
+        return
+    fill = _sell_fill(bar["open"], slippage_bps)
+    qty = int(abs(delta) / fill)
+    if qty >= position.qty:
+        portfolio.close(SPY_BASE_SYMBOL, fill, date, reason="residual_unpark")
+    elif qty >= 1:
+        portfolio.partial_close(
+            SPY_BASE_SYMBOL, qty, fill, date, reason="residual_trim"
+        )
+
+
 def _manage_base_position(portfolio: SimulatedPortfolio, provider: BarProvider,
                           date: str, params: dict, slippage_bps: float) -> None:
     """v7 — maintain the structural base position at `base_pct` of equity.
@@ -541,6 +640,14 @@ def _manage_base_position(portfolio: SimulatedPortfolio, provider: BarProvider,
     Falls back gracefully if `base_pct` / `base_instrument` are missing
     (legacy v4-v6 cells use spy_base_pct → defaults).
     """
+    if _residual_parking_mode(params) != "cash":
+        # Residual parking owns the SPY base leg. This sleeve would otherwise
+        # see a target of 0% (V11 sets base_pct=0), find an is_base SPY
+        # position and liquidate it every single session — the parked leg gets
+        # sold here and re-bought moments later, a daily round trip whose
+        # slippage alone cost 38 percentage points in a one-year test.
+        return
+
     target_pct = params.get("base_pct", params.get("spy_base_pct", 0.0))
     target_sym = params.get("base_instrument", SPY_BASE_SYMBOL)
     equity = portfolio.equity()
@@ -1221,9 +1328,30 @@ def _execute_adaptive_momentum(
 
     cfg = config_from_params(params)
     market = compute_market_state(provider, signal_date, config=cfg)
-    risk_off_now = (
-        risk_tier == "HALT" or market is None or not market.above_sma200
+    # With a confirmation window the gate reads the last N completed closes
+    # instead of only the latest one. At the default of 0 this is exactly
+    # `not market.above_sma200`, so V11 is unchanged. A None (insufficient
+    # history) is risk-off, matching how a missing MarketState already behaves.
+    if cfg.risk_off_confirmation_days > 0:
+        confirmed = market_gate_state(
+            provider,
+            signal_date,
+            confirmation_days=cfg.risk_off_confirmation_days,
+            config=cfg,
+        )
+        below_sma200 = True if confirmed is None else bool(confirmed)
+    else:
+        below_sma200 = market is not None and not market.above_sma200
+    # Graduated gate (RESEARCH; cfg.below_sma200_floor_pct > 0). By default V11
+    # exits fully to cash below SMA200. With a floor set, below-SMA200 is NOT a
+    # full risk-off exit — the monthly rebalance floors gross exposure via
+    # _target_gross_weight instead of liquidating. HALT and missing market data
+    # still force a full exit. With the floor at its default 0.0 this reduces to
+    # the exact original V11 behaviour.
+    hard_gate = below_sma200 and (
+        cfg.below_sma200_floor_pct <= 0.0 or risk_tier == "HALT"
     )
+    risk_off_now = risk_tier == "HALT" or market is None or hard_gate
     pending_risk_off = bool(
         pending_plan is not None and pending_plan.get("risk_off") is True
     )
@@ -1827,10 +1955,22 @@ def run_backtest(
                 signal_date,
                 config=adaptive_cfg,
             )
+            if adaptive_cfg.risk_off_confirmation_days > 0:
+                confirmed_gate = market_gate_state(
+                    provider,
+                    signal_date,
+                    confirmation_days=adaptive_cfg.risk_off_confirmation_days,
+                    config=adaptive_cfg,
+                )
+                gate_says_risk_off = (
+                    True if confirmed_gate is None else bool(confirmed_gate)
+                )
+            else:
+                gate_says_risk_off = (
+                    adaptive_market is None or not adaptive_market.above_sma200
+                )
             adaptive_risk_off_now = bool(
-                risk_tier == "HALT"
-                or adaptive_market is None
-                or not adaptive_market.above_sma200
+                risk_tier == "HALT" or gate_says_risk_off
             )
             if adaptive_risk_off_now:
                 adaptive_risk_off_latched = True
@@ -1859,6 +1999,17 @@ def run_backtest(
                 )
                 and adaptive_pending_plan is None
             )
+            # Size the parked benchmark leg before the stock book spends, so a
+            # risk-on transition frees the cash in the same session.
+            _park_residual(
+                portfolio,
+                provider,
+                date,
+                signal_date,
+                params,
+                config.slippage_bps,
+            )
+
             adaptive_pending_plan = _execute_adaptive_momentum(
                 portfolio=portfolio,
                 provider=provider,

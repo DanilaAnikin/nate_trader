@@ -1,9 +1,11 @@
 /**
  * Production-account binding, derived from the authorization decision.
  *
- * A binding is never inferred from tickers, equity size, nickname or paper
+ * A binding is never inferred from tickers, equity size, nickname or broker
  * mode alone, and a value stored in Supabase is never accepted as proof. The
- * role shown in the UI is exactly the outcome of `authorizeProductionRuntime`.
+ * role shown in the UI is exactly the outcome of `authorizeProductionRuntime`;
+ * the account's mode only chooses which wording and which role name that
+ * outcome is reported under.
  */
 
 import { maskAccountNumber } from "@/lib/accounts/mask";
@@ -22,29 +24,34 @@ export function resolveAccountBinding(input: {
 }): AccountBindingInfo {
   const brokerAccountMask = maskAccountNumber(input.liveBrokerAccountNumber);
 
+  // The authorization decision is the only thing that grants a production
+  // role, in either mode. The account's own `mode` column decides which of the
+  // two production roles it is — never whether it gets one.
+  if (input.authorization.authorized) {
+    const live = input.mode === "live";
+    return {
+      selectedAccountId: input.accountId,
+      selectedAccountNickname: input.nickname,
+      mode: input.mode,
+      role: live ? "PRODUCTION_CONTROLLED_LIVE" : "PRODUCTION_CONTROLLED_PAPER",
+      productionBound: true,
+      bindingProof: "server-authorized-production-owner-and-account",
+      bindingDetail: live
+        ? `REAL MONEY. ${input.authorization.detail} Orders submitted for this account settle against a funded brokerage account.`
+        : input.authorization.detail,
+      brokerAccountMask,
+    };
+  }
+
   if (input.mode === "live") {
     return {
       selectedAccountId: input.accountId,
       selectedAccountNickname: input.nickname,
       mode: "live",
-      role: "READ_ONLY_LIVE",
+      role: "OBSERVER_ONLY_LIVE",
       productionBound: false,
       bindingProof: null,
-      bindingDetail:
-        "Read-only monitoring. The V11 executor is hard-wired to Alpaca paper and never trades a live account.",
-      brokerAccountMask,
-    };
-  }
-
-  if (input.authorization.authorized) {
-    return {
-      selectedAccountId: input.accountId,
-      selectedAccountNickname: input.nickname,
-      mode: "paper",
-      role: "PRODUCTION_CONTROLLED_PAPER",
-      productionBound: true,
-      bindingProof: "server-authorized-production-owner-and-account",
-      bindingDetail: input.authorization.detail,
+      bindingDetail: `${input.authorization.detail} This live account is shown for monitoring only; the executor is not configured to trade it.`,
       brokerAccountMask,
     };
   }
