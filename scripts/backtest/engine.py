@@ -46,7 +46,8 @@ from research import compute_confidence_score, compute_technicals  # noqa: E402
 from momentum_picker import (  # noqa: E402
     rank_universe, select_top_n, spy_12m_return, is_month_start,
 )
-from adaptive_momentum import (  # noqa: E402
+from adaptive_momentum import (
+    market_gate_state,  # noqa: E402
     build_target_portfolio,
     compute_market_state,
     config_from_params,
@@ -1327,7 +1328,20 @@ def _execute_adaptive_momentum(
 
     cfg = config_from_params(params)
     market = compute_market_state(provider, signal_date, config=cfg)
-    below_sma200 = market is not None and not market.above_sma200
+    # With a confirmation window the gate reads the last N completed closes
+    # instead of only the latest one. At the default of 0 this is exactly
+    # `not market.above_sma200`, so V11 is unchanged. A None (insufficient
+    # history) is risk-off, matching how a missing MarketState already behaves.
+    if cfg.risk_off_confirmation_days > 0:
+        confirmed = market_gate_state(
+            provider,
+            signal_date,
+            confirmation_days=cfg.risk_off_confirmation_days,
+            config=cfg,
+        )
+        below_sma200 = True if confirmed is None else bool(confirmed)
+    else:
+        below_sma200 = market is not None and not market.above_sma200
     # Graduated gate (RESEARCH; cfg.below_sma200_floor_pct > 0). By default V11
     # exits fully to cash below SMA200. With a floor set, below-SMA200 is NOT a
     # full risk-off exit — the monthly rebalance floors gross exposure via
@@ -1941,10 +1955,22 @@ def run_backtest(
                 signal_date,
                 config=adaptive_cfg,
             )
+            if adaptive_cfg.risk_off_confirmation_days > 0:
+                confirmed_gate = market_gate_state(
+                    provider,
+                    signal_date,
+                    confirmation_days=adaptive_cfg.risk_off_confirmation_days,
+                    config=adaptive_cfg,
+                )
+                gate_says_risk_off = (
+                    True if confirmed_gate is None else bool(confirmed_gate)
+                )
+            else:
+                gate_says_risk_off = (
+                    adaptive_market is None or not adaptive_market.above_sma200
+                )
             adaptive_risk_off_now = bool(
-                risk_tier == "HALT"
-                or adaptive_market is None
-                or not adaptive_market.above_sma200
+                risk_tier == "HALT" or gate_says_risk_off
             )
             if adaptive_risk_off_now:
                 adaptive_risk_off_latched = True

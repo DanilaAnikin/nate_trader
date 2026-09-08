@@ -41,6 +41,11 @@ def test_dashboard_v11_policy_matches_production_strategy_config(regime, risk_ti
     assert policy["minCashPct"] == params["min_cash_pct"]
     assert policy["maxSectorPct"] == params["momentum_max_sector_pct"]
     assert policy["maxGrossExposurePct"] == adaptive.max_gross_exposure_pct
+    # Added 2026-09-08. The gate is graduated now, so "engaged" no longer means
+    # "flat" and the dashboard has to carry the floor or it will describe a
+    # position the executor is not in.
+    assert policy["belowSma200FloorPct"] == params["momentum_below_sma200_floor_pct"]
+    assert adaptive.below_sma200_floor_pct == params["momentum_below_sma200_floor_pct"]
     assert policy["maxGrossExposurePct"] == 100.0 - params["min_cash_pct"]
     assert policy["weighting"] == params["momentum_weighting_scheme"]
     assert policy["breadthScalingEnabled"] is params["momentum_use_breadth_scaling"]

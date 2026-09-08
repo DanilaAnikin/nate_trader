@@ -57,11 +57,29 @@ def test_the_graduated_floor_defaults_to_off():
     assert AdaptiveMomentumConfig().below_sma200_floor_pct == 0.0
 
 
-def test_the_live_v11_policy_does_not_set_the_floor():
-    """The shipped policy must not carry the research knob at all."""
+def test_the_live_v11_policy_now_sets_the_floor():
+    """Adopted 2026-09-08. This test asserted the opposite until then.
+
+    The floor was research-only while it was unproven. It became policy after
+    measuring a monotone, saturating response across ten values on two
+    independent windows, a 2008-2026 confirmation, and survival of removing the
+    universe's five biggest profit contributors. The test is inverted rather
+    than deleted so the change is visible in the history instead of silent.
+    """
     params = get_strategy_params("BULL", "NORMAL")
-    assert "momentum_below_sma200_floor_pct" not in params
-    assert config_from_params(params).below_sma200_floor_pct == 0.0
+    assert params["momentum_below_sma200_floor_pct"] == 75.0
+    assert config_from_params(params).below_sma200_floor_pct == 75.0
+
+
+def test_the_floor_is_a_softening_not_a_removal():
+    """Below the SMA200 the book must still de-risk, just not to zero.
+
+    A floor of 100 would silently delete the gate. Through the 2008 crash the
+    gate is what held the loss to -13.6% while SPY returned -46.5%, so the
+    distance between the floor and full exposure is the protection itself.
+    """
+    cfg = config_from_params(get_strategy_params("BULL", "NORMAL"))
+    assert 0.0 < cfg.below_sma200_floor_pct < cfg.max_gross_exposure_pct
 
 
 def test_residual_parking_defaults_to_cash():
@@ -86,12 +104,18 @@ def test_a_recognised_parking_mode_survives_case_and_whitespace(value):
 # ── behaviour, not just the stored value ────────────────────────────────────
 
 
-def test_below_sma200_still_targets_zero_gross_by_default():
-    """The V11 rule: below the SMA200, the book goes to cash. Unchanged."""
+def test_below_sma200_now_targets_the_floor_rather_than_cash():
+    """The rule this replaced: the book went to 0% below the SMA200.
+
+    SPY spent 19% of 2021-2026 below its own SMA200 and compounded +15.4%
+    during exactly those sessions, and crossed the line sixteen times in 2022 —
+    each crossing a full liquidation and re-entry of the whole book.
+    """
     cfg = config_from_params(get_strategy_params("BULL", "NORMAL"))
-    assert (
-        _target_gross_weight(_market(above=False), _scan(), "NORMAL", cfg) == 0.0
-    )
+    gross = _target_gross_weight(_market(above=False), _scan(), "NORMAL", cfg)
+    assert 0.0 < gross <= cfg.below_sma200_floor_pct / 100.0
+    # Still strictly less than the risk-on target: it de-risks.
+    assert gross < _target_gross_weight(_market(above=True), _scan(), "NORMAL", cfg)
 
 
 def test_above_sma200_is_untouched_by_the_floor_parameter():

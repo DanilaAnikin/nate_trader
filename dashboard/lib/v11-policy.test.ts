@@ -33,8 +33,15 @@ describe("V11 dashboard policy contract", () => {
       minEligiblePositions: 8,
       maxPositionPct: 9,
       minCashPct: 10,
-      maxSectorPct: 20,
+      // Raised from 20 on 2026-09-08. At a 9% name cap, 20% admitted only two
+      // names per sector, forcing a ten-name book across five or more sectors
+      // and down the ranking to fill them.
+      maxSectorPct: 40,
       maxGrossExposurePct: 90,
+      // Was an implicit 0: the book exited entirely to cash below SPY's
+      // SMA200. Now it de-risks to 75% of normal gross instead. Surfaced in
+      // the published policy because "gate engaged" no longer means "flat".
+      belowSma200FloorPct: 75,
       cautiousGrossMultiplier: 0.5,
       breadthScalingEnabled: true,
       riskOnReentryDays: 1,

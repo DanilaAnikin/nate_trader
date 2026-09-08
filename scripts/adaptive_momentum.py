@@ -58,6 +58,14 @@ class AdaptiveMomentumConfig:
     use_market_volatility_scaling: bool = False
     use_breadth_scaling: bool = False
     risk_on_reentry_confirmation_days: int = 0
+    # RESEARCH ONLY (default 0 = V11 unchanged). The market gate fires on a
+    # SINGLE completed close below SPY's SMA200. That makes it react to every
+    # brush against the line: SPY crossed its SMA200 sixteen times in 2022, and
+    # each crossing is a full liquidation and re-entry of the whole book. When
+    # this is > 0 the condition must hold for that many consecutive completed
+    # closes before it is acted on, in BOTH directions — a delay applied only to
+    # the exit would make the gate slower to protect while still quick to sell.
+    risk_off_confirmation_days: int = 0
     # RESEARCH ONLY (default 0.0 = V11 unchanged). When > 0, the SPY-SMA200 gate
     # becomes graduated instead of all-or-nothing: below SMA200 the book keeps up
     # to this percent of gross (scaled by the same breadth/vol/diversification
@@ -202,6 +210,9 @@ def config_from_params(params: dict) -> AdaptiveMomentumConfig:
         ),
         below_sma200_floor_pct=max(
             0.0, float(params.get("momentum_below_sma200_floor_pct", 0.0))
+        ),
+        risk_off_confirmation_days=max(
+            0, int(params.get("momentum_risk_off_confirm_days", 0))
         ),
     )
 
@@ -479,6 +490,85 @@ def market_reentry_confirmed(
         sma = float(window.mean())
         if not math.isfinite(sma) or float(window.iloc[-1]) <= sma:
             return False
+    return True
+
+
+def market_gate_state(
+    provider,
+    as_of: str,
+    *,
+    confirmation_days: int,
+    config: AdaptiveMomentumConfig | None = None,
+    search_depth: int = 120,
+) -> bool | None:
+    """Whether the market gate is ENGAGED at ``as_of``, after confirmation.
+
+    Returns True for risk-off, False for risk-on, and None when the required
+    history is unavailable — which callers must treat as risk-off, exactly as a
+    missing :class:`MarketState` already is.
+
+    With ``confirmation_days <= 1`` this is V11's rule unchanged: one completed
+    close below the SMA200 engages the gate.
+
+    Above that it is a hysteresis. The state changes only when the last N
+    completed closes agree, in BOTH directions — symmetric on purpose, since a
+    delay applied only to the exit would leave the gate slow to protect while
+    still quick to buy back. When the most recent N closes disagree, the market
+    is straddling its own average and the answer is whichever state was last
+    CONFIRMED, found by scanning back for the most recent unanimous window.
+
+    That backward scan is what makes this a pure function of price history
+    rather than a latch carried between sessions. A latch would make the answer
+    depend on when the simulation started and would not survive the live
+    executor being restarted mid-episode — two properties a gate that decides
+    whether to hold equities cannot have.
+
+    If no window in the searchable history is unanimous, the market has been
+    straddling for a long time and there is no confirmed state to hold. That
+    resolves to risk-off: for a safety device the tolerable error is being too
+    defensive, never being too slow to protect.
+    """
+    cfg = config or AdaptiveMomentumConfig()
+    days = max(1, int(confirmation_days))
+    minimum = cfg.trend_days + days - 1
+    wanted = minimum + max(0, int(search_depth))
+    bars = provider.bars_up_to("SPY", as_of, lookback_days=wanted + 5)
+    if (
+        bars is None
+        or len(bars) < minimum
+        or "close" not in bars.columns
+        or str(bars.index[-1])[:10] != as_of
+    ):
+        return None
+    bars = bars.iloc[-wanted:] if len(bars) > wanted else bars
+    if not _has_contiguous_signal_epoch(bars.index):
+        return None
+    closes = pd.to_numeric(bars["close"], errors="coerce").astype(float)
+    if not closes.map(lambda value: math.isfinite(value) and value > 0).all():
+        return None
+
+    # One boolean per completed close for which a full trailing SMA exists.
+    above: list[bool] = []
+    for end in range(cfg.trend_days, len(closes) + 1):
+        window = closes.iloc[end - cfg.trend_days : end]
+        sma = float(window.mean())
+        if not math.isfinite(sma) or sma <= 0:
+            return None
+        above.append(float(window.iloc[-1]) > sma)
+
+    if len(above) < days:
+        return None
+    if days == 1:
+        return not above[-1]
+
+    # Walk back from the newest window to the oldest; the first unanimous run
+    # of `days` is the most recently confirmed state.
+    for end in range(len(above), days - 1, -1):
+        run = above[end - days : end]
+        if all(run):
+            return False
+        if not any(run):
+            return True
     return True
 
 
