@@ -52,8 +52,9 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  # No pull-requests: write. The job pushes a branch and a person opens the PR;
+  # see the final step for why that is deliberate rather than a limitation.
   contents: write
-  pull-requests: write
 
 env:
   PYTHON_VERSION: "3.12.11"
@@ -176,7 +177,7 @@ jobs:
       - name: Verify the offline release contract
         run: python scripts/sanity_check.py
 
-      - name: Open a pull request with the refreshed data
+      - name: Push the refreshed data to a branch
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -200,14 +201,16 @@ jobs:
           The gate's verdict is recorded, not acted on: this job refreshes
           evidence and promotes nothing."
           git push origin "$branch"
-          gh pr create --base main --head "$branch" \
-            --title "chore(data): refresh adjusted history (gate: ${gate})" \
-            --body "Automated rebuild from Alpaca's consolidated tape.
-
-          Promotion gate after refresh: **${gate}**.
-
-          Opened as a pull request rather than pushed, so the refreshed data
-          passes the same required checks as any other change to main. Read the
-          run's 'Report coverage' step for symbols whose history still ends
-          early — those are dropped from the ranking universe by the validator,
-          which is a change to what the strategy may hold."
+          # It pushes a BRANCH and stops there. `gh pr create` from inside a
+          # workflow needs "Allow GitHub Actions to create and approve pull
+          # requests", which this repository does not grant — and should not:
+          # that same setting also lets Actions APPROVE pull requests, so
+          # buying the convenience would weaken review on every PR in the repo.
+          # A person opens the PR; the data is already safely on a branch.
+          echo "::notice::Refreshed data pushed to ${branch} (gate: ${gate})."
+          echo "::notice::Open a pull request from that branch to land it:"
+          echo "::notice::  gh pr create --base main --head ${branch}"
+          echo "::notice::Read the 'Report coverage' step for symbols whose"
+          echo "::notice::history ends early — the validator drops those from"
+          echo "::notice::the ranking universe, which changes what the"
+          echo "::notice::strategy may hold."

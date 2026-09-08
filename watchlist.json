@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-24",
+  "updated_at": "2026-09-08",
   "symbols": {
     "SPY": {
       "sector": "Benchmark",
@@ -1350,18 +1350,6 @@
       "max_allocation_pct": 5,
       "tradeable": true,
       "notes": "v6.1 universe \u2014 Welltower"
-    },
-    "AVB": {
-      "sector": "RealEstate",
-      "max_allocation_pct": 5,
-      "tradeable": true,
-      "notes": "v6.1 universe \u2014 AvalonBay"
-    },
-    "EQR": {
-      "sector": "RealEstate",
-      "max_allocation_pct": 5,
-      "tradeable": true,
-      "notes": "v6.1 universe \u2014 Equity Residential"
     },
     "NEE": {
       "sector": "Utilities",
@@ -3194,12 +3182,6 @@
       "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
     },
     "WAL": {
-      "sector": "Financial",
-      "max_allocation_pct": 5,
-      "tradeable": true,
-      "notes": "v9 Phase 1 \u2014 small/mid-cap financial momentum candidate"
-    },
-    "WBS": {
       "sector": "Financial",
       "max_allocation_pct": 5,
       "tradeable": true,
