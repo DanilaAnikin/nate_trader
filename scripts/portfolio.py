@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import QueryOrderStatus
 from alpaca.trading.requests import GetOrdersRequest, GetPortfolioHistoryRequest
+from broker_mode import resolve_broker_mode
 from risk_policy import assess_portfolio_risk
 from utils import (
     ALPACA_API_KEY,
@@ -30,11 +31,28 @@ MAX_HISTORY_STALENESS_DAYS = 7
 
 def _get_client() -> TradingClient:
     """Lazily build the Alpaca client so importing this module never requires
-    credentials — keeps sanity checks and unit tests importable without keys."""
+    credentials — keeps sanity checks and unit tests importable without keys.
+
+    The broker is chosen once by :func:`broker_mode.resolve_broker_mode`, so this
+    module reads the same account the executor trades. A dry run or a paper run
+    resolves to the paper endpoint exactly as the old hard-coded ``paper=True``
+    did.
+    """
     global _client
     if _client is None:
-        _client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+        resolved = resolve_broker_mode()
+        _client = TradingClient(
+            resolved.api_key or ALPACA_API_KEY,
+            resolved.api_secret or ALPACA_SECRET_KEY,
+            paper=resolved.paper,
+        )
     return _client
+
+
+def reset_client_cache() -> None:
+    """Drop the cached client so a changed mode is picked up (see trade.py)."""
+    global _client
+    _client = None
 
 
 def __getattr__(name: str):

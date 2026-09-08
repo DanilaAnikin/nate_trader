@@ -13,6 +13,13 @@ from alpaca.trading.requests import (
 )
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce, QueryOrderStatus
 
+from broker_mode import (
+    BrokerModeError,
+    kill_switch_engaged,
+    kill_switch_path,
+    resolve_broker_mode,
+    verify_live_account_binding,
+)
 from utils import (
     ALPACA_API_KEY, ALPACA_SECRET_KEY,
     setup_logging, get_now_str,
@@ -28,11 +35,36 @@ _INFRASTRUCTURE_SYMBOLS = {"SPY", "SSO", "TQQQ", "UPRO", "BIL", "SH"}
 
 def _get_client() -> TradingClient:
     """Lazily build the Alpaca client so importing this module never requires
-    credentials — keeps sanity checks and unit tests importable without keys."""
+    credentials — keeps sanity checks and unit tests importable without keys.
+
+    Which broker this reaches is decided once, by
+    :func:`broker_mode.resolve_broker_mode`, and never by this module. A dry run
+    or a paper run resolves to the paper endpoint exactly as the old hard-coded
+    ``paper=True`` did; only an explicitly and completely configured live run
+    resolves anywhere else, and an incoherent live configuration raises instead
+    of falling back.
+    """
     global _client
     if _client is None:
-        _client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+        resolved = resolve_broker_mode()
+        _client = TradingClient(
+            resolved.api_key or ALPACA_API_KEY,
+            resolved.api_secret or ALPACA_SECRET_KEY,
+            paper=resolved.paper,
+        )
     return _client
+
+
+def reset_client_cache() -> None:
+    """Drop the cached client so a changed mode is picked up.
+
+    The client is a module-global singleton, which is what makes a mid-process
+    mode change dangerous: without this, code that switched ``TRADING_MODE``
+    would keep talking to whichever broker was resolved first. Tests use it; so
+    should any future caller that changes the environment.
+    """
+    global _client
+    _client = None
 
 
 def __getattr__(name: str):
@@ -335,6 +367,90 @@ def calculate_position_size(symbol: str, entry_price: float,
     return max(0, shares)
 
 
+# ── live-money guards ───────────────────────────────────────────────────────
+#
+# Every limit order in this repository is submitted through place_limit_order,
+# which makes it the one place a real-money ceiling can be enforced without
+# trusting any caller to remember. The guards below are deliberately outside
+# the strategy: every existing limit (max_position_pct, max_sector_pct,
+# min_cash_pct) is a percentage of equity, so a bug in the equity read or in
+# the target weights scales the mistake with the account instead of capping it.
+#
+# Sells are never blocked. A notional ceiling that could stop an exit would
+# turn a spending guard into a risk of being unable to reduce risk.
+
+_live_binding_verified = False
+_live_cycle_notional_spent = 0.0
+
+
+def reset_live_cycle_state() -> None:
+    """Forget the per-run live ledger. One process is one cycle."""
+    global _live_binding_verified, _live_cycle_notional_spent
+    _live_binding_verified = False
+    _live_cycle_notional_spent = 0.0
+
+
+def _verify_live_binding_once(resolved) -> None:
+    """Prove the live credentials reach the account the operator declared.
+
+    Done once per process, on the first live order, and never skipped on a
+    later one: the check is cheap relative to a wrong-account trade, and the
+    only way to fail it is a configuration the operator must fix anyway.
+    """
+    global _live_binding_verified
+    if _live_binding_verified:
+        return
+    account = _get_client().get_account()
+    verify_live_account_binding(resolved, getattr(account, "account_number", None))
+    _live_binding_verified = True
+    log.info(
+        "Live account binding verified against LIVE_TRADING_ACCOUNT_NUMBER."
+    )
+
+
+def enforce_live_order_limits(symbol: str, qty: float, side: str, limit_price: float):
+    """Apply the absolute real-money ceilings, or raise.
+
+    Returns the resolved broker mode so the caller does not resolve twice.
+    """
+    resolved = resolve_broker_mode()
+    if not resolved.is_live:
+        return resolved
+
+    if kill_switch_engaged():
+        raise RuntimeError(
+            "Live kill switch is engaged; refusing to submit orders. "
+            f"Delete {kill_switch_path()} to re-arm."
+        )
+
+    _verify_live_binding_once(resolved)
+
+    if side.lower() != "buy":
+        # Risk-reducing. Never capped, never blocked.
+        return resolved
+
+    notional = float(qty) * float(limit_price)
+    per_order_cap = resolved.max_order_notional_usd
+    if per_order_cap is not None and notional > per_order_cap:
+        raise RuntimeError(
+            f"Live order refused: {side.upper()} {qty} {symbol} is "
+            f"${notional:,.2f}, above the LIVE_MAX_ORDER_NOTIONAL_USD ceiling "
+            f"of ${per_order_cap:,.2f}."
+        )
+
+    global _live_cycle_notional_spent
+    cycle_cap = resolved.max_cycle_notional_usd
+    if cycle_cap is not None and _live_cycle_notional_spent + notional > cycle_cap:
+        raise RuntimeError(
+            f"Live order refused: this cycle has already committed "
+            f"${_live_cycle_notional_spent:,.2f} and {symbol} would take it to "
+            f"${_live_cycle_notional_spent + notional:,.2f}, above the "
+            f"LIVE_MAX_CYCLE_NOTIONAL_USD ceiling of ${cycle_cap:,.2f}."
+        )
+    _live_cycle_notional_spent += notional
+    return resolved
+
+
 def place_limit_order(
     symbol: str,
     qty: float,
@@ -347,6 +463,11 @@ def place_limit_order(
     The fifth argument is optional for backwards compatibility.  When omitted,
     Alpaca generates the client order ID exactly as before.
     """
+    # Real money only: absolute ceilings and the credential-to-account proof.
+    # A no-op for paper and dry runs, so the paper path is byte-for-byte the
+    # behaviour it has always had.
+    enforce_live_order_limits(symbol, qty, side, limit_price)
+
     order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
     request_kwargs = dict(
         symbol=symbol,
@@ -658,14 +779,25 @@ def main(argv: list[str] | None = None) -> int:
 
     args = list(sys.argv[1:] if argv is None else argv)
     cmd = args[0] if args else "market"
-    if cmd in {"stops", "cancel", "sync-stops"} and (
-        os.getenv("TRADING_MODE", "").strip().lower() != "paper"
-    ):
-        print(
-            "Trading disabled: set TRADING_MODE=paper for mutating trade commands.",
-            file=sys.stderr,
-        )
-        return 2
+    if cmd in {"stops", "cancel", "sync-stops"}:
+        # A bare invocation must stay inert. Paper keeps its single-variable
+        # opt-in; live has to satisfy the whole configuration in broker_mode,
+        # which raises with the specific reason rather than a generic refusal.
+        try:
+            resolved = resolve_broker_mode()
+        except BrokerModeError as exc:
+            print(f"Trading disabled: {exc}", file=sys.stderr)
+            return 2
+        if not resolved.is_mutating:
+            print(
+                "Trading disabled: set TRADING_MODE=paper for mutating trade "
+                "commands, or TRADING_MODE=live with the full live "
+                "configuration for real money.",
+                file=sys.stderr,
+            )
+            return 2
+        if resolved.is_live:
+            print(f"LIVE REAL-MONEY MODE — {resolved.describe()}", file=sys.stderr)
 
     if cmd == "market":
         status = get_market_status()

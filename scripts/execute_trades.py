@@ -43,6 +43,17 @@ BASE_CANDIDATES = (SPY_BASE_SYMBOL, SSO_BASE_SYMBOL)
 V11_INFRASTRUCTURE_SYMBOLS = frozenset(
     {*BASE_CANDIDATES, TQQQ_BASE_SYMBOL, UPRO_BASE_SYMBOL, HEDGE_SYMBOL}
 )
+from broker_mode import (
+    DRY_RUN,
+    LIVE,
+    PAPER,
+    BrokerMode,
+    BrokerModeError,
+    requested_mode,
+    resolve_broker_mode,
+    verify_live_account_binding,
+)
+
 V11_VALIDATION_STATE = STATE_DIR / "backtest" / "v11_validation.json"
 ADAPTIVE_PENDING_PLAN_KEY = "adaptive_rebalance_pending"
 ADAPTIVE_RISK_OFF_LATCH_KEY = "adaptive_risk_off_latched"
@@ -141,22 +152,58 @@ def _capture_execution_risk_snapshot() -> dict:
 
 
 def paper_trading_mode_enabled() -> bool:
-    """True only when the operator explicitly opted into Alpaca paper mode."""
-    return os.getenv("TRADING_MODE", "").strip().lower() == "paper"
+    """True only when the operator explicitly opted into Alpaca paper mode.
 
-
-def require_paper_trading_mode() -> None:
-    """Refuse every money-mutating run unless paper mode is explicit.
-
-    There is intentionally no accepted value for live-money trading.  The
-    broker client in :mod:`trade` is also permanently constructed with
-    ``paper=True`` as a second independent guard.
+    Kept as a distinct predicate from :func:`live_trading_mode_enabled` so that
+    callers which genuinely mean "paper" — the paper-production workflow's own
+    self-checks, for instance — cannot accidentally be satisfied by a live run.
     """
-    if not paper_trading_mode_enabled():
+    return requested_mode() == PAPER
+
+
+def live_trading_mode_enabled() -> bool:
+    """True only when the operator explicitly asked for real money.
+
+    Asking is not the same as being allowed: :func:`require_trading_mode` is
+    what actually validates the live configuration, and the validation gate
+    still has to pass before any buy is submitted.
+    """
+    return requested_mode() == LIVE
+
+
+def require_trading_mode() -> BrokerMode:
+    """Refuse every money-mutating run unless a broker is explicitly configured.
+
+    Returns the resolved :class:`~broker_mode.BrokerMode` so callers can size
+    orders against the absolute dollar caps a live run is required to declare.
+
+    Paper behaves exactly as it always has: ``TRADING_MODE=paper`` and nothing
+    else is needed. Live additionally requires separately-named credentials, an
+    explicit ``LIVE_TRADING_ENABLED``, the account number it is allowed to
+    trade, two absolute notional ceilings, and an un-engaged kill switch — all
+    enforced in :func:`broker_mode.resolve_broker_mode`, which raises rather
+    than falling back when any of them is missing.
+    """
+    mode = requested_mode()
+    if mode == DRY_RUN:
         raise RuntimeError(
-            "Trading disabled: set TRADING_MODE=paper to run paper orders. "
-            "Live-money mode is not supported."
+            "Trading disabled: set TRADING_MODE=paper for paper orders, or "
+            "TRADING_MODE=live with the full live configuration for real money."
         )
+    try:
+        return resolve_broker_mode()
+    except BrokerModeError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+def require_paper_trading_mode() -> BrokerMode:
+    """Back-compatible name; paper and live both flow through the same gate.
+
+    Retained because :mod:`production_run` and the CLI have always called it and
+    the paper path must keep behaving identically. New code should call
+    :func:`require_trading_mode`.
+    """
+    return require_trading_mode()
 
 
 def _execution_client_order_id(

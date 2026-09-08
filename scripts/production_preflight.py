@@ -27,6 +27,7 @@ LOCK_PATH = PROJECT_ROOT / "requirements.lock"
 VALIDATION_PATH = PROJECT_ROOT / "state" / "backtest" / "v11_validation.json"
 EXPECTED_PYTHON = "3.12.11"
 EXPECTED_PAPER_URL = "https://paper-api.alpaca.markets"
+EXPECTED_LIVE_URL = "https://api.alpaca.markets"
 IDENTITY_DISTRIBUTIONS = ("alpaca-py", "numpy", "pandas")
 MAX_CLOCK_AGE_SECONDS = 120
 
@@ -34,6 +35,14 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 load_dotenv(PROJECT_ROOT / ".env")
+
+from broker_mode import (  # noqa: E402
+    LIVE,
+    PAPER,
+    BrokerModeError,
+    requested_mode,
+    resolve_broker_mode,
+)
 
 
 def _enum_value(value: Any) -> str:
@@ -75,17 +84,42 @@ def locked_distribution_versions(lock_path: Path = LOCK_PATH) -> dict[str, str]:
 def check_environment(
     environ: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Require explicit paper mode and non-empty broker credentials."""
+    """Require an explicitly configured broker mode and its credentials.
 
-    values = os.environ if environ is None else environ
+    Paper is unchanged: ``TRADING_MODE=paper`` plus the two paper keys. Live has
+    to satisfy every condition in :func:`broker_mode.resolve_broker_mode`, and
+    the reason it fails is reported rather than collapsed into "must equal
+    paper" — an operator who mistyped one live variable needs to know which.
+    """
+
+    values = dict(os.environ if environ is None else environ)
     checks: list[dict[str, Any]] = []
-    mode = str(values.get("TRADING_MODE", "")).strip().lower()
+    mode = requested_mode(values)
+
     _record(
         checks,
         "trading_mode",
-        mode == "paper",
-        "paper" if mode == "paper" else "must equal paper",
+        mode in {PAPER, LIVE},
+        mode if mode in {PAPER, LIVE} else "must equal paper or live",
     )
+
+    if mode == LIVE:
+        try:
+            resolved = resolve_broker_mode(values)
+        except BrokerModeError as exc:
+            _record(checks, "live_configuration", False, str(exc).replace("\n", " "))
+            return checks
+        _record(checks, "live_configuration", True, resolved.describe())
+        for key in ("ALPACA_LIVE_API_KEY", "ALPACA_LIVE_SECRET_KEY"):
+            present = bool(str(values.get(key, "")).strip())
+            _record(
+                checks,
+                key.lower(),
+                present,
+                "configured" if present else "missing",
+            )
+        return checks
+
     for key in ("ALPACA_API_KEY", "ALPACA_SECRET_KEY"):
         present = bool(str(values.get(key, "")).strip())
         _record(
@@ -242,10 +276,16 @@ def check_broker(
     details: dict[str, Any] = {}
     client = broker if broker is not None else _get_client()
     base_url = _enum_value(getattr(client, "_base_url", ""))
+    # The endpoint must match the declared mode exactly. Checking only for the
+    # paper URL would have passed a live client silently once live existed;
+    # checking for "either" would have accepted a paper endpoint during a live
+    # run, which is the more dangerous direction because it looks like it
+    # worked.
+    expected_url = EXPECTED_LIVE_URL if requested_mode() == LIVE else EXPECTED_PAPER_URL
     _record(
         checks,
-        "paper_endpoint",
-        base_url == EXPECTED_PAPER_URL,
+        "broker_endpoint",
+        base_url == expected_url,
         base_url or "broker endpoint unavailable",
     )
 

@@ -3,18 +3,29 @@
 ## Mission and status
 
 Maintain and evaluate `v11-adaptive-momentum`, a causal US-equity momentum
-strategy for **Alpaca paper trading only**. The objective is to test whether it
-can produce positive benchmark-relative returns with controlled drawdown. Do
-not promise alpha, profit, or flawless operation.
+strategy running on Alpaca. **Paper is the default and the only scheduled
+mode**; real-money execution exists, is off unless fully configured, and is
+never started by a timer. The objective is to test whether the strategy can
+produce positive benchmark-relative returns with controlled drawdown. Do not
+promise alpha, profit, or flawless operation.
 
-There is one supported scheduled trader:
-`.github/workflows/paper-production.yml`. It runs only the V11 Alpaca paper
-path after release and broker preflight, with a private artifact for persistent
-runtime state. `.github/workflows/v11-release.yml` is the non-trading release
-gate. The paper workflow must check out the full SHA in the environment variable
-`PRODUCTION_RELEASE_SHA` and find a successful release gate for that exact SHA.
-A push triggers tests but never directly submits an order. Do not restore the
-archived optimizer/research/multi-account workflows.
+`.github/workflows/paper-production.yml` is the only **scheduled** trader. It
+runs the V11 Alpaca paper path after release and broker preflight, with a
+private artifact for persistent runtime state, and must check out the full SHA
+in `PRODUCTION_RELEASE_SHA` and find a successful release gate for that exact
+SHA.
+
+`.github/workflows/live-production.yml` is real money. It is manual-dispatch
+only — no `schedule:` block — runs in a `live-production` environment behind
+required reviewers, and needs a typed confirmation phrase before it will
+execute. It gates on the same release SHA, release gate, offline contract and
+preflight as the paper workflow: live is the paper path plus more refusals,
+never fewer. Its runtime state lives in a separate artifact namespace, and each
+workflow refuses to restore the other's lineage.
+
+`.github/workflows/v11-release.yml` is the non-trading release gate. A push
+triggers tests but never directly submits an order. Do not restore the archived
+optimizer/research/multi-account workflows.
 
 The authoritative strategy document is
 `strategy/v11_adaptive_momentum.md`. Older v3-v10 documents and code paths are
@@ -103,11 +114,27 @@ sector ETFs. Do not bypass the sector cap by fabricating a classification.
 
 ## Safety rules
 
-- The broker client must remain fixed to `paper=True`. There is no supported
-  live-money mode.
-- No-argument `python3 scripts/execute_trades.py` must remain a dry run.
+- The broker mode is decided in exactly one place, `scripts/broker_mode.py`.
+  Nothing else in the repository may construct a `TradingClient` with a literal
+  `paper=` value or compare `TRADING_MODE` to a string itself.
+- Real money is supported but is off by default and never inferred. A live run
+  requires ALL of: `TRADING_MODE=live`, separately-named
+  `ALPACA_LIVE_API_KEY`/`ALPACA_LIVE_SECRET_KEY` (never a fallback to the paper
+  pair, and refused if identical to it), an explicit `LIVE_TRADING_ENABLED`,
+  `LIVE_TRADING_ACCOUNT_NUMBER` verified against a fresh `/v2/account` read,
+  and both `LIVE_MAX_ORDER_NOTIONAL_USD` and `LIVE_MAX_CYCLE_NOTIONAL_USD`.
+  Any one missing refuses the run. An unrecognised `TRADING_MODE` — including a
+  typo — is a dry run, never a fallback to either broker.
+- The absolute dollar ceilings are not optional and are enforced in
+  `trade.place_limit_order`, the single order choke point. Every strategy limit
+  is a percentage of equity and therefore scales a bug with the account; these
+  do not. Sells are never capped, and the
+  `LIVE_TRADING_KILL_SWITCH_FILE` stops entries only — nothing may block a
+  risk-reducing exit.
+- No-argument `python3 scripts/execute_trades.py` must remain a dry run, and
+  every mutating execution path must require an explicitly configured broker
+  mode.
 - Dry run must have zero order and state mutations.
-- Every mutating execution path must require `TRADING_MODE=paper`.
 - Treat every short as a blocking reconciliation state. Cancel conflicting
   orders, cover it with a bounded idempotent BUY, and run no other V11 manager
   until a fresh broker snapshot is flat.

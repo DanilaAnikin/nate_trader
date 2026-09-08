@@ -1,4 +1,10 @@
-"""Guarded V11 paper-production runner with machine-readable health state."""
+"""Guarded V11 production runner with machine-readable health state.
+
+Handles both the paper forward-validation cycle and, when the operator has
+configured every live condition, a real-money cycle. The persisted record names
+which one actually ran: a consumer must never have to infer from silence
+whether real money moved.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +15,8 @@ from collections.abc import Iterator
 from datetime import datetime, timezone
 from typing import Any
 
-from execute_trades import require_paper_trading_mode, run_execution
+from broker_mode import BrokerMode
+from execute_trades import require_trading_mode, run_execution
 from portfolio import save_positions_state, update_performance_state
 from utils import STATE_DIR, save_json
 
@@ -36,8 +43,16 @@ def iter_action_records(value: Any) -> Iterator[dict[str, Any]]:
             yield from iter_action_records(child)
 
 
-def summarize_execution(result: dict[str, Any]) -> dict[str, Any]:
-    """Build a compact, secret-free status suitable for persistence."""
+def summarize_execution(
+    result: dict[str, Any], resolved: BrokerMode | None = None
+) -> dict[str, Any]:
+    """Build a compact, secret-free status suitable for persistence.
+
+    ``paper_only`` stays in the record and stays truthful. The paper workflow
+    refuses to restore an artifact whose ``paper_only`` is not ``True``, which
+    is exactly the property that keeps a live cycle's state from ever being
+    replayed into the paper lineage — so it is computed, never asserted.
+    """
 
     records = list(iter_action_records(result))
     action_counts = Counter(str(record["action"]) for record in records)
@@ -50,14 +65,16 @@ def summarize_execution(result: dict[str, Any]) -> dict[str, Any]:
         if str(record.get("action", "")).upper() in BLOCKING_ACTIONS
     ]
     entry_gate = result.get("entry_gate", {})
+    is_live = bool(resolved is not None and resolved.is_live)
     return {
         "schema_version": 1,
-        "kind": "v11_paper_production_run",
+        "kind": "v11_live_production_run" if is_live else "v11_paper_production_run",
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "release_sha": _release_sha(),
         "strategy_version": "v11-adaptive-momentum",
         "status": "PASS" if not blocking else "DEGRADED",
-        "paper_only": True,
+        "paper_only": not is_live,
+        "broker_mode": resolved.mode if resolved is not None else "unknown",
         "market_entry_allowed": bool(entry_gate.get("allowed", False)),
         "risk_tier": result.get("risk_tier"),
         "action_counts": dict(sorted(action_counts.items())),
@@ -65,15 +82,19 @@ def summarize_execution(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _failed_summary(exc: BaseException) -> dict[str, Any]:
+def _failed_summary(
+    exc: BaseException, resolved: BrokerMode | None = None
+) -> dict[str, Any]:
+    is_live = bool(resolved is not None and resolved.is_live)
     return {
         "schema_version": 1,
-        "kind": "v11_paper_production_run",
+        "kind": "v11_live_production_run" if is_live else "v11_paper_production_run",
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "release_sha": _release_sha(),
         "strategy_version": "v11-adaptive-momentum",
         "status": "FAIL",
-        "paper_only": True,
+        "paper_only": not is_live,
+        "broker_mode": resolved.mode if resolved is not None else "unknown",
         "failure_type": type(exc).__name__,
     }
 
@@ -81,14 +102,20 @@ def _failed_summary(exc: BaseException) -> dict[str, Any]:
 def main() -> int:
     """Execute once, persist broker-derived state, and expose partial failure."""
 
+    resolved: BrokerMode | None = None
     try:
-        require_paper_trading_mode()
+        # Resolve first so a failure before the run still records which broker
+        # was being asked for, and so a live run announces itself in the log
+        # before it can place anything.
+        resolved = require_trading_mode()
+        if resolved.is_live:
+            print(f"*** LIVE REAL-MONEY CYCLE *** {resolved.describe()}", flush=True)
         result = run_execution(dry_run=False)
         save_positions_state()
         update_performance_state()
-        summary = summarize_execution(result)
+        summary = summarize_execution(result, resolved)
     except BaseException as exc:
-        summary = _failed_summary(exc)
+        summary = _failed_summary(exc, resolved)
         save_json(PRODUCTION_STATE, summary)
         print(json.dumps(summary, indent=2, sort_keys=True))
         return 1

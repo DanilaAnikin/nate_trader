@@ -18,6 +18,11 @@ STRATEGY_SOURCE_PATHS = (
     "requirements.lock",
     "watchlist.json",
     ".github/workflows/paper-production.yml",
+    # The live workflow decides what a real-money cycle actually executes, so it
+    # binds the identity exactly as the paper one does. Leaving it out would let
+    # the executed procedure change while a validation report still claimed to
+    # describe it.
+    ".github/workflows/live-production.yml",
     "scripts/adaptive_momentum.py",
     "scripts/risk_policy.py",
     "scripts/research.py",

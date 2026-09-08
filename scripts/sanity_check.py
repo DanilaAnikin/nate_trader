@@ -60,11 +60,14 @@ def check_strategy_config() -> list[str]:
 def check_live_wiring() -> list[str]:
     failures: list[str] = []
     try:
-        from execute_trades import (
-            _is_infrastructure,
-            manage_momentum_picks,
-            paper_trading_mode_enabled,
+        from broker_mode import (
+            LIVE,
+            PAPER,
+            BrokerModeError,
+            requested_mode,
+            resolve_broker_mode,
         )
+        from execute_trades import _is_infrastructure, manage_momentum_picks
         from trade import MAX_ENTRY_CLOCK_AGE_SECONDS
     except Exception as exc:
         return [f"paper execution imports: {exc}"]
@@ -76,10 +79,20 @@ def check_live_wiring() -> list[str]:
         failures.append("AAPL incorrectly classified as infrastructure")
     if not callable(manage_momentum_picks):
         failures.append("adaptive momentum execution is not callable")
-    if paper_trading_mode_enabled():
+    mode = requested_mode()
+    if mode == PAPER:
         _ok("TRADING_MODE=paper is explicitly enabled")
+    elif mode == LIVE:
+        # Say it loudly. A sanity check that reported a real-money run in the
+        # same tone as a paper run would be the wrong place to be quiet.
+        try:
+            resolved = resolve_broker_mode()
+        except BrokerModeError as exc:
+            failures.append(f"live mode requested but not safely configured: {exc}")
+        else:
+            _ok(f"*** LIVE REAL MONEY *** {resolved.describe()}")
     else:
-        _ok("orders locked; set TRADING_MODE=paper only for an intentional paper run")
+        _ok("orders locked; set TRADING_MODE explicitly for an intentional run")
     if MAX_ENTRY_CLOCK_AGE_SECONDS != 120:
         failures.append("broker clock freshness gate is not 120 seconds")
     if not failures:
