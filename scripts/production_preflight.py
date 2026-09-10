@@ -187,16 +187,39 @@ def check_release() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     details: dict[str, Any] = {}
     params = get_strategy_params("BULL", "NORMAL")
-    policy_ok = bool(
-        params.get("strategy_version") == "v11-adaptive-momentum"
-        and params.get("adaptive_momentum") is True
-        and params.get("momentum_use_breadth_scaling") is True
-        and params.get("momentum_top_n") == 10
-        and params.get("max_position_pct") == 9.0
-        and params.get("momentum_max_sector_pct") == 20.0
-        and params.get("min_cash_pct") == 10.0
+    # The fourth place the shipped policy is mirrored, after _V11_POLICY itself,
+    # sanity_check.check_strategy_config and the dashboard's v11-policy.json.
+    # Each mirror caught the 2026-09-08 change at a different stage — this one
+    # only at the broker preflight, which is the last gate before an order.
+    # `_record` carries a single detail string, so the mismatch is named
+    # explicitly: "breadth-scaled top-10 policy" told a reader nothing about
+    # WHICH field disagreed, and finding that cost a log dive.
+    expected_policy = {
+        "strategy_version": "v11-adaptive-momentum",
+        "adaptive_momentum": True,
+        "momentum_use_breadth_scaling": True,
+        "momentum_top_n": 10,
+        "max_position_pct": 9.0,
+        "momentum_max_sector_pct": 40.0,
+        # Below SPY's SMA200 the book de-risks to this share of normal gross
+        # instead of exiting to cash. Asserted here because it decides how much
+        # money is exposed in a downtrend.
+        "momentum_below_sma200_floor_pct": 75.0,
+        "min_cash_pct": 10.0,
+    }
+    mismatches = [
+        f"{key}={params.get(key)!r} (expected {value!r})"
+        for key, value in expected_policy.items()
+        if params.get(key) != value
+    ]
+    _record(
+        checks,
+        "frozen_v11_policy",
+        not mismatches,
+        "breadth-scaled top-10 policy"
+        if not mismatches
+        else "policy drift: " + "; ".join(mismatches),
     )
-    _record(checks, "frozen_v11_policy", policy_ok, "breadth-scaled top-10 policy")
 
     gate = _v11_validation_gate()
     _record(
