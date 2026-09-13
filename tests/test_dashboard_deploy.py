@@ -1,6 +1,7 @@
 """Deployment boundary tests: real atomic files, simulated host/HTTP failures."""
 import argparse
 import importlib.util
+import io
 import json
 from pathlib import Path
 
@@ -17,6 +18,16 @@ NEW = 'natetrader-dashboard-abcdef012345'
 SHA = 'a' * 40
 ORIGINAL = (b'auth: keep-auth-only\nrest: denied\n'
             b'url: "http://natetrader-dashboard-bridge:3000"\n')
+
+
+def test_public_probe_identifies_itself_to_the_production_edge(monkeypatch):
+    def edge(request, timeout):
+        assert request.get_header('User-agent') == 'NateTrader-Deployment/1.0'
+        response = io.BytesIO(b'{"ok":true}')
+        response.status = 200
+        return response
+    monkeypatch.setattr(deploy.urllib.request, 'urlopen', edge)
+    assert deploy.public_response(deploy.DASHBOARD + '/api/health') == (200, b'{"ok":true}')
 
 
 def test_route_change_preserves_every_other_byte_and_refuses_ambiguity():

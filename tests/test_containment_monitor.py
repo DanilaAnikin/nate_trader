@@ -1,6 +1,7 @@
 """Containment checks use synthetic identities and fake local transports only."""
 import base64
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,19 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("nt_auth_probe", ROOT / "ops/monitor/auth_probe.py")
 auth = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(auth)
+
+
+def test_auth_http_identifies_monitor_without_changing_session_headers(monkeypatch):
+    class Edge:
+        def open(self, request, timeout):
+            assert request.get_header('User-agent') == 'NateTrader-Monitor/1.0'
+            assert request.get_header('Cookie') == 'synthetic-session'
+            response = io.BytesIO(b'{"profile":{}}')
+            response.status = 200
+            return response
+    monkeypatch.setattr(auth.urllib.request, 'build_opener', lambda *args: Edge())
+    assert auth.http('GET', 'https://example.invalid/api/profile',
+                     {'Cookie': 'synthetic-session'}) == (200, {'profile': {}})
 
 
 def test_credentials_are_parsed_without_shell_execution():

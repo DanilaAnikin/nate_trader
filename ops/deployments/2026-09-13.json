@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "deployed_utc": "2026-09-13T11:26:05Z",
+  "public_origin": "https://nate-trader.anikin.cz",
+  "dashboard_source_sha": "d8288a31f884793197b6fa9f3ea8ac2b92b55a99",
+  "dashboard_image_id": "sha256:f28f5131cc3aee28f5b9d1ff7e6da4ea184fb0ccadda52c1c99c4044a12a4811",
+  "source_archive_sha256": "84d913919509521d8e14c6689149fdc5a5c8bde47fe5f563d69d09a670e73439",
+  "container": "natetrader-dashboard-d8288a31f884-active",
+  "writes_enabled": true,
+  "rollback_container": "natetrader-dashboard-d8288a31f884-frozen",
+  "paper_approved_sha": "115f11fd74591bb270e9529885ea19edf6eab923",
+  "paper_runtime_handoff": "pending; existing monthly plan preserved",
+  "live_trading_enabled": false,
+  "release_pr": 90,
+  "pull_request_ci_run": 34753945347,
+  "merged_sha_ci_run": 34754105214,
+  "database": {
+    "status": "COMMITTED",
+    "committed_utc": "2026-09-13T11:21:35.513483Z",
+    "bundle_sha256": "8f5126445f97a38dc364c13d158180f15255d4f9b50d1b4b9b32118eb639b74b",
+    "manifest_sha256": "15694810619a0f65a3877bd8a0a33b8f8b8d1df0e90dd63a260136a443dcd265",
+    "final_catalog_sha256": "46bb15185a56f43857db277317f0394efc2005c8a7fe9bc4f45ee811f9fdce58",
+    "final_objects": 549,
+    "reconciled_objects": 3,
+    "backfilled_profiles": 1,
+    "applied_versions": [
+      "0009",
+      "0010",
+      "0011",
+      "0012",
+      "0013",
+      "0014",
+      "0015",
+      "0016",
+      "0017",
+      "0018",
+      "0019",
+      "0020",
+      "0021",
+      "0022",
+      "0023"
+    ],
+    "historical_execution": "unknown; not attested"
+  },
+  "recovery": {
+    "set": "nt-cutover-20260913T110048Z",
+    "manifest_sha256": "ec752f0a0fbd1e7d744f198133fe0e1e78eeeb58e4834e9b0ac5a29fea91fef1",
+    "checks_passed": 13,
+    "standalone_restore_checks_passed": 10
+  },
+  "acceptance": {
+    "owner_checks_passed": 29,
+    "owner_evidence_sha256": "0ecb82183143592240cd11f84eac8a3a78ad9ca9dd4260e47b673ecec3bee34b",
+    "monitor_checks_passed": 29,
+    "monitor_failed": 0,
+    "monitor_unknown": 0,
+    "monitor_evidence_sha256": "b0fb26353b47d2e2fce3785c7da66c8a44731a2a6460d8adce7c6339f51abc5b",
+    "public_data_plane": "denied; Auth only",
+    "account_mutation_acceptance": "synthetic isolated restored clone; rollback",
+    "scheduled_monitor": {
+      "checked_utc": "2026-09-13T11:30:02Z",
+      "service_result": "success",
+      "exit_status": 0,
+      "passed": 29,
+      "failed": 0,
+      "unknown": 0,
+      "writes": "thawed",
+      "active_container_restarts": 0
+    }
+  },
+  "operator_sources": {
+    "deploy_dashboard.py": "c51b348bce3b0b3b3230c783d774b8ed64979526fa1745cdf88cdad1f583a144",
+    "auth_probe.py": "a36e9438b1620dad0af86cc3249573928f5129103b85e4b22efa6ee7b5af04f7",
+    "nt-containment-monitor.sh": "5aac04d9e91a0995a883766944f6c911e7ee42e8cfc41ccdce17d93e7e6e9dd2"
+  },
+  "cutover_evidence": "/var/lib/homelab/nate-trader/deployments/20260913T112605Z-d8288a31f884"
+}

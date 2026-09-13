@@ -1,6 +1,20 @@
 # Nate Trader status — 2026-09-13
 
-This record separates observed production state from the local repair candidate.
+The authorized dashboard/database deployment is complete. Production serves
+`d8288a31f884793197b6fa9f3ea8ac2b92b55a99` with writes enabled since
+**2026-09-13 11:26:05 UTC**. Both the PR and exact merged-SHA release gates passed
+all seven jobs ([PR gate](https://github.com/DanilaAnikin/nate_trader/actions/runs/34753945347),
+[deployed source gate](https://github.com/DanilaAnikin/nate_trader/actions/runs/34754105214)).
+The actual production database upgrade committed and all 549 final catalogue
+objects match the rehearsed result. Public owner acceptance and containment
+monitoring each passed 29 checks. [Deployment evidence](../ops/deployments/2026-09-13.json)
+records the immutable image, database bundle, recovery and verification hashes.
+The existing scheduled monitor also passed at 11:30:02 UTC with 29 checks,
+zero failures/unknowns and no active dashboard restarts.
+
+The paper executor remains approved at `115f11fd74591bb270e9529885ea19edf6eab923`
+while an explicit handoff for its active monthly plan is being implemented.
+Real-money trading is not enabled; the persisted forward epoch is unchanged.
 The older `OVERVIEW.md` remains a dated architecture/recovery audit. Obsidian
 history was reviewed across 71 previous session overviews, 340 prompts, 104
 implementation summaries and 80 learning notes. Some summaries describe other
@@ -27,7 +41,7 @@ projects; repository and runtime evidence take precedence over those entries.
   evidence, patched a Next.js vulnerability and corrected the preflight policy
   mirror. These changes had not all reached the public dashboard.
 
-## Observed production
+## Production baseline observed before deployment
 
 | Boundary | Evidence observed on September 13 |
 |---|---|
@@ -46,11 +60,16 @@ projects; repository and runtime evidence take precedence over those entries.
 A successful workflow is evidence of its recorded completion, not proof of
 order fills or correct strategy behavior. The review found that this base
 executor still liquidated below SMA200 while its backtest used the newer
-graduated market gate. That discrepancy is repaired in the local candidate.
-The private artifact contents were not independently retrieved during this
-review; the remote execution evidence above comes from Actions job/step status.
+graduated market gate. That discrepancy is repaired in the merged source; the running paper executor
+will receive it only after the state handoff.
+The initial workflow evidence came from Actions job/step status. Subsequent
+runtime inspection found an active September plan with 10 targets and 15
+broker-linked attempts, without complete month-convergence evidence. The
+approved paper executor stays at `115f11fd74591bb270e9529885ea19edf6eab923`
+until its state handoff is separately proved; dashboard deployment must not
+silently promote that executor or replace its state with repository seeds.
 
-## Local repairs
+## Merged repairs
 
 - Align execution with the current monthly strategy: newly constructed targets
   below SPY SMA200 have at most 75% equity exposure; existing monthly plans
@@ -82,12 +101,13 @@ review; the remote execution evidence above comes from Actions job/step status.
 
 ## Verification
 
-The final Python suite passes **754 tests** with Python 3.12.11 and the CI-pinned
+The final Python suite passes **800 tests** with Python 3.12.11 and the CI-pinned
 pytest 9.1.1; the deployment lint passes with CI-pinned Ruff 0.16.1. Dependency
 consistency also passes. The final dashboard unit/component
-suite passes **1,204 tests in 51 files**; lint, TypeScript and the production
+suite passes **1,227 tests in 54 files**; lint, TypeScript and the production
 build pass. The dependency audit reports zero vulnerabilities. All **38
-Playwright browser checks pass**.
+Playwright browser checks pass**. The separate Node owner-acceptance suite
+passes **5 tests**. The release candidate also passed all seven CI jobs.
 
 Canonical validation was rerun on September 13 after all strategy-identity
 sources were stable: **PASS, 8/8 checks**. Every stored metric in all four
@@ -125,43 +145,59 @@ restore of the production database, roles, configuration or key.
 The read-only production inspector completed with 29 JSON records on September
 13 at 10:29:50 UTC. Checked credential/binding/Vault-reference and audit-shape
 blocker counts were zero. Newer schema objects and the project migration ledger
-remain absent; credential-helper grant drift remains unresolved. The inspector
+were absent at that initial production observation. The inspector
 was also checked on an empty database, a tracked database and 11 synthetic audit
-shapes. Its successful execution is an inventory result, not release approval.
+shapes. Its successful execution is an inventory result; the completed recovery
+and upgrade preparation below provides the subsequent evidence.
 
-## Remaining release work
+## Verified deployment preparation
 
-1. Review and merge this candidate through the required checks; approve its
-   exact full SHA separately. The working tree has not been pushed or deployed.
-2. Reconcile the observed legacy database baseline and complete the required
-   recovery/Vault and migration rehearsal. The user completed Tailscale SSH
-   verification and the subsequent read-only inspection confirmed that the
-   project ledger is absent, newer required objects are missing and credential
-   helper privileges drift from the checked-in legacy migrations. Do not
-   declare an applied 0008 baseline or blindly replay migrations. Main expects
-   the contract through 0023; preserve the frozen bridge and Auth-only ingress.
-   See [the concrete upgrade sequence](DATABASE_UPGRADE.md) and the reusable
-   `supabase/production_inspection.sql` inventory.
-   The latest local recovery marker and both discovered drill verdict files
-   date from August 12; they do not establish recovery of the current state.
-3. Carry forward and validate the deployed internal Supabase configuration and
-   public auth cookie identity with the candidate image. The current bridge
-   already has nonempty `SUPABASE_SERVER_URL`, cookie, service-role, GitHub and
-   production binding settings; values were not printed. Presence alone does
-   not prove their validity for a new release. Use the unique internal gateway
-   on the containment network. See `dashboard/.env.example`.
-4. Define the runtime-state handoff and forward-epoch transition when approving
-   a new release. Artifacts are SHA-scoped; a missing artifact falls back to
+- Fresh encrypted recovery set `nt-cutover-20260913T110048Z` passed 13 checks,
+  including strict restore, all 63 table commitments, full security catalogue,
+  actual Vault plaintext equivalence and negative controls. Both existing R2
+  copies were downloaded and hash-verified; durable metadata and ciphertext
+  remain under `/var/lib/homelab/nt-cutover-recovery/` on homelab.
+- A second standalone restore passed 10 checks without contacting production.
+  Secret scratch, data and configuration stay on private `noswap` tmpfs;
+  restored containers have no network or broker access.
+- Independent review accounted for every one of 24 catalogue differences:
+  15 retained platform differences, six helper ACLs repaired by authored
+  migrations and three missing objects repaired explicitly. Historical
+  migration execution remains unknown; no 0001–0008 replay is allowed.
+- The actual restored production database successfully committed the reviewed
+  reconciliation and migrations 0009–0023. Its real-Vault lifecycle acceptance
+  passed. Post-inspection confirmed the validated Vault FK, no missing profiles
+  and no client credential-helper EXECUTE. Synthetic late-failure tests also
+  prove the migration ledger and profile repair roll back together.
+- The truthful ledger records the baseline attestation, actual three-object/
+  one-profile repair and only the 15 migrations really executed. Production
+  must match this successful rehearsal's exact final catalogue before commit.
+- Operational sources now cover immutable dashboard staging/cutover, owner
+  read acceptance and the containment monitor. They retain the Auth-only
+  public gateway and do not dispatch trading or approve another executor SHA.
+
+See [database evidence and sequence](DATABASE_UPGRADE.md),
+[application deployment/rollback](../ops/DEPLOYMENT.md) and
+[standalone recovery](../ops/recovery/README.md). Production subsequently passed
+the same final catalogue contract and the public acceptance recorded above.
+
+## Trading follow-up
+
+The dashboard/database release, real owner/broker checks, internal Supabase
+routing, cookie continuity and monitoring are complete. Remaining trading work:
+
+1. Prove the runtime-state handoff and forward-epoch transition before approving
+   a new trading release. Artifacts are SHA-scoped; a missing artifact falls back to
    repository seed state. Do not silently re-anchor the old baseline, copy a
    different account's history, or call pre-V11 equity V11 performance.
-5. Configure and verify `live-production`, its required reviewer, protected
+2. Configure and verify `live-production`, its required reviewer, protected
    deployment branches, exact approved release, separate live keys, account
    number and explicit dollar ceilings before any real-money dispatch.
-6. Complete explicit producer cycle-outcome and coherent runtime generation
+3. Complete explicit producer cycle-outcome and coherent runtime generation
    work. This candidate fixes prefixed failures; it does not adopt the unsafe
    terminal-action-count heuristic from open PR #58. PR #63 duplicates work
    already merged through #64 and should be reviewed as repository housekeeping.
-7. Continue frozen-rule forward paper observation. Historical data uses current
+4. Continue frozen-rule forward paper observation. Historical data uses current
    universe membership and a reused temporal check; it cannot establish fresh
    forward alpha. Broader historical claims still need point-in-time membership
    and delisting evidence.
