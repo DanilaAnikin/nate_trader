@@ -1,11 +1,10 @@
 """Exercise the live workflow's operator input and configuration boundary."""
 
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
 
 import pytest
-
 
 WORKFLOW = (
     Path(__file__).resolve().parents[1]
@@ -58,7 +57,7 @@ def test_live_offline_sanity_receives_the_same_required_configuration_as_preflig
         "ALPACA_LIVE_API_KEY": "secrets.ALPACA_LIVE_API_KEY",
         "ALPACA_LIVE_SECRET_KEY": "secrets.ALPACA_LIVE_SECRET_KEY",
         "LIVE_TRADING_ENABLED": "vars.LIVE_TRADING_ENABLED",
-        "LIVE_TRADING_ACCOUNT_NUMBER": "vars.LIVE_TRADING_ACCOUNT_NUMBER",
+        "LIVE_TRADING_ACCOUNT_NUMBER": "secrets.LIVE_TRADING_ACCOUNT_NUMBER",
         "LIVE_CAPITAL_BUDGET_USD": "vars.LIVE_CAPITAL_BUDGET_USD",
         "LIVE_RUNTIME_KEY": "secrets.LIVE_RUNTIME_KEY",
         "LIVE_MAX_ORDER_NOTIONAL_USD": "vars.LIVE_MAX_ORDER_NOTIONAL_USD",
@@ -70,6 +69,22 @@ def test_live_offline_sanity_receives_the_same_required_configuration_as_preflig
         assert binding in broker
     assert "run: python scripts/live_runtime_crypto.py run-step sanity" in offline
     assert re.search(r"^  TRADING_MODE: live$", WORKFLOW, re.MULTILINE)
+
+
+def test_live_account_number_is_secret_masked_in_every_broker_step():
+    # The runner prints step env before Python can capture or mask its output.
+    binding = "LIVE_TRADING_ACCOUNT_NUMBER: ${{ secrets.LIVE_TRADING_ACCOUNT_NUMBER }}"
+    assert "vars.LIVE_TRADING_ACCOUNT_NUMBER" not in WORKFLOW
+    bindings = re.findall(r"^\s+(LIVE_TRADING_ACCOUNT_NUMBER:.*)$", WORKFLOW, re.MULTILINE)
+    assert bindings == [binding] * 5
+    for name in (
+        "Restore latest private live runtime-state artifact",
+        "Verify offline release contract",
+        "Verify live broker and deployment health",
+        "Read-only strategy preview",
+        "Execute one guarded real-money cycle",
+    ):
+        assert binding in _step(name)
 
 
 def test_live_execution_remains_manual_and_shares_paper_concurrency():

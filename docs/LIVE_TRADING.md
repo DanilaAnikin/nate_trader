@@ -132,12 +132,17 @@ two books can never restore each other's positions.
 
 In the `live-production` environment:
 
-- **Secrets:** `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_SECRET_KEY`, `LIVE_RUNTIME_KEY`
+- **Secrets:** `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_SECRET_KEY`,
+  `LIVE_TRADING_ACCOUNT_NUMBER`, `LIVE_RUNTIME_KEY`
 - **Variables:** `PRODUCTION_RELEASE_SHA` (the approved full 40-character SHA),
-  `LIVE_TRADING_ENABLED`, `LIVE_TRADING_ACCOUNT_NUMBER`,
+  `LIVE_TRADING_ENABLED`,
   `LIVE_CAPITAL_BUDGET_USD`, `LIVE_MAX_ORDER_NOTIONAL_USD`,
   `LIVE_MAX_CYCLE_NOTIONAL_USD`
 - **Protection:** at least one required reviewer and protected deployment branches
+
+Store the account number as an environment secret so GitHub masks it before
+printing each step's environment. A regular variable would expose the number
+in the public runner log before the encrypted Python output capture starts.
 
 On 2026-09-13 the `live-production` environment was created and verified with
 DanilaAnikin as required reviewer and protected deployment branches only.

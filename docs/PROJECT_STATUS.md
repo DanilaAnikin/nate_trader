@@ -153,7 +153,7 @@ for a live account.
 
 ## Verification
 
-The live-capital implementation passes **1,065 Python tests**, including
+The live-capital implementation passes **1,066 Python tests**, including
 38 encryption/output tests and 57 verified live-restore tests. The fixed
 canonical validator was rerun for the changed source and passes with unchanged
 historical metrics; offline sanity and the CI lint boundary pass. These checks
