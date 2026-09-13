@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "v11_fixed_strategy_validation",
-  "generated_at": "2026-09-08T22:39:02.047626+00:00",
+  "generated_at": "2026-09-13T09:10:57.689213+00:00",
   "strategy": {
     "version": "v11-adaptive-momentum",
     "parameter_policy": "fixed checked-in parameters; no optimizer or sweep",
@@ -9,7 +9,7 @@
     "identity": {
       "schema_version": 1,
       "algorithm": "sha256",
-      "value": "5524c15628c8e300a26393095f7e30a20bce9264a6246c865db1241fed6d42f2",
+      "value": "65b5e53da4961dbcd2a93c8f8df155c4c0e63bcdb945562b14d5791d7125caaf",
       "sources": [
         "requirements.txt",
         "requirements.lock",
@@ -28,6 +28,7 @@
         "scripts/backtest/portfolio_sim.py",
         "scripts/backtest/validate_v11.py",
         "scripts/execute_trades.py",
+        "scripts/broker_mode.py",
         "scripts/momentum_picker.py",
         "scripts/portfolio.py",
         "scripts/production_preflight.py",
@@ -6046,6 +6047,6 @@
   "contract": {
     "schema_version": 1,
     "algorithm": "sha256",
-    "report_sha256": "d23ce7a7554f6c75f44ba1446fedfcc042392fba0c051427376a1f1615a1ec34"
+    "report_sha256": "320cd4730d8d57603e9c4048d48843461a0dfb71217e30347065ce7f6c4b0fac"
   }
 }

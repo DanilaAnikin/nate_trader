@@ -1,4 +1,4 @@
-"""Read-only production preflight for the V11 Alpaca paper deployment.
+"""Read-only production preflight for the configured V11 Alpaca deployment.
 
 The command deliberately performs no broker or local-state mutation.  It
 binds the checked-out release to the exact production runtime, verifies the
@@ -154,11 +154,13 @@ def check_runtime(
         return checks
 
     _record(checks, "dependency_lock", True, "identity packages are exactly pinned")
-    actual = (
-        dict(installed_versions)
-        if installed_versions is not None
-        else {name: metadata.version(name) for name in IDENTITY_DISTRIBUTIONS}
-    )
+    actual = dict(installed_versions) if installed_versions is not None else {}
+    if installed_versions is None:
+        for name in IDENTITY_DISTRIBUTIONS:
+            try:
+                actual[name] = metadata.version(name)
+            except metadata.PackageNotFoundError:
+                actual[name] = "missing"
     for name in IDENTITY_DISTRIBUTIONS:
         value = actual.get(name, "missing")
         expected = locked[name]
@@ -284,11 +286,12 @@ def _clock_timestamp(clock: Any) -> datetime:
 
 def check_broker(
     *,
+    environ: Mapping[str, str] | None = None,
     broker: Any | None = None,
     risk_snapshot: Mapping[str, Any] | None = None,
     now: datetime | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Read the paper account and require a safe, current broker snapshot."""
+    """Read the configured account and require a safe, current broker snapshot."""
 
     from alpaca.trading.enums import QueryOrderStatus
     from alpaca.trading.requests import GetOrdersRequest
@@ -304,7 +307,8 @@ def check_broker(
     # checking for "either" would have accepted a paper endpoint during a live
     # run, which is the more dangerous direction because it looks like it
     # worked.
-    expected_url = EXPECTED_LIVE_URL if requested_mode() == LIVE else EXPECTED_PAPER_URL
+    mode = requested_mode(dict(environ) if environ is not None else None)
+    expected_url = EXPECTED_LIVE_URL if mode == LIVE else EXPECTED_PAPER_URL
     _record(
         checks,
         "broker_endpoint",
@@ -325,7 +329,7 @@ def check_broker(
     account_ok = status == "ACTIVE" and not any(blocked_flags.values())
     _record(
         checks,
-        "paper_account",
+        "live_account" if mode == LIVE else "paper_account",
         account_ok,
         f"status={status or 'missing'}, blocked={any(blocked_flags.values())}",
     )
@@ -422,8 +426,13 @@ def run_preflight(
 ) -> dict[str, Any]:
     """Run all production checks and return a secret-free JSON report."""
 
-    checks = check_environment(environ)
-    checks.extend(check_runtime())
+    values = dict(os.environ if environ is None else environ)
+    mode = requested_mode(values)
+    checks = check_environment(values)
+    try:
+        checks.extend(check_runtime())
+    except Exception as exc:
+        _record(checks, "runtime_inspection", False, type(exc).__name__)
     details: dict[str, Any] = {}
     try:
         release_checks, release_details = check_release()
@@ -433,6 +442,7 @@ def run_preflight(
         _record(checks, "release_inspection", False, f"{type(exc).__name__}: {exc}")
     try:
         broker_checks, broker_details = check_broker(
+            environ=values,
             broker=broker,
             risk_snapshot=risk_snapshot,
             now=now,
@@ -445,10 +455,11 @@ def run_preflight(
     passed = bool(checks) and all(check["passed"] for check in checks)
     return {
         "schema_version": 1,
-        "kind": "v11_paper_production_preflight",
+        "kind": "v11_live_production_preflight" if mode == LIVE else "v11_paper_production_preflight",
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "status": "PASS" if passed else "FAIL",
-        "allowed_mode": "paper" if passed else "no-execution",
+        "allowed_mode": mode if passed else "no-execution",
+        "broker_mode": mode,
         "checks_passed": sum(check["passed"] for check in checks),
         "checks_evaluated": len(checks),
         "checks": checks,

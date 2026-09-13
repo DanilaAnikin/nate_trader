@@ -49,6 +49,7 @@ reaches, and refuses to answer at all when the configuration is ambiguous.
 from __future__ import annotations
 
 import os
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -125,6 +126,8 @@ def _positive_float(env: dict[str, str] | None, name: str) -> float | None:
         parsed = float(raw)
     except ValueError as exc:
         raise BrokerModeError(f"{name} is not a number: {raw!r}") from exc
+    if not math.isfinite(parsed):
+        raise BrokerModeError(f"{name} must be finite")
     if parsed <= 0:
         raise BrokerModeError(f"{name} must be greater than zero, got {parsed}")
     return parsed
@@ -224,12 +227,8 @@ def resolve_broker_mode(env: dict[str, str] | None = None) -> BrokerMode:
             "is allowed to trade, so the credentials can be proven to point at it"
         )
 
-    if kill_switch_engaged(env):
-        problems.append(
-            f"the live kill switch file exists at {kill_switch_path(env)}; "
-            "delete it to re-arm live entries"
-        )
-
+    # The switch blocks entries at the order boundary, not access to the
+    # account: mode resolution must still permit reconciliation and exits.
     max_order = _positive_float(env, "LIVE_MAX_ORDER_NOTIONAL_USD")
     max_cycle = _positive_float(env, "LIVE_MAX_CYCLE_NOTIONAL_USD")
     if max_order is None:

@@ -1510,7 +1510,7 @@ def _reconcile_v11_open_buys_preflight(
             plan_gate_open = False
             if not gate_reason.startswith("SPY gate unavailable"):
                 gate_reason = "SPY gate unavailable during early BUY audit"
-        elif not market.above_sma200:
+        elif not market.above_sma200 and cfg.below_sma200_floor_pct <= 0.0:
             plan_gate_open = False
             gate_reason = "SPY is below SMA200 during early BUY audit"
 
@@ -2424,8 +2424,9 @@ def _manage_adaptive_momentum_picks(
 
     held_symbols = [position["symbol"] for position in positions]
 
-    # Every run checks the broad risk gate, even after the monthly rebalance.
-    # This is a small request and makes a 200-SMA break an immediate exit.
+    # Check SPY on every run. The graduated gate caps newly constructed
+    # monthly targets; only the hard-gate configuration liquidates on a break.
+    # A completed month or in-flight plan stays frozen under the graduated gate.
     if risk_tier == "HALT":
         market = None
         signal_date = None
@@ -2457,7 +2458,11 @@ def _manage_adaptive_momentum_picks(
                 {"action": "ABORT", "reason": "SPY history unavailable"}
             ]
 
-    risk_off = risk_tier == "HALT" or (market is not None and not market.above_sma200)
+    risk_off = risk_tier == "HALT" or (
+        market is not None
+        and not market.above_sma200
+        and cfg.below_sma200_floor_pct <= 0.0
+    )
 
     stored_plan = perf.get(ADAPTIVE_PENDING_PLAN_KEY)
     persisted_zero_target_intent = bool(
@@ -2891,7 +2896,8 @@ def _manage_adaptive_momentum_picks(
                     ]
                 if (
                     plan.market_state.as_of != signal_date
-                    or not plan.market_state.above_sma200
+                    or plan.market_state.as_of != market.as_of
+                    or plan.market_state.above_sma200 != market.above_sma200
                 ):
                     return [
                         {

@@ -35,9 +35,13 @@ export default function ForwardPerformancePanel() {
   // without a page reload. Provenance stays separate — this is a different
   // source with its own freshness contract.
   const { performance: state, selectedAccount } = useStrategyStatus();
+  const mode = selectedAccount?.mode ?? "paper";
+  const title = mode === "live"
+    ? "E · Forward live performance"
+    : "E · Forward paper-validation performance";
   if (!selectedAccount) {
     return (
-      <Panel title="E · Forward paper-validation performance">
+      <Panel title={title}>
         <UnavailableBlock
           state="UNAVAILABLE"
           title="Forward performance unavailable"
@@ -49,14 +53,14 @@ export default function ForwardPerformancePanel() {
 
   if (state.kind === "loading") {
     return (
-      <Panel title="E · Forward paper-validation performance">
+      <Panel title={title}>
         <span className="skeleton block h-32 w-full" />
       </Panel>
     );
   }
   if (state.kind === "error") {
     return (
-      <Panel title="E · Forward paper-validation performance">
+      <Panel title={title}>
         <UnavailableBlock
           state="UNAVAILABLE"
           title="Forward performance unavailable"
@@ -70,7 +74,7 @@ export default function ForwardPerformancePanel() {
   if (body.status === "UNAVAILABLE" || !body.performance) {
     return (
       <Panel
-        title="E · Forward paper-validation performance"
+        title={title}
         subtitle="Only measured from a persisted V11 epoch baseline"
       >
         <UnavailableBlock
@@ -105,7 +109,7 @@ export default function ForwardPerformancePanel() {
   const outdated = body.status === "STALE" || body.status === "EXPIRED";
   return (
     <Panel
-      title="E · Forward paper-validation performance"
+      title={title}
       subtitle={`Cash-flow-adjusted TWR vs ${performance.benchmarkSymbol} over ${performance.sessions} shared sessions (${performance.startDate} → ${performance.endDate})`}
     >
       {outdated && (
@@ -182,7 +186,7 @@ export default function ForwardPerformancePanel() {
             <Area
               type="monotone"
               dataKey="portfolioIndex"
-              name="V11 paper (TWR index)"
+              name={`V11 ${mode} (TWR index)`}
               stroke="var(--accent-blue)"
               fill="var(--tint-blue)"
               strokeWidth={2}
@@ -211,7 +215,7 @@ export default function ForwardPerformancePanel() {
         <thead>
           <tr>
             <th scope="col">Session</th>
-            <th scope="col">V11 paper index</th>
+            <th scope="col">V11 {mode} index</th>
             <th scope="col">{performance.benchmarkSymbol} index</th>
           </tr>
         </thead>
@@ -232,7 +236,7 @@ export default function ForwardPerformancePanel() {
           {baseline.startSessionDate} · starting equity{" "}
           {money(baseline.startingEquity)} · {baseline.benchmarkSymbol} baseline{" "}
           {baseline.benchmarkBaselineClose} on {baseline.benchmarkBaselineDate}.
-          This is a forward paper result, not a backtest and not a guarantee.
+          This is a forward {mode} result, not a backtest and not a guarantee.
         </p>
       )}
       <p className="mt-2 text-[11px] text-muted">

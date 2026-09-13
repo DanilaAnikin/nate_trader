@@ -1342,12 +1342,10 @@ def _execute_adaptive_momentum(
         below_sma200 = True if confirmed is None else bool(confirmed)
     else:
         below_sma200 = market is not None and not market.above_sma200
-    # Graduated gate (RESEARCH; cfg.below_sma200_floor_pct > 0). By default V11
-    # exits fully to cash below SMA200. With a floor set, below-SMA200 is NOT a
-    # full risk-off exit — the monthly rebalance floors gross exposure via
-    # _target_gross_weight instead of liquidating. HALT and missing market data
-    # still force a full exit. With the floor at its default 0.0 this reduces to
-    # the exact original V11 behaviour.
+    # The fixed V11 policy uses a graduated monthly cap below SMA200 through
+    # _target_gross_weight; a completed month or frozen pending target remains
+    # unchanged. HALT and missing market data still force a simulated exit.
+    # A zero cap retains the historical hard-gate configuration.
     hard_gate = below_sma200 and (
         cfg.below_sma200_floor_pct <= 0.0 or risk_tier == "HALT"
     )

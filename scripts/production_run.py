@@ -24,6 +24,13 @@ PRODUCTION_STATE = STATE_DIR / "production" / "last_run.json"
 BLOCKING_ACTIONS = frozenset({"ABORT", "ERROR"})
 
 
+def is_blocking_action(action: str) -> bool:
+    """Execution's qualified failures are failures too (e.g. ABORT_INVALID_PLAN)."""
+
+    name = action.strip().upper()
+    return any(name == prefix or name.startswith(f"{prefix}_") for prefix in BLOCKING_ACTIONS)
+
+
 def _release_sha() -> str:
     """Return the externally approved immutable release, never the trigger SHA."""
 
@@ -62,7 +69,7 @@ def summarize_execution(
             "symbol": str(record.get("symbol", "V11")),
         }
         for record in records
-        if str(record.get("action", "")).upper() in BLOCKING_ACTIONS
+        if is_blocking_action(str(record.get("action", "")))
     ]
     entry_gate = result.get("entry_gate", {})
     is_live = bool(resolved is not None and resolved.is_live)

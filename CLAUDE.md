@@ -68,14 +68,18 @@ Preserve these defaults unless a change is explicitly requested and validated:
   fewer than eight names qualify, and multiply the target by the frozen
   broad-market breadth tier (100% / 80% / 55% / 25% at breadth thresholds
   60% / 45% / 30%).
-- Rebalance monthly. Check SPY against its SMA200 on every execution and, when
-  the gate is off, de-risk to a floor of 75% of normal gross rather than
-  exiting to cash. That floor replaced a full exit on 2026-09-08: SPY spent 19%
+- Rebalance monthly. Check SPY against its SMA200 on every execution. Below
+  SMA200, cap newly constructed monthly targets at 75% of equity; preserve
+  already frozen targets and any stricter breadth, diversification or risk
+  limit. This is a cap, not 75% of normal gross and not a daily resize.
+  That configuration replaced a full exit on 2026-09-08: SPY spent 19%
   of 2021-2026 below its own SMA200 and COMPOUNDED +15.4% during those
   sessions, and crossed the line sixteen times in 2022, each crossing a full
   liquidation and re-entry. The floor is a softening, never a removal — through
   the 2008 crash, when SPY returned -46.5%, the floored gate returned -13.6%.
-  `HALT` and unreadable market data still force a complete exit. Persist
+  `HALT` still forces a complete exit. Unreadable live SPY data cancels BUY
+  intent and aborts planning; the simulator treats missing market data as a
+  full exit. Persist
   zero-target intent until the account is flat; after recovery, permit one
   D-close/D+1 fresh target on the first completed SPY close above SMA200, then
   resume monthly cadence.

@@ -15,6 +15,7 @@ export default function SettingsPage() {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [profileStatus, setProfileStatus] = useState<Status>(null);
   const [savingProfile, setSavingProfile] = useState(false);
 
@@ -42,20 +43,21 @@ export default function SettingsPage() {
         return;
       }
       setEmail(user.email ?? "");
-      const { data } = await supabase
-        .from("profiles")
-        .select("display_name, default_account_id")
-        .eq("id", user.id)
-        .single();
+      const profileResponse = await fetch("/api/profile", { cache: "no-store" });
+      if (!profileResponse.ok) throw new Error("Profile unavailable");
+      const { profile } = await profileResponse.json();
       if (!active) return;
-      setDisplayName(data?.display_name ?? "");
-      setDefaultAccountId(data?.default_account_id ?? "");
+      setDisplayName(profile?.display_name ?? "");
+      setDefaultAccountId(profile?.default_account_id ?? "");
       const accRes = await fetch("/api/accounts", { cache: "no-store" });
-      const accBody = await accRes.json().catch(() => ({ accounts: [] }));
+      if (!accRes.ok) throw new Error("Accounts unavailable");
+      const accBody = await accRes.json();
       if (!active) return;
       setAccounts(accBody.accounts ?? []);
       setLoading(false);
-    })();
+    })().catch(() => {
+      if (active) { setLoadError(true); setLoading(false); }
+    });
     return () => {
       active = false;
     };
@@ -66,16 +68,12 @@ export default function SettingsPage() {
     setProfileStatus(null);
     setSavingProfile(true);
     try {
-      const supabase = getSupabaseBrowser();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("not signed in");
-      const { error } = await supabase
-        .from("profiles")
-        .update({ display_name: displayName.trim() || null })
-        .eq("id", user.id);
-      if (error) throw error;
+      const response = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: displayName.trim() || null }),
+      });
+      if (!response.ok) throw new Error("Profile update failed");
       setProfileStatus({ kind: "ok", text: "Profile saved." });
     } catch {
       setProfileStatus({ kind: "err", text: "Could not save profile." });
@@ -118,16 +116,12 @@ export default function SettingsPage() {
     setDefaultStatus(null);
     setSavingDefault(true);
     try {
-      const supabase = getSupabaseBrowser();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("not signed in");
-      const { error } = await supabase
-        .from("profiles")
-        .update({ default_account_id: defaultAccountId || null })
-        .eq("id", user.id);
-      if (error) throw error;
+      const response = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ default_account_id: defaultAccountId || null }),
+      });
+      if (!response.ok) throw new Error("Default account update failed");
       setDefaultStatus({ kind: "ok", text: "Default account saved." });
     } catch {
       setDefaultStatus({
@@ -161,6 +155,10 @@ export default function SettingsPage() {
 
       {loading ? (
         <p className="text-sm text-muted">Loading…</p>
+      ) : loadError ? (
+        <p role="alert" className="text-sm text-red">
+          Settings could not be loaded. Reload the page to try again.
+        </p>
       ) : (
         <div className="space-y-6">
           <section className="panel p-5">
@@ -338,7 +336,10 @@ function EffectivePolicySummary() {
       "HALT trigger",
       `daily ${V11_POLICY.riskThresholds.dailyHaltPct}% → zero directional target, exits only`,
     ],
-    ["Market gate", "SPY must close above its 200-session SMA"],
+    [
+      "Market gate",
+      `Below SPY's 200-session SMA, new monthly targets are capped at ${V11_POLICY.belowSma200FloorPct}% of account equity. Existing frozen targets and stricter risk limits still apply.`,
+    ],
     ["Rebalance cadence", "monthly, plus a one-shot recovery latch"],
     ["Fixed per-position stop", "none — V11 has no 8% stop"],
     [

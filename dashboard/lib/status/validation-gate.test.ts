@@ -521,6 +521,31 @@ describe("the preflight itself must be internally consistent", () => {
     expect(result.reasons).not.toContain("PREFLIGHT_CONTRACT_DRIFT");
   });
 
+  it("accepts broker_endpoint from current paper releases", () => {
+    const current = preflight((checks) => {
+      checks.find((check) => check.name === "paper_endpoint")!.name = "broker_endpoint";
+    });
+    expect(gate({}, { preflight: current }).effective).toBe("PASS");
+  });
+
+  it("refuses duplicate endpoint checks under old and new names", () => {
+    const duplicate = preflight();
+    const checks = [...duplicate.checks, { name: "broker_endpoint", passed: true, detail: "ok" }];
+    const result = gate({}, { preflight: {
+      ...duplicate, checks, checksEvaluated: checks.length, checksPassed: checks.length,
+    } });
+    expect(result.effective).toBe("FAIL");
+    expect(result.reasons).toContain("PREFLIGHT_DUPLICATE_CHECK");
+  });
+
+  it("refuses a live execution presented to the paper gate", () => {
+    const result = gate({}, { runtimeOverrides: { lastRun: {
+      kind: "v11_live_production_run", paper_only: false, broker_mode: "live",
+    } } });
+    expect(result.effective).toBe("FAIL");
+    expect(result.reasons).toContain("EXECUTION_MODE_MISMATCH");
+  });
+
   it.each(MANDATORY_PREFLIGHT_CHECKS)(
     "refuses a preflight with no %s check",
     (name) => {

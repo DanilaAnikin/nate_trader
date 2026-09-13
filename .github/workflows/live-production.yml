@@ -75,9 +75,11 @@ jobs:
     steps:
       - name: Require the typed confirmation for an execution
         if: inputs.operation == 'execute'
+        env:
+          LIVE_EXECUTION_CONFIRMATION: ${{ inputs.confirmation }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.confirmation }}" != "TRADE REAL MONEY" ]; then
+          if [ "${LIVE_EXECUTION_CONFIRMATION:-}" != "TRADE REAL MONEY" ]; then
             echo "::error::execution requires the confirmation phrase 'TRADE REAL MONEY'"
             exit 1
           fi
@@ -183,6 +185,13 @@ jobs:
           echo "Restored live runtime state from artifact ${artifact_id}."
 
       - name: Verify offline release contract
+        env:
+          ALPACA_LIVE_API_KEY: ${{ secrets.ALPACA_LIVE_API_KEY }}
+          ALPACA_LIVE_SECRET_KEY: ${{ secrets.ALPACA_LIVE_SECRET_KEY }}
+          LIVE_TRADING_ENABLED: ${{ vars.LIVE_TRADING_ENABLED }}
+          LIVE_TRADING_ACCOUNT_NUMBER: ${{ vars.LIVE_TRADING_ACCOUNT_NUMBER }}
+          LIVE_MAX_ORDER_NOTIONAL_USD: ${{ vars.LIVE_MAX_ORDER_NOTIONAL_USD }}
+          LIVE_MAX_CYCLE_NOTIONAL_USD: ${{ vars.LIVE_MAX_CYCLE_NOTIONAL_USD }}
         run: python scripts/sanity_check.py
 
       - name: Verify live broker and deployment health

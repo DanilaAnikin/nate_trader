@@ -113,7 +113,7 @@ export function systemIndicators(
               : "FAIL";
 
   const schedulerDetail = !latest
-    ? "no scheduled attempt was found"
+    ? (payload.accountMode === "live" ? "no manual live attempt was found" : "no scheduled attempt was found")
     : latest.conclusion === "success"
       ? `attempt #${latest.runNumber} succeeded`
       : latest.infrastructureFailure

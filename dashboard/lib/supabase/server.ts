@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { Database } from "@/lib/database.types";
+import { getAuthCookieName, getSupabaseServerUrl } from "@/lib/supabase/config";
 
 /**
  * Cookie-bound Supabase client for use in Server Components, Server Actions,
@@ -10,9 +11,10 @@ import type { Database } from "@/lib/database.types";
 export async function getSupabaseServer() {
   const cookieStore = await cookies();
   return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    getSupabaseServerUrl(),
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: { name: getAuthCookieName() },
       cookies: {
         getAll: () => cookieStore.getAll(),
         setAll: (xs) => {

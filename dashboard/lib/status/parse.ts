@@ -8,6 +8,7 @@
  */
 
 import type {
+  AccountMode,
   ExecutionInfo,
   FrozenPlanInfo,
   PendingOrderIntent,
@@ -129,6 +130,10 @@ export function parseLastRun(value: unknown): LastRunSnapshot | null {
   const paperOnly = value.paper_only;
   if (typeof paperOnly !== "boolean") return null;
   if (paperOnly !== isPaperKind) return null;
+  if (
+    value.broker_mode !== undefined &&
+    value.broker_mode !== (isPaperKind ? "paper" : "live")
+  ) return null;
 
   // `failure_type` belongs to the crash path, which writes FAIL and nothing
   // else. A PASS carrying one is a document assembled from two different
@@ -643,18 +648,20 @@ function nonNegativeInteger(value: unknown): number | null {
 export function parsePreflight(
   value: unknown,
   runUrl: string | null,
+  mode: AccountMode = "paper",
 ): PreflightInfo | null {
   if (!isRecord(value)) return null;
   if (value.schema_version !== 1) return null;
-  if (value.kind !== "v11_paper_production_preflight") return null;
+  if (value.kind !== `v11_${mode}_production_preflight`) return null;
+  if (value.broker_mode !== undefined && value.broker_mode !== mode) return null;
   const status = value.status;
   if (status !== "PASS" && status !== "FAIL") return null;
 
   // The mode is part of the contract, not a free-text label, and it must agree
-  // with the status: the runner emits `paper` only when every check passed.
+  // with the status: the runner emits its broker mode only when all checks passed.
   const allowedMode = str(value.allowed_mode);
-  if (allowedMode !== "paper" && allowedMode !== "no-execution") return null;
-  if ((status === "PASS") !== (allowedMode === "paper")) return null;
+  if (allowedMode !== mode && allowedMode !== "no-execution") return null;
+  if ((status === "PASS") !== (allowedMode === mode)) return null;
 
   if (!Array.isArray(value.checks)) return null;
   if (value.checks.length > MAX_PREFLIGHT_CHECKS) return null;
@@ -671,7 +678,13 @@ export function parsePreflight(
     checks.push({
       name,
       passed: check.passed,
-      detail: (str(detail) ?? "").slice(0, 300),
+      // The private producer's live configuration description includes its
+      // full broker account binding. Keep that in the artifact, never the DTO.
+      detail: name === "live_configuration"
+        ? (check.passed
+          ? "Live trading configuration checks passed."
+          : "Live trading configuration checks failed; inspect the private preflight diagnostics.")
+        : (str(detail) ?? "").slice(0, 300),
     });
   }
 

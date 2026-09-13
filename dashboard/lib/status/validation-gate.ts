@@ -36,7 +36,7 @@
  * is an AND.
  */
 
-import type { EffectiveValidationGate, PreflightInfo, ValidationInfo } from "./types";
+import type { AccountMode, EffectiveValidationGate, PreflightInfo, ValidationInfo } from "./types";
 import type { CheckState } from "./vocab";
 import { isCalendarDate, parseRfc3339 } from "@/lib/calendar-date";
 import { AuthorizedExecutionEvidence } from "./authorization";
@@ -93,7 +93,9 @@ export type ValidationGateReason =
   | "PREFLIGHT_COUNTS_INCONSISTENT"
   | "PREFLIGHT_CHECKED_AT_INVALID"
   | "PREFLIGHT_STALE"
-  | "PREFLIGHT_MODE_NOT_PAPER";
+  | "PREFLIGHT_MODE_NOT_PAPER"
+  | "PREFLIGHT_MODE_MISMATCH"
+  | "EXECUTION_MODE_MISMATCH";
 
 /** SHA-256 as the artifacts record it: 64 lower-case hex characters. */
 const SHA256_RE = /^[0-9a-f]{64}$/;
@@ -154,9 +156,17 @@ export const MANDATORY_PREFLIGHT_CHECKS = [
   "fresh_risk_snapshot",
 ] as const;
 
-const MANDATORY_PREFLIGHT_CHECK_SET: ReadonlySet<string> = new Set(
-  MANDATORY_PREFLIGHT_CHECKS,
-);
+/** The live producer adds configuration refusal and separately named credentials. */
+export const MANDATORY_LIVE_PREFLIGHT_CHECKS: readonly string[] = [
+  ...MANDATORY_PREFLIGHT_CHECKS.map((name) => {
+    if (name === "alpaca_api_key") return "alpaca_live_api_key";
+    if (name === "alpaca_secret_key") return "alpaca_live_secret_key";
+    if (name === "paper_endpoint") return "broker_endpoint";
+    if (name === "paper_account") return "live_account";
+    return name;
+  }),
+  "live_configuration",
+];
 
 /**
  * How old a preflight may be and still authorize a buy.
@@ -229,7 +239,7 @@ const REASON_DETAIL: Record<ValidationGateReason, string> = {
   PREFLIGHT_GATE_AMBIGUOUS: `The preflight report contains more than one ${PYTHON_GATE_CHECK} check, so it does not state a single verdict.`,
   PREFLIGHT_NOT_PASS:
     "The production preflight itself did not pass, so nothing it reports authorizes a buy.",
-  PREFLIGHT_CHECK_MISSING: `The preflight report does not contain all ${MANDATORY_PREFLIGHT_CHECKS.length} checks of the production preflight contract.`,
+  PREFLIGHT_CHECK_MISSING: "The preflight report does not contain every required check for the selected production broker mode.",
   PREFLIGHT_CONTRACT_DRIFT:
     "The preflight report contains a check this build does not recognise, so the runner it came from is not the one this gate was written against.",
   PREFLIGHT_DUPLICATE_CHECK:
@@ -242,6 +252,10 @@ const REASON_DETAIL: Record<ValidationGateReason, string> = {
     "The preflight is older than its freshness contract; it describes a market and broker state that has moved on.",
   PREFLIGHT_MODE_NOT_PAPER:
     "The preflight did not authorize paper execution; its allowed_mode is not \"paper\".",
+  PREFLIGHT_MODE_MISMATCH:
+    "The preflight did not authorize the selected production account's broker mode.",
+  EXECUTION_MODE_MISMATCH:
+    "The recorded execution belongs to a different broker mode than the selected production account.",
 };
 
 /**
@@ -256,6 +270,7 @@ const REASON_DETAIL: Record<ValidationGateReason, string> = {
 function preflightReasons(
   preflight: PreflightInfo,
   now: Date,
+  mode: AccountMode,
 ): ValidationGateReason[] {
   const reasons: ValidationGateReason[] = [];
 
@@ -264,13 +279,25 @@ function preflightReasons(
   // The runner's own verdict on whether this cycle may execute. `no-execution`
   // is what it writes when anything refused, and the status alone is not a
   // substitute: both are stated, so both are required.
-  if (preflight.allowedMode !== "paper") reasons.push("PREFLIGHT_MODE_NOT_PAPER");
+  if (preflight.allowedMode !== mode) {
+    reasons.push(mode === "paper" ? "PREFLIGHT_MODE_NOT_PAPER" : "PREFLIGHT_MODE_MISMATCH");
+  }
+
+  const mandatory = mode === "live"
+    ? MANDATORY_LIVE_PREFLIGHT_CHECKS
+    : MANDATORY_PREFLIGHT_CHECKS;
+  const mandatorySet: ReadonlySet<string> = new Set(mandatory);
 
   const byName = new Map<string, { passed: boolean }[]>();
   for (const check of preflight.checks) {
-    const bucket = byName.get(check.name) ?? [];
+    // Older paper releases emitted paper_endpoint. Newer ones emit
+    // broker_endpoint; both represent the same check. Supplying both is a
+    // duplicate, and the paper alias is never accepted for a live preflight.
+    const name = mode === "paper" && check.name === "broker_endpoint"
+      ? "paper_endpoint" : check.name;
+    const bucket = byName.get(name) ?? [];
     bucket.push({ passed: check.passed });
-    byName.set(check.name, bucket);
+    byName.set(name, bucket);
   }
   if ([...byName.values()].some((entries) => entries.length > 1)) {
     reasons.push("PREFLIGHT_DUPLICATE_CHECK");
@@ -279,10 +306,10 @@ function preflightReasons(
   // The whole contract, exactly. Both directions matter: a subset is an
   // authorization built on checks that never ran, and a superset is a runner
   // this build has not been reconciled against.
-  if (MANDATORY_PREFLIGHT_CHECKS.some((required) => !byName.has(required))) {
+  if (mandatory.some((required) => !byName.has(required))) {
     reasons.push("PREFLIGHT_CHECK_MISSING");
   }
-  if ([...byName.keys()].some((name) => !MANDATORY_PREFLIGHT_CHECK_SET.has(name))) {
+  if ([...byName.keys()].some((name) => !mandatorySet.has(name))) {
     reasons.push("PREFLIGHT_CONTRACT_DRIFT");
   }
 
@@ -328,6 +355,8 @@ function preflightReasons(
  */
 export function computeEffectiveValidationGate(input: {
   report: ValidationInfo | null;
+  /** The configured production mode; paper is the compatibility default. */
+  productionMode?: AccountMode;
   approvedReleaseSha: string | null;
   /** True when the approved SHA came from an authoritative source. */
   approvedReleaseAuthoritative: boolean;
@@ -386,6 +415,7 @@ export function computeEffectiveValidationGate(input: {
   now: Date;
 }): EffectiveValidationGate {
   const { report, now } = input;
+  const productionMode = input.productionMode ?? "paper";
   const reasons: ValidationGateReason[] = [];
 
   if (!report) {
@@ -448,6 +478,8 @@ export function computeEffectiveValidationGate(input: {
   const execution = input.executionEvidence ?? null;
   if (!execution) {
     reasons.push("EXECUTION_UNAVAILABLE");
+  } else if (execution.lastRun.paperOnly !== (productionMode === "paper")) {
+    reasons.push("EXECUTION_MODE_MISMATCH");
   }
 
   const preflight = input.preflight ?? null;
@@ -455,7 +487,7 @@ export function computeEffectiveValidationGate(input: {
   if (!preflight) {
     reasons.push("PREFLIGHT_UNAVAILABLE");
   } else {
-    const problems = preflightReasons(preflight, now);
+    const problems = preflightReasons(preflight, now, productionMode);
     preflightProblems.push(...problems);
     reasons.push(...problems);
     // A preflight from a different cycle answered a different question. The

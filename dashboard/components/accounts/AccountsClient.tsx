@@ -67,6 +67,7 @@ export default function AccountsClient({
   const [editing, setEditing] = useState<SafeAccount | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [requestError, setRequestError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -82,23 +83,34 @@ export default function AccountsClient({
   }, [initialAccounts]);
 
   const refresh = useCallback(async () => {
-    const res = await fetch("/api/accounts", { cache: "no-store" });
-    const body = await res.json().catch(() => ({ accounts: [] }));
-    const next: SafeAccount[] = body.accounts ?? [];
-    setAccounts(next);
-    setLive(Object.fromEntries(next.map((a) => [a.id, { loading: true }])));
-    const entries = await Promise.all(
-      next.map(async (a) => [a.id, await fetchLive(a.id)] as const),
-    );
-    setLive(Object.fromEntries(entries));
-    router.refresh();
+    setRequestError(null);
+    try {
+      const res = await fetch("/api/accounts", { cache: "no-store" });
+      if (!res.ok) throw new Error("Account list unavailable");
+      const body = await res.json();
+      if (!Array.isArray(body.accounts)) throw new Error("Account list unavailable");
+      const next: SafeAccount[] = body.accounts;
+      setAccounts(next);
+      setLive(Object.fromEntries(next.map((a) => [a.id, { loading: true }])));
+      const entries = await Promise.all(
+        next.map(async (a) => [a.id, await fetchLive(a.id)] as const),
+      );
+      setLive(Object.fromEntries(entries));
+      router.refresh();
+    } catch {
+      // A failed read cannot establish that the owner has no accounts.
+      setRequestError("Accounts could not be refreshed. The last loaded accounts remain displayed. Reload the page to try again.");
+    }
   }, [router]);
 
   async function makeActive(id: string) {
     setBusyId(id);
+    setRequestError(null);
     try {
       await selectAccount(id);
       router.refresh();
+    } catch {
+      setRequestError("The account could not be selected. Try again.");
     } finally {
       setBusyId(null);
     }
@@ -106,13 +118,23 @@ export default function AccountsClient({
 
   async function testConnection(id: string) {
     setTesting(id);
+    setRequestError(null);
     try {
-      await fetch(`/api/accounts/${encodeURIComponent(id)}/verify`, {
+      const response = await fetch(`/api/accounts/${encodeURIComponent(id)}/verify`, {
         method: "POST",
       });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        setRequestError(body?.code === "MAINTENANCE_MODE"
+          ? "Account verification is paused during maintenance. Try again after maintenance ends."
+          : "Account verification could not be completed. Try again.");
+        return;
+      }
+      await refresh();
+    } catch {
+      setRequestError("Account verification could not be completed. Try again.");
     } finally {
       setTesting(null);
-      await refresh();
     }
   }
 
@@ -135,6 +157,8 @@ export default function AccountsClient({
           + Add account
         </button>
       </div>
+
+      {requestError && <p role="alert" className="text-sm text-red">{requestError}</p>}
 
       {accounts.length === 0 ? (
         <div className="panel p-10 text-center">

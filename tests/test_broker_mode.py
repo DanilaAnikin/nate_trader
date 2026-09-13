@@ -177,14 +177,22 @@ def test_live_refuses_an_unparseable_cap():
         resolve_broker_mode(_live_env(LIVE_MAX_ORDER_NOTIONAL_USD="5,000"))
 
 
+@pytest.mark.parametrize("name", ["LIVE_MAX_ORDER_NOTIONAL_USD", "LIVE_MAX_CYCLE_NOTIONAL_USD"])
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "1e309"])
+def test_live_refuses_non_finite_caps(name, value):
+    with pytest.raises(BrokerModeError, match="finite"):
+        resolve_broker_mode(_live_env(**{name: value}))
+
+
 # ── the kill switch ─────────────────────────────────────────────────────────
 
 
-def test_kill_switch_file_blocks_live(tmp_path):
+def test_kill_switch_keeps_live_account_available_for_exits(tmp_path):
     switch = tmp_path / "LIVE_TRADING_DISABLED"
     switch.write_text("parked")
-    with pytest.raises(BrokerModeError, match="kill switch"):
-        resolve_broker_mode(_live_env(LIVE_TRADING_KILL_SWITCH_FILE=str(switch)))
+    env = _live_env(LIVE_TRADING_KILL_SWITCH_FILE=str(switch))
+    assert kill_switch_engaged(env) is True
+    assert resolve_broker_mode(env).is_live
 
 
 def test_kill_switch_absent_allows_live(tmp_path):

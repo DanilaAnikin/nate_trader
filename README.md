@@ -2,11 +2,16 @@
 
 Nate Trader is a research and **Alpaca paper-trading** project for a causal,
 diversified US-equity momentum strategy. The current default is
-`v11-adaptive-momentum`.
+`v11-adaptive-momentum`. A separately configured, manual real-money execution
+path is described in [the live trading runbook](docs/LIVE_TRADING.md).
+
+See [the current project status](docs/PROJECT_STATUS.md) for the verified
+release, dashboard deployment, completed repairs and remaining release work.
 
 > No trading strategy can guarantee positive alpha or profit. The historical
 > tests in this repository are diagnostic, not evidence that the strategy will
-> work with future capital. Do not enable real-money trading from this code.
+> work with future capital. A validation PASS alone does not authorize
+> real-money execution.
 
 ## Current strategy
 
@@ -22,11 +27,11 @@ portfolio of ordinary US equities:
 | Volatility filter | Annualized 63-session volatility at most 80% |
 | Portfolio | Top 10, equal weight |
 | Single-name cap | 9% of equity |
-| Sector cap | 20% of equity |
+| Sector cap | 40% of equity |
 | Normal gross exposure | At most 90%, leaving at least 10% cash |
 | Breadth scaler | 100% / 80% / 55% / 25% of target gross as breadth crosses 60% / 45% / 30% |
 | Rebalance | First trading session of each month, with a 0.5% drift threshold |
-| Market risk-off | Zero directional target when SPY is below its 200-session SMA |
+| Below SPY SMA200 | New monthly targets capped at 75% of equity; existing monthly targets remain frozen |
 | Recovery | One fresh target after the first completed SPY close back above SMA200 |
 
 Signals use only completed data through session **D** and simulated fills occur
@@ -43,9 +48,11 @@ The risk tier scales the portfolio independently of the ranking:
 - `HALT`: zero directional exposure and risk-reducing exits only. It is
   triggered by an 8% daily loss and is enforced on every execution cycle.
 
-SPY below its 200-session SMA is also enforced daily. Unlike `CAUTIOUS`, either
-`HALT` or the SPY risk-off condition sends the directional target to zero
-without waiting for the next monthly rebalance.
+SPY is checked on every invocation. Below its 200-session SMA, the current
+policy caps newly constructed targets at 75% of equity, retaining any stricter
+breadth, diversification and damage-tier limit. A crossing does not liquidate
+the book or resize an already frozen monthly target. `HALT` still sends the
+directional target to zero without waiting for the next monthly rebalance.
 After that zero target has converged, one persisted recovery latch permits a
 single fresh off-cycle target when SPY first closes back above its SMA200. The
 signal still uses completed close D and can trade no earlier than D+1; the
@@ -112,10 +119,13 @@ and the required signal window may not bridge a long ticker/history gap.
 
 ## Safety model
 
-- The supported broker client is permanently configured with `paper=True`.
+- `scripts/broker_mode.py` selects the broker and verifies its configuration.
+  Paper is the only scheduled mode. Live requires separate credentials, an
+  explicit enable switch, a verified account binding and finite dollar limits.
 - Running `execute_trades.py` with no argument resolves to a dry run.
 - A mutating `run` or `midday` command requires the explicit environment value
-  `TRADING_MODE=paper`; no value enables live-money mode.
+  `TRADING_MODE=paper`, or the complete live configuration described in
+  [the live trading runbook](docs/LIVE_TRADING.md).
 - Dry run previews the plan without submitting, cancelling, or replacing
   orders and without writing trading state.
 - New exposure also requires a fresh Alpaca clock reporting that the market is
@@ -142,7 +152,7 @@ and the required signal window may not bridge a long ticker/history gap.
   preflight cancels conflicting orders and submits or waits for an idempotent
   BUY-to-cover; full, midday, and direct adaptive execution stop there until a
   fresh snapshot is flat.
-- A paper BUY additionally requires a current `PASS` artifact from the fixed
+- A new directional BUY in either mode requires a current `PASS` artifact from the fixed
   V11 validator. Its strategy-code fingerprint and exact ranking-universe hash
   must match the running code and universe. The executor also recomputes the
   adjusted historical-bar hash through the recorded validation boundary, so
@@ -173,8 +183,8 @@ Actions artifact rather than committing broker state to this public repository.
 A push alone never submits an order: the workflow checks out only the full
 commit SHA approved in the `paper-production` environment, requires a green
 release gate for that SHA, and validates the SHA-bound runtime artifact before
-restore. The scheduled/manual job must pass every gate, and the only accepted
-mutating mode remains Alpaca paper trading.
+restore. The paper job must pass every gate. The separate live workflow is
+manual-only and uses its own environment and runtime artifact namespace.
 
 See [the production runbook](strategy/PRODUCTION_RUNBOOK.md) for canary,
 monitoring, emergency-stop, state-recovery, and rollback procedures.
@@ -232,8 +242,9 @@ CLI date, capital, or slippage overrides are deliberately accepted only for
 shadow diagnostics and must return a non-promotable `FAIL` artifact. The same
 applies to the injectable runner, metric, and config seams used by unit tests.
 
-The downloader uses fully adjusted Alpaca IEX bars when credentials are
-available and an adjusted yfinance fallback when they are not. A full rebuild
+The downloader requests fully adjusted Alpaca SIP bars through the last
+completed session, with an adjusted yfinance fallback when credentials or SIP
+access are unavailable. A full rebuild
 is deliberate: a later split or dividend can revise the entire adjusted price
 history. `--incremental` is an explicit faster option, but it can splice
 different adjustment bases and is unsafe for validation evidence.
@@ -277,7 +288,7 @@ ordinary mutation-free strategy preview. Only `operation=execute` or the
 weekday schedule can call `scripts/production_run.py`; any `ABORT`/`ERROR`
 action produces a failed workflow and operational incident.
 
-The scheduler currently trades the exact validated 540-symbol fallback. A
+The currently approved release validates the exact 532-symbol fallback. A
 dynamic Alpaca universe refresh intentionally invalidates promotion until its
 full adjusted history and a new canonical validation both pass.
 
@@ -302,6 +313,8 @@ BIL is not an invested cash sleeve in V11.
 
 ```bash
 cd dashboard
+cp .env.example .env.local
+# Fill in the public Supabase, internal server URL and server-only values.
 npm ci
 npm run dev
 ```
@@ -500,9 +513,11 @@ future-dated activity is `MISMATCH`, never `CURRENT`.
 It requires a persisted, auditable V11 epoch baseline
 (`state/v11_epoch_baseline.json`, or the `V11_EPOCH_BASELINE` server variable)
 carrying the release SHA, start time, starting equity and benchmark baseline.
-**No baseline is currently persisted, so this panel reports `UNAVAILABLE`** —
-all-time account history contains pre-V11 (V10 / TQQQ / UPRO) results and must
-never be relabelled as V11 alpha.
+A baseline is persisted for the owner-confirmed 2026-08-11 epoch and its
+original release. It must match the selected account and approved release;
+changing the release can therefore make the panel `UNAVAILABLE` until an
+explicit epoch transition is recorded. All-time account history contains
+pre-V11 (V10 / TQQQ / UPRO) results and must never be relabelled as V11 alpha.
 
 #### Server environment
 
@@ -510,13 +525,14 @@ Documented without values in `.env.example`: `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `BUILD_SHA`,
 `GITHUB_TOKEN`, `GITHUB_REPO`,
 `GITHUB_STATE_REF`, **`PRODUCTION_OWNER_USER_ID`**, `PRODUCTION_ACCOUNT_ID`,
-`PRODUCTION_ALPACA_ACCOUNT_NUMBER`, `PRODUCTION_RELEASE_SHA`,
+`PRODUCTION_ALPACA_ACCOUNT_NUMBER`, `PRODUCTION_ACCOUNT_MODE`, `PRODUCTION_RELEASE_SHA`,
 `V11_EPOCH_BASELINE`, `ALLOW_LEGACY_DASHBOARD`.
 
 `GITHUB_TOKEN` is **always required**: `Actions: read` is the only way to list
 workflow runs and download the private artifacts, and nothing substitutes for
 it. `Environments: read` is additionally needed to read the approved release
-from the `paper-production` environment — and *that scope alone* may instead be
+from the selected `paper-production` or `live-production` environment — and
+*that scope alone* may instead be
 replaced by an explicit server-only `PRODUCTION_RELEASE_SHA`. Setting
 `PRODUCTION_RELEASE_SHA` does not remove the need for the token.
 
@@ -567,7 +583,7 @@ triggers a paper cycle and never places an order.
 
 Older `DASHBOARD_SPECIFICATION.md` and `DASHBOARD_IMPLEMENTATION_PLAN.md` are
 archived planning documents; their multi-account trading-control assumptions
-contradict the current paper-only executor and must not be implemented.
+contradict the current single-account guarded executor and must not be implemented.
 
 ## Interpreting results honestly
 

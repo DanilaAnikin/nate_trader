@@ -13,15 +13,11 @@ export const SELECTED_ACCOUNT_COOKIE = "nt_account";
  * migration 0011 removed the client's privileges on `accounts` entirely.
  */
 export async function getUserAccounts(): Promise<SafeAccount[]> {
-  try {
-    const user = await getSessionUser();
-    if (!user) return [];
-    return (await listOwnedAccounts(user.id)).map(toSafe);
-  } catch {
-    // Supabase unreachable (e.g. paused project). Treat as "no accounts";
-    // account-scoped screens then fail closed without substituting repo data.
-    return [];
-  }
+  const user = await getSessionUser();
+  if (!user) return [];
+  // AppLayout catches backend failures and displays its unavailable state.
+  // Returning [] here would instead tell an existing owner to select an account.
+  return (await listOwnedAccounts(user.id)).map(toSafe);
 }
 
 export type AccountSelection = {

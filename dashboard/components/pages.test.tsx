@@ -29,7 +29,7 @@ function renderWithStatus(
     vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 })),
   );
   return render(
-    <StatusProvider enabled selectedAccount={ACCOUNT}>
+    <StatusProvider enabled selectedAccount={{ ...ACCOUNT, mode: payload.accountMode }}>
       {ui}
     </StatusProvider>,
   );
@@ -143,7 +143,8 @@ describe("ValidationResearchClient", () => {
     const text = document.body.textContent ?? "";
     expect(text).toMatch(/survivorship/i);
     expect(text).toMatch(/not fresh out-of-sample/i);
-    expect(text).toMatch(/authorizes forward/i);
+    expect(text).toMatch(/permits forward paper validation/i);
+    expect(text).toMatch(/does not by itself authorize live money/i);
   });
 
   it("shows an expired report as EXPIRED rather than PASS", async () => {
@@ -189,6 +190,22 @@ describe("ValidationResearchClient", () => {
 });
 
 describe("OperationsClient", () => {
+  it("identifies live approval and manual execution without paper labels", async () => {
+    const payload = buildPayload();
+    renderWithStatus(<OperationsClient />, {
+      ...payload,
+      accountMode: "live",
+      strategy: { ...payload.strategy, data: { ...payload.strategy.data!, paperOnly: false } },
+      execution: { ...payload.execution, data: { ...payload.execution.data!, paperOnly: false } },
+    });
+    expect(await screen.findByText("Approved live release SHA")).toBeInTheDocument();
+    expect(screen.getByText("Latest manual trigger SHA")).toBeInTheDocument();
+    expect(screen.getByText("Manual live workflow")).toBeInTheDocument();
+    expect(screen.getAllByText("LIVE REAL MONEY")).toHaveLength(2);
+    expect(screen.queryByText("Approved paper release SHA")).not.toBeInTheDocument();
+    expect(screen.queryByText("PAPER ONLY")).not.toBeInTheDocument();
+  });
+
   it("shows the four SHA scopes separately", async () => {
     renderWithStatus(<OperationsClient />);
     await waitFor(() =>

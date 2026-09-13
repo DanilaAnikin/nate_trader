@@ -60,7 +60,7 @@ function CanonicalPanel({ payload }: { payload: StrategyStatusPayload }) {
                 )}
               </span>
             </Fact>
-            <Fact label="Effective paper-buy gate">
+            <Fact label={`Effective ${payload.accountMode}-buy gate`}>
               <StatePill size="xs" state={gate.effective} />
             </Fact>
             <Fact label="Allowed mode">{validation.allowedMode ?? <Dash />}</Fact>
@@ -125,12 +125,13 @@ function CanonicalPanel({ payload }: { payload: StrategyStatusPayload }) {
       )}
       <p className="mt-4 text-xs text-secondary max-w-prose">
         The stored assessment is a historical conclusion. Only the{" "}
-        <strong>effective</strong> gate above may authorize a paper buy, and it
-        additionally requires unexpired evidence, a matching strategy identity
-        and ranking universe, and a known approved release. A{" "}
-        <strong>PASS</strong> authorizes forward <em>paper</em> validation of
+        <strong>effective</strong> gate above combines it with the selected
+        account&apos;s preflight and execution evidence. It requires unexpired
+        evidence, a matching strategy identity and ranking universe, and a
+        known approved release. The historical report&apos;s{" "}
+        <strong>PASS</strong> permits forward <em>paper</em> validation of
         the unchanged code against this exact ranking universe. It does not
-        authorize live money and is not a claim of future alpha. The report
+        by itself authorize live money and is not a claim of future alpha. The report
         digest is tamper-evident, not a keyed authorization signature.
       </p>
     </Panel>

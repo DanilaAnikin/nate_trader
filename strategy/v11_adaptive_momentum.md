@@ -1,6 +1,7 @@
 # V11 Adaptive Momentum Strategy
 
-Status: current default policy. Scope: research and Alpaca paper trading.
+Status: current default policy. Scope: research, scheduled Alpaca paper trading,
+and a separately configured manual live path (see `docs/LIVE_TRADING.md`).
 
 ## Claim boundary
 
@@ -142,7 +143,7 @@ constraint. Default weights are transparent and equal:
 - target names: up to 10;
 - equal target per name: normally 9%;
 - maximum single name: 9%;
-- maximum sector: 20%; and
+- maximum sector: 40%; and
 - minimum cash target: 10%.
 
 The production target is multiplied by a cross-sectional breadth tier. Breadth
@@ -152,7 +153,7 @@ keeps 55%, and below 30% keeps 25%. Missing breadth fails defensively to 50%.
 This changes gross exposure only; it does not rerank stocks or bypass the SPY,
 portfolio-damage, single-name, or sector gates.
 
-With 9% slots, no more than two selected names can share a sector. Any
+With 9% slots, no more than four selected names can share a sector. Any
 allocation that cannot be placed under the caps remains cash. If fewer than
 eight names qualify, gross exposure scales down in proportion to the eligible
 count instead of forcing weak candidates into the book.
@@ -174,11 +175,20 @@ monthly cadence then resumes.
 
 ### Broad-market gate
 
-SPY must close above its 200-session SMA for directional targets to be nonzero.
-The gate is checked on every execution, not only at monthly rebalance. A failed
-gate closes directional positions at the next permitted execution opportunity.
+SPY is checked on every execution. Since 2026-09-08, the configured
+`momentum_below_sma200_floor_pct=75` permits monthly targets below SMA200,
+capped at 75% of account equity. This is an upper cap on the ordinary scaled
+target, not a minimum allocation and not 75% of the normal 90% gross. Breadth,
+eligible-name count and the damage tier can reduce exposure further.
+
+Crossing below SMA200 does not rerank or resize an already frozen monthly
+target. `HALT` still creates an immediate zero target. The explicit historical
+configuration with a zero floor retains the old full-exit behavior. A persisted
+zero-target liquidation must finish even after market recovery.
+
 Live SPY and sector-ETF auxiliaries must share a completed date no more than
-seven calendar days old.
+seven calendar days old. Unreadable live SPY data cancels outstanding entry
+intent and stops planning; it cannot authorize a new position.
 
 ### Portfolio damage tier
 
@@ -198,9 +208,9 @@ signal. `HALT` is an acute daily emergency and is checked on every execution;
 it sends the target to zero immediately. The rolling window ensures an old
 peak eventually ages out of the classifier.
 
-The market gate and damage tier combine multiplicatively. For example, an
-above-SMA200 market in `CAUTIOUS` can target 45%; a below-SMA200 market targets
-zero regardless of the tier.
+The ordinary target is scaled by the damage tier before applying the market
+cap. For example, a fully eligible `NORMAL` book below SMA200 can target 75%;
+the same book in `CAUTIOUS` can target 45%. `HALT` targets zero.
 
 ### Disabled default sleeves
 
@@ -256,13 +266,14 @@ No target, legacy sleeve, or other order manager runs again until a fresh
 broker snapshot is flat.
 
 New exposure requires Alpaca's fresh clock to report an open market. Exits may
-continue when that entry gate is closed. The supported broker is permanently
-paper-only and mutating execution additionally requires `TRADING_MODE=paper`.
-No-argument execution is a non-mutating dry run.
+continue when that entry gate is closed. Mutating paper execution requires
+`TRADING_MODE=paper`. Live execution requires the complete independent account
+configuration in `docs/LIVE_TRADING.md`; the broker mode is resolved only by
+`scripts/broker_mode.py`. No-argument execution is a non-mutating dry run.
 
 ### Validation promotion gate
 
-A paper BUY also requires `state/backtest/v11_validation.json` to satisfy the
+A directional BUY in either mode requires `state/backtest/v11_validation.json` to satisfy the
 complete fixed-strategy contract:
 
 - assessment status is `PASS` and mode is `paper-validation-eligible`;
@@ -295,7 +306,7 @@ complete fixed-strategy contract:
 
 The whole-report SHA-256 is tamper-evident against accidental/manual field
 edits; it is not a keyed signature and is not an authorization boundary on its
-own. Paper safety also depends on the hard-coded broker mode, current strategy
+own. Execution safety also depends on the explicit broker mode, current strategy
 identity, universe identity, bar evidence, and execution gates.
 
 Missing, failed, malformed, or stale evidence leaves V11 in
@@ -341,9 +352,9 @@ reported rather than silently estimated. Portfolio, SPY, and BIL return series
 start from an explicit initial-capital observation, so first-session fill
 friction is included in both returns and maximum drawdown.
 
-### Current fixed-policy result
+### Historical fixed-policy result (2026-08-02)
 
-The canonical report generated on 2026-08-02 is `PASS` and permits forward
+The canonical report generated on 2026-08-02 was `PASS` and permitted forward
 paper validation only. In development (2022-01-04 through 2024-12-31), CAGR
 was 17.10% at 7 bps and 15.89% at 15 bps, versus 8.82% for SPY. Excess CAGR was
 +8.28 and +7.07 percentage points; Jensen alpha was +10.59% and +9.55%.
@@ -360,7 +371,9 @@ inspected in earlier project work, so their positive result remains reused
 evidence, not a fresh holdout. Breadth underperformed the prior baseline's raw
 excess on that reused segment; no parameter was changed in response. The
 checked-in policy must not be retuned against that period while continuing to
-call it OOS.
+call it OOS. These numbers describe that historical policy and dataset, not
+the current release. Current evidence and its limitations are recorded in
+`state/backtest/v11_validation.json` and `docs/PROJECT_STATUS.md`.
 
 ### What current backtests cannot establish
 

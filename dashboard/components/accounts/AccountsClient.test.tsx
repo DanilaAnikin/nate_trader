@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import AccountsClient from "./AccountsClient";
 import type { SafeAccount } from "@/lib/accounts/service";
@@ -140,5 +140,32 @@ describe("AccountsClient", () => {
         screen.getByText(/never changes which account the guarded/i),
       ).toBeInTheDocument(),
     );
+  });
+
+  it.each(["http", "network", "malformed"])("preserves loaded accounts when a refresh fails (%s)", async (failure) => {
+    renderAccounts();
+    await waitFor(() => expect(screen.queryByText("…")).not.toBeInTheDocument());
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      if (String(input).endsWith("/verify")) return Response.json({ ok: true });
+      if (failure === "network") throw new Error("fetch failed");
+      return Response.json(failure === "malformed" ? {} : { error: "unavailable" }, {
+        status: failure === "http" ? 503 : 200,
+      });
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Test" })[0]);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Accounts could not be refreshed"));
+    expect(screen.getByText("Paper production")).toBeInTheDocument();
+    expect(screen.queryByText("No accounts yet")).not.toBeInTheDocument();
+  });
+
+  it("reports maintenance refusal without pretending verification completed", async () => {
+    renderAccounts();
+    await waitFor(() => expect(screen.queryByText("…")).not.toBeInTheDocument());
+    vi.mocked(fetch).mockClear();
+    vi.mocked(fetch).mockResolvedValue(Response.json({ code: "MAINTENANCE_MODE" }, { status: 503 }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Test" })[0]);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("paused during maintenance"));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Paper production")).toBeInTheDocument();
   });
 });

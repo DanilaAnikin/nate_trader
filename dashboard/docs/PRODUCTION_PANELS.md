@@ -8,8 +8,9 @@ plan, order intents, preflight, executor results and workflow operations describ
 one central account and are never exposed on nickname or account-ownership alone.
 Every condition is an AND — there is no OR path.
 
-Nothing here changes the strategy. These are read-only viewer settings; the guarded
-`V11 Paper Production` workflow remains the only thing that trades.
+Nothing here changes the strategy. These are read-only viewer settings. Paper
+execution is scheduled; the separate live workflow requires manual approval.
+Configuring this dashboard never starts either workflow.
 
 ## 1. Data plumbing (required for any real data)
 
@@ -20,20 +21,30 @@ Nothing here changes the strategy. These are read-only viewer settings; the guar
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only; service-role reads of `accounts` etc. **Secret.** |
 | `GITHUB_TOKEN` | Reads the private Actions artifacts (runtime state, preflight, diagnostics). **Secret.** |
 | `GITHUB_REPO` | `owner/repo` the paper workflow runs in. |
-| `GITHUB_STATE_REF` | Ref the runtime artifacts/JSON are read at (usually `main`). |
+| `GITHUB_STATE_REF` | Ref for research JSON and the epoch baseline (usually `main`). Runtime artifacts are bound separately to the approved release and broker mode. |
 
 ## 2. Production-viewer gate (unlocks B/C, Signals, frozen plan, Operations)
 
-All three must be set, and the signed-in user must match, viewing that account, in
-paper mode, with the broker account number confirmed live from Alpaca:
+The three identity values must be set, and the signed-in user must match, viewing
+that account in the declared production mode, with the broker account number
+confirmed by a fresh Alpaca read:
 
 | Env var | How to find it |
 |---|---|
 | `PRODUCTION_OWNER_USER_ID` | Supabase `auth.users.id` for the owner. `select id from auth.users where email = '<owner email>';` |
 | `PRODUCTION_ACCOUNT_ID` | Supabase `accounts.id` of the account the executor trades. `select id, nickname, mode from accounts where owner_id = '<owner id>';` |
 | `PRODUCTION_ALPACA_ACCOUNT_NUMBER` | The Alpaca **account number** (not the key) the executor trades — from Alpaca `GET /v2/account` (`account_number`). Read fresh from Alpaca and matched server-side; a value stored in Supabase is never trusted. |
+| `PRODUCTION_ACCOUNT_MODE` | Defaults to `paper`. Set `live` only when the bound account is the live executor account. |
 
-`PRODUCTION_RELEASE_SHA` names the approved paper release the executor is pinned to.
+The mode selects the matching GitHub environment, workflow, named execution steps,
+runtime artifact and diagnostics together: `paper-production` / `paper-production.yml`
+/ `paper-runtime-state-<sha>` / `paper-diagnostics`, or their `live` equivalents.
+A paper record inside a live artifact, or the reverse, fails closed. Missing live
+workflow history never falls back to paper history.
+
+`PRODUCTION_RELEASE_SHA` names the approved release the selected executor is pinned
+to. The corresponding GitHub environment is authoritative; the dashboard server
+variable is the fallback when that environment variable cannot be read.
 
 Until these are set the dashboard shows the observer view: the broker account, the
 account equity curve, holdings, backtest validation (V11 vs SPY) and the tournament
@@ -45,7 +56,9 @@ central production runtime.
 The live V11-versus-SPY equity comparison is measured only from a persisted,
 auditable **epoch baseline**, so pre-V11 account history is never relabelled as V11
 alpha. Provide it either as the `V11_EPOCH_BASELINE` env var (JSON) or as the repo
-document read at `PRODUCTION_RELEASE_SHA`. The baseline must be genuine — it anchors
+document read at `GITHUB_STATE_REF`. Its recorded release SHA must still match the
+approved release, and its account ID must match the selected account. Reading the
+state ref permits recording a baseline after cutting a release. The baseline anchors
 the official forward return — so establish it with real values, not placeholders:
 
 ```json

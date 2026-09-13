@@ -165,6 +165,7 @@ begin
 end $$;
 
 do $$
+<<deletion_check>>
 declare
   acct     accounts;
   key_id   uuid;
@@ -192,7 +193,12 @@ begin
      or acct.alpaca_secret_secret_id is not null then
     raise exception 'FAIL: a soft-deleted account still references Vault secrets';
   end if;
-  if exists (select 1 from vault.secrets where id in (key_id, sec_id)) then
+  -- Real Supabase Vault has its own key_id column; refer to the captured
+  -- credential IDs explicitly instead of relying on the plaintext scaffold.
+  if exists (
+    select 1 from vault.secrets
+    where id in (deletion_check.key_id, deletion_check.sec_id)
+  ) then
     raise exception 'FAIL: the Vault secrets survived the deletion';
   end if;
   if not exists (

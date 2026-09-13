@@ -4,6 +4,7 @@ import {
   LEGACY_DASHBOARD_ALLOWED,
   SUPABASE_CONFIGURED,
 } from "@/lib/supabase/config";
+import { supabaseBackendConfigured } from "@/lib/supabase/readiness";
 import {
   authorizeProductionRuntime,
   readProductionAuthzConfig,
@@ -35,14 +36,15 @@ import {
 } from "./lineage";
 import {
   RUN_SCAN_PAGE_SIZE,
-  RUNTIME_ARTIFACT_PREFIX,
   selectLatestExecution,
   selectLatestPreflight,
   type ExecutionSelection,
   type PreflightSelection,
   type RunPageSource,
 } from "./runtime";
+import { productionSource } from "./production-source";
 import type {
+  AccountMode,
   AuthorizationInfo,
   BrokerInfo,
   ConvergenceInfo,
@@ -88,10 +90,6 @@ export const EPOCH_BASELINE_PATH = "state/v11_epoch_baseline.json";
 export const VALIDATION_PATH = "state/backtest/v11_validation.json";
 export const TOURNAMENT_PATH = "state/backtest/strategy_tournament_epoch_1.json";
 
-const RUNTIME_SOURCE = "github-actions artifact paper-runtime-state (server-only)";
-const DIAGNOSTICS_SOURCE =
-  "github-actions artifact paper-diagnostics (server-only)";
-
 /** Freshness contracts, one per independently ageing source. */
 export const CONTRACTS = {
   broker: { staleAfterSeconds: 5 * MINUTE },
@@ -120,8 +118,7 @@ function ageSeconds(asOf: string | null, now: Date): number | null {
 }
 
 function webInfo(): WebInfo {
-  const accountBackendConfigured =
-    SUPABASE_CONFIGURED && Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const accountBackendConfigured = supabaseBackendConfigured();
   const explicitLegacyMode = !SUPABASE_CONFIGURED && LEGACY_DASHBOARD_ALLOWED;
   // The dashboard is self-hosted from `dashboard/Dockerfile`; `BUILD_SHA` is
   // the only supported source. Without it the build SHA is honestly unknown
@@ -156,13 +153,13 @@ export interface ApprovedRelease {
  * callers that must not pay for a workflow-run lookup.
  */
 export async function getApprovedReleaseSha(): Promise<ApprovedRelease> {
-  return resolveApprovedSha(null);
+  return resolveApprovedSha(null, readProductionAuthzConfig().productionAccountMode);
 }
 
 /**
- * Resolve the approved paper release SHA.
+ * Resolve the approved production release SHA.
  *
- * The authoritative source is the `paper-production` environment variable. A
+ * The authoritative source is the selected mode's production environment. A
  * server env override exists for deployments whose token cannot read
  * environment variables. As a last resort the SHA is *derived* from the
  * runtime artifact name and flagged non-authoritative, so the UI never
@@ -170,10 +167,12 @@ export async function getApprovedReleaseSha(): Promise<ApprovedRelease> {
  */
 async function resolveApprovedSha(
   latestSuccessfulRun: WorkflowRunSummary | null,
+  mode: AccountMode,
 ): Promise<ApprovedRelease> {
+  const production = productionSource(mode);
   if (githubReadConfigured()) {
     const fromEnvironment = await fetchEnvironmentVariable(
-      PAPER_ENVIRONMENT,
+      production.environment,
       "PRODUCTION_RELEASE_SHA",
     );
     if (isFullSha(fromEnvironment)) {
@@ -200,9 +199,9 @@ async function resolveApprovedSha(
   if (latestSuccessfulRun) {
     const artifacts = await fetchRunArtifacts(latestSuccessfulRun.id);
     const runtimeArtifact = artifacts?.find((artifact) =>
-      artifact.name.startsWith(RUNTIME_ARTIFACT_PREFIX),
+      artifact.name.startsWith(production.runtimePrefix),
     );
-    const derived = runtimeArtifact?.name.slice(RUNTIME_ARTIFACT_PREFIX.length);
+    const derived = runtimeArtifact?.name.slice(production.runtimePrefix.length);
     if (isFullSha(derived)) {
       return {
         sha: derived,
@@ -292,25 +291,27 @@ function strategySection(
   approvedSha: string | null,
   lineage: LineageVerdict,
   now: Date,
+  mode: AccountMode,
 ): Section<StrategyRuntimeInfo> {
+  const production = productionSource(mode);
   const scope = approvedSha
-    ? `approved paper release ${approvedSha.slice(0, 12)} · production executor account`
+    ? `approved ${mode} release ${approvedSha.slice(0, 12)} · production executor account`
     : "production executor account";
 
   // A lineage disagreement is fail-closed: no plan, no risk state, no numbers.
   if (!lineage.ok) {
     return unavailable<StrategyRuntimeInfo>(
-      RUNTIME_SOURCE,
+      production.runtimeSource,
       scope,
       lineage.detail ??
         execution.errors[0] ??
-        "the runtime artifact does not belong to the approved paper release",
+        "the runtime artifact does not belong to the approved production release",
       lineageWithholdState(lineage),
     );
   }
   if (!execution.performance || !execution.lastRun) {
     return unavailable<StrategyRuntimeInfo>(
-      RUNTIME_SOURCE,
+      production.runtimeSource,
       scope,
       execution.errors[0] ?? "the private V11 runtime state could not be read safely",
     );
@@ -339,7 +340,7 @@ function strategySection(
   const asOf = lastRun.completedAt ?? performance.updatedAt;
   return section(
     provenance({
-      source: RUNTIME_SOURCE,
+      source: production.runtimeSource,
       scope: execution.run
         ? `${scope} · run #${execution.run.runNumber}`
         : scope,
@@ -554,6 +555,7 @@ export async function buildStrategyStatus(input: {
   const collectedAt = now.toISOString();
   const warnings: string[] = [];
   const web = webInfo();
+  const production = productionSource(input.account.mode);
 
   const webSection = section(
     provenance({
@@ -649,7 +651,7 @@ export async function buildStrategyStatus(input: {
     detail: null,
     authoritative: false,
   };
-  let paperRuns: readonly WorkflowRunSummary[] | null = null;
+  let productionRuns: readonly WorkflowRunSummary[] | null = null;
   let latestRun: WorkflowRunSummary | null = null;
   let latestJobs: { stepCount: number }[] | null = null;
   let executionSelection: ExecutionSelection = {
@@ -679,17 +681,17 @@ export async function buildStrategyStatus(input: {
     // hide a still-valid executor cycle, so the scan pages rather than looking
     // at a fixed prefix.
     const runPage: RunPageSource = (page) =>
-      fetchWorkflowRuns(PAPER_WORKFLOW, {
+      fetchWorkflowRuns(production.workflow, {
         perPage: RUN_SCAN_PAGE_SIZE,
         page,
       });
 
-    paperRuns = await runPage(1);
-    latestRun = paperRuns?.[0] ?? null;
+    productionRuns = await runPage(1);
+    latestRun = productionRuns?.[0] ?? null;
     const latestSuccessfulRun =
-      paperRuns?.find((run) => run.conclusion === "success") ?? null;
+      productionRuns?.find((run) => run.conclusion === "success") ?? null;
 
-    approved = await resolveApprovedSha(latestSuccessfulRun);
+    approved = await resolveApprovedSha(latestSuccessfulRun, production.mode);
 
     // The canonical report is read first, because it — not the frozen plan —
     // is the authority a preflight's identity must agree with. A cycle that
@@ -698,13 +700,14 @@ export async function buildStrategyStatus(input: {
 
     // Independent selection: a manual preflight-only run must not hide an
     // older, still-valid execution, and vice versa.
-    executionSelection = await selectLatestExecution(approved.sha, runPage, now);
+    executionSelection = await selectLatestExecution(approved.sha, runPage, now, production.mode);
     preflightSelection = await selectLatestPreflight(
       runPage,
       canonicalReport?.strategyIdentityValue ??
         executionSelection.performance?.plan?.strategyIdentityValue ??
         null,
       now,
+      production.mode,
     );
     latestJobs = latestRun
       ? await fetchRunJobs(latestRun.id, latestRun.attempt)
@@ -744,14 +747,14 @@ export async function buildStrategyStatus(input: {
     provenance({
       source: authorized
         ? approved.source === "github-environment-variable"
-          ? "GitHub paper-production environment variable"
+          ? `GitHub ${production.environment} environment variable`
           : approved.source === "server-environment"
             ? "dashboard server environment"
             : approved.source === "derived-from-runtime-artifact"
               ? "runtime artifact name"
               : "GitHub API"
         : "GitHub repository metadata",
-      scope: "approved paper release and repository reference",
+      scope: `approved ${production.mode} release and repository reference`,
       asOf: gateRun?.updatedAt ?? repositoryCommit?.committedAt ?? collectedAt,
       now,
       freshness: authorized
@@ -761,7 +764,7 @@ export async function buildStrategyStatus(input: {
         : "NOT_APPLICABLE",
       detail: authorized
         ? (approved.detail ??
-          (approved.sha ? null : "the approved paper release SHA could not be read"))
+          (approved.sha ? null : "the approved production release SHA could not be read"))
         : notAuthorizedDetail,
     }),
     {
@@ -790,7 +793,7 @@ export async function buildStrategyStatus(input: {
         preflight: preflightSelection.preflight,
         runtimeArtifactName: executionSelection.artifactName,
         expectedRuntimeArtifactName: approved.sha
-          ? `${RUNTIME_ARTIFACT_PREFIX}${approved.sha}`
+          ? `${production.runtimePrefix}${approved.sha}`
           : null,
         // The canonical report is the authority for identity and universe, and
         // unlike the frozen plan it exists between rebalances too.
@@ -825,8 +828,8 @@ export async function buildStrategyStatus(input: {
   const lineageBroken = !lineage.ok;
 
   const strategy = authorized
-    ? strategySection(executionSelection, approved.sha, lineage, now)
-    : withheld<StrategyRuntimeInfo>(RUNTIME_SOURCE, "production executor account");
+    ? strategySection(executionSelection, approved.sha, lineage, now, production.mode)
+    : withheld<StrategyRuntimeInfo>(production.runtimeSource, "production executor account");
 
   const universe = authorized
     ? universeSection(executionSelection, preflightSelection, lineage, now)
@@ -856,6 +859,7 @@ export async function buildStrategyStatus(input: {
   const validationGate: EffectiveValidationGate = authorized
     ? computeEffectiveValidationGate({
         report: validation.data,
+        productionMode: production.mode,
         approvedReleaseSha: approved.sha,
         approvedReleaseAuthoritative: approved.authoritative,
         // The executor's own gate result, bound to the cycle it ran in.
@@ -891,12 +895,12 @@ export async function buildStrategyStatus(input: {
 
   const preflight: Section<PreflightInfo> = !authorized
     ? withheld<PreflightInfo>(
-        DIAGNOSTICS_SOURCE,
+        production.diagnosticsSource,
         "latest completed production preflight",
       )
     : lineageBroken
       ? unavailable<PreflightInfo>(
-          DIAGNOSTICS_SOURCE,
+          production.diagnosticsSource,
           "latest completed production preflight",
           lineage.detail ??
             preflightSelection.errors[0] ??
@@ -906,7 +910,7 @@ export async function buildStrategyStatus(input: {
       : preflightSelection.preflight
         ? section(
             provenance({
-              source: DIAGNOSTICS_SOURCE,
+              source: production.diagnosticsSource,
               scope: preflightSelection.run
                 ? `latest completed preflight · run #${preflightSelection.run.runNumber} (${preflightSelection.run.event}, ${preflightSelection.run.conclusion ?? "unknown"})`
                 : "latest completed production preflight",
@@ -921,26 +925,26 @@ export async function buildStrategyStatus(input: {
             preflightSelection.preflight,
           )
         : unavailable<PreflightInfo>(
-            DIAGNOSTICS_SOURCE,
+            production.diagnosticsSource,
             "latest completed production preflight",
             preflightSelection.errors[0] ?? "no preflight report is available",
           );
 
   const execution: Section<ExecutionInfo> = !authorized
-    ? withheld<ExecutionInfo>(RUNTIME_SOURCE, "last successful executor cycle")
+    ? withheld<ExecutionInfo>(production.runtimeSource, "last successful executor cycle")
     : lineageBroken
       ? unavailable<ExecutionInfo>(
-          RUNTIME_SOURCE,
+          production.runtimeSource,
           "last successful executor cycle",
           lineage.detail ??
             executionSelection.errors[0] ??
-            "the executor record does not belong to the approved paper release",
+            "the executor record does not belong to the approved production release",
           lineageWithholdState(lineage),
         )
       : executionSelection.lastRun
         ? section(
             provenance({
-              source: RUNTIME_SOURCE,
+              source: production.runtimeSource,
               scope: executionSelection.run
                 ? `last successful executor cycle · run #${executionSelection.run.runNumber} · release ${(approved.sha ?? "").slice(0, 12)}`
                 : "last successful executor cycle",
@@ -960,18 +964,18 @@ export async function buildStrategyStatus(input: {
             ),
           )
         : unavailable<ExecutionInfo>(
-            RUNTIME_SOURCE,
+            production.runtimeSource,
             "last successful executor cycle",
             executionSelection.errors[0] ?? "no executor run record is available",
           );
 
   const operations: Section<OperationsInfo> = !authorized
-    ? withheld<OperationsInfo>("GitHub Actions workflow runs", PAPER_WORKFLOW)
-    : paperRuns
+    ? withheld<OperationsInfo>("GitHub Actions workflow runs", production.workflow)
+    : productionRuns
       ? section(
           provenance({
             source: "GitHub Actions workflow runs",
-            scope: PAPER_WORKFLOW,
+            scope: production.workflow,
             asOf: latestRun?.updatedAt ?? latestRun?.createdAt ?? null,
             now,
             freshness: classifyAge(
@@ -985,12 +989,12 @@ export async function buildStrategyStatus(input: {
             lastSuccessfulRun: executionSelection.run
               ? toAttempt(executionSelection.run, null)
               : null,
-            workflowUrl: workflowUrl(PAPER_WORKFLOW),
+            workflowUrl: workflowUrl(production.workflow),
           } satisfies OperationsInfo,
         )
       : unavailable<OperationsInfo>(
           "GitHub Actions workflow runs",
-          PAPER_WORKFLOW,
+          production.workflow,
           "the workflow run history could not be read",
         );
 
@@ -1066,7 +1070,7 @@ export async function buildStrategyStatus(input: {
     release.data.approvedPaperReleaseSha
   ) {
     warnings.push(
-      "The deployed dashboard build and the approved paper release are different commits. That is expected: they are independent deployables.",
+      "The deployed dashboard build and the approved production release are different commits. That is expected: they are independent deployables.",
     );
   }
 

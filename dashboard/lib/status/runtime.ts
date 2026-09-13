@@ -8,6 +8,7 @@ import {
   type WorkflowRunSummary,
 } from "./github-api";
 import {
+  isRecord,
   parseLastRun,
   parsePerformanceRuntime,
   parsePreflight,
@@ -15,7 +16,8 @@ import {
   type PerformanceRuntimeSnapshot,
 } from "./parse";
 import { parsePositionsRuntime, type PositionsRuntimeSnapshot } from "./positions";
-import type { PreflightInfo } from "./types";
+import type { AccountMode, PreflightInfo } from "./types";
+import { productionSource } from "./production-source";
 import { readJsonEntries, ZipError } from "./zip";
 
 /**
@@ -405,17 +407,19 @@ export async function selectLatestExecution(
   approvedReleaseSha: string | null,
   source: RunPageSource,
   now: Date = new Date(),
+  mode: AccountMode = "paper",
 ): Promise<ExecutionSelection> {
+  const production = productionSource(mode);
   if (!approvedReleaseSha) {
     return {
       ...EMPTY_EXECUTION_SELECTION,
       errors: [
-        "the approved paper release SHA is unknown, so no artifact can be bound to it",
+        "the approved production release SHA is unknown, so no artifact can be bound to it",
       ],
     };
   }
 
-  const expectedName = `${RUNTIME_ARTIFACT_PREFIX}${approvedReleaseSha}`;
+  const expectedName = `${production.runtimePrefix}${approvedReleaseSha}`;
 
   const scan = await scanRuns<ExecutionSelection>(
     source,
@@ -445,7 +449,7 @@ export async function selectLatestExecution(
     // runtime artifact indistinguishable from a preflight-only run, so the
     // walk stepped past the newest cycle and showed an older one.
     const anyRuntime = newestAny(artifacts, (artifact) =>
-      artifact.name.startsWith(RUNTIME_ARTIFACT_PREFIX),
+      /^(?:paper|live)-runtime-state-/.test(artifact.name),
     );
 
     if (!anyRuntime) {
@@ -453,15 +457,15 @@ export async function selectLatestExecution(
       // no runtime state either never executed a cycle (a preflight-only
       // dispatch, where the execute step is explicitly `skipped`) or executed
       // one whose upload failed — and only the first supersedes nothing.
-      const executed = await namedStepOutcome(run, EXECUTE_STEP_NAME);
+      const executed = await namedStepOutcome(run, production.executeStep);
       if (executed.kind === "DID_NOT_RUN") return null;
       return {
         ...EMPTY_EXECUTION_SELECTION,
         run,
         errors: [
           executed.kind === "RAN"
-            ? `run #${run.runNumber} executed a guarded paper cycle but produced no runtime-state artifact`
-            : `it could not be established whether run #${run.runNumber} executed a paper cycle: ${executed.detail}`,
+            ? `run #${run.runNumber} executed a guarded production cycle but produced no runtime-state artifact`
+            : `it could not be established whether run #${run.runNumber} executed a production cycle: ${executed.detail}`,
         ],
       };
     }
@@ -479,7 +483,7 @@ export async function selectLatestExecution(
     }
 
     // The artifact must be datable to the step that wrote it, in this attempt.
-    const upload = await namedStepOutcome(run, RUNTIME_UPLOAD_STEP_NAME);
+    const upload = await namedStepOutcome(run, production.runtimeUploadStep);
     if (upload.kind !== "RAN") {
       return {
         ...EMPTY_EXECUTION_SELECTION,
@@ -514,7 +518,7 @@ export async function selectLatestExecution(
         artifactCreatedAt: anyRuntime.createdAt,
         lineageMismatch: true,
         errors: [
-          "the newest runtime artifact is not named for the approved paper release",
+          "the newest runtime artifact is not named for the approved production release",
         ],
       };
     }
@@ -541,7 +545,19 @@ export async function selectLatestExecution(
 
     try {
       const entries = readJsonEntries(zip, RUNTIME_CONTRACT);
-      const lastRun = parseLastRun(entries["production/last_run.json"]);
+      const runDocument = entries["production/last_run.json"];
+      if (isRecord(runDocument) &&
+        runDocument.broker_mode !== undefined && runDocument.broker_mode !== mode) {
+        return {
+          ...EMPTY_EXECUTION_SELECTION,
+          run,
+          artifactName: anyRuntime.name,
+          artifactCreatedAt: anyRuntime.createdAt,
+          lineageMismatch: true,
+          errors: ["the runtime record's broker mode does not match the selected production account"],
+        };
+      }
+      const lastRun = parseLastRun(runDocument);
       if (!lastRun) {
         return {
           ...EMPTY_EXECUTION_SELECTION,
@@ -549,6 +565,16 @@ export async function selectLatestExecution(
           artifactName: anyRuntime.name,
           artifactCreatedAt: anyRuntime.createdAt,
           errors: ["the runtime artifact's run record failed schema validation"],
+        };
+      }
+      if (lastRun.paperOnly !== (mode === "paper")) {
+        return {
+          ...EMPTY_EXECUTION_SELECTION,
+          run,
+          artifactName: anyRuntime.name,
+          artifactCreatedAt: anyRuntime.createdAt,
+          lineageMismatch: true,
+          errors: ["the runtime record's broker mode does not match the selected production account"],
         };
       }
       if (lastRun.releaseSha !== approvedReleaseSha) {
@@ -559,14 +585,14 @@ export async function selectLatestExecution(
           artifactCreatedAt: anyRuntime.createdAt,
           lineageMismatch: true,
           errors: [
-            "the runtime artifact's recorded release does not match the approved paper release",
+            "the runtime artifact's recorded release does not match the approved production release",
           ],
         };
       }
       // The record says when the cycle finished; the step says when the cycle
       // could have finished. A `completed_at` outside that window describes a
       // different execution, whatever artifact it travelled in.
-      const executeStep = await namedStepOutcome(run, EXECUTE_STEP_NAME);
+      const executeStep = await namedStepOutcome(run, production.executeStep);
       if (executeStep.kind !== "RAN") {
         return {
           ...EMPTY_EXECUTION_SELECTION,
@@ -674,7 +700,9 @@ export async function selectLatestPreflight(
   source: RunPageSource,
   expectedStrategyIdentity: string | null,
   now: Date = new Date(),
+  mode: AccountMode = "paper",
 ): Promise<PreflightSelection> {
+  const production = productionSource(mode);
   const scan = await scanRuns<PreflightSelection>(
     source,
     now,
@@ -707,13 +735,13 @@ export async function selectLatestPreflight(
     // reason to report UNAVAILABLE, never a reason to show an older one.
     const anyDiagnostics = newestAny(
       artifacts,
-      (artifact) => artifact.name === DIAGNOSTICS_ARTIFACT_NAME,
+      (artifact) => /^(?:paper|live)-diagnostics$/.test(artifact.name),
     );
 
     if (!anyDiagnostics) {
       // The decisive question: did the preflight step run? Only an explicit
       // `completed + skipped` lets an older report stand.
-      const evidence = await namedStepOutcome(run, PREFLIGHT_STEP_NAME);
+      const evidence = await namedStepOutcome(run, production.preflightStep);
       if (evidence.kind === "DID_NOT_RUN") return null;
       return {
         ...EMPTY_PREFLIGHT_SELECTION,
@@ -723,6 +751,16 @@ export async function selectLatestPreflight(
             ? `run #${run.runNumber} ran its preflight step but uploaded no diagnostics artifact`
             : `it could not be established whether run #${run.runNumber} reached its preflight step: ${evidence.detail}`,
         ],
+      };
+    }
+
+    if (anyDiagnostics.name !== production.diagnosticsName) {
+      return {
+        ...EMPTY_PREFLIGHT_SELECTION,
+        run,
+        artifactCreatedAt: anyDiagnostics.createdAt,
+        lineageMismatch: true,
+        errors: ["the diagnostics artifact belongs to a different broker mode"],
       };
     }
 
@@ -740,7 +778,7 @@ export async function selectLatestPreflight(
     const diagnostics = anyDiagnostics;
     // Bound to the step, in this attempt — not merely to the run. A re-run
     // keeps the id, and the run's window spans both attempts' work.
-    const preflightStep = await namedStepOutcome(run, PREFLIGHT_STEP_NAME);
+    const preflightStep = await namedStepOutcome(run, production.preflightStep);
     if (preflightStep.kind !== "RAN") {
       return {
         ...EMPTY_PREFLIGHT_SELECTION,
@@ -787,7 +825,21 @@ export async function selectLatestPreflight(
 
     try {
       const entries = readJsonEntries(zip, DIAGNOSTICS_CONTRACT);
-      const preflight = parsePreflight(entries[DIAGNOSTICS_ENTRY], run.url);
+      const document = entries[DIAGNOSTICS_ENTRY];
+      if (isRecord(document) && (
+        document.kind === `v11_${mode === "paper" ? "live" : "paper"}_production_preflight` ||
+        (document.broker_mode !== undefined && document.broker_mode !== mode) ||
+        document.allowed_mode === (mode === "paper" ? "live" : "paper")
+      )) {
+        return {
+          ...EMPTY_PREFLIGHT_SELECTION,
+          run,
+          artifactCreatedAt: diagnostics.createdAt,
+          lineageMismatch: true,
+          errors: ["the preflight report's broker mode does not match the selected production account"],
+        };
+      }
+      const preflight = parsePreflight(document, run.url, mode);
       if (!preflight) {
         return {
           ...EMPTY_PREFLIGHT_SELECTION,

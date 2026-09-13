@@ -1,4 +1,12 @@
-# Nate Trader — current system, V11 strategy, production and dashboard
+# Nate Trader — historical architecture and deployment audit
+
+> This is the **2026-08-12 historical snapshot**. Its deployment SHAs, policy
+> values, missing-data list and production claims are not current. Read
+> [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md),
+> [README.md](README.md) and the current
+> [V11 specification](strategy/v11_adaptive_momentum.md) before operating the
+> project. The detailed migration and containment history below is retained
+> for review and recovery; it is not a deployment approval.
 
 > Snapshot: 2026-08-12 (Europe/Prague)
 >
