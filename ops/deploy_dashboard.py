@@ -187,6 +187,10 @@ def route_candidate(original, before, after, expected_digest):
 def start(args):
     valid_sha(args.sha)
     valid_sha(args.approved_trading_sha)
+    handoff_pin = getattr(args, 'paper_handoff_sha256', None)
+    if handoff_pin is not None:
+        require(bool(re.fullmatch('[0-9a-f]{64}', handoff_pin)),
+                'Exact paper handoff manifest SHA-256 required')
     valid_name(args.name)
     source = container(args.source)
     image = docker('GET', f'/images/{args.image}/json')
@@ -203,6 +207,13 @@ def start(args):
     require(env['PRODUCTION_ACCOUNT_MODE'] in ('paper', 'live'), 'Invalid production account mode')
     require(env['SUPABASE_SERVER_URL'] == 'http://natetrader-supabase-kong:8000',
             'Unexpected internal Supabase origin')
+    # A pin is an explicit approval for this deployment's production account
+    # and approved paper release, never an environment value to inherit when
+    # another release is staged. The complete manifest remains server-side.
+    if handoff_pin is not None:
+        require(env['PRODUCTION_ACCOUNT_MODE'] == 'paper',
+                'A paper handoff cannot authorize a live account')
+        env['PAPER_RUNTIME_HANDOFF_SHA256'] = handoff_pin
     env['PRODUCTION_RELEASE_SHA'] = args.approved_trading_sha
     env['DASHBOARD_MAINTENANCE_MODE'] = args.freeze
     # Pass values only in memory, never in command arguments, files or output.
@@ -290,6 +301,8 @@ def main():
     for name in ('name', 'source', 'image', 'sha', 'approved-trading-sha'):
         staging.add_argument('--' + name, required=True)
     staging.add_argument('--freeze', choices=('on', 'off'), required=True)
+    staging.add_argument('--paper-handoff-sha256',
+                         help='Explicit reviewed paper runtime manifest SHA-256; never inherited')
     activation = commands.add_parser('cutover')
     for name in ('from-container', 'to-container', 'sha', 'route-sha256'):
         activation.add_argument('--' + name, required=True)

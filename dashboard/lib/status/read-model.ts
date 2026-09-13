@@ -34,6 +34,7 @@ import {
   LINEAGE_OK,
   type LineageVerdict,
 } from "./lineage";
+import { verifiedCarriedPlanIdentity } from "./runtime-handoff";
 import {
   RUN_SCAN_PAGE_SIZE,
   selectLatestExecution,
@@ -468,7 +469,12 @@ function validationSection(
   // is allowed to see. Otherwise both stay explicitly unknown.
   const comparable = authorized && lineage.ok;
   const runtimeIdentity = comparable
-    ? (execution.performance?.plan?.strategyIdentityValue ??
+    ? (verifiedCarriedPlanIdentity(
+        execution.runtimeHandoff,
+        execution.performance?.plan ?? null,
+        ref,
+      ) ??
+      execution.performance?.plan?.strategyIdentityValue ??
       preflight.preflight?.strategyIdentity ??
       null)
     : null;
@@ -700,7 +706,18 @@ export async function buildStrategyStatus(input: {
 
     // Independent selection: a manual preflight-only run must not hide an
     // older, still-valid execution, and vice versa.
-    executionSelection = await selectLatestExecution(approved.sha, runPage, now, production.mode);
+    executionSelection = await selectLatestExecution(
+      approved.sha,
+      runPage,
+      now,
+      production.mode,
+      canonicalReport
+        ? {
+            strategyIdentity: canonicalReport.strategyIdentityValue,
+            universeSha256: canonicalReport.rankingUniverseSha256,
+          }
+        : null,
+    );
     preflightSelection = await selectLatestPreflight(
       runPage,
       canonicalReport?.strategyIdentityValue ??
@@ -792,6 +809,7 @@ export async function buildStrategyStatus(input: {
         lastRun: executionSelection.lastRun,
         preflight: preflightSelection.preflight,
         runtimeArtifactName: executionSelection.artifactName,
+        runtimeHandoff: executionSelection.runtimeHandoff,
         expectedRuntimeArtifactName: approved.sha
           ? `${production.runtimePrefix}${approved.sha}`
           : null,
