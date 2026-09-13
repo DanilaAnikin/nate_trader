@@ -4,11 +4,11 @@ import { NextResponse } from "next/server";
 /**
  * The deployment write freeze, enforced in the application.
  *
- * Section 13 of OVERVIEW.md requires a freeze while the schema migrations are
- * applied, and the previous plan was to announce one. That is not a control:
- * the bridge image's lifecycle operations keep succeeding non-atomically after
- * the migrations, so nothing stops a stray browser tab, a retried request or a
- * second operator from starting one mid-migration.
+ * Hold application writes while migrations or an image rollback are underway.
+ * A stray browser tab, retry or second operator must not start a lifecycle
+ * operation against a schema in transition. After 0022, the bridge's legacy
+ * Vault RPCs are retired; the bridge is a read-only rollback target and must
+ * remain frozen against the latest schema.
  *
  * `DASHBOARD_MAINTENANCE_MODE=on` makes every mutating handler return 503
  * before it touches Alpaca, the Vault or the database. It is deliberately an
@@ -19,6 +19,7 @@ import { NextResponse } from "next/server";
  * What it covers, which is more than the lifecycle endpoints:
  *
  *   * account create / update / delete / rotate / verify — the obvious ones;
+ *   * profile preferences through `PATCH /api/profile`;
  *   * **`POST .../refresh`** — a broker refresh writes `equity_snapshots`,
  *     `cash_flows`, `broker_refresh_state` and `broker_refresh_token`. A
  *     freeze that let those through would be a freeze on the small tables
@@ -27,6 +28,8 @@ import { NextResponse } from "next/server";
  * Reads are unaffected: they no longer write anything (see the status, live,
  * equity and performance handlers), so serving them during a freeze is safe
  * and keeps the dashboard legible while the work happens.
+ * This does not freeze the separate Auth service (login, password changes,
+ * session refresh or logout) or requests that bypass this application.
  */
 const ENABLED_VALUES: ReadonlySet<string> = new Set(["on", "1", "true", "yes"]);
 

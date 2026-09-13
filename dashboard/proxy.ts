@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { maintenanceBlock } from "@/lib/maintenance";
 import {
   getAuthCookieName,
   getSupabaseServerUrl,
@@ -24,6 +25,14 @@ export async function proxy(request: NextRequest) {
     (prefix) => path === prefix || path.startsWith(`${prefix}/`),
   );
   if (path === "/api/health") return response;
+
+  // Refuse data mutations before identity-provider calls, including when the
+  // database/Auth service is unavailable during a migration. Route handlers
+  // repeat the guard so direct invocation cannot bypass the freeze.
+  if (isApi && ["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
+    const frozen = maintenanceBlock();
+    if (frozen) return frozen;
+  }
 
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   let url: string;

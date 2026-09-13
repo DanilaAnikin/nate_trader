@@ -5,6 +5,7 @@ import {
   SUPABASE_CONFIGURED,
 } from "@/lib/supabase/config";
 import { supabaseBackendConfigured } from "@/lib/supabase/readiness";
+import { maintenanceModeEnabled } from "@/lib/maintenance";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -22,6 +23,8 @@ export async function GET() {
       strategyVersion: V11_POLICY.strategyVersion,
       // Self-hosted container: `BUILD_SHA` is the only supported source.
       buildSha: process.env.BUILD_SHA ?? "unknown",
+      artifact_role: "account-dashboard",
+      writes_enabled: ready && !maintenanceModeEnabled(),
       dataMode: accountBackendConfigured
         ? "account-scoped"
         : explicitLegacyMode

@@ -34,6 +34,8 @@ jobs:
         run: npm audit --audit-level=high
       - name: Test dashboard contracts
         run: npm test
+      - name: Test deployment owner acceptance
+        run: node --test ../ops/owner_read_acceptance.test.mjs
       - name: Lint and type-check dashboard
         run: |
           npm run lint
@@ -84,12 +86,12 @@ jobs:
       - name: Run complete regression suite
         run: PYTHONPATH=scripts python -m pytest -q
       - name: Compile all Python sources
-        run: python -m compileall -q scripts tests
+        run: python -m compileall -q scripts tests ops supabase/upgrade supabase/tests/run_upgrade.py
       - name: Lint deployment boundary
         run: >-
           ruff check
           --select E9,F63,F7,F82
-          scripts tests
+          scripts tests ops supabase/upgrade supabase/tests/run_upgrade.py
 
   # ── strategy promotion eligibility ────────────────────────────────────────
   # Deliberately kept strict, separate, and NOT a required context for merging

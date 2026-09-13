@@ -15,6 +15,8 @@ select jsonb_build_object(
   'server_version_num', current_setting('server_version_num'),
   'transaction_read_only', current_setting('transaction_read_only'),
   'migration_ledger_present', to_regclass('supabase_migrations.schema_migrations') is not null,
+  'nate_baseline_ledger_present', to_regclass('nate_migrations.baseline_attestations') is not null,
+  'nate_applied_ledger_present', to_regclass('nate_migrations.applied_migrations') is not null,
   'extensions', (select jsonb_object_agg(extname, extversion) from pg_extension
                  where extname in ('supabase_vault', 'pgsodium', 'pgcrypto'))
 );
@@ -31,6 +33,69 @@ from supabase_migrations.schema_migrations;
 \else
 select jsonb_build_object('section', 'migration_versions', 'versions', null,
   'status', 'unavailable; do not infer an applied version from object presence');
+\endif
+
+-- An honest legacy baseline records unknown historical execution separately
+-- from the 15 authored migrations actually applied by the atomic upgrader.
+-- Never reinterpret the reference stage as an applied Supabase version.
+select (select count(*) from pg_attribute
+  where attrelid = to_regclass('nate_migrations.baseline_attestations')
+    and attnum > 0 and not attisdropped
+    and attname in ('id', 'historical_migrations', 'reference_stage',
+      'reference_catalog_sha256', 'observed_catalog_sha256', 'review_sha256',
+      'recovery_evidence_sha256', 'manifest')) = 8
+  and (select count(*) from pg_attribute
+  where attrelid = to_regclass('nate_migrations.applied_migrations')
+    and attnum > 0 and not attisdropped
+    and attname in ('version', 'filename', 'source_sha256', 'baseline_id')) = 4
+  as nate_ledger_readable \gset
+\if :nate_ledger_readable
+select jsonb_build_object('section', 'nate_migration_baseline',
+  'attestations', count(*),
+  'historical_execution_unknown', coalesce(bool_and(
+    historical_migrations = 'unknown; no historical execution attested'), false),
+  'reference_stages', coalesce(jsonb_agg(reference_stage order by reference_stage), '[]'::jsonb),
+  'evidence_hashes_well_formed', coalesce(bool_and(
+    id ~ '^[0-9a-f]{64}$' and reference_catalog_sha256 ~ '^[0-9a-f]{64}$'
+    and observed_catalog_sha256 ~ '^[0-9a-f]{64}$' and review_sha256 ~ '^[0-9a-f]{64}$'
+    and recovery_evidence_sha256 ~ '^[0-9a-f]{64}$'), false))
+from nate_migrations.baseline_attestations;
+
+select jsonb_build_object('section', 'nate_applied_migrations',
+  'applied_count', count(*),
+  'versions', coalesce(jsonb_agg(a.version order by a.version), '[]'::jsonb),
+  'exact_upgrade_versions', coalesce(array_agg(a.version order by a.version)
+    = array['0009','0010','0011','0012','0013','0014','0015','0016','0017',
+            '0018','0019','0020','0021','0022','0023'], false),
+  'source_hashes_well_formed', coalesce(bool_and(a.source_sha256 ~ '^[0-9a-f]{64}$'), false),
+  'bound_to_baseline', coalesce(bool_and(b.id is not null), false),
+  'source_hashes_match_recorded_manifest', coalesce(bool_and(
+    coalesce((b.manifest->'migration_sources'->>a.filename) = a.source_sha256, false)), false))
+from nate_migrations.applied_migrations a
+left join nate_migrations.baseline_attestations b on b.id = a.baseline_id;
+
+select count(*) = 5 as reconciliation_ledger_readable from pg_attribute
+where attrelid = to_regclass('nate_migrations.baseline_reconciliations')
+  and attnum > 0 and not attisdropped
+  and attname in ('baseline_id', 'source_sha256', 'repaired_objects', 'repaired_profiles', 'filename') \gset
+\if :reconciliation_ledger_readable
+select jsonb_build_object('section', 'nate_baseline_reconciliation',
+  'executions', count(*),
+  'repaired_objects', coalesce(sum(r.repaired_objects), 0),
+  'repaired_profiles', coalesce(sum(r.repaired_profiles), 0),
+  'source_hashes_match_recorded_manifest', coalesce(bool_and(coalesce(
+    r.source_sha256 ~ '^[0-9a-f]{64}$'
+    and b.manifest->'baseline_reconciliation'->>'source_sha256' = r.source_sha256,
+    false)), false))
+from nate_migrations.baseline_reconciliations r
+left join nate_migrations.baseline_attestations b on b.id = r.baseline_id;
+\else
+select jsonb_build_object('section', 'nate_baseline_reconciliation',
+  'status', 'unavailable: no complete explicit reconciliation ledger');
+\endif
+\else
+select jsonb_build_object('section', 'nate_migration_baseline', 'status',
+  'unavailable: no complete Nate baseline and applied ledger; historical execution remains unknown');
 \endif
 
 with required(name) as (values

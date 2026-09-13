@@ -52,4 +52,21 @@ describe("proxy containment transport", () => {
     expect(response.status).toBe(503);
     expect(state.calls).toHaveLength(0);
   });
+
+  it.each(["POST", "PATCH", "PUT", "DELETE"])("blocks %s API writes before authentication during maintenance", async (method) => {
+    state.user = null;
+    vi.stubEnv("DASHBOARD_MAINTENANCE_MODE", "on");
+    vi.stubEnv("SUPABASE_SERVER_URL", "");
+    const response = await proxy(new NextRequest("https://dashboard.example.com/api/profile", { method }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: "MAINTENANCE_MODE" });
+    expect(state.calls).toHaveLength(0);
+  });
+
+  it("keeps authenticated reads available during maintenance", async () => {
+    vi.stubEnv("DASHBOARD_MAINTENANCE_MODE", "on");
+    const response = await proxy(new NextRequest("https://dashboard.example.com/api/profile"));
+    expect(response.status).toBe(200);
+    expect(state.calls).toHaveLength(1);
+  });
 });

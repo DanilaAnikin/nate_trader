@@ -336,7 +336,10 @@ function EffectivePolicySummary() {
       "HALT trigger",
       `daily ${V11_POLICY.riskThresholds.dailyHaltPct}% → zero directional target, exits only`,
     ],
-    ["Market gate", "SPY must close above its 200-session SMA"],
+    [
+      "Market gate",
+      `Below SPY's 200-session SMA, new monthly targets are capped at ${V11_POLICY.belowSma200FloorPct}% of account equity. Existing frozen targets and stricter risk limits still apply.`,
+    ],
     ["Rebalance cadence", "monthly, plus a one-shot recovery latch"],
     ["Fixed per-position stop", "none — V11 has no 8% stop"],
     [
