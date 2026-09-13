@@ -85,7 +85,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def http(method, url, headers, payload=None):
     data = None if payload is None else json.dumps(payload).encode()
-    request = urllib.request.Request(url, data=data, method=method, headers=headers)
+    request = urllib.request.Request(url, data=data, method=method,
+                                     headers={**headers, 'User-Agent': 'NateTrader-Monitor/1.0'})
     try:
         response = urllib.request.build_opener(NoRedirect()).open(request, timeout=15)
     except urllib.error.HTTPError as error:

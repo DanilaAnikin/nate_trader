@@ -97,7 +97,8 @@ def container(name):
 
 
 def public_response(url, method='GET'):
-    request = urllib.request.Request(url, method=method)
+    request = urllib.request.Request(url, method=method,
+                                     headers={'User-Agent': 'NateTrader-Deployment/1.0'})
     try:
         response = urllib.request.urlopen(request, timeout=10)
     except urllib.error.HTTPError as error:
