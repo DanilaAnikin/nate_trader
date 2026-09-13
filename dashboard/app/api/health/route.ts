@@ -4,13 +4,13 @@ import {
   LEGACY_DASHBOARD_ALLOWED,
   SUPABASE_CONFIGURED,
 } from "@/lib/supabase/config";
+import { supabaseBackendConfigured } from "@/lib/supabase/readiness";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
-  const accountBackendConfigured =
-    SUPABASE_CONFIGURED && Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const accountBackendConfigured = supabaseBackendConfigured();
   const explicitLegacyMode =
     !SUPABASE_CONFIGURED && LEGACY_DASHBOARD_ALLOWED;
   const ready = accountBackendConfigured || explicitLegacyMode;

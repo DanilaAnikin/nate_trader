@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Hoisted so the vi.mock factory below can close over it safely.
-const { getSupabaseServerMock } = vi.hoisted(() => ({
+const { getSupabaseServerMock, getSupabaseServiceMock } = vi.hoisted(() => ({
   getSupabaseServerMock: vi.fn(),
+  getSupabaseServiceMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -11,6 +12,9 @@ vi.mock("next/headers", () => ({
 
 vi.mock("./supabase/server", () => ({
   getSupabaseServer: getSupabaseServerMock,
+}));
+vi.mock("./supabase/service", () => ({
+  getSupabaseService: getSupabaseServiceMock,
 }));
 
 import { getUserAccounts, getSelectedAccount } from "./account-context";
@@ -21,8 +25,8 @@ afterEach(() => {
 
 /**
  * A Supabase client whose every query rejects with `fetch failed` — exactly
- * what happens when the free-tier project auto-pauses. Before the resilience
- * fix this bubbled up and 504'd the whole dashboard.
+ * what happens when the free-tier project auto-pauses. The layout catches it
+ * and renders an unavailable state rather than an empty account selection.
  */
 function unreachableClient() {
   const chain = {
@@ -39,16 +43,36 @@ function unreachableClient() {
 }
 
 describe("account-context resilience to a paused Supabase", () => {
-  it("getUserAccounts returns [] instead of throwing", async () => {
+  it("getUserAccounts preserves a backend failure for the layout", async () => {
     getSupabaseServerMock.mockResolvedValue(unreachableClient());
-    await expect(getUserAccounts()).resolves.toEqual([]);
+    await expect(getUserAccounts()).rejects.toThrow("fetch failed");
   });
 
-  it("getSelectedAccount returns an empty selection instead of throwing", async () => {
+  it("getSelectedAccount cannot mislabel an outage as no selected account", async () => {
     getSupabaseServerMock.mockResolvedValue(unreachableClient());
-    await expect(getSelectedAccount()).resolves.toEqual({
-      accounts: [],
-      selected: null,
+    await expect(getSelectedAccount()).rejects.toThrow("fetch failed");
+  });
+
+  it.each([
+    { data: null, error: { message: "private database details" } },
+    { data: null, error: null },
+  ])("distinguishes a failed account query from an empty book", async (result) => {
+    getSupabaseServerMock.mockResolvedValue({
+      auth: { getUser: async () => ({ data: { user: { id: "owner" } } }) },
     });
+    const chain = { select: () => chain, eq: () => chain, is: () => chain,
+      order: async () => result };
+    getSupabaseServiceMock.mockReturnValue({ from: () => chain });
+    await expect(getSelectedAccount()).rejects.toThrow("Account list is temporarily unavailable.");
+  });
+
+  it("keeps an empty selection when the account query really succeeds empty", async () => {
+    getSupabaseServerMock.mockResolvedValue({
+      auth: { getUser: async () => ({ data: { user: { id: "owner" } } }) },
+    });
+    const chain = { select: () => chain, eq: () => chain, is: () => chain,
+      order: async () => ({ data: [], error: null }) };
+    getSupabaseServiceMock.mockReturnValue({ from: () => chain });
+    await expect(getSelectedAccount()).resolves.toEqual({ accounts: [], selected: null });
   });
 });

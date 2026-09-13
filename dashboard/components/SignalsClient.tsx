@@ -104,7 +104,7 @@ function UniversePanel({ payload }: { payload: StrategyStatusPayload }) {
           The broad dynamically discovered common-stock/ADR universe has not
           been downloaded and historically validated as one frozen ranking set.
           A refresh changes the universe hash and requires a full adjusted
-          rebuild plus a new canonical validation before another paper buy.
+          rebuild plus a new canonical validation before another production buy.
         </p>
       )}
     </Panel>

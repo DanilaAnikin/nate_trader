@@ -5,10 +5,24 @@ from pathlib import Path
 import pandas as pd
 
 from strategy_identity import (
+    STRATEGY_SOURCE_PATHS,
     build_bar_snapshot_identity,
     build_strategy_identity,
     hash_symbol_universe,
 )
+
+
+def test_broker_mode_changes_invalidate_the_production_identity(tmp_path: Path):
+    for relative in STRATEGY_SOURCE_PATHS:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("fixture\n")
+    source = tmp_path / "scripts/broker_mode.py"
+    source.write_text("LIVE_ENABLED = False\n")
+    first = build_strategy_identity(project_root=tmp_path)
+    source.write_text("LIVE_ENABLED = True\n")
+    changed = build_strategy_identity(project_root=tmp_path)
+    assert changed["value"] != first["value"]
 
 
 def test_strategy_identity_is_stable_and_source_sensitive(tmp_path: Path):

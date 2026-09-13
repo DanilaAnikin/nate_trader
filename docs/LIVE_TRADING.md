@@ -37,12 +37,13 @@ missing; nothing has a default and nothing falls back to the paper values.
 ### Why the two dollar ceilings are not optional
 
 Every other limit in this repository is a percentage of equity —
-`max_position_pct: 9`, `momentum_max_sector_pct: 20`, `min_cash_pct: 10`. A
+`max_position_pct: 9`, `momentum_max_sector_pct: 40`, `min_cash_pct: 10`. A
 percentage limit scales a mistake with the account: if the equity read is wrong
 or the target weights are wrong, the limit is wrong by the same factor and
 enforces nothing. A flat dollar ceiling does not participate in that
 computation, which is the entire reason it is there.
 
+Both ceilings must be finite positive numbers; `NaN` and infinity are refused.
 They are enforced in `trade.place_limit_order`, the single function every order
 in this repository passes through, so no caller can forget them.
 
@@ -83,8 +84,9 @@ A closed validation gate refuses live buys exactly as it refuses paper buys.
 ## Running one cycle
 
 ```bash
-# 1. Prove the strategy is eligible at all. This is the step that is currently
-#    failing, and it is supposed to fail while the strategy does not pass.
+# First configure every required variable from the table above in the executor
+# environment. These checks do not change the approved production release.
+# 1. Recompute evidence for the exact code and check its current eligibility.
 python3 scripts/backtest/validate_v11.py
 python3 scripts/sanity_check.py
 
@@ -92,10 +94,10 @@ python3 scripts/sanity_check.py
 python3 scripts/execute_trades.py dry-run
 
 # 3. Preflight only — reads the live account, places nothing.
-TRADING_MODE=live ... python3 scripts/production_preflight.py
+TRADING_MODE=live python3 scripts/production_preflight.py
 
 # 4. One real-money cycle.
-TRADING_MODE=live ... python3 scripts/production_run.py
+TRADING_MODE=live python3 scripts/production_run.py
 ```
 
 `sanity_check.py` prints `*** LIVE REAL MONEY ***` with the account number when
@@ -122,15 +124,26 @@ two books can never restore each other's positions.
 In the `live-production` environment:
 
 - **Secrets:** `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_SECRET_KEY`
-- **Variables:** `LIVE_TRADING_ENABLED`, `LIVE_TRADING_ACCOUNT_NUMBER`,
+- **Variables:** `PRODUCTION_RELEASE_SHA` (the approved full 40-character SHA),
+  `LIVE_TRADING_ENABLED`, `LIVE_TRADING_ACCOUNT_NUMBER`,
   `LIVE_MAX_ORDER_NOTIONAL_USD`, `LIVE_MAX_CYCLE_NOTIONAL_USD`
-- **Protection:** at least one required reviewer
+- **Protection:** at least one required reviewer and protected deployment branches
+
+The workflow file cannot create these protections. On 2026-09-13, a read of
+the GitHub repository environments found **no `live-production` environment**.
+Live setup therefore remains incomplete even when all local tests pass. Create
+and verify that environment before dispatching a real-money cycle.
 
 ## In the dashboard
 
 Set `PRODUCTION_ACCOUNT_MODE=live` alongside the existing `PRODUCTION_*`
 variables, and point `PRODUCTION_ACCOUNT_ID` and
 `PRODUCTION_ALPACA_ACCOUNT_NUMBER` at the live account.
+
+The mode selects the GitHub environment, workflow, diagnostics name and runtime
+artifact prefix together. The reader verifies the mode of the preflight and
+execution records as well as their release identity. A live view cannot use
+paper runtime state merely because both releases have the same SHA.
 
 The mode is matched in **both** directions: a live account under a paper
 declaration is refused, and so is a paper account under a live declaration. The
@@ -144,17 +157,14 @@ asserting a constant.
 
 ## Before you use any of this
 
-The capability being ready is not a reason to use it. As of 2026-09-08:
+Check [the dated project status](PROJECT_STATUS.md) and the current canonical
+report, rather than relying on a past PASS or FAIL in documentation. On
+2026-09-13, the approved paper release was `115f11fd7` and its September 11
+execution and release gate had succeeded. The live environment was absent,
+and the public dashboard still ran a frozen containment bridge.
 
-- The fixed-parameter validator **FAILS**, so the promotion gate is closed and
-  the trader is correctly halted. A live cycle would refuse to buy for the same
-  reason a paper cycle does.
-- V11's measured full-history record is uneven: it beat SPY over
-  2021–2026 as a whole, but lost in four of six calendar years, and the entire
-  margin comes from 2024.
-- The paper account is down roughly 10% since April.
-
-The honest precondition for real money is a fresh validator PASS on whatever
-strategy is deployed, plus forward paper evidence across several monthly
-rebalances. Backtest improvements on an already-inspected, survivorship-biased
-window are not that evidence.
+Release approval, the live account binding, finite spending ceilings and
+environment protections must all be configured deliberately. Historical
+validation and actual forward paper performance are separate evidence; a
+passing test suite or backtest does not substitute for either release setup
+or a measured forward period.

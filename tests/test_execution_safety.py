@@ -1355,7 +1355,8 @@ def test_order_lifecycle_rejects_invalid_quantities(quantity, filled):
         trade._order_lifecycle_view(order)
 
 
-def test_valid_bound_buy_survives_early_v11_preflight(monkeypatch):
+@pytest.mark.parametrize("above_sma200", [True, False])
+def test_valid_bound_buy_survives_early_v11_preflight(monkeypatch, above_sma200):
     import adaptive_momentum
 
     frozen = _pending_plan({"AAA": 0.09})
@@ -1377,7 +1378,7 @@ def test_valid_bound_buy_survives_early_v11_preflight(monkeypatch):
     monkeypatch.setattr(
         adaptive_momentum,
         "compute_market_state",
-        lambda *args, **kwargs: _adaptive_market(above_sma200=True),
+        lambda *args, **kwargs: _adaptive_market(above_sma200=above_sma200),
     )
     monkeypatch.setattr(
         execute_trades,
@@ -1389,6 +1390,100 @@ def test_valid_bound_buy_survives_early_v11_preflight(monkeypatch):
         dry_run=False,
         allow_new_exposure=True,
     ) == []
+
+
+@pytest.mark.parametrize("floor", [0.0, 75.0])
+def test_completed_month_below_sma_preserves_graduated_book_but_hard_gate_exits(
+    monkeypatch, floor
+):
+    import adaptive_momentum
+
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    perf = {"last_momentum_rebal_ym": month}
+    held = {"symbol": "AAA", "qty": 90.0, "current_price": 100.0, "market_value": 9000.0}
+    _patch_adaptive_runtime(monkeypatch, perf=perf, positions=[held], above_sma200=False)
+    params = {**strategy_config.get_strategy_params("BULL", "NORMAL"), "momentum_below_sma200_floor_pct": floor}
+    monkeypatch.setattr(execute_trades, "get_strategy_params", lambda *args: params)
+    monkeypatch.setattr(trade, "list_open_orders", lambda: [])
+    monkeypatch.setattr(adaptive_momentum, "build_target_portfolio", lambda *a, **k: pytest.fail("reranked midmonth"))
+    result = execute_trades._manage_adaptive_momentum_picks(dry_run=True, allow_new_exposure=True)
+    if floor:
+        assert result == []
+        assert execute_trades.ADAPTIVE_PENDING_PLAN_KEY not in perf
+    else:
+        assert any(item["action"] == "DRY_RUN_ADAPTIVE_EXIT" for item in result)
+
+
+def test_graduated_gate_keeps_frozen_buy_intent_after_sma_crossing(monkeypatch):
+    frozen = _pending_plan({"AAA": 0.09})
+    perf = {execute_trades.ADAPTIVE_PENDING_PLAN_KEY: frozen}
+    _patch_adaptive_runtime(monkeypatch, perf=perf, above_sma200=False)
+    pending = _open_order(order_id="frozen-buy", symbol="AAA", side="buy", quantity=90)
+    _bind_open_order_to_plan(frozen, pending, target_weight=0.09)
+    monkeypatch.setattr(trade, "list_open_orders", lambda: [pending])
+    monkeypatch.setattr(trade, "cancel_open_order", lambda *a: pytest.fail("cancelled valid frozen BUY"))
+    result = execute_trades._manage_adaptive_momentum_picks(dry_run=False, allow_new_exposure=True)
+    assert any(item["action"] == "REBALANCE_PENDING_BUYS" for item in result)
+    assert perf[execute_trades.ADAPTIVE_PENDING_PLAN_KEY] is frozen
+    assert frozen["target_weights"] == {"AAA": 0.09}
+    assert frozen["risk_off"] is False
+
+
+@pytest.mark.parametrize("mismatched_snapshot", [False, True])
+def test_monthly_graduated_gate_executes_the_real_planners_capped_target(
+    monkeypatch, mismatched_snapshot
+):
+    import adaptive_momentum
+    import universe
+    from tests.test_adaptive_momentum import _frame
+    import numpy as np
+
+    real_market = adaptive_momentum.compute_market_state
+    perf = {}
+    _patch_adaptive_runtime(monkeypatch, perf=perf, above_sma200=False)
+    monkeypatch.setattr(adaptive_momentum, "compute_market_state", real_market)
+    symbols = [f"STOCK{n}" for n in range(10)]
+    frames = {symbol: _frame(np.linspace(50, 150 + n, 253), volume=2_000_000) for n, symbol in enumerate(symbols)}
+    frames["SPY"] = _frame(np.linspace(200, 100, 253), volume=10_000_000)
+    provider = adaptive_momentum.FrameBarProvider(frames)
+    broad_provider = adaptive_momentum.FrameBarProvider({
+        **frames,
+        "SPY": _frame(np.linspace(100, 200, 253), volume=10_000_000),
+    }) if mismatched_snapshot else provider
+    sectors = {symbol: ["Technology", "Industrials", "Healthcare"][n // 4] for n, symbol in enumerate(symbols)}
+    monkeypatch.setattr(
+        execute_trades, "_adaptive_live_frames",
+        lambda requested: provider if requested == ["SPY"] else broad_provider,
+    )
+    monkeypatch.setattr(execute_trades, "_live_sector_lookup", lambda *a: sectors.get)
+    monkeypatch.setattr(universe, "load_universe_symbols", lambda **k: symbols)
+    monkeypatch.setattr(trade, "list_open_orders", lambda: [])
+    monkeypatch.setattr(trade, "get_market_entry_gate", lambda: {"allowed": True})
+    monkeypatch.setattr(trade, "get_order_by_client_order_id", lambda *a: None)
+    submitted = []
+
+    def submit(symbol, qty, side, price, **kwargs):
+        submitted.append((symbol, qty, side, price))
+        return {"id": f"order-{symbol}"}
+
+    monkeypatch.setattr(trade, "place_limit_order", submit)
+    result = execute_trades._manage_adaptive_momentum_picks(dry_run=False, allow_new_exposure=True)
+    if mismatched_snapshot:
+        assert result == [{
+            "action": "ABORT",
+            "reason": "broad SPY snapshot disagrees with the pre-plan risk gate",
+        }]
+        assert submitted == []
+        assert execute_trades.ADAPTIVE_PENDING_PLAN_KEY not in perf
+        return
+    frozen = perf[execute_trades.ADAPTIVE_PENDING_PLAN_KEY]
+    assert frozen["risk_off"] is False
+    assert len(frozen["target_weights"]) == 10
+    assert sum(frozen["target_weights"].values()) == pytest.approx(0.75)
+    assert frozen["signal_date"] == provider.latest_date("SPY")
+    assert len(submitted) == 10
+    assert all(side == "buy" for _, _, side, _ in submitted)
+    assert not any(item["action"].startswith("ABORT") for item in result)
 
 
 @pytest.mark.parametrize("failure_point", ["positions", "spy"])

@@ -6,6 +6,8 @@ import {
   type StatusViewer,
 } from "./read-model";
 import { RUN_SCAN_PAGE_SIZE } from "./runtime";
+import { productionSource } from "./production-source";
+import { MANDATORY_LIVE_PREFLIGHT_CHECKS } from "./validation-gate";
 import type { BrokerResult } from "./broker";
 import type { BrokerInfo } from "./types";
 import {
@@ -106,6 +108,7 @@ interface RunSpec {
   runtimeArtifactName?: string | null;
   runtimeZip?: Buffer | "corrupt" | "gone";
   diagnostics?: Buffer | typeof DEFAULT_DIAGNOSTICS | null;
+  diagnosticsName?: string;
 }
 
 /**
@@ -170,7 +173,8 @@ function defaultRuns(): RunSpec[] {
  * every recorded timestamp to these, so a stub that omitted them was testing
  * a shape production never sees.
  */
-function runJob(run: RunSpec): Record<string, unknown> {
+function runJob(run: RunSpec, mode: "paper" | "live" = "paper"): Record<string, unknown> {
+  const production = productionSource(mode);
   const step = (name: string, conclusion: string) => ({
     name,
     status: "completed",
@@ -184,19 +188,19 @@ function runJob(run: RunSpec): Record<string, unknown> {
   ];
   steps.push(
     step(
-      "Verify paper broker and deployment health",
+      production.preflightStep,
       run.diagnostics ? "success" : "skipped",
     ),
   );
   steps.push(
     step(
-      "Execute one guarded paper cycle",
+      production.executeStep,
       run.runtimeArtifactName ? "success" : "skipped",
     ),
   );
   steps.push(
     step(
-      "Preserve private runtime state",
+      production.runtimeUploadStep,
       run.runtimeArtifactName ? "success" : "skipped",
     ),
   );
@@ -210,6 +214,7 @@ function runJob(run: RunSpec): Record<string, unknown> {
 }
 
 interface RouteOptions {
+  mode?: "paper" | "live";
   approvedShaVariable?: string | null;
   runs?: RunSpec[];
   validation?: Record<string, unknown> | null;
@@ -224,6 +229,7 @@ interface RouteOptions {
 
 function stubGithub(options: RouteOptions = {}) {
   const {
+    mode = "paper",
     approvedShaVariable = APPROVED_SHA,
     runs = defaultRuns(),
     validation = validationJson(),
@@ -266,7 +272,7 @@ function stubGithub(options: RouteOptions = {}) {
   const handler = vi.fn(async (input: string | URL) => {
     const url = String(input);
 
-    if (url.includes("/environments/paper-production/variables/")) {
+    if (url.includes(`/environments/${mode}-production/variables/`)) {
       return approvedShaVariable
         ? json({ name: "PRODUCTION_RELEASE_SHA", value: approvedShaVariable })
         : json({ message: "Not Found" }, 404);
@@ -277,7 +283,7 @@ function stubGithub(options: RouteOptions = {}) {
         commit: { committer: { date: "2026-08-03T15:00:00Z" } },
       });
     }
-    if (url.includes("/workflows/paper-production.yml/runs")) {
+    if (url.includes(`/workflows/${mode}-production.yml/runs`) ) {
       // Mirror GitHub's paging exactly: `page` is 1-based, `per_page` bounds
       // the slice, and a page beyond the end is empty. A stub that returned
       // every run on every page would make the scan look like it paged when it
@@ -342,7 +348,7 @@ function stubGithub(options: RouteOptions = {}) {
       }
       const run = runs.find((entry) => entry.id === runId);
       if (!run) return json({ jobs: [] });
-      return json({ jobs: [runJob(run)] });
+      return json({ jobs: [runJob(run, mode)] });
     }
 
     const artifactsMatch = url.match(/\/actions\/runs\/(\d+)\/artifacts/);
@@ -365,7 +371,7 @@ function stubGithub(options: RouteOptions = {}) {
       if (run.diagnostics) {
         artifacts.push({
           id: diagnosticsArtifactId(run),
-          name: "paper-diagnostics",
+          name: run.diagnosticsName ?? `${mode}-diagnostics`,
           size_in_bytes: 1584,
           expired: false,
           created_at: run.updatedAt,
@@ -424,16 +430,163 @@ function actionsCalls(handler: ReturnType<typeof stubGithub>): string[] {
     .filter((url) => url.includes("/actions/") || url.includes("/environments/"));
 }
 
+function livePreflightJson(): Record<string, unknown> {
+  const base = preflightJson();
+  const checks = (base.checks as { name: string; passed: boolean; detail: string }[])
+    .map((check) => ({
+      ...check,
+      name: ({
+        alpaca_api_key: "alpaca_live_api_key",
+        alpaca_secret_key: "alpaca_live_secret_key",
+        paper_endpoint: "broker_endpoint",
+        paper_account: "live_account",
+      } as Record<string, string>)[check.name] ?? check.name,
+      detail: check.name === "trading_mode" ? "live" : check.detail,
+    }));
+  checks.push({ name: "live_configuration", passed: true, detail: "configured" });
+  return {
+    ...base,
+    kind: "v11_live_production_preflight",
+    broker_mode: "live",
+    allowed_mode: "live",
+    checks,
+    checks_passed: checks.length,
+    checks_evaluated: checks.length,
+  };
+}
+
+function liveRun(overrides: Partial<RunSpec> = {}): RunSpec {
+  return {
+    ...defaultRuns()[0],
+    event: "workflow_dispatch",
+    runtimeArtifactName: `live-runtime-state-${APPROVED_SHA}`,
+    runtimeZip: runtimeZipBuffer(performanceJson(), lastRunJson({
+      kind: "v11_live_production_run",
+      paper_only: false,
+    })),
+    diagnostics: diagnosticsZipBuffer(livePreflightJson()),
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   clearGithubCache();
   vi.stubEnv("GITHUB_TOKEN", "test-token");
   vi.stubEnv("BUILD_SHA", DASHBOARD_SHA);
   vi.stubEnv("PRODUCTION_OWNER_USER_ID", OWNER_ID);
   vi.stubEnv("PRODUCTION_ACCOUNT_ID", PROD_ACCOUNT_ID);
+  vi.stubEnv("PRODUCTION_ACCOUNT_MODE", "paper");
   // The broker-side identifier is a mandatory AND check, so the default test
   // configuration is a fully bound production account.
   vi.stubEnv("PRODUCTION_ALPACA_ACCOUNT_NUMBER", SECRET_BROKER_NUMBER);
   vi.stubEnv("V11_EPOCH_BASELINE", "");
+});
+
+describe("live production evidence isolation", () => {
+  async function readLive(overrides: Partial<RunSpec> = {}) {
+    vi.stubEnv("PRODUCTION_ACCOUNT_MODE", "live");
+    const handler = stubGithub({ mode: "live", runs: [liveRun(overrides)] });
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: { ...PRODUCTION_ACCOUNT, mode: "live" },
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    return { payload, handler };
+  }
+
+  it("reads the live approval, workflow and artifacts as one broker mode", async () => {
+    const { payload, handler } = await readLive();
+    expect(payload.authorization.data?.productionRuntimeAuthorized).toBe(true);
+    expect(payload.strategy.data?.paperOnly).toBe(false);
+    expect(payload.execution.data?.paperOnly).toBe(false);
+    expect(payload.preflight.data?.allowedMode).toBe("live");
+    expect(payload.preflight.data?.checks).toHaveLength(19);
+    expect(payload.validationGate).toMatchObject({ effective: "PASS", reasons: [] });
+    expect(payload.operations.data?.workflowUrl).toContain("/live-production.yml");
+    expect(payload.release.provenance.source).toContain("live-production");
+    expect(payload.strategy.provenance.source).toContain("live-runtime-state");
+    const requests = actionsCalls(handler);
+    expect(requests.some((url) => url.includes("/environments/live-production/"))).toBe(true);
+    expect(requests.some((url) => url.includes("/workflows/live-production.yml/"))).toBe(true);
+    expect(requests.some((url) => url.includes("paper-production"))).toBe(false);
+  });
+
+  it.each([true, false])("withholds private live configuration values (passed=%s)", async (passed) => {
+    const raw = livePreflightJson();
+    const accountCanary = "LIVE-CONFIG-ACCOUNT-CANARY-9988";
+    const keyCanary = "LIVE-CONFIG-KEY-CANARY";
+    const checks = (raw.checks as { name: string; passed: boolean; detail: string }[])
+      .map((check) => check.name === "live_configuration"
+        ? { ...check, passed, detail: `live account=${accountCanary} key=${keyCanary}` }
+        : check);
+    const { payload } = await readLive({ diagnostics: diagnosticsZipBuffer({
+      ...raw, checks, status: passed ? "PASS" : "FAIL",
+      allowed_mode: passed ? "live" : "no-execution",
+      checks_passed: checks.filter((check) => check.passed).length,
+    }) });
+    expect(payload.preflight.data?.checks.find((check) => check.name === "live_configuration")?.detail)
+      .toBe(passed ? "Live trading configuration checks passed."
+        : "Live trading configuration checks failed; inspect the private preflight diagnostics.");
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain(accountCanary);
+    expect(serialized).not.toContain(keyCanary);
+    expect(payload.validationGate.effective).toBe(passed ? "PASS" : "FAIL");
+  });
+
+  it.each([
+    ["paper artifact namespace", { runtimeArtifactName: `paper-runtime-state-${APPROVED_SHA}` }],
+    ["paper record in a live archive", { runtimeZip: runtimeZipBuffer() }],
+    ["paper diagnostics namespace", { diagnosticsName: "paper-diagnostics" }],
+    ["paper report in live diagnostics", { diagnostics: diagnosticsZipBuffer() }],
+  ] as const)("withholds cross-mode evidence: %s", async (_name, overrides) => {
+    const { payload } = await readLive(overrides);
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.preflight.data).toBeNull();
+    expect(payload.execution.data).toBeNull();
+    expect(payload.convergence.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it.each(MANDATORY_LIVE_PREFLIGHT_CHECKS)("refuses a live preflight missing %s", async (name) => {
+    const raw = livePreflightJson();
+    const checks = (raw.checks as { name: string; passed: boolean }[])
+      .filter((check) => check.name !== name);
+    const { payload } = await readLive({
+      diagnostics: diagnosticsZipBuffer({ ...raw, checks, checks_passed: checks.length, checks_evaluated: checks.length }),
+    });
+    expect(payload.validationGate.effective).toBe("FAIL");
+    expect(payload.validationGate.reasons).toContain("PREFLIGHT_CHECK_MISSING");
+  });
+
+  it("does not replace an absent live history with existing paper runs", async () => {
+    vi.stubEnv("PRODUCTION_ACCOUNT_MODE", "live");
+    const handler = stubGithub();
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: { ...PRODUCTION_ACCOUNT, mode: "live" },
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.operations.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+    expect(actionsCalls(handler).some((url) => url.includes("paper-production"))).toBe(false);
+  });
+});
+
+describe("server configuration readiness", () => {
+  it.each(["", "http://kong:8000"])("does not report a configured web backend with internal origin %s", async (url) => {
+    vi.stubEnv("SUPABASE_SERVER_URL", url);
+    stubGithub();
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+    expect(payload.web.data).toMatchObject({ status: "misconfigured", dataMode: "unavailable" });
+  });
 });
 
 describe("cross-tenant isolation", () => {

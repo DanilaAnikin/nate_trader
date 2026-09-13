@@ -41,13 +41,22 @@ function renderOverview(
     }),
   );
   return render(
-    <StatusProvider enabled selectedAccount={ACCOUNT}>
+    <StatusProvider enabled selectedAccount={{ ...ACCOUNT, mode: payload.accountMode }}>
       <OverviewClient />
     </StatusProvider>,
   );
 }
 
 describe("OverviewClient", () => {
+  it("labels a live account's forward performance and production gate as live", async () => {
+    renderOverview({ ...buildPayload(), accountMode: "live" });
+    expect(await screen.findByText("Approved live release")).toBeInTheDocument();
+    expect(screen.getByText("Latest manual attempt")).toBeInTheDocument();
+    expect(screen.getByText("Effective live-buy gate")).toBeInTheDocument();
+    expect(screen.getByText("E · Forward live performance")).toBeInTheDocument();
+    expect(screen.queryByText("E · Forward paper-validation performance")).not.toBeInTheDocument();
+  });
+
   it("separates broker, market/risk, convergence, operations and evidence", async () => {
     renderOverview();
     await waitFor(() =>

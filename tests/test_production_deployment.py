@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import production_preflight
 import production_run
 
@@ -166,6 +168,72 @@ def test_runtime_check_binds_python_and_identity_packages(tmp_path):
     )
 
     assert all(check["passed"] for check in checks)
+
+
+def test_runtime_check_reports_missing_identity_package(monkeypatch):
+    def missing_version(name):
+        raise production_preflight.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(production_preflight.metadata, "version", missing_version)
+    checks = production_preflight.check_runtime()
+    missing = [check for check in checks if check["name"].startswith("runtime_")]
+    assert len(missing) == 3
+    assert all(not check["passed"] for check in missing)
+    assert all("actual=missing" in check["detail"] for check in missing)
+
+
+@pytest.mark.parametrize("mode", ["paper", "live"])
+def test_preflight_reports_the_broker_mode_it_checked(monkeypatch, tmp_path, mode):
+    monkeypatch.setenv("TRADING_MODE", "paper" if mode == "live" else "live")
+    values = {
+        "TRADING_MODE": mode,
+        "ALPACA_API_KEY": "fixture-paper-key",
+        "ALPACA_SECRET_KEY": "fixture-paper-secret",
+        "LIVE_TRADING_ENABLED": "yes",
+        "ALPACA_LIVE_API_KEY": "fixture-live-key",
+        "ALPACA_LIVE_SECRET_KEY": "fixture-live-secret",
+        "LIVE_TRADING_ACCOUNT_NUMBER": "123456789",
+        "LIVE_MAX_ORDER_NOTIONAL_USD": "5000",
+        "LIVE_MAX_CYCLE_NOTIONAL_USD": "25000",
+        "LIVE_TRADING_KILL_SWITCH_FILE": str(tmp_path / "absent"),
+    }
+    monkeypatch.setattr(production_preflight, "check_runtime", lambda: [])
+    monkeypatch.setattr(production_preflight, "check_release", lambda: ([], {}))
+    broker = _PaperBroker()
+    broker._base_url = (
+        production_preflight.EXPECTED_LIVE_URL
+        if mode == "live" else production_preflight.EXPECTED_PAPER_URL
+    )
+    report = production_preflight.run_preflight(
+        environ=values,
+        broker=broker,
+        risk_snapshot={"available": True, "tier": "NORMAL"},
+        now=datetime(2026, 8, 2, 12, 0, 30, tzinfo=timezone.utc),
+    )
+    assert report["status"] == "PASS"
+    assert report["kind"] == f"v11_{mode}_production_preflight"
+    assert report["broker_mode"] == mode
+    assert report["allowed_mode"] == mode
+    assert any(check["name"] == f"{mode}_account" for check in report["checks"])
+    assert "fixture-live-secret" not in str(report)
+    assert "fixture-paper-secret" not in str(report)
+
+
+def test_preflight_runtime_exception_still_returns_a_failed_report(monkeypatch):
+    def broken_runtime():
+        raise RuntimeError("internal runtime failure")
+
+    monkeypatch.setattr(production_preflight, "check_runtime", broken_runtime)
+    monkeypatch.setattr(production_preflight, "check_release", lambda: ([], {}))
+    report = production_preflight.run_preflight(
+        environ={"TRADING_MODE": "paper", "ALPACA_API_KEY": "k", "ALPACA_SECRET_KEY": "s"},
+        broker=_PaperBroker(),
+        risk_snapshot={"available": True, "tier": "NORMAL"},
+        now=datetime(2026, 8, 2, 12, 0, 30, tzinfo=timezone.utc),
+    )
+    assert report["status"] == "FAIL"
+    assert report["allowed_mode"] == "no-execution"
+    assert {"name": "runtime_inspection", "passed": False, "detail": "RuntimeError"} in report["checks"]
 
 
 def test_broker_check_accepts_closed_but_fresh_paper_market():

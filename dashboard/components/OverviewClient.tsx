@@ -334,7 +334,7 @@ function OperationsPanel({ payload }: { payload: StrategyStatusPayload }) {
     >
       <div className="grid gap-x-8 gap-y-1 md:grid-cols-2">
         <FactList>
-          <Fact label="Latest scheduled attempt">
+          <Fact label={payload.accountMode === "live" ? "Latest manual attempt" : "Latest scheduled attempt"}>
             {latest ? (
               <span className="inline-flex items-center gap-2">
                 <StatePill
@@ -396,7 +396,7 @@ function OperationsPanel({ payload }: { payload: StrategyStatusPayload }) {
         </FactList>
 
         <FactList>
-          <Fact label="Approved paper release" mono>
+          <Fact label={`Approved ${payload.accountMode} release`} mono>
             <Sha value={release?.approvedPaperReleaseSha} />
           </Fact>
           <Fact label="Release gate">
@@ -460,7 +460,7 @@ function EvidencePanel({ payload }: { payload: StrategyStatusPayload }) {
         <>
           <MetricGrid>
             <Metric
-              label="Effective paper-buy gate"
+              label={`Effective ${payload.accountMode}-buy gate`}
               value={payload.validationGate.effective}
               state={payload.validationGate.effective}
               hint={

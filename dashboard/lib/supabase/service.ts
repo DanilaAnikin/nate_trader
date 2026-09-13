@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
+import { getSupabaseServerUrl } from "@/lib/supabase/config";
 
 /**
  * Service-role Supabase client. Bypasses RLS and can call the credential
@@ -13,7 +14,7 @@ export function getSupabaseService() {
   if (!key) {
     throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
   }
-  return createClient<Database>(process.env.NEXT_PUBLIC_SUPABASE_URL!, key, {
+  return createClient<Database>(getSupabaseServerUrl(), key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }

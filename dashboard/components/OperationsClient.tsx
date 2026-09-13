@@ -60,13 +60,13 @@ function IdentityPanel({ payload }: { payload: StrategyStatusPayload }) {
           <Fact label={`Repository / research SHA (${release?.repositoryRef ?? "main"})`} mono>
             <Sha value={release?.repositoryRefSha} />
           </Fact>
-          <Fact label="Approved paper release SHA" mono>
+          <Fact label={`Approved ${payload.accountMode} release SHA`} mono>
             <Sha value={release?.approvedPaperReleaseSha} />
           </Fact>
           <Fact label="Approved SHA source">
             {release?.approvedShaSource ?? <Dash />}
           </Fact>
-          <Fact label="Latest scheduled trigger SHA" mono>
+          <Fact label={payload.accountMode === "live" ? "Latest manual trigger SHA" : "Latest scheduled trigger SHA"} mono>
             <Sha value={payload.operations.data?.latestAttempt?.triggerSha} />
           </Fact>
         </FactList>
@@ -115,7 +115,7 @@ function IdentityPanel({ payload }: { payload: StrategyStatusPayload }) {
             ) : runtime.paperOnly ? (
               <StatePill size="xs" state="PASS" label="PAPER ONLY" />
             ) : (
-              <StatePill size="xs" state="FAIL" label="LIVE REAL MONEY" />
+              <StatePill size="xs" state="WARN" label="LIVE REAL MONEY" />
             )}
           </Fact>
           <Fact label="Dashboard build equals approved release">
@@ -131,7 +131,7 @@ function IdentityPanel({ payload }: { payload: StrategyStatusPayload }) {
                     ? "SAME COMMIT"
                     : "DIFFERENT COMMIT (EXPECTED)"
                 }
-                title="The dashboard and the paper executor are independent deployables. A difference is normal and is not a failure."
+                title="The dashboard and the executor are independent deployables. A difference is normal and is not a failure."
               />
             )}
           </Fact>
@@ -198,7 +198,7 @@ function SchedulerPanel({ payload }: { payload: StrategyStatusPayload }) {
   const operations = payload.operations.data;
   return (
     <Panel
-      title="Scheduler"
+      title={payload.accountMode === "live" ? "Manual live workflow" : "Scheduler"}
       subtitle="The latest attempt and the last successful cycle are separate facts."
       actions={
         operations && (
@@ -218,7 +218,7 @@ function SchedulerPanel({ payload }: { payload: StrategyStatusPayload }) {
         <TableScroll>
           <table className="data">
             <caption className="sr-only">
-              Latest paper-production attempt and last successful cycle
+              Latest {payload.accountMode}-production attempt and last successful cycle
             </caption>
             <thead>
               <tr>
@@ -406,11 +406,11 @@ function ExecutionPanel({ payload }: { payload: StrategyStatusPayload }) {
               <Fact label="Release SHA of the cycle" mono>
                 <Sha value={execution.releaseSha} />
               </Fact>
-              <Fact label="Paper only">
+              <Fact label="Broker mode">
                 <StatePill
                   size="xs"
-                  state={execution.paperOnly ? "PASS" : "FAIL"}
-                  label={execution.paperOnly ? "YES" : "NO"}
+                  state={execution.paperOnly ? "PASS" : "WARN"}
+                  label={execution.paperOnly ? "PAPER" : "LIVE REAL MONEY"}
                 />
               </Fact>
             </FactList>

@@ -63,6 +63,6 @@ export async function listOwnedAccounts(userId: string): Promise<AccountRow[]> {
     .eq("owner_id", userId)
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
-  if (error || !data) return [];
+  if (error || !data) throw new Error("Account list is temporarily unavailable.");
   return data.filter((row) => row.owner_id === userId);
 }

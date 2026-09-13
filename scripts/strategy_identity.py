@@ -35,6 +35,7 @@ STRATEGY_SOURCE_PATHS = (
     "scripts/backtest/portfolio_sim.py",
     "scripts/backtest/validate_v11.py",
     "scripts/execute_trades.py",
+    "scripts/broker_mode.py",
     "scripts/momentum_picker.py",
     "scripts/portfolio.py",
     "scripts/production_preflight.py",

@@ -12,6 +12,7 @@ reduce risk, which is a worse failure than the one it prevents.
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 
 import trade
 from broker_mode import BrokerModeError
@@ -120,6 +121,56 @@ def test_the_ceiling_is_notional_not_share_count(live):
     assert live.submitted == []
 
 
+@pytest.mark.parametrize("qty,price", [
+    (float("nan"), 100.0),
+    (float("inf"), 100.0),
+    (-1.0, 100.0),
+    (0.0, 100.0),
+    (1.0, float("nan")),
+    (1.0, float("inf")),
+    (1.0, -100.0),
+    (1.0, 0.0),
+    (1.0, 0.001),
+    (1e308, 1e308),
+])
+def test_invalid_order_cannot_poison_or_reduce_live_cycle_budget(live, qty, price):
+    with pytest.raises(ValueError, match="finite and positive"):
+        trade.place_limit_order("AAPL", qty, "buy", price)
+    assert live.submitted == []
+    assert trade._live_cycle_notional_spent == 0.0
+    for _ in range(2):
+        trade.place_limit_order("MSFT", 20, "buy", 500.0)
+    with pytest.raises(RuntimeError, match="LIVE_MAX_CYCLE_NOTIONAL_USD"):
+        trade.place_limit_order("MSFT", 20, "buy", 500.0)
+    assert len(live.submitted) == 2
+    assert trade._live_cycle_notional_spent == 20_000.0
+
+
+def test_order_cap_checks_the_rounded_broker_price(live, monkeypatch):
+    monkeypatch.setenv("LIVE_MAX_ORDER_NOTIONAL_USD", "100.006")
+    with pytest.raises(RuntimeError, match="LIVE_MAX_ORDER_NOTIONAL_USD"):
+        trade.place_limit_order("AAPL", 1, "buy", 100.006)
+    assert live.submitted == []
+    assert trade._live_cycle_notional_spent == 0.0
+
+
+def test_cycle_budget_reserves_the_exact_submitted_notional(live, monkeypatch):
+    monkeypatch.setenv("LIVE_MAX_ORDER_NOTIONAL_USD", "100")
+    trade.place_limit_order("AAPL", 1, "buy", 100.004)
+    assert live.submitted[0].limit_price == 100.0
+    assert trade._live_cycle_notional_spent == 100.0
+
+
+def test_ambiguous_submission_failure_keeps_the_reserved_cycle_budget(live, monkeypatch):
+    def interrupted_submission(request):
+        raise TimeoutError("response unavailable after submission")
+
+    monkeypatch.setattr(live, "submit_order", interrupted_submission)
+    with pytest.raises(TimeoutError):
+        trade.place_limit_order("AAPL", 20, "buy", 500.0)
+    assert trade._live_cycle_notional_spent == 10_000.0
+
+
 # ── the per-cycle ceiling ───────────────────────────────────────────────────
 
 
@@ -170,6 +221,67 @@ def test_the_kill_switch_still_lets_a_sell_through(live, monkeypatch, tmp_path):
     """Parking live trading stops new exposure, not the ability to exit."""
     switch = tmp_path / "LIVE_TRADING_DISABLED"
     switch.write_text("parked")
+    with pytest.raises(RuntimeError, match="kill switch"):
+        trade.place_limit_order("AAPL", 1, "buy", 100.0)
+    assert live.submitted == []
+    trade.place_limit_order("AAPL", 1000, "sell", 500.0)
+    assert len(live.submitted) == 1
+
+
+def test_kill_switch_does_not_bypass_account_binding_for_an_exit(
+    live, monkeypatch, tmp_path
+):
+    (tmp_path / "LIVE_TRADING_DISABLED").write_text("parked")
+    wrong = _FakeClient(account_number="999999999")
+    monkeypatch.setattr(trade, "_get_client", lambda: wrong)
+    with pytest.raises(BrokerModeError, match="different Alpaca account"):
+        trade.place_limit_order("AAPL", 1, "sell", 100.0)
+    assert wrong.submitted == []
+
+
+def test_kill_switch_permits_a_verified_short_cover(live, monkeypatch, tmp_path):
+    (tmp_path / "LIVE_TRADING_DISABLED").write_text("parked")
+    monkeypatch.setattr(
+        live, "get_open_position",
+        lambda symbol: SimpleNamespace(symbol=symbol, qty="-1000"), raising=False,
+    )
+    monkeypatch.setattr(trade, "list_open_orders", lambda: [])
+    result = trade.close_position("AAPL", price_override=500.0, client_order_id="cover-1")
+    assert result["status"] == "submitted"
+    assert len(live.submitted) == 1
+    assert live.submitted[0].client_order_id == "cover-1"
+    assert live.submitted[0].qty == 1000
+
+
+@pytest.mark.parametrize("position_qty,orders", [
+    ("-0.5", []),
+    ("1", []),
+    ("nan", []),
+    ("-1", [{"symbol": "AAPL"}]),
+])
+def test_kill_switch_cover_exception_requires_bounded_uncontested_short(
+    live, monkeypatch, tmp_path, position_qty, orders
+):
+    (tmp_path / "LIVE_TRADING_DISABLED").write_text("parked")
+    monkeypatch.setattr(
+        live, "get_open_position",
+        lambda symbol: SimpleNamespace(symbol=symbol, qty=position_qty), raising=False,
+    )
+    monkeypatch.setattr(trade, "list_open_orders", lambda: orders)
+    with pytest.raises(RuntimeError, match="kill switch"):
+        trade.place_limit_order("AAPL", 1, "buy", 100.0)
+    assert live.submitted == []
+
+
+def test_kill_switch_refuses_cover_when_broker_position_is_unreadable(
+    live, monkeypatch, tmp_path
+):
+    (tmp_path / "LIVE_TRADING_DISABLED").write_text("parked")
+
+    def unreadable(symbol):
+        raise RuntimeError("broker unavailable")
+
+    monkeypatch.setattr(live, "get_open_position", unreadable, raising=False)
     with pytest.raises(RuntimeError, match="kill switch"):
         trade.place_limit_order("AAPL", 1, "buy", 100.0)
     assert live.submitted == []

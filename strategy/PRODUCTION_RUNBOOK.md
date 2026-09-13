@@ -3,7 +3,7 @@
 ## Supported scope
 
 This deployment is forward validation on one Alpaca **paper** account. It is
-not a live-money release. `TRADING_MODE=paper`, the hard-coded Alpaca paper
+not a live-money release. `TRADING_MODE=paper`, the resolved Alpaca paper
 endpoint, the canonical validation artifact, and the current market/risk gates
 must all agree before new exposure is allowed.
 
@@ -25,7 +25,7 @@ Workflow concurrency permits only one execution at a time.
 - `state/backtest/v11_validation.json` must report `PASS` and
   `paper-validation-eligible`; its code, runtime, universe, and adjusted-bar
   fingerprints must match the checkout.
-- The current promoted universe is the exact 540-symbol validated watchlist
+- As verified on 2026-09-13, the promoted universe is the exact 532-symbol validated watchlist
   fallback. A dynamic Alpaca universe refresh is a new release: fetch full
   adjusted history, rerun the canonical validator, and promote only if it
   passes.

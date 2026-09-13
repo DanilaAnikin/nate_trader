@@ -666,8 +666,8 @@ def _target_gross_weight(
     if market is None:
         return 0.0
     below = not market.above_sma200
-    # V11 default: all-or-nothing exit below SMA200. The graduated floor only
-    # engages when the research param is set (never in the fixed V11 policy).
+    # A zero cap selects the hard gate. The fixed production policy supplies
+    # a positive cap, preserving a reduced monthly target below SMA200.
     if below and cfg.below_sma200_floor_pct <= 0.0:
         return 0.0
     vol_scaler = 1.0
@@ -695,9 +695,8 @@ def _target_gross_weight(
     )
     cap = cfg.max_gross_exposure_pct / 100.0
     if below:
-        # Graduated gate: below SMA200, cap gross at the research floor instead
-        # of exiting fully. The floor is still scaled by the ordinary risk
-        # scalers, so it de-risks — just not all the way to cash.
+        # The cap is a percentage of equity, applied after the normal breadth,
+        # diversification and risk scalers. It never increases a smaller target.
         cap = min(cap, cfg.below_sma200_floor_pct / 100.0)
         gross = min(gross, cap)
     return max(0.0, min(cap, gross))

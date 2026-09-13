@@ -408,6 +408,30 @@ def _verify_live_binding_once(resolved) -> None:
     )
 
 
+def _is_verified_live_short_cover(symbol: str, qty: float) -> bool:
+    """Prove a BUY only closes a short from fresh broker state.
+
+    No caller flag may bypass entry controls. Any unreadable position or
+    conflicting order leaves the BUY subject to all normal entry refusals.
+    """
+    try:
+        quantity = float(qty)
+        if not math.isfinite(quantity) or quantity <= 0:
+            return False
+        position = _get_client().get_open_position(symbol)
+        short_qty = float(position.qty)
+        if (
+            str(position.symbol) != symbol
+            or not math.isfinite(short_qty)
+            or short_qty >= 0
+            or quantity > abs(short_qty)
+        ):
+            return False
+        return not any(order["symbol"] == symbol for order in list_open_orders())
+    except Exception:
+        return False
+
+
 def enforce_live_order_limits(symbol: str, qty: float, side: str, limit_price: float):
     """Apply the absolute real-money ceilings, or raise.
 
@@ -417,19 +441,34 @@ def enforce_live_order_limits(symbol: str, qty: float, side: str, limit_price: f
     if not resolved.is_live:
         return resolved
 
-    if kill_switch_engaged():
-        raise RuntimeError(
-            "Live kill switch is engaged; refusing to submit orders. "
-            f"Delete {kill_switch_path()} to re-arm."
-        )
-
     _verify_live_binding_once(resolved)
 
     if side.lower() != "buy":
         # Risk-reducing. Never capped, never blocked.
         return resolved
 
-    notional = float(qty) * float(limit_price)
+    quantity = float(qty)
+    price = float(limit_price)
+    notional = quantity * price
+    if (
+        not math.isfinite(quantity)
+        or quantity <= 0
+        or not math.isfinite(price)
+        or price <= 0
+        or not math.isfinite(notional)
+        or notional <= 0
+    ):
+        raise ValueError("Live BUY quantity, price and notional must be finite and positive")
+
+    if _is_verified_live_short_cover(symbol, qty):
+        return resolved
+
+    if kill_switch_engaged():
+        raise RuntimeError(
+            "Live kill switch is engaged; refusing new exposure. "
+            f"Delete {kill_switch_path()} to re-arm entries."
+        )
+
     per_order_cap = resolved.max_order_notional_usd
     if per_order_cap is not None and notional > per_order_cap:
         raise RuntimeError(
@@ -463,23 +502,28 @@ def place_limit_order(
     The fifth argument is optional for backwards compatibility.  When omitted,
     Alpaca generates the client order ID exactly as before.
     """
-    # Real money only: absolute ceilings and the credential-to-account proof.
-    # A no-op for paper and dry runs, so the paper path is byte-for-byte the
-    # behaviour it has always had.
-    enforce_live_order_limits(symbol, qty, side, limit_price)
-
+    quantity = float(qty)
+    normalized_price = round(float(limit_price), 2)
+    if not math.isfinite(quantity) or quantity <= 0:
+        raise ValueError("Order quantity must be finite and positive")
+    if not math.isfinite(normalized_price) or normalized_price <= 0:
+        raise ValueError("Order limit price must be finite and positive after rounding")
     order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
     request_kwargs = dict(
         symbol=symbol,
-        qty=qty,
+        qty=quantity,
         side=order_side,
         type="limit",
         time_in_force=TimeInForce.DAY,
-        limit_price=round(limit_price, 2),
+        limit_price=normalized_price,
     )
     if client_order_id is not None:
         request_kwargs["client_order_id"] = client_order_id
     request = LimitOrderRequest(**request_kwargs)
+    # Reserve only after local validation, using exactly the broker-bound
+    # quantity and rounded price. Retain the reservation if submission fails:
+    # a network error cannot prove that the broker did not accept the order.
+    enforce_live_order_limits(symbol, request.qty, side, request.limit_price)
     order = _get_client().submit_order(request)
     result = {
         "id": str(order.id),

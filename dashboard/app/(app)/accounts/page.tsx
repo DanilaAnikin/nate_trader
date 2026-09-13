@@ -26,11 +26,27 @@ export default async function AccountsPage() {
     );
   }
 
-  const supa = await getSupabaseServer();
-  const {
-    data: { user },
-  } = await supa.auth.getUser();
-  const { accounts, selected } = await getSelectedAccount();
+  let user: { id: string } | null;
+  let selection: Awaited<ReturnType<typeof getSelectedAccount>>;
+  try {
+    const supa = await getSupabaseServer();
+    ({ data: { user } } = await supa.auth.getUser());
+    selection = await getSelectedAccount();
+  } catch {
+    // The layout reads its own selection and cannot catch errors from this
+    // independently rendered Server Component. Keep an outage distinct from
+    // a successfully loaded account list with no entries.
+    return (
+      <div>
+        <h1 className="text-xl font-semibold text-foreground mb-1">Accounts</h1>
+        <p role="alert" className="text-sm text-muted">
+          Accounts could not be loaded. The account backend is temporarily
+          unavailable. Reload the page to try again.
+        </p>
+      </div>
+    );
+  }
+  const { accounts, selected } = selection;
 
   // Roles are the outcome of the same server-side authorization the status
   // read model uses. The browser is never asked to work out which account V11
