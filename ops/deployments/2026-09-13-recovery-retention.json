@@ -1,0 +1,98 @@
+{
+  "archive": {
+    "complete": {
+      "manifest_sha256": "4986ad04df5ba4eadcaa06477fba61da209f82fcf2961e7afcb4a9a73665110e",
+      "set_id": "nt-deployment-evidence-20260913T114500Z",
+      "verified_remote_copies": 2
+    },
+    "complete_sha256": "0338c0d37abe78cd2d38190468fe9c4e952b11d889d7846473347cdaa74d1326",
+    "durable": "/var/lib/homelab/nate-trader/deployment-evidence/nt-deployment-evidence-20260913T114500Z",
+    "manifest": {
+      "checks": {
+        "authenticated_roundtrip": true,
+        "core_dumps_disabled": true,
+        "corrupt_tag_rejected": true,
+        "private_file_bindings": true,
+        "process_swap_disabled": true,
+        "receive_tmpfs_noswap": true,
+        "source_pages_locked_during_capture": true
+      },
+      "cipher": "AES256-OCB",
+      "ciphertext_bytes": 327889,
+      "ciphertext_sha256": "e6613a6bae54ae95d684873b58f8248c5feecc8db5f6da46f49135f9ee4dcf5c",
+      "created_at": "2026-09-13T11:35:17.342158+00:00",
+      "key_file_role": "existing_nt_v2_db_backup_key",
+      "plaintext_archive_bytes": 2088960,
+      "plaintext_archive_sha256": "d39eb0c08264a1554013500e70b2e51d90a9b5da4b73f88d526b958eb19db986",
+      "private_file_count": 20,
+      "production": {
+        "bundle": "8f5126445f97a38dc364c13d158180f15255d4f9b50d1b4b9b32118eb639b74b",
+        "catalog": "46bb15185a56f43857db277317f0394efc2005c8a7fe9bc4f45ee811f9fdce58",
+        "catalog_objects": 549,
+        "completed_at": "2026-09-13T11:21:35.513483+00:00",
+        "image": "f28f5131cc3aee28f5b9d1ff7e6da4ea184fb0ccadda52c1c99c4044a12a4811",
+        "manifest": "15694810619a0f65a3877bd8a0a33b8f8b8d1df0e90dd63a260136a443dcd265",
+        "release": "d8288a31f884793197b6fa9f3ea8ac2b92b55a99",
+        "status": "COMMITTED"
+      },
+      "remote_prefix": "natetrader-deployment-evidence-v1/nt-deployment-evidence-20260913T114500Z",
+      "runtime_metadata_provenance": "operator_asserted_release_and_image; not queried by this tool",
+      "schema_version": 1,
+      "set_id": "nt-deployment-evidence-20260913T114500Z",
+      "source_sha256": "f096a516f3ed28bd816085a2f191ebcd0b01440d57a1a5f1987edd6011b024a9"
+    },
+    "manifest_sha256": "4986ad04df5ba4eadcaa06477fba61da209f82fcf2961e7afcb4a9a73665110e",
+    "modes": {
+      "COMPLETE": "0o600",
+      "MANIFEST.json": "0o600",
+      "evidence.tar.gpg": "0o600",
+      "retain_deployment_evidence.py": "0o600"
+    }
+  },
+  "cleanup": {
+    "encrypted_artifacts_retained": true,
+    "encrypted_recovery_sets_retained": [
+      "/var/lib/homelab/nt-cutover-recovery/nt-cutover-20260913T110048Z",
+      "/var/lib/homelab/nt-cutover-recovery/nt-cutover-20260913T110308Z"
+    ],
+    "final_current_file_bindings_sha256": "7c87f950a2ce84fad30efea48021aab1d71fd554901b632b4ef35842f0070b95",
+    "final_current_source_files": 20,
+    "final_current_source_matches_archive": true,
+    "guards": [
+      "exact recovery/acceptance labels",
+      "network none and no published ports",
+      "bind sources confined to own tmpfs",
+      "verified noswap mount and recovery verdicts",
+      "both recovery manifest digests matched",
+      "final deterministic tar and all current file bindings matched before source deletion"
+    ],
+    "local_private_directory_absent": true,
+    "original_complete_unchanged": true,
+    "original_recovery_complete_sha256": "21b0812e6dc639a4941c48e4170c5fd35ca514449c7b8cf445330c43314d3a38",
+    "remote_scratch_absent": true,
+    "removed_local_private_directory": "/dev/shm/nt-upgrade-20260913T110048Z",
+    "removed_private_tmpfs": [
+      "homelab:/run/nt-cutover-20260913T110048Z",
+      "homelab:/run/nt-cutover-20260913T110308Z",
+      "homelab:/run/nt-deployment-evidence-20260913T114500Z"
+    ],
+    "removed_recovery_clones": [
+      "nt-cutover-20260913T110048Z-db",
+      "nt-cutover-20260913T110308Z-db"
+    ]
+  },
+  "kind": "production_upgrade_evidence_retention",
+  "limits": [
+    "Release and dashboard image are operator-asserted metadata; this archive tool did not query deployment runtime.",
+    "The local pre-existing source tmpfs permitted swapping. Source pages were locked during capture, not attested historically never swapped. Deletion does not attest erasure of any historical swap pages.",
+    "Archive contents are private. Use authenticated decryption in protected noswap tmpfs; never print SQL or catalogs.",
+    "Set ID is an opaque identifier; MANIFEST.created_at records the actual archive creation time."
+  ],
+  "remote_copies": [
+    "r2:homelab-backups/natetrader-deployment-evidence-v1/nt-deployment-evidence-20260913T114500Z",
+    "r2dr:homelab-backups-dr/natetrader-deployment-evidence-v1/nt-deployment-evidence-20260913T114500Z"
+  ],
+  "schema_version": 1,
+  "status": "VERIFIED",
+  "verified_at": "2026-09-13T11:40:19.058088+00:00"
+}
