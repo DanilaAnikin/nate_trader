@@ -10,7 +10,6 @@ nobody has.
 from __future__ import annotations
 
 import pytest
-
 from broker_mode import (
     DRY_RUN,
     LIVE,
@@ -19,6 +18,7 @@ from broker_mode import (
     kill_switch_engaged,
     requested_mode,
     resolve_broker_mode,
+    strategy_capital_equity,
     verify_live_account_binding,
 )
 
@@ -35,6 +35,7 @@ def _live_env(**overrides: str) -> dict[str, str]:
         "LIVE_TRADING_ACCOUNT_NUMBER": "123456789",
         "LIVE_MAX_ORDER_NOTIONAL_USD": "5000",
         "LIVE_MAX_CYCLE_NOTIONAL_USD": "25000",
+        "LIVE_CAPITAL_BUDGET_USD": "25000",
         "LIVE_TRADING_KILL_SWITCH_FILE": "/nonexistent/kill-switch",
     }
     env.update(overrides)
@@ -107,6 +108,7 @@ def test_paper_never_picks_up_live_credentials():
 
 def test_fully_configured_live_resolves():
     resolved = resolve_broker_mode(_live_env())
+    assert resolved.capital_budget_usd == 25_000
     assert resolved.mode == LIVE
     assert resolved.paper is False
     assert resolved.is_live is True
@@ -125,6 +127,7 @@ def test_fully_configured_live_resolves():
         ("LIVE_TRADING_ACCOUNT_NUMBER", "LIVE_TRADING_ACCOUNT_NUMBER"),
         ("LIVE_MAX_ORDER_NOTIONAL_USD", "LIVE_MAX_ORDER_NOTIONAL_USD"),
         ("LIVE_MAX_CYCLE_NOTIONAL_USD", "LIVE_MAX_CYCLE_NOTIONAL_USD"),
+        ("LIVE_CAPITAL_BUDGET_USD", "LIVE_CAPITAL_BUDGET_USD"),
     ],
 )
 def test_live_refuses_when_any_single_condition_is_missing(missing, fragment):
@@ -177,7 +180,7 @@ def test_live_refuses_an_unparseable_cap():
         resolve_broker_mode(_live_env(LIVE_MAX_ORDER_NOTIONAL_USD="5,000"))
 
 
-@pytest.mark.parametrize("name", ["LIVE_MAX_ORDER_NOTIONAL_USD", "LIVE_MAX_CYCLE_NOTIONAL_USD"])
+@pytest.mark.parametrize("name", ["LIVE_MAX_ORDER_NOTIONAL_USD", "LIVE_MAX_CYCLE_NOTIONAL_USD", "LIVE_CAPITAL_BUDGET_USD"])
 @pytest.mark.parametrize("value", ["nan", "inf", "-inf", "1e309"])
 def test_live_refuses_non_finite_caps(name, value):
     with pytest.raises(BrokerModeError, match="finite"):
@@ -250,3 +253,22 @@ def test_describe_never_leaks_a_credential():
     assert "live-key" not in described
     assert "live-secret" not in described
     assert "123456789" in described
+
+
+@pytest.mark.parametrize("budget", ["0", "-1", "not-a-number"])
+def test_total_live_capital_requires_a_positive_numeric_budget(budget):
+    with pytest.raises(BrokerModeError, match="LIVE_CAPITAL_BUDGET_USD"):
+        resolve_broker_mode(_live_env(LIVE_CAPITAL_BUDGET_USD=budget))
+
+
+@pytest.mark.parametrize("equity,expected", [(100_000, 1000), (500, 500)])
+def test_live_strategy_equity_is_bounded_without_altering_actual_equity(monkeypatch, equity, expected):
+    for name, value in _live_env(LIVE_CAPITAL_BUDGET_USD="1000").items():
+        monkeypatch.setenv(name, value)
+    assert strategy_capital_equity(equity) == expected
+
+
+def test_paper_sizing_ignores_live_capital_configuration(monkeypatch):
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("LIVE_CAPITAL_BUDGET_USD", "invalid")
+    assert strategy_capital_equity(100_000) == 100_000

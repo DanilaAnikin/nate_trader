@@ -39,9 +39,14 @@ from [PR #93](https://github.com/DanilaAnikin/nate_trader/pull/93) adds the
 seven-file runtime reader and recognizes the carried plan's authenticated
 source identity; its configured reader digest matches the approved manifest.
 No paper execution was dispatched for this deployment.
+A subsequent live-capability setup created the separate protected
+`live-production` environment with explicit capital limits and a runtime
+cipher key. Its account/credentials and production preflight remain pending;
+the dashboard continues to serve the verified paper production binding.
 [Paper handoff evidence](../ops/deployments/2026-09-13-paper-handoff.json) records
-these separate stages. Real-money trading is not enabled; the persisted forward
-epoch is unchanged.
+these separate stages. The live capability flag is enabled, but no live account is connected, no live
+release is approved and no live preflight or execution has run. The persisted
+forward epoch is unchanged.
 The older `OVERVIEW.md` remains a dated architecture/recovery audit. Obsidian
 history was reviewed across 71 previous session overviews, 340 prompts, 104
 implementation summaries and 80 learning notes. Some summaries describe other
@@ -147,6 +152,13 @@ each `start`; it never inherits a prior container's pin and refuses the option
 for a live account.
 
 ## Verification
+
+The live-capital implementation passes **1,065 Python tests**, including
+38 encryption/output tests and 57 verified live-restore tests. The fixed
+canonical validator was rerun for the changed source and passes with unchanged
+historical metrics; offline sanity and the CI lint boundary pass. These checks
+use synthetic broker fixtures. They do not establish live account connectivity,
+funding or a successful production preflight.
 
 The integrated handoff Python suite passes **909 tests** with Python 3.12.11
 and the CI-pinned pytest 9.1.1; the deployment lint passes with CI-pinned Ruff
@@ -256,9 +268,12 @@ monitoring are complete. Remaining trading work:
    acceptance do not prove fills or manufacture a target execution artifact.
    Do not re-anchor the old baseline, copy a different account's history, or
    call pre-V11 equity V11 performance.
-2. Configure and verify `live-production`, its required reviewer, protected
-   deployment branches, exact approved release, separate live keys, account
-   number and explicit dollar ceilings before any real-money dispatch.
+2. Finish live-account onboarding. The `live-production` environment now has
+   the owner as required reviewer, protected deployment branches and explicit
+   live budget/entry limits. The production owner still has only a paper
+   account. Connect and verify the separate live account and keys, then approve
+   the tested immutable live release and run its read-only preflight before any
+   manual execution. See [live setup](LIVE_TRADING.md).
 3. Complete explicit producer cycle-outcome and coherent runtime generation
    work. The deployed executor fixes prefixed failures; it does not adopt the unsafe
    terminal-action-count heuristic from open PR #58. PR #63 duplicates work

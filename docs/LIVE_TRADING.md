@@ -20,7 +20,7 @@ nothing else, exactly as before.
 The decision now lives in one module, `scripts/broker_mode.py`. Nothing else in
 the repository decides which broker it reaches.
 
-## The six conditions for a live run
+## Required live configuration
 
 All of them, together. Any one missing refuses the run and names what is
 missing; nothing has a default and nothing falls back to the paper values.
@@ -31,21 +31,31 @@ missing; nothing has a default and nothing falls back to the paper values.
 | `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_SECRET_KEY` | Separate names from the paper pair. A misfiled paper key fails to authenticate instead of quietly trading the wrong book, and a live key can never be picked up by a paper run. Refused if identical to `ALPACA_API_KEY`. |
 | `LIVE_TRADING_ENABLED` | A second, independent switch. Two variables have to be wrong at once for real money to move by accident. |
 | `LIVE_TRADING_ACCOUNT_NUMBER` | The account this run may trade, declared out of band and checked against a fresh `GET /v2/account` before the first order. Credentials prove *an* account; only this proves *the* account. |
+| `LIVE_CAPITAL_BUDGET_USD` | Total capital the live strategy may use across runs; caps sizing equity and checks holdings plus pending buys before new exposure. |
 | `LIVE_MAX_ORDER_NOTIONAL_USD` | An absolute per-order dollar ceiling. |
 | `LIVE_MAX_CYCLE_NOTIONAL_USD` | An absolute ceiling on everything one cycle may buy. |
 
 ### Why the two dollar ceilings are not optional
 
-Every other limit in this repository is a percentage of equity —
+The existing strategy allocation limits are percentages of equity —
 `max_position_pct: 9`, `momentum_max_sector_pct: 40`, `min_cash_pct: 10`. A
 percentage limit scales a mistake with the account: if the equity read is wrong
 or the target weights are wrong, the limit is wrong by the same factor and
 enforces nothing. A flat dollar ceiling does not participate in that
 computation, which is the entire reason it is there.
 
-Both ceilings must be finite positive numbers; `NaN` and infinity are refused.
+The capital budget and both ceilings must be finite positive numbers; `NaN`
+and infinity are refused.
 They are enforced in `trade.place_limit_order`, the single function every order
 in this repository passes through, so no caller can forget them.
+
+Live sizing uses the smaller of actual account equity and the configured capital
+budget. Before a new BUY, the executor checks fresh positions and open BUY
+commitments against that budget and actual cash; margin buying power cannot
+expand it. Repeated cycles do not receive a new capital allocation. Price moves
+can change the value of existing holdings; the budget blocks additional entries
+rather than promising a fixed market value or triggering an extra liquidation.
+Broker equity and risk history remain truthful account observations.
 
 **Sells are never capped.** A notional ceiling that could block an exit would
 convert a spending guard into an inability to reduce risk, which is worse than
@@ -81,29 +91,28 @@ still applies, in full:
 
 A closed validation gate refuses live buys exactly as it refuses paper buys.
 
-## Running one cycle
+## Preparing a live cycle
 
-```bash
-# First configure every required variable from the table above in the executor
-# environment. These checks do not change the approved production release.
-# 1. Recompute evidence for the exact code and check its current eligibility.
-python3 scripts/backtest/validate_v11.py
-python3 scripts/sanity_check.py
+Use the guarded `live-production.yml` workflow for production. It checks out the
+approved release, restores or explicitly initializes the live book, verifies
+its contract, and encrypts its records. Running the underlying executor directly
+from a normal repository checkout does not perform that state preparation.
 
-# 2. Dry run. No orders, no state mutations, regardless of TRADING_MODE.
-python3 scripts/execute_trades.py dry-run
+1. Connect the separate live account through the authenticated dashboard form,
+   and configure its verified account number, live credentials and spending
+   limits in `live-production`.
+2. Validate the exact source, approve its full release SHA and configure the
+   protected runtime encryption key. For the first dedicated empty account,
+   explicitly configure `LIVE_RUNTIME_BOOTSTRAP=empty-account`.
+3. Select `operation=preflight` and approve the environment review. This reads
+   the actual live account and previews the strategy without placing orders or
+   publishing an execution runtime.
+4. An intentional later `operation=execute` requires the existing typed phrase
+   and environment review. It runs exactly one guarded real-money cycle.
 
-# 3. Preflight only — reads the live account, places nothing.
-TRADING_MODE=live python3 scripts/production_preflight.py
-
-# 4. One real-money cycle.
-TRADING_MODE=live python3 scripts/production_run.py
-```
-
-`sanity_check.py` prints `*** LIVE REAL MONEY ***` with the account number when
-live is configured. `production_run.py` prints the same before it can place
-anything, and records `broker_mode` and `paper_only: false` in
-`state/production/last_run.json`.
+The public workflow reports fixed step outcomes. Detailed account/strategy
+output and runtime state are available only as authenticated encrypted artifacts.
+A failed preflight is not evidence that an execution occurred.
 
 ## In CI
 
@@ -123,20 +132,62 @@ two books can never restore each other's positions.
 
 In the `live-production` environment:
 
-- **Secrets:** `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_SECRET_KEY`
+- **Secrets:** `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_SECRET_KEY`, `LIVE_RUNTIME_KEY`
 - **Variables:** `PRODUCTION_RELEASE_SHA` (the approved full 40-character SHA),
   `LIVE_TRADING_ENABLED`, `LIVE_TRADING_ACCOUNT_NUMBER`,
-  `LIVE_MAX_ORDER_NOTIONAL_USD`, `LIVE_MAX_CYCLE_NOTIONAL_USD`
+  `LIVE_CAPITAL_BUDGET_USD`, `LIVE_MAX_ORDER_NOTIONAL_USD`,
+  `LIVE_MAX_CYCLE_NOTIONAL_USD`
 - **Protection:** at least one required reviewer and protected deployment branches
 
-The workflow file cannot create these protections. On 2026-09-13, a read of
-the GitHub repository environments found **no `live-production` environment**.
-Live setup therefore remains incomplete even when all local tests pass. Create
-and verify that environment before dispatching a real-money cycle.
+On 2026-09-13 the `live-production` environment was created and verified with
+DanilaAnikin as required reviewer and protected deployment branches only.
+The live capability switch and explicit spending limits are configured.
+A live account and its separate credentials still have to be connected and
+verified before an immutable live release is approved or a live preflight runs.
+No real-money cycle has been dispatched by this setup.
+
+### First live state and private records
+
+`LIVE_RUNTIME_BOOTSTRAP=empty-account` explicitly permits the first initialization
+only when there is no earlier live execution/artifact and two fresh broker reads
+confirm the bound live account has no positions or open orders and its initial
+cash/equity does not exceed the configured capital budget. The initial
+performance observation comes from that account; no historical paper seed is
+reused and preflight does not create an execution record. An existing account
+with positions requires a separately reviewed transition rather than this
+bootstrap. This supports a dedicated trading account, not a separate portfolio
+ledger inside a larger shared account. User-initiated deposits are separate
+funding changes. Existing whole-share sizing is unchanged, so a small budget
+can leave targets in cash when even one share exceeds the position allowance;
+the canonical historical report is not a return forecast for that budget.
+
+Subsequent restoration uses the latest authoritative live execution, including
+failed or degraded attempts. Its exact release, account binding, archive members
+and GitHub provenance must validate; missing or ambiguous evidence stops the
+run. An existing live kill-switch marker survives runtime restoration.
+
+This repository is public. Live runtime and diagnostic artifacts are encrypted
+with AES-256-GCM using the separate `LIVE_RUNTIME_KEY` secret (64 hexadecimal
+characters), with their purpose and approved release authenticated. GitHub login
+alone is not a confidentiality boundary. Workflow console output contains only
+fixed step status; raw strategy/account output goes into encrypted diagnostics.
+Keep a protected copy of the encryption key for recovery; changing or losing it
+makes earlier encrypted runtime unreadable. Preflight never uploads an execution
+runtime or creates an execution incident.
 
 ## In the dashboard
 
-Set `PRODUCTION_ACCOUNT_MODE=live` alongside the existing `PRODUCTION_*`
+The deployed dashboard already supports **Accounts → Add account → Live**.
+Credentials are submitted through the authenticated account form, validated
+against the live broker endpoint and stored in Vault. This adds an observer
+account alongside paper; selecting it does not change the executor's account.
+
+The current server has one production binding. Switching it to live would remove
+the paper account's production panels. Simultaneous paper/live production panels
+and decoding the encrypted live execution archive require a separate reader
+integration; live account balances and positions already use the broker reader.
+
+For a separately integrated live production view, set `PRODUCTION_ACCOUNT_MODE=live` alongside the existing `PRODUCTION_*`
 variables, and point `PRODUCTION_ACCOUNT_ID` and
 `PRODUCTION_ALPACA_ACCOUNT_NUMBER` at the live account.
 
@@ -158,10 +209,10 @@ asserting a constant.
 ## Before you use any of this
 
 Check [the dated project status](PROJECT_STATUS.md) and the current canonical
-report, rather than relying on a past PASS or FAIL in documentation. On
-2026-09-13, the approved paper release was `115f11fd7` and its September 11
-execution and release gate had succeeded. The live environment was absent,
-and the public dashboard still ran a frozen containment bridge.
+report, rather than relying on a past PASS or FAIL in documentation. The
+September 13 deployment serves dashboard `46b59b32` and approves paper executor
+`4a90512a`; its paper plan and forward epoch remain unchanged. Preparing the
+separate live environment does not promote or rebind that paper executor.
 
 Release approval, the live account binding, finite spending ceilings and
 environment protections must all be configured deliberately. Historical

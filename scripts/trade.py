@@ -18,6 +18,7 @@ from broker_mode import (
     kill_switch_engaged,
     kill_switch_path,
     resolve_broker_mode,
+    strategy_capital_equity,
     verify_live_account_binding,
 )
 from utils import (
@@ -186,7 +187,7 @@ def validate_order(
     from strategy_config import get_strategy_params
     reasons = []
     acct = _get_client().get_account()
-    equity = float(acct.equity)
+    equity = strategy_capital_equity(float(acct.equity))
     cash = float(acct.cash)
     positions = _get_client().get_all_positions()
     risk_tier = get_risk_tier()
@@ -335,7 +336,7 @@ def calculate_position_size(symbol: str, entry_price: float,
     """
     from strategy_config import get_strategy_params
     acct = _get_client().get_account()
-    equity = float(acct.equity)
+    equity = strategy_capital_equity(float(acct.equity))
     params = get_strategy_params()
 
     max_pct = params["max_position_pct"] / 100.0
@@ -381,13 +382,18 @@ def calculate_position_size(symbol: str, entry_price: float,
 
 _live_binding_verified = False
 _live_cycle_notional_spent = 0.0
+_live_initial_commitments: float | None = None
+_live_initial_available_cash: float | None = None
 
 
 def reset_live_cycle_state() -> None:
     """Forget the per-run live ledger. One process is one cycle."""
     global _live_binding_verified, _live_cycle_notional_spent
+    global _live_initial_commitments, _live_initial_available_cash
     _live_binding_verified = False
     _live_cycle_notional_spent = 0.0
+    _live_initial_commitments = None
+    _live_initial_available_cash = None
 
 
 def _verify_live_binding_once(resolved) -> None:
@@ -430,6 +436,100 @@ def _is_verified_live_short_cover(symbol: str, qty: float) -> bool:
         return not any(order["symbol"] == symbol for order in list_open_orders())
     except Exception:
         return False
+
+
+def _live_capital_snapshot(resolved) -> tuple[float, float, float]:
+    """Read all account exposure and BUY commitments twice, without mutations.
+
+    Stable quantities/order lifecycle prevent a fill moving between the book
+    and positions from disappearing in a mixed snapshot. Market values may
+    move; use their larger observation and the smaller equity/cash balance.
+    """
+    def finite(value, *, positive=False):
+        result = float(value)
+        if not math.isfinite(result) or (result <= 0 if positive else result < 0):
+            raise ValueError("invalid capital snapshot amount")
+        return result
+
+    def enum(value):
+        return str(getattr(value, "value", value)).lower()
+
+    def read():
+        client = _get_client()
+        account = client.get_account()
+        verify_live_account_binding(resolved, getattr(account, "account_number", None))
+        if enum(getattr(account, "status", None)) != "active" or any(
+            getattr(account, name, None) is not False
+            for name in ("account_blocked", "trading_blocked", "trade_suspended_by_user")
+        ):
+            raise ValueError("account is unavailable")
+        equity = finite(account.equity, positive=True)
+        cash = finite(account.cash)
+        positions = {}
+        for position in client.get_all_positions():
+            symbol = str(position.symbol)
+            if not symbol or symbol in positions or enum(position.side) != "long":
+                raise ValueError("ambiguous long-only position snapshot")
+            positions[symbol] = (
+                finite(position.qty, positive=True),
+                finite(position.market_value, positive=True),
+            )
+        orders = list(client.get_orders(filter=GetOrdersRequest(
+            status=QueryOrderStatus.OPEN, limit=500, nested=True,
+        )))
+        if len(orders) >= 500:
+            raise ValueError("open-order snapshot may be truncated")
+        book = {}
+        commitments = 0.0
+        for order in orders:
+            order_id = str(order.id)
+            side = enum(order.side)
+            status = enum(order.status)
+            if (
+                not order_id or order_id in book or not str(order.symbol)
+                or side not in {"buy", "sell"}
+                or status not in {
+                    "new", "accepted", "pending_new", "partially_filled",
+                    "pending_cancel", "pending_replace", "accepted_for_bidding", "held",
+                }
+                or getattr(order, "legs", None)
+            ):
+                raise ValueError("ambiguous open-order snapshot")
+            quantity = finite(order.qty, positive=True)
+            filled = finite(order.filled_qty)
+            if filled > quantity:
+                raise ValueError("invalid open-order fill quantity")
+            price = None
+            if side == "buy":
+                # Market/stop/notional orders have no finite worst-case fill
+                # price here, so they cannot authorize another live entry.
+                if enum(order.type) != "limit":
+                    raise ValueError("unbounded open BUY commitment")
+                price = finite(order.limit_price, positive=True)
+                commitments += finite((quantity - filled) * price)
+                finite(commitments)
+            book[order_id] = (str(order.symbol), side, status, quantity, filled, price)
+        return equity, cash, positions, book, commitments
+
+    try:
+        first, second = read(), read()
+        if (
+            {symbol: values[0] for symbol, values in first[2].items()}
+            != {symbol: values[0] for symbol, values in second[2].items()}
+            or first[3] != second[3]
+        ):
+            raise ValueError("broker quantity or order lifecycle changed")
+        positions_value = math.fsum(
+            max(values[1], second[2][symbol][1])
+            for symbol, values in first[2].items()
+        )
+        committed = finite(positions_value + first[4])
+        available_cash = min(first[1], second[1]) - first[4]
+        return min(first[0], second[0]), committed, available_cash
+    except Exception:  # noqa: BLE001 — broker failures must fail closed without private bodies
+        # Broker exceptions can contain account data. A fixed refusal is enough
+        # for the operator; no uncertainty may be interpreted as an empty book.
+        raise BrokerModeError("Live capital budget snapshot is unavailable or ambiguous") from None
 
 
 def enforce_live_order_limits(symbol: str, qty: float, side: str, limit_price: float):
@@ -478,6 +578,7 @@ def enforce_live_order_limits(symbol: str, qty: float, side: str, limit_price: f
         )
 
     global _live_cycle_notional_spent
+    global _live_initial_commitments, _live_initial_available_cash
     cycle_cap = resolved.max_cycle_notional_usd
     if cycle_cap is not None and _live_cycle_notional_spent + notional > cycle_cap:
         raise RuntimeError(
@@ -486,6 +587,30 @@ def enforce_live_order_limits(symbol: str, qty: float, side: str, limit_price: f
             f"${_live_cycle_notional_spent + notional:,.2f}, above the "
             f"LIVE_MAX_CYCLE_NOTIONAL_USD ceiling of ${cycle_cap:,.2f}."
         )
+    actual_equity, committed, available_cash = _live_capital_snapshot(resolved)
+    initial_commitments = (
+        committed if _live_initial_commitments is None else _live_initial_commitments
+    )
+    initial_cash = (
+        available_cash
+        if _live_initial_available_cash is None
+        else _live_initial_available_cash
+    )
+    # Retain every reservation when an accepted/ambiguous submit has not yet
+    # appeared in broker reads. Do not double-count it once the broker catches
+    # up, and do not reset exposure merely because a new cycle started.
+    exposure = max(committed, initial_commitments + _live_cycle_notional_spent)
+    cash = min(available_cash, initial_cash - _live_cycle_notional_spent)
+    capital_limit = min(resolved.capital_budget_usd, actual_equity)
+    if not math.isfinite(exposure + notional) or exposure + notional > capital_limit:
+        raise BrokerModeError(
+            "Live BUY refused: positions and open BUY commitments would exceed "
+            "LIVE_CAPITAL_BUDGET_USD or actual account equity"
+        )
+    if notional > cash:
+        raise BrokerModeError("Live BUY refused: insufficient uncommitted cash; margin is not allowed")
+    _live_initial_commitments = initial_commitments
+    _live_initial_available_cash = initial_cash
     _live_cycle_notional_spent += notional
     return resolved
 
