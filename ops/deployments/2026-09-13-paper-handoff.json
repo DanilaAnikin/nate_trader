@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "kind": "paper_runtime_handoff_deployment",
+  "status": "DEPLOYED_VERIFIED",
+  "source": {
+    "release_sha": "115f11fd74591bb270e9529885ea19edf6eab923",
+    "run_id": 34632965595,
+    "artifact_id": 10276747594,
+    "archive_sha256": "a59fb3b84b6aea2151b5f96d054e3cca293d215799660d380d8fc443ca8f80f7",
+    "strategy_identity": "5524c15628c8e300a26393095f7e30a20bce9264a6246c865db1241fed6d42f2"
+  },
+  "target": {
+    "release_sha": "4a90512a09bbbb899b1a373bffb0de8ec358719e",
+    "strategy_identity": "86c03faf34112e75d85eb6cf32e12801b23c40b56f81a5264ac9b18138dd0c26",
+    "release_pr": 92,
+    "pull_request_ci_run": 34755958754,
+    "merged_sha_ci_run": 34756116653,
+    "release_gate_jobs_passed": 7,
+    "integrated_python_tests_passed": 909,
+    "canonical_checks_passed": 8,
+    "canonical_checks_evaluated": 8
+  },
+  "preparation": {
+    "status": "PASS",
+    "manifest_sha256": "dd4cde7980814e627871ffdcc5d74aa0700a7d715f442825364a1dba947e20e5",
+    "issued_at": "2026-09-13T12:15:01.240151Z",
+    "expires_at": "2026-09-15T12:15:01.240151Z",
+    "frozen_target_count": 10,
+    "preserved_attempt_count": 15,
+    "source_provenance_rechecked": true,
+    "configured_paper_binding": "PASS",
+    "broker_mutations": 0,
+    "evidence_sha256": "0693a53ec8afd34bb2c04b05d9222c246abd407da962b207d22f941b6b1e1925",
+    "durable_manifest": {
+      "path": "/var/lib/homelab/nate-trader/paper-handoffs/4a90512a09bbbb899b1a373bffb0de8ec358719e/manifest.json",
+      "sha256": "dd4cde7980814e627871ffdcc5d74aa0700a7d715f442825364a1dba947e20e5",
+      "status": "PASS",
+      "evidence_sha256": "e21c581e2758a8efd3bbf65365dd9648b7b4c2b77b561909b74b71d5e4719f8b"
+    },
+    "cleanup": {
+      "check": "local_handoff_manifest_cleanup",
+      "result": "PASS",
+      "manifest_sha256": "dd4cde7980814e627871ffdcc5d74aa0700a7d715f442825364a1dba947e20e5",
+      "durable_host_and_github_copies_verified": true,
+      "local_manifest_removed": true,
+      "source_zip_persisted_locally": false,
+      "evidence_sha256": "92fdeca87f5dfeb0ea16dfc422ecf4301387c9803faf0693448423ba5e2407dd"
+    }
+  },
+  "approval": {
+    "environment": "paper-production",
+    "status": "PASS",
+    "promoted_utc": "2026-09-13T12:15:35.933413Z",
+    "manifest_bytes_digest_verified": true,
+    "other_variables_preserved": true,
+    "evidence_sha256": "da558daf87b06c601efd656ced351462d7892699462e25632b319d7238a586f0"
+  },
+  "preflight": {
+    "workflow_run_id": 34756614236,
+    "operation": "preflight",
+    "status": "PASS",
+    "verified_steps": [
+      "restore_runtime",
+      "offline_sanity",
+      "broker_preflight",
+      "strategy_dry_run"
+    ],
+    "skipped_steps": [
+      "paper_execution",
+      "runtime_artifact_upload",
+      "incident_creation"
+    ],
+    "target_execution_artifact_created": false
+  },
+  "dashboard": {
+    "source_sha": "46b59b32bc5af833828e00f56fb0dc121236e12d",
+    "image_id": "sha256:50c7de05963514c3709f30adb5c1c39d75b8f03a7cf90195e30b35f3c6f9f89f",
+    "staged_container": "natetrader-dashboard-46b59b32bc5a-active",
+    "staged_approved_trading_sha": "4a90512a09bbbb899b1a373bffb0de8ec358719e",
+    "staged_owner_checks_passed": 29,
+    "staged_owner_evidence_sha256": "0ecb82183143592240cd11f84eac8a3a78ad9ca9dd4260e47b673ecec3bee34b",
+    "public_cutover_status": "VERIFIED",
+    "intermediate_cutover": {
+      "deployed_utc": "2026-09-13T12:22:46Z",
+      "container": "natetrader-dashboard-d8288a31f884-paper-4a90512a09bb",
+      "source_sha": "d8288a31f884793197b6fa9f3ea8ac2b92b55a99",
+      "image_id": "sha256:f28f5131cc3aee28f5b9d1ff7e6da4ea184fb0ccadda52c1c99c4044a12a4811",
+      "approved_paper_sha": "4a90512a09bbbb899b1a373bffb0de8ec358719e",
+      "writes_enabled": true,
+      "previous_container_retained": true,
+      "evidence": "/var/lib/homelab/nate-trader/deployments/20260913T122246Z-d8288a31f884",
+      "evidence_sha256": "66d34d6b0516ac072b9afb4d45b032dfa36bd8a291bc9a351d95dc9c2f3107a0",
+      "owner_checks_passed": 30,
+      "owner_evidence_sha256": "a3769b342b8c22527e004095b2acd5c58847af52a4bb55cd84953bf5b811a4d9",
+      "monitor_checked_utc": "2026-09-13T12:23:31Z",
+      "monitor_checks_passed": 29,
+      "monitor_failed": 0,
+      "monitor_unknown": 0,
+      "monitor_evidence_sha256": "24343213d43c27fffa5875b7df031f43c633d28b860ef51c6ce14beca408bcee",
+      "public_data_plane": "denied; Auth only"
+    },
+    "source_archive_sha256": "1d8f840fcd5457b5d9b7f812dd107e5e830d5bfa47e3e340595079c08c79ccdf",
+    "source_archive_bytes": 214876160,
+    "container": "natetrader-dashboard-46b59b32bc5a-active",
+    "writes_enabled": true,
+    "configuration": {
+      "status": "PASS",
+      "checks_passed": 12,
+      "checks": {
+        "immutable_image": true,
+        "dashboard_build": true,
+        "approved_paper": true,
+        "handoff_pin": true,
+        "production_binding_preserved": true,
+        "broker_keys_absent": true,
+        "no_published_ports": true,
+        "capabilities_dropped": true,
+        "non_root": true,
+        "running": true,
+        "zero_restarts": true,
+        "writes_enabled": true
+      },
+      "evidence_sha256": "692d5d6844c3ed42e3f67ee9823f8d1ebdc95043c473fe749439135a5345aa6c"
+    },
+    "final_cutover": {
+      "deployed_utc": "2026-09-13T12:40:15Z",
+      "evidence": "/var/lib/homelab/nate-trader/deployments/20260913T124015Z-46b59b32bc5a",
+      "evidence_sha256": "8a387d8f76d894d3b7271efd8f69310975d1d9a83c082af8dcee56fb7684523d",
+      "previous_container_retained": true,
+      "public_acceptance_status": "PASS",
+      "owner_checks_passed": 30,
+      "owner_evidence_sha256": "a3769b342b8c22527e004095b2acd5c58847af52a4bb55cd84953bf5b811a4d9",
+      "owner_verified_dashboard_sha": "46b59b32bc5af833828e00f56fb0dc121236e12d",
+      "owner_verified_approved_paper_sha": "4a90512a09bbbb899b1a373bffb0de8ec358719e",
+      "owner_verified_paper_release_gate": "PASS",
+      "monitor_checked_utc": "2026-09-13T12:41:19Z",
+      "monitor_checks_passed": 29,
+      "monitor_failed": 0,
+      "monitor_unknown": 0,
+      "monitor_evidence_sha256": "552998311a6abbdf58f7d03fdc95e939a916281f3289d73e72965137c6a1ae00",
+      "active_container_restarts": 0,
+      "public_data_plane": "denied; Auth only"
+    },
+    "compatibility_release": {
+      "status": "DEPLOYED_VERIFIED",
+      "scope": "dashboard reader and deployment configuration only; approved paper source remains unchanged",
+      "release_pr": 93,
+      "pull_request_head_sha": "42496cc910f616615d1b712e4377d8071937643d",
+      "local_validation": {
+        "dashboard_tests_passed": 1282,
+        "dashboard_test_files": 55,
+        "python_tests_passed": 916,
+        "lint": "PASS",
+        "typescript": "PASS",
+        "production_build": "PASS"
+      },
+      "deployment_pin": {
+        "argument": "--paper-handoff-sha256",
+        "value": "dd4cde7980814e627871ffdcc5d74aa0700a7d715f442825364a1dba947e20e5",
+        "inherited_from_source_container": false,
+        "paper_only": true,
+        "explicit_per_start": true
+      },
+      "merged_sha": "46b59b32bc5af833828e00f56fb0dc121236e12d",
+      "pull_request_ci_run": 34757360519,
+      "merged_sha_ci_run": 34757514860,
+      "release_gate_jobs_passed": 7,
+      "browser_checks_passed": 38,
+      "problem_repaired": "d828 reader requires exact three-file runtime archives and rejects the preserved source plan identity against the target canonical identity"
+    },
+    "operator_sources": {
+      "deploy_dashboard.py": "df6186a450f48caff46a7e3123a32eae62b95023614186d19764c1ad28bc880d",
+      "auth_probe.py": "a36e9438b1620dad0af86cc3249573928f5129103b85e4b22efa6ee7b5af04f7",
+      "nt-containment-monitor.sh": "5aac04d9e91a0995a883766944f6c911e7ee42e8cfc41ccdce17d93e7e6e9dd2"
+    },
+    "source_archive_retention": {
+      "temporary_local_and_remote_archives_removed_after_hash_verification": true,
+      "immutable_host_release_and_image_retained": true,
+      "provenance": "deployment operator confirmation"
+    }
+  },
+  "execution_boundaries": {
+    "paper_execute_dispatched": false,
+    "live_trading_enabled": false,
+    "repository_seed_fallback": false,
+    "forward_epoch_reset": false,
+    "retained_epoch_start": "2026-08-11",
+    "retained_epoch_release_sha": "0cb02c0765ebf91e60e5efd7f51334e9b538fbcb",
+    "target_execution_evidence": "pending first actual scheduled cycle",
+    "first_actual_target_execution_deadline": "2026-09-15T12:15:01.240151Z"
+  },
+  "historical_app_database_receipt": "2026-09-13.json",
+  "recovery_retention_receipt": "2026-09-13-recovery-retention.json",
+  "verified_utc": "2026-09-13T12:41:19Z"
+}

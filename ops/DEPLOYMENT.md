@@ -1,6 +1,15 @@
 # Nate dashboard deployment runbook
 
-Production deployment completed on **2026-09-13 at 11:26:05 UTC** with dashboard
+The final dashboard cutover completed on **2026-09-13 at 12:40:15 UTC**, source
+`46b59b32bc5af833828e00f56fb0dc121236e12d`, image
+`sha256:50c7de05963514c3709f30adb5c1c39d75b8f03a7cf90195e30b35f3c6f9f89f`,
+container `natetrader-dashboard-46b59b32bc5a-active`, with writes enabled.
+Its 29 staged owner checks and 12 configuration checks passed. Final public
+owner acceptance passed 30 checks, including the exact build and approved paper
+release gate; the 12:41:19 UTC containment monitor passed 29 checks with zero
+failures/unknowns and zero active dashboard restarts.
+
+The original application/database deployment completed at **11:26:05 UTC** with dashboard
 source `d8288a31f884793197b6fa9f3ea8ac2b92b55a99`, image
 `sha256:f28f5131cc3aee28f5b9d1ff7e6da4ea184fb0ccadda52c1c99c4044a12a4811`
 and writes enabled. The database upgrade committed at 11:21:35 UTC. Public owner
@@ -8,13 +17,33 @@ acceptance and containment monitoring each passed 29 checks; all seven checks
 also passed for the exact merged source. [Deployment evidence](deployments/2026-09-13.json)
 records the release inputs and acceptance hashes.
 
+The separate paper handoff implementation is merged in
+[PR #92](https://github.com/DanilaAnikin/nate_trader/pull/92) at
+`4a90512a09bbbb899b1a373bffb0de8ec358719e`; its exact merged-source release gate
+passed all seven jobs. GET-only preparation passed and the exact manifest and
+digest pin were approved in `paper-production` at **12:15:35 UTC**. Read-only
+production preflight passed. An intermediate public cutover at **12:22:46 UTC**
+kept image/source d828 and rebound its approved executor, passing 30 owner and
+29 containment checks. The final deployed dashboard reads the seven-file
+handoff archive and authenticates the preserved source plan identity.
+[PR #93](https://github.com/DanilaAnikin/nate_trader/pull/93) passes 1,282
+dashboard tests, 916 Python tests, lint, TypeScript and the production build;
+both its PR and exact merged-source release gates passed seven jobs and 38
+browser checks. The separate approved paper executor remains at `4a90512a…`.
+[Paper handoff evidence](deployments/2026-09-13-paper-handoff.json) records these
+stages separately. Follow the
+[paper handoff procedure](../docs/PAPER_RUNTIME_HANDOFF.md) for the transition;
+the application deployment record below retains its original approved paper
+SHA and does not claim that a new executor has run.
+
 The operational HTTP helpers have one verified post-build correction: they send
 explicit `NateTrader-Deployment/1.0` / `NateTrader-Monitor/1.0` user agents. The
 edge returned 403 to the default Python user agent while these identified clients
 and curl received the expected responses. All 28 deployment/monitor tests pass.
-The operator source hashes are recorded separately from the unchanged dashboard
-image. The installed helper sources live under
-`/var/lib/homelab/nate-trader/operator-releases/c51b348bce3b0b3b3230c783d774b8ed64979526fa1745cdf88cdad1f583a144/`.
+The current deployment helper also requires explicit handoff-pin selection;
+its SHA-256 is `df6186a450f48caff46a7e3123a32eae62b95023614186d19764c1ad28bc880d`.
+Operator source hashes are recorded separately from dashboard images in the
+deployment evidence; the Auth probe and containment monitor sources are unchanged.
 
 The following sequence documents this deployment and future application
 cutovers. The bounded legacy database upgrade is **not rerunnable** after the
@@ -32,14 +61,21 @@ Nate ledger exists; future schema upgrades need a new reviewed migration plan.
   identity. Required secret/config values are carried in memory by
   `deploy_dashboard.py`; do not export Docker environments into files or logs.
 - The dashboard source SHA and approved trading SHA are separate inputs.
-  Preserve approved paper SHA `115f11fd74591bb270e9529885ea19edf6eab923` until
-  its runtime handoff is separately proved. The current September plan has
+  The original application cutover preserved approved paper SHA
+  `115f11fd74591bb270e9529885ea19edf6eab923` until its runtime handoff was
+  prepared and explicitly approved. The current September plan has
   10 targets and 15 broker-linked attempts; missing month-convergence evidence
   makes a bare SHA promotion unsafe. Do not reset the forward epoch, replace
   monthly state with repository seeds, or enable live trading during cutover.
 - Use an immutable image ID/digest with its `org.opencontainers.image.revision`
   label equal to the selected full source SHA. Pass all release checks for that
   source. This tool does not build images, approve trading or migrate databases.
+- A paper dashboard reading retained handoff evidence also needs the reviewed
+  manifest digest. Pass it explicitly on **every** `start`, including a second
+  candidate started from a correctly configured first one. The optional pin is
+  never copied from the source container, and it cannot be attached to a live
+  account. Omitting it leaves the new container without handoff authorization;
+  the reader then refuses a seven-file handoff archive.
 
 ## Stage, inspect and switch
 
@@ -99,6 +135,27 @@ internal gateway and unauthenticated internal HTTP/freeze contract. `cutover`
 changes only the single dashboard backend URL and monitor expectations,
 preserving the API gateway rules. It validates public health, auth and denial
 paths. It does not establish owner/broker correctness by itself.
+
+For the separately approved September 13 paper handoff, the reviewed explicit
+staging inputs are below. Select `NATE_RELEASE_SHA`, `NATE_IMAGE_ID` and the
+candidate name from the final dashboard merge and its successful release gate;
+the PR head is not a deployment SHA. The older sequence above records the
+original application cutover's paper approval.
+
+```bash
+sudo python3 ops/deploy_dashboard.py start \
+  --name "$NATE_ACTIVE_CONTAINER" \
+  --source natetrader-dashboard-d8288a31f884-paper-4a90512a09bb \
+  --image "$NATE_IMAGE_ID" --sha "$NATE_RELEASE_SHA" \
+  --approved-trading-sha 4a90512a09bbbb899b1a373bffb0de8ec358719e \
+  --paper-handoff-sha256 dd4cde7980814e627871ffdcc5d74aa0700a7d715f442825364a1dba947e20e5 \
+  --freeze off
+```
+
+This sets only the dashboard's `PAPER_RUNTIME_HANDOFF_SHA256` reader pin. It does
+not approve a trading release or supply the workflow's manifest body. Verify the
+container's configured digest without printing its environment, then repeat
+owner reads, release/preflight checks and containment acceptance before cutover.
 
 ## Existing-owner read acceptance
 
