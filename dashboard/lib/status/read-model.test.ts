@@ -27,6 +27,7 @@ import {
   validationJson,
 } from "@/test/fixtures";
 import { buildZip } from "@/test/zip-builder";
+import { runtimeHandoffFixture } from "@/test/runtime-handoff-fixture";
 
 const NOW = new Date("2026-08-07T17:00:00Z");
 
@@ -1260,6 +1261,165 @@ describe("independent runtime source selection", () => {
     });
     expect(payload.execution.data?.status).toBe("PASS");
     expect(payload.operations.data?.lastSuccessfulRun?.runId).toBe(900);
+  });
+});
+
+describe("verified paper runtime handoff", () => {
+  function handoffRun(entries: Record<string, string>): RunSpec {
+    return {
+      ...defaultRuns()[0],
+      runtimeZip: buildZip(Object.entries(entries).map(([name, content]) => ({ name, content }))),
+    };
+  }
+
+  async function status() {
+    return buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: OK_BROKER,
+      now: NOW,
+    });
+  }
+
+  it("shows the original plan identity while validating its approved target executor", async () => {
+    const fixture = runtimeHandoffFixture();
+    vi.stubEnv("PAPER_RUNTIME_HANDOFF_SHA256", fixture.pin);
+    stubGithub({ runs: [handoffRun(fixture.entries)] });
+
+    const payload = await status();
+
+    expect(payload.strategy.provenance.freshness).toBe("CURRENT");
+    expect(payload.strategy.data?.plan?.strategyIdentityValue).toBe(fixture.sourceIdentity);
+    expect(payload.validation.data?.strategyIdentityValue).toBe(fixture.targetIdentity);
+    expect(payload.validation.data?.identityMatchesRuntime).toBe("PASS");
+    expect(payload.validation.data?.universeMatchesRuntime).toBe("PASS");
+    expect(payload.validationGate.effective).toBe("PASS");
+    expect(payload.execution.data?.runUrl).toContain("/runs/900");
+    expect(Date.parse(payload.strategy.data?.runtimeSnapshotAt ?? "")).toBe(
+      Date.parse("2026-08-07T16:05:05Z"),
+    );
+    expect(payload.strategy.data?.plan?.targets).toHaveLength(1);
+    expect(payload.convergence.data).not.toBeNull();
+  });
+
+  it("uses ordinary strict identity checks for a native target plan with preserved handoff evidence", async () => {
+    const fixture = runtimeHandoffFixture();
+    const current = JSON.parse(fixture.entries["performance.json"]);
+    current.adaptive_rebalance_pending = frozenPlanJson();
+    fixture.entries["performance.json"] = JSON.stringify(current);
+    vi.stubEnv("PAPER_RUNTIME_HANDOFF_SHA256", fixture.pin);
+    stubGithub({ runs: [handoffRun(fixture.entries)] });
+
+    const payload = await status();
+
+    expect(payload.strategy.data?.plan?.strategyIdentityValue).toBe(fixture.targetIdentity);
+    expect(payload.validation.data?.identityMatchesRuntime).toBe("PASS");
+    expect(payload.validationGate.effective).toBe("PASS");
+    expect(payload.strategy.data?.plan?.targets).toHaveLength(10);
+  });
+
+  it.each(["missing", "wrong"])("withholds a handoff with a %s external pin", async (pin) => {
+    const fixture = runtimeHandoffFixture();
+    vi.stubEnv("PAPER_RUNTIME_HANDOFF_SHA256", pin === "missing" ? "" : "f".repeat(64));
+    stubGithub({ runs: [handoffRun(fixture.entries)] });
+
+    const payload = await status();
+
+    expect(payload.strategy.provenance.freshness).toBe("MISMATCH");
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+    expect(payload.validationGate.reasons).toContain("LINEAGE_MISMATCH");
+  });
+
+  it("refuses a changed target in the carried source plan", async () => {
+    const fixture = runtimeHandoffFixture();
+    const current = JSON.parse(fixture.entries["performance.json"]);
+    current.adaptive_rebalance_pending.target_weights.AAA -= 0.001;
+    fixture.entries["performance.json"] = JSON.stringify(current);
+    vi.stubEnv("PAPER_RUNTIME_HANDOFF_SHA256", fixture.pin);
+    stubGithub({ runs: [handoffRun(fixture.entries)] });
+
+    const payload = await status();
+
+    expect(payload.strategy.provenance.freshness).toBe("MISMATCH");
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("still refuses a preflight that reports the old strategy identity", async () => {
+    const fixture = runtimeHandoffFixture();
+    vi.stubEnv("PAPER_RUNTIME_HANDOFF_SHA256", fixture.pin);
+    stubGithub({ runs: [{
+      ...handoffRun(fixture.entries),
+      diagnostics: diagnosticsZipBuffer(preflightJson({
+        details: {
+          ...(preflightJson().details as Record<string, unknown>),
+          strategy_identity: fixture.sourceIdentity,
+        },
+      })),
+    }] });
+
+    const payload = await status();
+
+    expect(payload.strategy.provenance.freshness).toBe("MISMATCH");
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("does not attribute the old source last_run to the approved target", async () => {
+    const fixture = runtimeHandoffFixture();
+    fixture.entries["production/last_run.json"] = fixture.entries[
+      "production/handoff/source/production/last_run.json"
+    ];
+    vi.stubEnv("PAPER_RUNTIME_HANDOFF_SHA256", fixture.pin);
+    stubGithub({ runs: [handoffRun(fixture.entries)] });
+
+    const payload = await status();
+
+    expect(payload.execution.provenance.freshness).toBe("MISMATCH");
+    expect(payload.execution.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+  });
+
+  it("keeps a newer failed preflight authoritative despite a valid earlier handoff cycle", async () => {
+    const fixture = runtimeHandoffFixture();
+    vi.stubEnv("PAPER_RUNTIME_HANDOFF_SHA256", fixture.pin);
+    stubGithub({ runs: [{
+      id: 950,
+      runNumber: 44,
+      conclusion: "failure",
+      event: "workflow_dispatch",
+      updatedAt: "2026-08-07T16:50:00Z",
+      runtimeArtifactName: null,
+      diagnostics: diagnosticsZipBuffer(failedPreflightJson({
+        checked_at: "2026-08-07T16:50:00Z",
+      })),
+    }, handoffRun(fixture.entries)] });
+
+    const payload = await status();
+
+    expect(payload.execution.data?.runUrl).toContain("/runs/900");
+    expect(payload.strategy.data?.plan?.strategyIdentityValue).toBe(fixture.sourceIdentity);
+    expect(payload.preflight.provenance.scope).toContain("#44");
+    expect(payload.validationGate.effective).not.toBe("PASS");
+    expect(payload.validationGate.reasons).toContain("PREFLIGHT_CYCLE_MISMATCH");
+  });
+
+  it("does not bypass the production account binding for a valid handoff", async () => {
+    const fixture = runtimeHandoffFixture();
+    vi.stubEnv("PAPER_RUNTIME_HANDOFF_SHA256", fixture.pin);
+    const handler = stubGithub({ runs: [handoffRun(fixture.entries)] });
+    if (!OK_BROKER.ok) throw new Error("Expected a successful broker fixture");
+
+    const payload = await buildStrategyStatus({
+      viewer: OWNER,
+      account: PRODUCTION_ACCOUNT,
+      broker: { ...OK_BROKER, accountNumber: "ANOTHER-ACCOUNT" },
+      now: NOW,
+    });
+
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+    expect(actionsCalls(handler)).toEqual([]);
   });
 });
 

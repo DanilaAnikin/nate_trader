@@ -6,6 +6,9 @@
  * describe the *same* release, the same strategy build and the same ranking
  * universe. Previously each consumer checked a different subset, so a
  * disagreement could leave one section CURRENT while another was MISMATCH.
+ * A pinned, verified runtime handoff may attest that the approved executor
+ * retained an older frozen plan. This maps only that plan's identity for
+ * comparison; its displayed identity, the actual run and universe stay intact.
  *
  * This module cross-checks every mandatory lineage field once. If anything
  * disagrees — or if a document that *is* present cannot prove its own lineage —
@@ -20,6 +23,10 @@
  */
 
 import type { LastRunSnapshot, PerformanceRuntimeSnapshot } from "./parse";
+import {
+  verifiedCarriedPlanIdentity,
+  type VerifiedRuntimeHandoff,
+} from "./runtime-handoff";
 import type { PreflightInfo } from "./types";
 import { CLOCK_SKEW_TOLERANCE_SECONDS } from "./vocab";
 import { isCalendarDate } from "@/lib/calendar-date";
@@ -114,6 +121,8 @@ export function evaluateLineage(input: {
   /** Artifact name the runtime state actually came from, when known. */
   runtimeArtifactName: string | null;
   expectedRuntimeArtifactName: string | null;
+  /** Exact pinned source-plan transfer verified while reading this artifact. */
+  runtimeHandoff?: VerifiedRuntimeHandoff | null;
   /**
    * Identity and universe recorded by the canonical promotion report.
    *
@@ -272,6 +281,15 @@ export function evaluateLineage(input: {
   // --- strategy identity ----------------------------------------------------
   const planIdentity = plan?.strategyIdentityValue ?? null;
   const preflightIdentity = preflight?.strategyIdentity ?? null;
+  // A transfer preserves the original plan's identity. Only the verifier may
+  // map that exact carried plan to the approved executor identity; every
+  // preflight/canonical, universe and last-run check below still applies.
+  const comparisonPlanIdentity =
+    verifiedCarriedPlanIdentity(
+      input.runtimeHandoff,
+      plan,
+      input.approvedReleaseSha,
+    ) ?? planIdentity;
 
   if (preflight !== null && !isSha256(preflightIdentity)) {
     add(
@@ -308,9 +326,9 @@ export function evaluateLineage(input: {
     );
   }
   if (
-    isSha256(planIdentity) &&
+    isSha256(comparisonPlanIdentity) &&
     isSha256(preflightIdentity) &&
-    planIdentity !== preflightIdentity
+    comparisonPlanIdentity !== preflightIdentity
   ) {
     add(
       "strategyIdentity",
@@ -331,8 +349,8 @@ export function evaluateLineage(input: {
       "the preflight strategy identity does not match the canonical validation report",
     );
   }
-  if (isSha256(planIdentity) && isSha256(validatedIdentity) &&
-      planIdentity !== validatedIdentity) {
+  if (isSha256(comparisonPlanIdentity) && isSha256(validatedIdentity) &&
+      comparisonPlanIdentity !== validatedIdentity) {
     add(
       "strategyIdentity",
       "MISMATCH",

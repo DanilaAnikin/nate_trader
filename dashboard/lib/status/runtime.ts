@@ -10,7 +10,6 @@ import {
 import {
   isRecord,
   parseLastRun,
-  parsePerformanceRuntime,
   parsePreflight,
   type LastRunSnapshot,
   type PerformanceRuntimeSnapshot,
@@ -19,6 +18,10 @@ import { parsePositionsRuntime, type PositionsRuntimeSnapshot } from "./position
 import type { AccountMode, PreflightInfo } from "./types";
 import { productionSource } from "./production-source";
 import { readJsonEntries, ZipError } from "./zip";
+import {
+  readRuntimeArchive, RuntimeHandoffError,
+  type RuntimeArchiveContext, type VerifiedRuntimeHandoff,
+} from "./runtime-handoff";
 
 /**
  * Safe readers for the private V11 runtime artifacts.
@@ -39,16 +42,6 @@ import { readJsonEntries, ZipError } from "./zip";
 
 export const RUNTIME_ARTIFACT_PREFIX = "paper-runtime-state-";
 export const DIAGNOSTICS_ARTIFACT_NAME = "paper-diagnostics";
-
-/** The runtime artifact must contain exactly these three files. */
-const RUNTIME_CONTRACT = {
-  required: [
-    "performance.json",
-    "positions.json",
-    "production/last_run.json",
-  ],
-  exact: true,
-} as const;
 
 /** The diagnostics artifact has an explicit required/optional allowlist. */
 const DIAGNOSTICS_CONTRACT = {
@@ -244,6 +237,8 @@ export async function namedStepOutcome(
 const COMPLETED = (run: WorkflowRunSummary) => run.status === "completed";
 
 export interface ExecutionSelection {
+  /** Externally pinned provenance; never relabels the stored plan identity. */
+  readonly runtimeHandoff?: VerifiedRuntimeHandoff | null;
   readonly performance: PerformanceRuntimeSnapshot | null;
   /**
    * The runtime position list.
@@ -408,6 +403,7 @@ export async function selectLatestExecution(
   source: RunPageSource,
   now: Date = new Date(),
   mode: AccountMode = "paper",
+  validated?: RuntimeArchiveContext["validated"],
 ): Promise<ExecutionSelection> {
   const production = productionSource(mode);
   if (!approvedReleaseSha) {
@@ -544,7 +540,12 @@ export async function selectLatestExecution(
     }
 
     try {
-      const entries = readJsonEntries(zip, RUNTIME_CONTRACT);
+      const { entries, performance, runtimeHandoff } = readRuntimeArchive(zip, {
+        approvedReleaseSha,
+        mode,
+        validated,
+        pin: process.env.PAPER_RUNTIME_HANDOFF_SHA256,
+      });
       const runDocument = entries["production/last_run.json"];
       if (isRecord(runDocument) &&
         runDocument.broker_mode !== undefined && runDocument.broker_mode !== mode) {
@@ -620,7 +621,6 @@ export async function selectLatestExecution(
           ],
         };
       }
-      const performance = parsePerformanceRuntime(entries["performance.json"]);
       if (!performance) {
         return {
           ...EMPTY_EXECUTION_SELECTION,
@@ -641,6 +641,7 @@ export async function selectLatestExecution(
         };
       }
       return {
+        runtimeHandoff,
         performance,
         positions,
         lastRun,
@@ -660,8 +661,11 @@ export async function selectLatestExecution(
         run,
         artifactName: anyRuntime.name,
         artifactCreatedAt: anyRuntime.createdAt,
+        lineageMismatch: caught instanceof RuntimeHandoffError,
         errors: [
-          caught instanceof ZipError
+          caught instanceof RuntimeHandoffError
+            ? caught.message
+            : caught instanceof ZipError
             ? `the private runtime artifact is unreadable: ${caught.message}`
             : "the private runtime artifact could not be parsed",
         ],

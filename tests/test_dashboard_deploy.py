@@ -112,12 +112,14 @@ def test_rollback_does_not_destroy_a_concurrent_monitor_edit(cutover, monkeypatc
     assert expectation.read_bytes() == concurrent
 
 
-def test_stage_copies_only_needed_env_in_memory_and_never_prints_it(monkeypatch, capsys):
+@pytest.mark.parametrize('handoff_pin', [None, 'd' * 64])
+def test_stage_copies_only_needed_env_in_memory_and_never_prints_it(monkeypatch, capsys, handoff_pin):
     env = {key: 'private-value' for key in deploy.CARRY}
     env.update(GITHUB_REPO='DanilaAnikin/nate_trader', PRODUCTION_ACCOUNT_MODE='paper',
                SUPABASE_SERVER_URL='http://natetrader-supabase-kong:8000',
                ALPACA_API_KEY='must-not-reach-dashboard', BUILD_SHA='untrusted-source-value',
-               V11_EPOCH_BASELINE='{"multiline":\ntrue}')
+               V11_EPOCH_BASELINE='{"multiline":\ntrue}',
+               PAPER_RUNTIME_HANDOFF_SHA256='obsolete-pin-must-not-be-inherited')
     monkeypatch.setattr(deploy, 'container', lambda name: {
         'Config': {'Env': [f'{key}={value}' for key, value in env.items()]}
     })
@@ -131,17 +133,45 @@ def test_stage_copies_only_needed_env_in_memory_and_never_prints_it(monkeypatch,
     monkeypatch.setattr(deploy, 'docker', fake_docker)
     monkeypatch.setattr(deploy, 'internal_probe', lambda *args: None)
     deploy.start(argparse.Namespace(sha=SHA, approved_trading_sha='c' * 40,
-                                   name=NEW, source=OLD, image='image', freeze='on'))
+                                   name=NEW, source=OLD, image='image', freeze='on',
+                                   paper_handoff_sha256=handoff_pin))
     payload = next(body for method, path, body in calls if path.startswith('/containers/create'))
     copied = dict(value.split('=', 1) for value in payload['Env'])
     assert 'ALPACA_API_KEY' not in copied and 'BUILD_SHA' not in copied
     assert copied['PRODUCTION_RELEASE_SHA'] == 'c' * 40
     assert copied['DASHBOARD_MAINTENANCE_MODE'] == 'on'
     assert copied['V11_EPOCH_BASELINE'] == env['V11_EPOCH_BASELINE']
+    assert copied.get('PAPER_RUNTIME_HANDOFF_SHA256') == handoff_pin
     assert payload['Image'] == 'sha256:immutable'
     assert 'PortBindings' not in payload['HostConfig']
     output = capsys.readouterr().out
     assert 'private-value' not in output and 'must-not-reach-dashboard' not in output
+
+
+@pytest.mark.parametrize('pin', ['', 'not-a-hash', 'd' * 63, 'D' * 64, 'd' * 65])
+def test_invalid_handoff_pin_is_rejected_before_docker_access(monkeypatch, pin):
+    monkeypatch.setattr(deploy, 'container', lambda *_: pytest.fail('unexpected Docker access'))
+    with pytest.raises(deploy.Refusal, match='manifest SHA-256'):
+        deploy.start(argparse.Namespace(sha=SHA, approved_trading_sha='c' * 40,
+                                       paper_handoff_sha256=pin))
+
+
+def test_paper_handoff_pin_cannot_be_attached_to_live_account(monkeypatch):
+    env = {key: 'private-value' for key in deploy.CARRY}
+    env.update(GITHUB_REPO='DanilaAnikin/nate_trader', PRODUCTION_ACCOUNT_MODE='live',
+               SUPABASE_SERVER_URL='http://natetrader-supabase-kong:8000')
+    monkeypatch.setattr(deploy, 'container', lambda _: {
+        'Config': {'Env': [f'{key}={value}' for key, value in env.items()]}
+    })
+    def read_only_docker(method, path, **_):
+        assert method == 'GET'
+        return {'Id': 'sha256:immutable', 'Config': {
+            'Labels': {'org.opencontainers.image.revision': SHA}}} if path.startswith('/images/') else None
+    monkeypatch.setattr(deploy, 'docker', read_only_docker)
+    with pytest.raises(deploy.Refusal, match='cannot authorize a live account'):
+        deploy.start(argparse.Namespace(sha=SHA, approved_trading_sha='c' * 40,
+                                       name=NEW, source=OLD, image='image', freeze='on',
+                                       paper_handoff_sha256='d' * 64))
 
 
 def test_stage_missing_config_cannot_create_container(monkeypatch):

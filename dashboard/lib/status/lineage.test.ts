@@ -8,6 +8,9 @@ import {
   type PerformanceRuntimeSnapshot,
 } from "./parse";
 import type { PreflightInfo } from "./types";
+import { readRuntimeArchive, type VerifiedRuntimeHandoff } from "./runtime-handoff";
+import { runtimeHandoffFixture } from "@/test/runtime-handoff-fixture";
+import { buildZip } from "@/test/zip-builder";
 import {
   APPROVED_SHA,
   frozenPlanJson,
@@ -95,6 +98,88 @@ function evaluate(overrides: Partial<Parameters<typeof evaluateLineage>[0]> = {}
     ...overrides,
   });
 }
+
+describe("a transferred source plan needs an independently verified handoff", () => {
+  const sourceIdentity = "a".repeat(64);
+  const carried = () => performance({
+    adaptive_rebalance_pending: frozenPlanJson({
+      strategy_identity_value: sourceIdentity,
+    }),
+  });
+
+  it("does not accept a different valid source identity without proof", () => {
+    const runtime = carried();
+    const verdict = evaluate({ performance: runtime });
+    expect(verdict.status).toBe("MISMATCH");
+    expect(verdict.conflicts.filter((entry) => entry.field === "strategyIdentity")).toHaveLength(2);
+    expect(runtime.plan?.strategyIdentityValue).toBe(sourceIdentity);
+  });
+
+  it("does not trust an object claiming that the source identity was approved", () => {
+    const verdict = evaluate({
+      performance: carried(),
+      runtimeHandoff: {
+        sourceIdentity,
+        targetIdentity: STRATEGY_IDENTITY,
+        targetReleaseSha: APPROVED_SHA,
+      } as unknown as VerifiedRuntimeHandoff,
+    });
+    expect(verdict.status).toBe("MISMATCH");
+  });
+
+  function verified() {
+    const fixture = runtimeHandoffFixture();
+    const zip = buildZip(Object.entries(fixture.entries).map(([name, content]) => ({ name, content })));
+    return readRuntimeArchive(zip, {
+      approvedReleaseSha: APPROVED_SHA,
+      mode: "paper",
+      pin: fixture.pin,
+      validated: { strategyIdentity: STRATEGY_IDENTITY, universeSha256: UNIVERSE_HASH },
+    });
+  }
+
+  it("accepts only the verified carried plan without changing its source identity", () => {
+    const runtime = verified();
+    const before = structuredClone(runtime.performance);
+    expect(evaluate({
+      performance: runtime.performance,
+      runtimeHandoff: runtime.runtimeHandoff,
+    }).ok).toBe(true);
+    expect(runtime.performance).toEqual(before);
+    expect(runtime.performance?.plan?.strategyIdentityValue).toBe("5".repeat(64));
+  });
+
+  it("does not reuse proof for a different parsed plan instance", () => {
+    const runtime = verified();
+    expect(evaluate({
+      performance: structuredClone(runtime.performance),
+      runtimeHandoff: runtime.runtimeHandoff,
+    }).status).toBe("MISMATCH");
+  });
+
+  it("does not reuse proof after mutating the same plan instance", () => {
+    const runtime = verified();
+    const plan = runtime.performance!.plan!;
+    Object.assign(plan, { rankingUniverseSha256: "f".repeat(64) });
+    const verdict = evaluate({
+      performance: runtime.performance,
+      runtimeHandoff: runtime.runtimeHandoff,
+    });
+    expect(verdict.status).toBe("MISMATCH");
+    expect(verdict.conflicts.some((entry) => entry.field === "strategyIdentity")).toBe(true);
+  });
+
+  it("does not reuse proof for another approved release", () => {
+    const runtime = verified();
+    const verdict = evaluate({
+      approvedReleaseSha: OTHER_SHA,
+      performance: runtime.performance,
+      runtimeHandoff: runtime.runtimeHandoff,
+    });
+    expect(verdict.status).toBe("MISMATCH");
+    expect(verdict.conflicts.some((entry) => entry.field === "strategyIdentity")).toBe(true);
+  });
+});
 
 describe("evaluateLineage", () => {
   it("agrees when every mandatory field lines up", () => {
