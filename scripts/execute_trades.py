@@ -2113,12 +2113,15 @@ def _adaptive_pending_plan_context_matches(value: dict) -> bool:
         from strategy_identity import build_strategy_identity, hash_symbol_universe
         from universe import load_universe_symbols
 
-        return (
-            value.get("strategy_identity_value")
-            == build_strategy_identity().get("value")
-            and value.get("ranking_universe_sha256")
-            == hash_symbol_universe(load_universe_symbols(held_symbols=[]))
-        )
+        identity = build_strategy_identity().get("value")
+        universe = hash_symbol_universe(load_universe_symbols(held_symbols=[]))
+        if value.get("ranking_universe_sha256") != universe:
+            return False
+        if value.get("strategy_identity_value") == identity:
+            return True
+        from runtime_handoff import adoption_matches
+
+        return adoption_matches(value, target_identity=identity, universe_sha=universe)
     except Exception:
         return False
 
@@ -4806,15 +4809,19 @@ def run_execution(dry_run: bool = False) -> dict:
 
     if not dry_run:
         require_paper_trading_mode()
-    risk_snapshot = _capture_execution_risk_snapshot()
-    token = _EXECUTION_RISK_TIER.set(str(risk_snapshot["tier"]))
-    try:
-        return _run_execution_with_risk_snapshot(
-            dry_run=dry_run,
-            risk_snapshot=risk_snapshot,
-        )
-    finally:
-        _EXECUTION_RISK_TIER.reset(token)
+    from runtime_handoff import paper_handoff_context
+
+    # A failed handoff cannot reach even the mutating short/BUY preflights.
+    with paper_handoff_context():
+        risk_snapshot = _capture_execution_risk_snapshot()
+        token = _EXECUTION_RISK_TIER.set(str(risk_snapshot["tier"]))
+        try:
+            return _run_execution_with_risk_snapshot(
+                dry_run=dry_run,
+                risk_snapshot=risk_snapshot,
+            )
+        finally:
+            _EXECUTION_RISK_TIER.reset(token)
 
 
 def _run_execution_with_risk_snapshot(
@@ -5391,12 +5398,19 @@ def main(argv: list[str] | None = None) -> int:
             print(str(exc), file=sys.stderr)
             return 2
 
-        risk_snapshot = _capture_execution_risk_snapshot()
-        token = _EXECUTION_RISK_TIER.set(str(risk_snapshot["tier"]))
+        from runtime_handoff import paper_handoff_context
+
         try:
-            return _run_midday_command(risk_snapshot)
-        finally:
-            _EXECUTION_RISK_TIER.reset(token)
+            with paper_handoff_context():
+                risk_snapshot = _capture_execution_risk_snapshot()
+                token = _EXECUTION_RISK_TIER.set(str(risk_snapshot["tier"]))
+                try:
+                    return _run_midday_command(risk_snapshot)
+                finally:
+                    _EXECUTION_RISK_TIER.reset(token)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
 
     if cmd == "candidates":
         buys = get_buy_candidates()

@@ -55,10 +55,17 @@ def test_paper_workflow_pins_release_and_runtime_artifact_lineage():
     ).read_text(encoding="utf-8")
 
     assert "ref: ${{ vars.PRODUCTION_RELEASE_SHA }}" in workflow
-    assert "paper-runtime-state-${APPROVED_RELEASE_SHA}" in workflow
     assert "paper-runtime-state-${{ vars.PRODUCTION_RELEASE_SHA }}" in workflow
-    assert '"$runtime_dir/restored/performance.json"' in workflow
-    assert 'last_run.get("release_sha") != approved_sha' in workflow
+    assert "python scripts/restore_paper_runtime.py" in workflow
+    assert "PAPER_RUNTIME_HANDOFF_SHA256: ${{ vars.PAPER_RUNTIME_HANDOFF_SHA256 }}" in workflow
+    assert "PAPER_RUNTIME_HANDOFF_MANIFEST: ${{ vars.PAPER_RUNTIME_HANDOFF_MANIFEST }}" in workflow
+    assert "steps.restore_runtime.outcome == 'success'" in workflow
+    assert "steps.execute.outcome == 'failure'" in workflow
+    assert "steps.execute.outcome == 'cancelled'" in workflow
+    assert "using the release seed" not in workflow
+    assert "unzip" not in workflow
+    assert "group: nate-trader-v11-paper-production" in workflow
+    assert "Approved release has no verified runtime restore contract" in workflow
 
 
 def test_production_summary_records_approved_release_sha(monkeypatch):
