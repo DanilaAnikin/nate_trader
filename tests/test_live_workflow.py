@@ -59,6 +59,8 @@ def test_live_offline_sanity_receives_the_same_required_configuration_as_preflig
         "ALPACA_LIVE_SECRET_KEY": "secrets.ALPACA_LIVE_SECRET_KEY",
         "LIVE_TRADING_ENABLED": "vars.LIVE_TRADING_ENABLED",
         "LIVE_TRADING_ACCOUNT_NUMBER": "vars.LIVE_TRADING_ACCOUNT_NUMBER",
+        "LIVE_CAPITAL_BUDGET_USD": "vars.LIVE_CAPITAL_BUDGET_USD",
+        "LIVE_RUNTIME_KEY": "secrets.LIVE_RUNTIME_KEY",
         "LIVE_MAX_ORDER_NOTIONAL_USD": "vars.LIVE_MAX_ORDER_NOTIONAL_USD",
         "LIVE_MAX_CYCLE_NOTIONAL_USD": "vars.LIVE_MAX_CYCLE_NOTIONAL_USD",
     }
@@ -66,7 +68,7 @@ def test_live_offline_sanity_receives_the_same_required_configuration_as_preflig
         binding = f"{key}: ${{{{ {source} }}}}"
         assert binding in offline
         assert binding in broker
-    assert "run: python scripts/sanity_check.py" in offline
+    assert "run: python scripts/live_runtime_crypto.py run-step sanity" in offline
     assert re.search(r"^  TRADING_MODE: live$", WORKFLOW, re.MULTILINE)
 
 
@@ -79,3 +81,50 @@ def test_live_execution_remains_manual_and_shares_paper_concurrency():
     paper = (Path(__file__).resolve().parents[1] / ".github/workflows/paper-production.yml").read_text()
     group = re.search(r"^  group: (.+)$", WORKFLOW, re.MULTILINE).group(1)
     assert f"  group: {group}\n" in paper
+
+
+def test_live_restore_uses_verified_contract_without_repository_seed(tmp_path):
+    step = _step("Restore latest private live runtime-state artifact")
+    assert "id: restore_runtime" in step
+    assert "LIVE_RUNTIME_BOOTSTRAP: ${{ vars.LIVE_RUNTIME_BOOTSTRAP }}" in step
+    assert "LIVE_RUNTIME_KEY: ${{ secrets.LIVE_RUNTIME_KEY }}" in step
+    assert "python scripts/restore_live_runtime.py" in step
+    assert "unzip" not in step
+    assert "release seed" not in step
+    script = step.split("        run: |\n", 1)[1]
+    script = "\n".join(line[10:] for line in script.splitlines())
+    result = subprocess.run(["/bin/bash", "-c", script], cwd=tmp_path,
+                            capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+    assert not (tmp_path / "state").exists()
+
+
+def test_live_public_outputs_are_encrypted_and_preflight_cannot_upload_runtime():
+    for name, command in [
+        ("Verify offline release contract", "sanity"),
+        ("Verify live broker and deployment health", "preflight"),
+        ("Read-only strategy preview", "preview"),
+        ("Execute one guarded real-money cycle", "execute"),
+    ]:
+        step = _step(name)
+        assert f"python scripts/live_runtime_crypto.py run-step {command}" in step
+        assert "| tee" not in step
+        assert "LIVE_RUNTIME_KEY: ${{ secrets.LIVE_RUNTIME_KEY }}" in step
+    pack = _step("Encrypt executed live runtime state")
+    assert "steps.restore_runtime.outcome == 'success'" in pack
+    assert "steps.execute.outcome == 'success'" in pack
+    assert "steps.execute.outcome == 'failure'" in pack
+    assert "steps.execute.outcome == 'cancelled'" in pack
+    assert "!= 'skipped'" not in pack
+    upload = _step("Preserve private live runtime state")
+    assert "steps.pack_runtime.outcome == 'success'" in upload
+    assert "path: live-private/runtime.aesgcm" in upload
+    assert "state/performance.json" not in upload
+    diagnostics = _step("Preserve encrypted preflight diagnostics")
+    assert "path: live-private/diagnostics/*.aesgcm" in diagnostics
+    assert "production-preflight.json" not in diagnostics
+
+
+def test_live_preflight_failure_does_not_create_an_execution_incident():
+    incident = _step("Open one operational incident on failure")
+    assert "if: failure() && inputs.operation == 'execute'" in incident

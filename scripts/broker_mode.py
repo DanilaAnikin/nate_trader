@@ -84,6 +84,8 @@ class BrokerMode:
     expected_account_number: str | None
     max_order_notional_usd: float | None
     max_cycle_notional_usd: float | None
+    #: Total live strategy capital, including positions and outstanding BUYs.
+    capital_budget_usd: float | None
 
     @property
     def is_live(self) -> bool:
@@ -102,6 +104,8 @@ class BrokerMode:
                 caps.append(f"order<=${self.max_order_notional_usd:,.0f}")
             if self.max_cycle_notional_usd is not None:
                 caps.append(f"cycle<=${self.max_cycle_notional_usd:,.0f}")
+            if self.capital_budget_usd is not None:
+                caps.append(f"capital<=${self.capital_budget_usd:,.0f}")
             suffix = f" [{', '.join(caps)}]" if caps else ""
             return f"live real-money account {self.expected_account_number}{suffix}"
         if self.mode == PAPER:
@@ -183,6 +187,7 @@ def resolve_broker_mode(env: dict[str, str] | None = None) -> BrokerMode:
             expected_account_number=None,
             max_order_notional_usd=None,
             max_cycle_notional_usd=None,
+            capital_budget_usd=None,
         )
 
     if mode == PAPER:
@@ -194,6 +199,7 @@ def resolve_broker_mode(env: dict[str, str] | None = None) -> BrokerMode:
             expected_account_number=None,
             max_order_notional_usd=None,
             max_cycle_notional_usd=None,
+            capital_budget_usd=None,
         )
 
     # ── live ────────────────────────────────────────────────────────────────
@@ -231,6 +237,12 @@ def resolve_broker_mode(env: dict[str, str] | None = None) -> BrokerMode:
     # account: mode resolution must still permit reconciliation and exits.
     max_order = _positive_float(env, "LIVE_MAX_ORDER_NOTIONAL_USD")
     max_cycle = _positive_float(env, "LIVE_MAX_CYCLE_NOTIONAL_USD")
+    capital_budget = _positive_float(env, "LIVE_CAPITAL_BUDGET_USD")
+    if capital_budget is None:
+        problems.append(
+            "LIVE_CAPITAL_BUDGET_USD must set the total capital allocated to "
+            "live positions and outstanding BUY commitments across runs"
+        )
     if max_order is None:
         problems.append(
             "LIVE_MAX_ORDER_NOTIONAL_USD must set an absolute per-order dollar "
@@ -259,7 +271,23 @@ def resolve_broker_mode(env: dict[str, str] | None = None) -> BrokerMode:
         expected_account_number=account_number,
         max_order_notional_usd=max_order,
         max_cycle_notional_usd=max_cycle,
+        capital_budget_usd=capital_budget,
     )
+
+
+def strategy_capital_equity(equity: float) -> float:
+    """Size live targets from allocated capital without rewriting real equity.
+
+    Risk/history still use actual broker equity. Paper keeps its existing
+    sizing; live cannot scale targets with unrelated cash or margin capacity.
+    """
+    if requested_mode() != LIVE:
+        return equity
+    actual = float(equity)
+    if not math.isfinite(actual) or actual <= 0:
+        raise BrokerModeError("Live sizing requires finite positive account equity")
+    resolved = resolve_broker_mode()
+    return min(actual, resolved.capital_budget_usd)
 
 
 def verify_live_account_binding(

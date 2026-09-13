@@ -11,9 +11,9 @@ reduce risk, which is a worse failure than the one it prevents.
 
 from __future__ import annotations
 
-import pytest
 from types import SimpleNamespace
 
+import pytest
 import trade
 from broker_mode import BrokerModeError
 
@@ -21,6 +21,12 @@ from broker_mode import BrokerModeError
 class _FakeAccount:
     def __init__(self, account_number: str) -> None:
         self.account_number = account_number
+        self.equity = 100_000.0
+        self.cash = 100_000.0
+        self.status = "ACTIVE"
+        self.account_blocked = False
+        self.trading_blocked = False
+        self.trade_suspended_by_user = False
 
 
 class _FakeOrder:
@@ -40,9 +46,19 @@ class _FakeClient:
     def __init__(self, account_number: str = "123456789") -> None:
         self.account_number = account_number
         self.submitted: list[object] = []
+        self.account = _FakeAccount(account_number)
+        self.positions = []
+        self.orders = []
 
     def get_account(self) -> _FakeAccount:
-        return _FakeAccount(self.account_number)
+        return self.account
+
+    def get_all_positions(self):
+        return list(self.positions)
+
+    def get_orders(self, *, filter):
+        assert filter.limit == 500
+        return list(self.orders)
 
     def submit_order(self, request) -> _FakeOrder:
         self.submitted.append(request)
@@ -61,6 +77,7 @@ LIVE_ENV = {
     "LIVE_TRADING_ACCOUNT_NUMBER": "123456789",
     "LIVE_MAX_ORDER_NOTIONAL_USD": "10000",
     "LIVE_MAX_CYCLE_NOTIONAL_USD": "25000",
+    "LIVE_CAPITAL_BUDGET_USD": "100000",
 }
 
 
@@ -91,6 +108,7 @@ def paper(monkeypatch, tmp_path):
         "LIVE_TRADING_ACCOUNT_NUMBER",
         "LIVE_MAX_ORDER_NOTIONAL_USD",
         "LIVE_MAX_CYCLE_NOTIONAL_USD",
+        "LIVE_CAPITAL_BUDGET_USD",
     ):
         monkeypatch.delenv(key, raising=False)
     client = _FakeClient()
@@ -245,7 +263,7 @@ def test_kill_switch_permits_a_verified_short_cover(live, monkeypatch, tmp_path)
         live, "get_open_position",
         lambda symbol: SimpleNamespace(symbol=symbol, qty="-1000"), raising=False,
     )
-    monkeypatch.setattr(trade, "list_open_orders", lambda: [])
+    monkeypatch.setattr(trade, "list_open_orders", list)
     result = trade.close_position("AAPL", price_override=500.0, client_order_id="cover-1")
     assert result["status"] == "submitted"
     assert len(live.submitted) == 1
@@ -325,3 +343,219 @@ def test_paper_does_not_verify_a_live_account_binding(paper, monkeypatch):
     monkeypatch.setattr(trade, "_get_client", lambda: other)
     trade.place_limit_order("AAPL", 1, "buy", 100.0)
     assert len(other.submitted) == 1
+
+
+def _position(value, *, qty=1.0, symbol="OLD"):
+    return SimpleNamespace(symbol=symbol, side="long", qty=qty, market_value=value)
+
+
+def _open_buy(notional, *, order_id="pending", qty=1.0, filled=0.0):
+    return SimpleNamespace(
+        id=order_id, symbol="PENDING", side="buy", type="limit",
+        status="new", qty=qty, filled_qty=filled, limit_price=notional,
+        legs=None,
+    )
+
+
+@pytest.fixture
+def small_live(live, monkeypatch):
+    monkeypatch.setenv("LIVE_CAPITAL_BUDGET_USD", "1000")
+    return live
+
+
+def test_capital_budget_counts_positions_and_pending_buys(small_live):
+    small_live.positions = [_position(800)]
+    small_live.orders = [_open_buy(100)]
+    trade.place_limit_order("NEW", 1, "buy", 100)
+    with pytest.raises(BrokerModeError, match="LIVE_CAPITAL_BUDGET_USD"):
+        trade.place_limit_order("NEXT", 1, "buy", 0.01)
+    assert len(small_live.submitted) == 1
+
+
+@pytest.mark.parametrize("filled", [False, True])
+def test_new_cycle_does_not_reset_existing_live_capital(small_live, filled):
+    trade.place_limit_order("NEW", 1, "buy", 600)
+    if filled:
+        small_live.positions = [_position(600, symbol="NEW")]
+    else:
+        small_live.orders = [_open_buy(600)]
+    trade.reset_live_cycle_state()
+    with pytest.raises(BrokerModeError, match="LIVE_CAPITAL_BUDGET_USD"):
+        trade.place_limit_order("NEXT", 1, "buy", 500)
+    assert len(small_live.submitted) == 1
+
+
+def test_partial_fill_counts_only_remaining_open_commitment(small_live):
+    small_live.positions = [_position(400, qty=4)]
+    small_live.orders = [_open_buy(100, qty=10, filled=4)]
+    with pytest.raises(BrokerModeError, match="LIVE_CAPITAL_BUDGET_USD"):
+        trade.place_limit_order("NEW", 1, "buy", 0.01)
+    small_live.orders[0].qty = 9
+    trade.place_limit_order("NEW", 1, "buy", 100)
+    assert len(small_live.submitted) == 1
+
+
+def test_stale_reads_cannot_forget_a_submission_within_the_cycle(small_live):
+    small_live.positions = [_position(100)]
+    trade.place_limit_order("NEW", 1, "buy", 400)
+    # The fake broker deliberately has not reflected the submitted order yet.
+    with pytest.raises(BrokerModeError, match="LIVE_CAPITAL_BUDGET_USD"):
+        trade.place_limit_order("NEXT", 1, "buy", 600)
+    assert trade._live_cycle_notional_spent == 400
+
+
+def test_ambiguous_submit_retains_total_capital_reservation(small_live, monkeypatch):
+    def interrupted(request):
+        raise TimeoutError("response unavailable")
+
+    monkeypatch.setattr(small_live, "submit_order", interrupted)
+    with pytest.raises(TimeoutError):
+        trade.place_limit_order("NEW", 1, "buy", 600)
+    with pytest.raises(BrokerModeError, match="LIVE_CAPITAL_BUDGET_USD"):
+        trade.place_limit_order("NEXT", 1, "buy", 500)
+    assert trade._live_cycle_notional_spent == 600
+
+
+@pytest.mark.parametrize("cash,pending", [(50, 0), (600, 550), (0, 0)])
+def test_capital_budget_cannot_spend_margin_or_pending_order_cash(small_live, cash, pending):
+    small_live.account.cash = cash
+    small_live.account.buying_power = 1_000_000
+    small_live.orders = [_open_buy(pending)] if pending else []
+    with pytest.raises(BrokerModeError, match="uncommitted cash"):
+        trade.place_limit_order("NEW", 1, "buy", 100)
+    assert small_live.submitted == []
+    assert trade._live_cycle_notional_spent == 0
+
+
+def test_total_capital_cannot_exceed_actual_account_equity(small_live):
+    small_live.account.equity = 500
+    with pytest.raises(BrokerModeError, match="actual account equity"):
+        trade.place_limit_order("NEW", 1, "buy", 501)
+    assert small_live.submitted == []
+
+
+@pytest.mark.parametrize("field,value", [
+    ("equity", float("nan")), ("equity", float("inf")), ("equity", 0),
+    ("cash", float("nan")), ("cash", float("inf")), ("cash", -1),
+    ("status", "SUSPENDED"), ("trading_blocked", True),
+])
+def test_invalid_capital_account_fails_closed(small_live, field, value):
+    setattr(small_live.account, field, value)
+    with pytest.raises(BrokerModeError, match="snapshot"):
+        trade.place_limit_order("NEW", 1, "buy", 1)
+    assert small_live.submitted == []
+    assert trade._live_cycle_notional_spent == 0
+
+
+@pytest.mark.parametrize("field,value", [
+    ("qty", float("nan")), ("qty", -1), ("market_value", float("inf")),
+    ("market_value", -1), ("side", "short"),
+])
+def test_unknown_or_short_position_cannot_authorize_a_new_live_buy(small_live, field, value):
+    small_live.positions = [_position(100)]
+    setattr(small_live.positions[0], field, value)
+    with pytest.raises(BrokerModeError, match="snapshot"):
+        trade.place_limit_order("NEW", 1, "buy", 1)
+    assert small_live.submitted == []
+
+
+@pytest.mark.parametrize("field,value", [
+    ("qty", float("nan")), ("qty", None), ("filled_qty", 2),
+    ("filled_qty", -1), ("limit_price", float("inf")),
+    ("limit_price", -1), ("type", "market"), ("status", "unknown"),
+])
+def test_unbounded_or_unknown_open_buy_fails_closed(small_live, field, value):
+    small_live.orders = [_open_buy(100)]
+    setattr(small_live.orders[0], field, value)
+    with pytest.raises(BrokerModeError, match="snapshot"):
+        trade.place_limit_order("NEW", 1, "buy", 1)
+    assert small_live.submitted == []
+
+
+def test_pending_cancellation_is_still_committed_capital(small_live):
+    small_live.orders = [_open_buy(1000)]
+    small_live.orders[0].status = "pending_cancel"
+    with pytest.raises(BrokerModeError, match="LIVE_CAPITAL_BUDGET_USD"):
+        trade.place_limit_order("NEW", 1, "buy", 1)
+
+
+def test_potentially_truncated_order_book_cannot_authorize_capital(small_live):
+    small_live.orders = [_open_buy(1, order_id=str(n)) for n in range(500)]
+    with pytest.raises(BrokerModeError, match="snapshot"):
+        trade.place_limit_order("NEW", 1, "buy", 1)
+
+
+@pytest.mark.parametrize("changed", ["position", "order"])
+def test_a_fill_racing_the_snapshot_blocks_new_live_exposure(small_live, monkeypatch, changed):
+    if changed == "position":
+        reads = iter([[_position(100, qty=1)], [_position(200, qty=2)]])
+        monkeypatch.setattr(small_live, "get_all_positions", lambda: next(reads))
+    else:
+        reads = iter([[_open_buy(100)], [_open_buy(100, filled=0.5)]])
+        monkeypatch.setattr(small_live, "get_orders", lambda **kwargs: next(reads))
+    with pytest.raises(BrokerModeError, match="snapshot"):
+        trade.place_limit_order("NEW", 1, "buy", 1)
+    assert small_live.submitted == []
+
+
+def test_price_movement_uses_the_larger_position_mark(small_live, monkeypatch):
+    reads = iter([[_position(900)], [_position(950)]])
+    monkeypatch.setattr(small_live, "get_all_positions", lambda: next(reads))
+    with pytest.raises(BrokerModeError, match="LIVE_CAPITAL_BUDGET_USD"):
+        trade.place_limit_order("NEW", 1, "buy", 100)
+
+
+def test_capital_guard_rechecks_account_binding_on_every_buy(small_live):
+    trade.place_limit_order("NEW", 1, "buy", 100)
+    small_live.account.account_number = "another-account"
+    with pytest.raises(BrokerModeError, match="snapshot"):
+        trade.place_limit_order("NEXT", 1, "buy", 100)
+    assert len(small_live.submitted) == 1
+
+
+@pytest.mark.parametrize("equity,expected_quantity", [(100_000, 9), (500, 4)])
+def test_v11_preview_sizes_from_allocated_capital_but_risk_uses_actual_equity(
+    small_live, monkeypatch, equity, expected_quantity
+):
+    import execute_trades
+    import portfolio
+    import research
+
+    from tests.test_execution_safety import _patch_adaptive_runtime, _pending_plan
+
+    performance = {"adaptive_rebalance_pending": _pending_plan({"AAA": 0.09})}
+    _patch_adaptive_runtime(
+        monkeypatch, perf=performance,
+        account={"equity": equity, "last_equity": equity, "cash": equity},
+    )
+    monkeypatch.setattr(trade, "list_open_orders", list)
+    monkeypatch.setattr(portfolio, "get_recent_equity_history", lambda **kwargs: [equity] * 22)
+    monkeypatch.setattr(research, "get_latest_quote", lambda symbol: {"bid": 10, "ask": 10, "mid": 10})
+
+    result = execute_trades._manage_adaptive_momentum_picks(dry_run=True, allow_new_exposure=True)
+
+    buys = [item for item in result if item["action"] == "DRY_RUN_ADAPTIVE_BUY"]
+    assert len(buys) == 1
+    assert buys[0]["qty"] == expected_quantity
+    assert execute_trades._capture_execution_risk_snapshot()["equity"] == equity
+    assert small_live.submitted == []
+
+
+def test_v11_preview_trims_against_allocated_capital(small_live, monkeypatch):
+    import execute_trades
+
+    from tests.test_execution_safety import _patch_adaptive_runtime, _pending_plan
+
+    performance = {"adaptive_rebalance_pending": _pending_plan({"AAA": 0.09})}
+    _patch_adaptive_runtime(
+        monkeypatch, perf=performance,
+        positions=[{"symbol": "AAA", "qty": 20, "market_value": 200, "current_price": 10}],
+    )
+    monkeypatch.setattr(trade, "list_open_orders", list)
+
+    result = execute_trades._manage_adaptive_momentum_picks(dry_run=True, allow_new_exposure=True)
+
+    trims = [item for item in result if item["action"] == "DRY_RUN_ADAPTIVE_TRIM"]
+    assert len(trims) == 1
+    assert trims[0]["qty"] == 11
+    assert small_live.submitted == []

@@ -51,6 +51,7 @@ from broker_mode import (
     BrokerModeError,
     requested_mode,
     resolve_broker_mode,
+    strategy_capital_equity,
     verify_live_account_binding,
 )
 
@@ -2950,7 +2951,7 @@ def _manage_adaptive_momentum_picks(
 
     try:
         account = get_account()
-        equity = float(account.get("equity", 0.0))
+        equity = strategy_capital_equity(float(account.get("equity", 0.0)))
         available_cash = float(account.get("cash", 0.0))
     except Exception as exc:
         cancellations = _cancel_buy_orders_and_wait(

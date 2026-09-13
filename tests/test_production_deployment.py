@@ -145,6 +145,7 @@ def test_environment_accepts_a_fully_configured_live_run(tmp_path):
             "LIVE_TRADING_ACCOUNT_NUMBER": "123456789",
             "LIVE_MAX_ORDER_NOTIONAL_USD": "5000",
             "LIVE_MAX_CYCLE_NOTIONAL_USD": "25000",
+            "LIVE_CAPITAL_BUDGET_USD": "25000",
             "LIVE_TRADING_KILL_SWITCH_FILE": str(tmp_path / "absent"),
         }
     )
@@ -202,6 +203,7 @@ def test_preflight_reports_the_broker_mode_it_checked(monkeypatch, tmp_path, mod
         "LIVE_TRADING_ACCOUNT_NUMBER": "123456789",
         "LIVE_MAX_ORDER_NOTIONAL_USD": "5000",
         "LIVE_MAX_CYCLE_NOTIONAL_USD": "25000",
+        "LIVE_CAPITAL_BUDGET_USD": "25000",
         "LIVE_TRADING_KILL_SWITCH_FILE": str(tmp_path / "absent"),
     }
     monkeypatch.setattr(production_preflight, "check_runtime", lambda: [])

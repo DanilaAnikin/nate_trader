@@ -147,6 +147,14 @@ sector ETFs. Do not bypass the sector cap by fabricating a classification.
   do not. Sells are never capped, and the
   `LIVE_TRADING_KILL_SWITCH_FILE` stops entries only — nothing may block a
   risk-reducing exit.
+- Live also requires `LIVE_CAPITAL_BUDGET_USD`: size from the smaller of actual
+  equity and allocated capital, and check fresh account-wide positions/open
+  BUY commitments plus uncommitted cash before entries. The budget is shared
+  across cycles; broker equity/risk history must not be rewritten to the cap.
+- Live runtime and diagnostic artifacts must be authenticated ciphertext under
+  `LIVE_RUNTIME_KEY`; this repository is public. Never restore paper seeds into
+  a live book. First-use `LIVE_RUNTIME_BOOTSTRAP=empty-account` requires a bound
+  funded flat account, no open orders and no prior live execution/artifact.
 - No-argument `python3 scripts/execute_trades.py` must remain a dry run, and
   every mutating execution path must require an explicitly configured broker
   mode.
