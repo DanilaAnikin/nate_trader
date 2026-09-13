@@ -35,21 +35,27 @@ project shared with another application):
 | `0022_fingerprint_binding_and_token_generations.sql` | `resolve_create_operation` takes the expected request fingerprint and returns an explicit `conflict`; one active account per owner, mode and broker account number, added after auditing the existing rows; verification tokens carry an account-scoped monotonic generation, a 60-second TTL and an explicit cancel RPC; the purge reason is a closed enum; a trigger permanently refuses any audit detail carrying a forbidden key or a raw UUID; `record_account_verification`, `create_account_atomic` and the direct Vault helpers become hard failures with no executable grant. |
 | `0023_audit_guard_traversal_and_token_deadline.sql` | The audit guard's traversal rewritten iteratively with node and depth budgets — `0022`'s recursion re-wrapped every array into `{"items": ...}` and called itself with a value of the same shape, so any audit detail containing an array died with `54001` and rolled back the operation being audited; keys are scanned as well as values, and a broker account number is refused under any key, matched both by shape and against the stored bindings. The verification deadline is stored on the token at `begin` and compared with `clock_timestamp()` after both locks, so a token that expires while `finish` waits for the account lock is refused rather than accepted on the other side of the wait. |
 
-**Which of these production has applied is not recorded here, and cannot be
-inferred from this file.** The Supabase project's own migration ledger is the
-only authority. Read it before applying anything, and apply *every* pending
-migration in numeric order — a partial application leaves the RPC surface and
-the ACL in a state no test covers.
+**Read production evidence before applying anything.** The read-only inspection
+on 2026-09-13 confirmed PostgreSQL 17.6 and an **absent project migration ledger**.
+The schema has legacy objects but lacks the newer lifecycle objects, and its
+credential-helper privileges differ from the revocations in 0003/0008. This is
+not proof of an applied 0001–0008 prefix. See
+[the database upgrade sequence](../docs/DATABASE_UPGRADE.md) and rerun
+`production_inspection.sql` for current catalog and aggregate evidence.
+
+Establish a reviewed baseline and recovery rehearsal before defining the
+pending migration set. Then apply *every* pending migration in numeric order;
+a partial application leaves the RPC surface and ACL in a state no test covers.
 
 Migrations that have been applied anywhere are never edited; corrections go in
 a new migration. `0010` corrects `0009`, `0012` corrects `0011`, `0016`
 corrects `0015`, `0018` corrects `0017`, `0019` corrects `0018`, `0020`
 corrects `0019` and `0021` corrects `0020`.
 
-**Which of them production has applied is UNKNOWN**, because the ledger has
-not been read. Do not infer it from the fact that the running image works.
-
 ### How to apply
+
+These commands are for a clean project or an already reconciled, tracked
+database. They are **not** a shortcut around the production baseline procedure.
 
 **Option A — Supabase CLI**
 
@@ -65,7 +71,7 @@ in order.
 
 ## Tests
 
-Three commands, and all three run in the release gate.
+Four suites run in the release gate.
 
 `tests/run_integration.sh` applies every migration to a real PostgreSQL server
 and runs every assertion file against it. This is a database test, not a grep

@@ -36,6 +36,9 @@ projects; repository and runtime evidence take precedence over those entries.
 | Release checks | [Successful exact-SHA release gate](https://github.com/DanilaAnikin/nate_trader/actions/runs/34491671781) |
 | Latest scheduled paper cycle | [September 11 execution](https://github.com/DanilaAnikin/nate_trader/actions/runs/34632965595) succeeded, including broker preflight, execution and artifact upload |
 | Public dashboard | `/api/health` reports build `ccde3a4bee25aed5d872194dddf593bd62e7369e`, `frozen-containment-bridge`, `writes_enabled=false`, `unfrozen_compatible=false`, `credential_mutation_compatible=false` |
+| Production database | Read-only SSH confirms PostgreSQL 17.6, image `supabase/postgres:17.6.1.136`, Vault 0.3.1; project migration ledger is absent |
+| Database compatibility | Legacy public schema lacks the new account lifecycle/refresh/verification objects; effective credential-helper grants also differ from checked-in 0003/0008 |
+| Database ingress | Public Auth routes remain reachable; REST/GraphQL/Storage/Realtime/Functions are blocked with 403; relevant containers have no published Docker ports |
 | Live GitHub environment | `live-production` is absent from the repository environments list |
 | Canonical dataset | 532 ranking names; 544 symbols including auxiliaries; adjusted bars through 2026-09-04 |
 | Forward epoch | Persisted baseline starts 2026-08-11 and binds the older `0cb02c0765ebf91e60e5efd7f51334e9b538fbcb` release |
@@ -110,21 +113,43 @@ test Vault scaffold. It checks real migrations, RLS, PostgREST, concurrent
 transactions and Vault integrity; all four suites pass. It is not a rehearsal
 against the production Supabase database or its real encryption keys.
 
+After SSH access confirmed the actual platform, a separate isolated test on
+`supabase/postgres:17.6.1.136` with real Vault 0.3.1 and a fresh test root key
+applied all 23 unchanged migrations and passed all seven integration SQL
+files. Real Vault encryption, decryption and rotation passed as well. This
+revealed and repaired a test-only name collision: the account-deletion check
+now qualifies its local `key_id` variable because real `vault.secrets` also
+has a `key_id` column. Auth/Storage still use test scaffolding; this is not a
+restore of the production database, roles, configuration or key.
+
+The read-only production inspector completed with 29 JSON records on September
+13 at 10:29:50 UTC. Checked credential/binding/Vault-reference and audit-shape
+blocker counts were zero. Newer schema objects and the project migration ledger
+remain absent; credential-helper grant drift remains unresolved. The inspector
+was also checked on an empty database, a tracked database and 11 synthetic audit
+shapes. Its successful execution is an inventory result, not release approval.
+
 ## Remaining release work
 
 1. Review and merge this candidate through the required checks; approve its
    exact full SHA separately. The working tree has not been pushed or deployed.
-2. Read the actual production migration ledger and complete the required
-   recovery/Vault rehearsal. Main expects migrations through 0023. Transport
-   compatibility does not make the current frozen bridge interchangeable with
-   the main dashboard; keep its write freeze until those requirements are met.
-   The read-only origin inspection was blocked by an additional Tailscale
-   SSH authentication check and timed out before any remote command ran.
-   This is an access limitation, not evidence that
-   the migration ledger is missing.
-3. Supply `SUPABASE_SERVER_URL` for the dashboard runtime and preserve the
-   existing public auth cookie identity. Use the unique internal gateway on
-   the containment network. See `dashboard/.env.example`.
+2. Reconcile the observed legacy database baseline and complete the required
+   recovery/Vault and migration rehearsal. The user completed Tailscale SSH
+   verification and the subsequent read-only inspection confirmed that the
+   project ledger is absent, newer required objects are missing and credential
+   helper privileges drift from the checked-in legacy migrations. Do not
+   declare an applied 0008 baseline or blindly replay migrations. Main expects
+   the contract through 0023; preserve the frozen bridge and Auth-only ingress.
+   See [the concrete upgrade sequence](DATABASE_UPGRADE.md) and the reusable
+   `supabase/production_inspection.sql` inventory.
+   The latest local recovery marker and both discovered drill verdict files
+   date from August 12; they do not establish recovery of the current state.
+3. Carry forward and validate the deployed internal Supabase configuration and
+   public auth cookie identity with the candidate image. The current bridge
+   already has nonempty `SUPABASE_SERVER_URL`, cookie, service-role, GitHub and
+   production binding settings; values were not printed. Presence alone does
+   not prove their validity for a new release. Use the unique internal gateway
+   on the containment network. See `dashboard/.env.example`.
 4. Define the runtime-state handoff and forward-epoch transition when approving
    a new release. Artifacts are SHA-scoped; a missing artifact falls back to
    repository seed state. Do not silently re-anchor the old baseline, copy a
