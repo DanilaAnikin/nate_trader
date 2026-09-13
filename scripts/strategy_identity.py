@@ -40,6 +40,8 @@ STRATEGY_SOURCE_PATHS = (
     "scripts/portfolio.py",
     "scripts/production_preflight.py",
     "scripts/production_run.py",
+    "scripts/runtime_handoff.py",
+    "scripts/restore_paper_runtime.py",
     "scripts/strategy_identity.py",
     "scripts/trade.py",
     "scripts/utils.py",
