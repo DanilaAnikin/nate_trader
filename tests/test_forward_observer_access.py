@@ -104,14 +104,18 @@ def binding_fixture(monkeypatch):
             assert headers == {"APCA-API-KEY-ID": KEY, "APCA-API-SECRET-KEY": SECRET}
             return json.dumps(f.broker).encode()
         if parts.netloc == "nate-trader.anikin.cz":
-            assert parts.path == "/api/health" and headers == {} and payload is None and f.namespace == 10
+            assert parts.path == "/api/health" and payload is None and f.namespace == 10
+            assert headers == {"User-Agent": "NateTrader-ForwardObserver/1.0"}
             return json.dumps(f.public_health).encode()
         assert parts.netloc == "api.github.com" and payload is None and f.namespace == 10
         assert headers["Authorization"] == "Bearer " + TOKEN
         name = parts.path.rsplit("/", 1)[1]
         expected = {"PRODUCTION_RELEASE_SHA": config["approved_release_sha"],
                     "PAPER_RUNTIME_HANDOFF_SHA256": config["paper_handoff_sha256"]}
-        return json.dumps({"value": f.github_overrides.get(name, expected[name])}).encode()
+        value = f.github_overrides.get(name, expected[name])
+        if isinstance(value, Exception):
+            raise value
+        return json.dumps({"value": value}).encode()
 
     def open_fd(path, flags):
         assert path in {"/proc/self/ns/net", "/proc/987/ns/net"}
@@ -460,3 +464,133 @@ def test_second_log_redirect_is_not_followed(monkeypatch):
     with pytest.raises(HTTPError):
         access.GitHub(TOKEN).job_log(123)
     assert len(calls) == 2 and calls[1][1] == {}
+
+
+def forbidden_environment_read(name, code=403):
+    return HTTPError(
+        "https://api.github.com/repos/" + access.REPOSITORY
+        + "/environments/paper-production/variables/" + name,
+        code, "SYNTHETIC-PRIVATE-ERROR", {}, io.BytesIO(b"SYNTHETIC-PRIVATE-BODY"),
+    )
+
+
+def test_protected_approval_evidence_requires_both_actual_values(binding_fixture):
+    bound = access.Binding(binding_fixture.config)
+    assert bound.protected_approval_evidence == {
+        "status": "VERIFIED", "verified": True, "reason": None,
+        "variables": {"PRODUCTION_RELEASE_SHA": "VERIFIED", "PAPER_RUNTIME_HANDOFF_SHA256": "VERIFIED"},
+    }
+    bound.recheck()
+    assert bound.protected_approval_evidence["verified"] is True
+
+
+@pytest.mark.parametrize("forbidden_names", [
+    ("PRODUCTION_RELEASE_SHA",), ("PAPER_RUNTIME_HANDOFF_SHA256",),
+    ("PRODUCTION_RELEASE_SHA", "PAPER_RUNTIME_HANDOFF_SHA256"),
+])
+def test_403_allows_readonly_observation_with_explicit_unverified_evidence(binding_fixture, forbidden_names):
+    f = binding_fixture
+    for name in forbidden_names:
+        f.github_overrides[name] = forbidden_environment_read(name)
+    bound = access.Binding(f.config)
+    evidence = bound.protected_approval_evidence
+    assert evidence == {
+        "status": "UNAVAILABLE", "verified": False, "reason": "github_environment_read_forbidden",
+        "variables": {name: "HTTP_403" if name in forbidden_names else "VERIFIED"
+                      for name in ("PRODUCTION_RELEASE_SHA", "PAPER_RUNTIME_HANDOFF_SHA256")},
+    }
+    bound.recheck()
+    assert bound.protected_approval_evidence == evidence
+    assert "SYNTHETIC-PRIVATE" not in json.dumps(evidence)
+    assert f.row_reads == 3 and f.namespace == 10
+
+
+@pytest.mark.parametrize("code", [401, 404, 429, 500])
+@pytest.mark.parametrize("name", ["PRODUCTION_RELEASE_SHA", "PAPER_RUNTIME_HANDOFF_SHA256"])
+def test_other_environment_http_errors_remain_refusals(binding_fixture, name, code):
+    f = binding_fixture
+    f.github_overrides[name] = forbidden_environment_read(name, code)
+    with pytest.raises(HTTPError) as error:
+        access.Binding(f.config)
+    assert error.value.code == code
+
+
+@pytest.mark.parametrize("forbidden_name", ["PRODUCTION_RELEASE_SHA", "PAPER_RUNTIME_HANDOFF_SHA256"])
+def test_readable_mismatch_remains_fatal_when_other_variable_is_403(binding_fixture, forbidden_name):
+    f = binding_fixture
+    other = next(name for name in ("PRODUCTION_RELEASE_SHA", "PAPER_RUNTIME_HANDOFF_SHA256")
+                 if name != forbidden_name)
+    f.github_overrides.update({forbidden_name: forbidden_environment_read(forbidden_name), other: "wrong-value"})
+    with pytest.raises(access.ObservationError, match="paper_approval_changed"):
+        access.Binding(f.config)
+
+
+@pytest.mark.parametrize("initially_forbidden", [False, True])
+def test_permission_visibility_change_during_collection_refuses_publication(binding_fixture, initially_forbidden):
+    f = binding_fixture
+    name = "PRODUCTION_RELEASE_SHA"
+    if initially_forbidden:
+        f.github_overrides[name] = forbidden_environment_read(name)
+    bound = access.Binding(f.config)
+    evidence = bound.protected_approval_evidence
+    if initially_forbidden:
+        f.github_overrides.clear()
+    else:
+        f.github_overrides[name] = forbidden_environment_read(name)
+    with pytest.raises(access.ObservationError, match="paper_approval_evidence_changed"):
+        bound.recheck()
+    assert bound.protected_approval_evidence == evidence
+
+
+def test_partial_permission_change_is_detected_even_when_total_status_stays_unavailable(binding_fixture):
+    f = binding_fixture
+    f.github_overrides["PRODUCTION_RELEASE_SHA"] = forbidden_environment_read("PRODUCTION_RELEASE_SHA")
+    bound = access.Binding(f.config)
+    f.github_overrides.clear()
+    f.github_overrides["PAPER_RUNTIME_HANDOFF_SHA256"] = forbidden_environment_read("PAPER_RUNTIME_HANDOFF_SHA256")
+    with pytest.raises(access.ObservationError, match="paper_approval_evidence_changed"):
+        bound.recheck()
+
+
+def test_callers_cannot_mutate_persisted_approval_evidence(binding_fixture):
+    bound = access.Binding(binding_fixture.config)
+    original = bound.protected_approval_evidence
+    observed = bound.protected_approval_evidence
+    observed["verified"] = False
+    observed["variables"]["PRODUCTION_RELEASE_SHA"] = "HTTP_403"
+    assert bound.protected_approval_evidence == original
+    bound.recheck()
+
+
+@pytest.mark.parametrize("origin", ["database", "broker", "public_health"])
+def test_403_outside_environment_metadata_is_never_softened(binding_fixture, monkeypatch, origin):
+    f = binding_fixture
+    original = access.http_bytes
+    def fake(url, headers, **kwargs):
+        selected = {
+            "database": "http://10.20.30.41:8000/",
+            "broker": "https://paper-api.alpaca.markets/",
+            "public_health": "https://nate-trader.anikin.cz/",
+        }[origin]
+        if url.startswith(selected):
+            raise HTTPError(url, 403, "SYNTHETIC-PRIVATE-ERROR", {}, None)
+        return original(url, headers, **kwargs)
+    monkeypatch.setattr(access, "http_bytes", fake)
+    with pytest.raises(HTTPError) as error:
+        access.Binding(f.config)
+    assert error.value.code == 403
+    assert f.namespace == 10
+
+
+def test_approval_403_does_not_bypass_changed_account_or_public_build(binding_fixture):
+    f = binding_fixture
+    for name in ("PRODUCTION_RELEASE_SHA", "PAPER_RUNTIME_HANDOFF_SHA256"):
+        f.github_overrides[name] = forbidden_environment_read(name)
+    bound = access.Binding(f.config)
+    f.after_row = {**f.row, "credential_version": f.row["credential_version"] + 1}
+    with pytest.raises(access.ObservationError, match="account_changed"):
+        bound.recheck()
+    f.after_row = None
+    f.public_health["buildSha"] = "e" * 40
+    with pytest.raises(access.ObservationError, match="public_app_changed"):
+        bound.recheck()

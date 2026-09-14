@@ -11,11 +11,12 @@ import http.client
 import ipaddress
 import json
 import os
-from pathlib import Path
 import re
 import resource
 import socket
 import time
+from copy import deepcopy
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -167,6 +168,7 @@ class GitHub:
 class Binding:
     def __init__(self, config):
         self.config = config
+        self._protected_approval_evidence = None
         self.app = docker_get("/containers/" + config["app_container"] + "/json")
         require(self.app["State"]["Running"] and self.app["Image"] == config["app_image"] and
                 self.app["Config"]["Labels"]["org.opencontainers.image.revision"] == config["app_sha"],
@@ -223,7 +225,8 @@ class Binding:
                 "app_changed")
 
     def check_public_app(self):
-        health = parse_json(http_bytes("https://nate-trader.anikin.cz/api/health", {}, max_bytes=8192))
+        health = parse_json(http_bytes("https://nate-trader.anikin.cz/api/health",
+                            {"User-Agent": "NateTrader-ForwardObserver/1.0"}, max_bytes=8192))
         require(health.get("status") == "ok" and health.get("buildSha") == self.config["app_sha"] and
                 health.get("dataMode") == "account-scoped", "public_app_changed")
 
@@ -263,11 +266,38 @@ class Binding:
                 account.get("status") == "ACTIVE" and all(account.get(k) is False for k in
                 ("account_blocked", "trading_blocked", "trade_suspended_by_user")), "broker_binding")
 
-    def recheck(self):
-        require(self.account_row() == self.before, "account_changed")
+    @property
+    def protected_approval_evidence(self):
+        """Report observed approval visibility without authorizing execution."""
+        return deepcopy(self._protected_approval_evidence)
+
+    def _read_protected_approval(self):
+        variables = {}
         for name, expected in (("PRODUCTION_RELEASE_SHA", self.config["approved_release_sha"]),
                                ("PAPER_RUNTIME_HANDOFF_SHA256", self.config["paper_handoff_sha256"])):
-            require(self.github.get("/environments/paper-production/variables/" + name).get("value") == expected,
+            try:
+                observed = self.github.get("/environments/paper-production/variables/" + name)
+            except HTTPError as error:
+                # This exception applies only to these two read-only metadata
+                # requests. 403 proves neither the configured value nor why
+                # GitHub refused it (permissions and rate limits can both do so).
+                if error.code != 403:
+                    raise
+                variables[name] = "HTTP_403"
+                continue
+            require(isinstance(observed, dict) and observed.get("value") == expected,
                     "paper_approval_changed")
+            variables[name] = "VERIFIED"
+        verified = all(value == "VERIFIED" for value in variables.values())
+        return {"status": "VERIFIED" if verified else "UNAVAILABLE", "verified": verified,
+                "reason": None if verified else "github_environment_read_forbidden",
+                "variables": variables}
+
+    def recheck(self):
+        require(self.account_row() == self.before, "account_changed")
+        evidence = self._read_protected_approval()
+        require(self._protected_approval_evidence is None or evidence == self._protected_approval_evidence,
+                "paper_approval_evidence_changed")
         self.check_app()
         self.check_public_app()
+        self._protected_approval_evidence = evidence
