@@ -1,0 +1,15 @@
+[Unit]
+Description=Observe paper production and late settlements without trading
+
+[Timer]
+# UTC is explicit: covers primary, watchdog and delayed US-session dispatches.
+OnCalendar=Mon..Fri *-*-* 15..23:15,45:00 UTC
+# Rewalk the fixed history the next morning to capture posted fees/corrections.
+OnCalendar=*-*-* 08:15:00 UTC
+Persistent=true
+RandomizedDelaySec=30
+AccuracySec=1s
+Unit=nt-forward-observer.service
+
+[Install]
+WantedBy=timers.target

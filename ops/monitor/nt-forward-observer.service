@@ -1,0 +1,31 @@
+[Unit]
+Description=Nate Trader read-only paper forward observations
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/srv/homelab/nate-trader-observer/current
+ExecStart=/usr/bin/python3 -B -m ops.forward_observer --config /etc/nate-trader/forward-observer.json
+UMask=0077
+TimeoutStartSec=10min
+MemoryMax=512M
+MemorySwapMax=0
+LimitCORE=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/homelab/nate-trader/forward-observation
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
