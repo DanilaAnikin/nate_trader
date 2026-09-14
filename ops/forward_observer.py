@@ -6,20 +6,26 @@ Its explicit source/account pins must be reviewed when production changes.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import stat
 import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from .forward_observer_access import Binding, SOURCE_PATHS, host_guard, parse_json, require
 from .forward_metrics import number, stamp, summarize_forward_observations
+from .forward_observer_access import (
+    SOURCE_PATHS,
+    Binding,
+    host_guard,
+    parse_json,
+    require,
+)
 
 
 def read_private(path, *, maximum=16 * 1024 * 1024, expected_sha256=None):
@@ -150,6 +156,7 @@ def collect(config, state, *, clock=lambda: datetime.now(timezone.utc), binder=B
     activities = collect_activities(binding.paper, config["activities_since"], cutoff.isoformat())
     orders = collect_orders(binding.paper, activities)
     binding.recheck()
+    approval = binding.protected_approval_evidence
     # Independently timestamped observations are not an atomic broker snapshot.
     # Intraday cashflow valuations needed for adjusted performance are absent.
     metrics = summarize_forward_observations(
@@ -174,9 +181,12 @@ def collect(config, state, *, clock=lambda: datetime.now(timezone.utc), binder=B
     require(atomic_json(state / "ledger.json", ledger) == ledger_hash, "current_ledger_digest")
     finished = clock()
     require(cutoff <= finished, "collection_clock_reversed")
-    report = {"schema_version": 1, "status": "COLLECTED", "mode": "paper",
+    report = {"schema_version": 1,
+              "status": "COLLECTED" if approval["verified"] else "COLLECTED_WITH_LIMITED_APPROVAL_EVIDENCE",
+              "mode": "paper",
               "checked_at": finished.isoformat(), "collection_started_at": started.isoformat(),
               "app_sha": config["app_sha"], "approved_paper_release_sha": config["approved_release_sha"],
+              "protected_approval_evidence": approval,
               "ledger_sha256": ledger_hash, "cadence": cadence, "metrics": metrics,
               "broker_mutations": 0, "github_mutations": 0, "notifications_sent": 0,
               "funding_transfers": 0, "strategy_history_modified": False}

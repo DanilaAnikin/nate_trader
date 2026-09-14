@@ -19,6 +19,14 @@ It does not modify the strategy, its historical forward epoch, or its runtime.
   workflow bytes allow an observer-only commit on main while the executor still
   uses the approved release. Metadata is not proof of the portfolio outcome;
   the dashboard's runtime-generation validator remains responsible for that.
+- Protected GitHub approval variables are independently verified only when the
+  application token can read both values. An HTTP 403 on either of those two
+  endpoints is recorded as `protected_approval_evidence.verified: false` and the
+  collection is labelled `COLLECTED_WITH_LIMITED_APPROVAL_EVIDENCE`. The configured
+  release remains an expected pin, not proof of current protected approval.
+  Actual account, application and source bindings remain mandatory. Readable
+  mismatches, other HTTP failures, or approval evidence changing during a
+  collection fail that collection. No broader token is provisioned for this check.
 - Actual paper FILL activities establish simulated executions, including partial
   fills. Attempt records or submitted order counts are not fills. Observations
   are scoped to the bound account, not attributed to a strategy without evidence.
@@ -84,6 +92,8 @@ not be treated as current after a failed attempt. `ledger.json` and immutable
 samples; `observations/` preserves reports bound to their ledger hashes.
 No broker credential is written into these files. These are private account
 records and must not be committed to the public repository.
+`latest-success.json` means a completed collection; inspect its status and
+`protected_approval_evidence` before interpreting the scope of that evidence.
 
 The journal prints only a fixed result and the report path. There is no email,
 Slack or issue notification. A changed binding, truncated page, unknown evidence

@@ -68,6 +68,10 @@ class FakeBinder:
         self.account_digest = digest
         self.checked = self.rechecked = False
         self.fail_recheck = fail_recheck
+        self.protected_approval_evidence = {
+            "status": "VERIFIED", "verified": True, "reason": None,
+            "variables": {"PRODUCTION_RELEASE_SHA": "VERIFIED", "PAPER_RUNTIME_HANDOFF_SHA256": "VERIFIED"},
+        }
 
     def __call__(self, config):
         self.config = config
@@ -174,6 +178,7 @@ def test_collect_uses_new_forward_window_but_rewalks_and_retains_old_activities(
     report = observer.collect(config, state, clock=clock(), binder=binder)
     assert binder.checked and binder.rechecked
     assert report["status"] == "COLLECTED"
+    assert report["protected_approval_evidence"] == binder.protected_approval_evidence
     assert report["metrics"]["window_start"] == "2026-09-14T21:00:00+00:00"
     assert report["metrics"]["fills"]["event_count"] == 1
     assert report["metrics"]["coverage"]["activities_complete"] is True
@@ -188,6 +193,23 @@ def test_collect_uses_new_forward_window_but_rewalks_and_retains_old_activities(
     assert cadence_calls == [{"now": NOW, "observed_since": datetime(2026, 9, 14, 21, tzinfo=timezone.utc),
                               "approved_release_sha": config["approved_release_sha"],
                               "source_digests": config["source_digests"]}]
+
+
+def test_forbidden_approval_read_collects_metrics_without_claiming_approval_verified(setup):
+    config, state, _ = setup
+    binder = FakeBinder(FakePaper([[fill()]]))
+    binder.protected_approval_evidence = {
+        "status": "UNAVAILABLE", "verified": False, "reason": "github_environment_read_forbidden",
+        "variables": {"PRODUCTION_RELEASE_SHA": "HTTP_403", "PAPER_RUNTIME_HANDOFF_SHA256": "HTTP_403"},
+    }
+    report = observer.collect(config, state, clock=clock(), binder=binder)
+    assert binder.checked and binder.rechecked
+    assert report["status"] == "COLLECTED_WITH_LIMITED_APPROVAL_EVIDENCE"
+    assert report["protected_approval_evidence"] == binder.protected_approval_evidence
+    assert report["metrics"]["fills"]["event_count"] == 1
+    assert report["broker_mutations"] == report["github_mutations"] == 0
+    for name in ("latest.json", "latest-success.json"):
+        assert observer.read_private(state / name) == report
 
 
 def test_each_ledger_is_retained_by_exact_raw_digest_and_latest_pointers_match(setup):
