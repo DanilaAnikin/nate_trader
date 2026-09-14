@@ -6,6 +6,8 @@ import type { StrategyStatusPayload } from "@/lib/status/types";
 import EquityPanel from "./EquityPanel";
 import ForwardPerformancePanel from "./ForwardPerformancePanel";
 import PageState from "./status/PageState";
+import { CycleOutcomeSummary } from "./status/CycleOutcomeSummary";
+import PaperCadenceNotice from "./status/PaperCadenceNotice";
 import {
   Fact,
   FactList,
@@ -332,6 +334,7 @@ function OperationsPanel({ payload }: { payload: StrategyStatusPayload }) {
       }
       provenance={payload.operations.provenance}
     >
+      <PaperCadenceNotice payload={payload} />
       <div className="grid gap-x-8 gap-y-1 md:grid-cols-2">
         <FactList>
           <Fact label={payload.accountMode === "live" ? "Latest manual attempt" : "Latest scheduled attempt"}>
@@ -383,7 +386,7 @@ function OperationsPanel({ payload }: { payload: StrategyStatusPayload }) {
               "—"
             )}
           </Fact>
-          <Fact label="Last successful execution">
+          <Fact label="Last available executor record">
             {execution ? (
               <span className="inline-flex items-center gap-2">
                 <StatePill size="xs" state={execution.status} />
@@ -393,6 +396,7 @@ function OperationsPanel({ payload }: { payload: StrategyStatusPayload }) {
               "—"
             )}
           </Fact>
+          {execution && <Fact label="Cycle outcome"><CycleOutcomeSummary execution={execution} /></Fact>}
         </FactList>
 
         <FactList>

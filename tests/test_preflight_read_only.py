@@ -287,13 +287,20 @@ def test_manual_preflight_workflow_excludes_executor_and_incident_notifications(
         "\n      - name:", 1
     )[0]
 
-    assert (
-        "if: github.event_name == 'schedule' || inputs.operation == 'execute'"
-        in execute
+    def condition(block):
+        return next(line.strip() for line in block.splitlines() if line.strip().startswith("if:"))
+
+    # Compare the entire condition: a permissive suffix or misplaced grouping
+    # must not let a preflight dispatch execute, or let cron bypass deduplication.
+    assert condition(execute) == (
+        "if: (github.event_name == 'schedule' || inputs.operation == 'execute') "
+        "&& steps.cadence.outputs.allow_execution == 'true'"
     )
-    assert (
+    assert condition(incident) == (
         "if: failure() && (github.event_name == 'schedule' || inputs.operation == 'execute')"
-        in incident
     )
-    assert "if: github.event_name == 'workflow_dispatch'" in preview
+    assert condition(preview) == (
+        "if: github.event_name == 'workflow_dispatch' && "
+        "(inputs.operation == 'preflight' || steps.cadence.outputs.allow_execution == 'true')"
+    )
     assert "python scripts/execute_trades.py dry-run |" in preview

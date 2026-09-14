@@ -1,4 +1,5 @@
 import type { CheckState, Freshness, Section } from "./vocab";
+import type { CycleOutcome, RuntimeGenerationStatus } from "./cycle-outcome";
 
 /**
  * The single server-side read model for the V11 observability dashboard.
@@ -320,6 +321,8 @@ export interface PreflightInfo {
 }
 
 export interface ExecutionInfo {
+  readonly cycleOutcome: CycleOutcome | null;
+  readonly runtimeGeneration: RuntimeGenerationStatus;
   readonly status: CheckState;
   readonly completedAt: string | null;
   readonly releaseSha: string | null;

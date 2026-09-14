@@ -1,6 +1,6 @@
 # Nate dashboard deployment runbook
 
-The final dashboard cutover completed on **2026-09-13 at 12:40:15 UTC**, source
+The September 13 dashboard cutover completed at **12:40:15 UTC**, source
 `46b59b32bc5af833828e00f56fb0dc121236e12d`, image
 `sha256:50c7de05963514c3709f30adb5c1c39d75b8f03a7cf90195e30b35f3c6f9f89f`,
 container `natetrader-dashboard-46b59b32bc5a-active`, with writes enabled.
@@ -75,7 +75,8 @@ Nate ledger exists; future schema upgrades need a new reviewed migration plan.
   candidate started from a correctly configured first one. The optional pin is
   never copied from the source container, and it cannot be attached to a live
   account. Omitting it leaves the new container without handoff authorization;
-  the reader then refuses a seven-file handoff archive.
+  the reader then refuses a handoff archive. A second transfer requires a reader
+  supporting the exact eleven-file archive and the new explicit manifest pin.
 
 ## Stage, inspect and switch
 
@@ -86,14 +87,16 @@ helper sources there. Set these two nonsecret inputs from the reviewed release:
 ```bash
 : "${NATE_RELEASE_SHA:?Select the reviewed full dashboard source SHA}"
 : "${NATE_IMAGE_ID:?Select the reviewed immutable Docker image ID}"
-NATE_APPROVED_TRADING_SHA=115f11fd74591bb270e9529885ea19edf6eab923
+: "${NATE_APPROVED_TRADING_SHA:?Select the separately approved full executor SHA}"
 NATE_FROZEN_CONTAINER="natetrader-dashboard-${NATE_RELEASE_SHA:0:12}-frozen"
 NATE_ACTIVE_CONTAINER="natetrader-dashboard-${NATE_RELEASE_SHA:0:12}-active"
 ```
 
-1. Apply the exact reviewed production database bundle, confirm its ledger and
-   inspect the final schema. A missing client response is not a rollback:
-   inspect the ledger before retrying. Retain the old bridge and its route.
+1. For the original database upgrade, apply the exact reviewed bundle, confirm
+   its ledger and inspect the final schema. Later application-only releases
+   verify the existing contract and do not replay that upgrade. A missing client
+   response is not a rollback: inspect the ledger before retrying. Retain the
+   currently served container and its route.
 2. Stage a frozen candidate. Its public/source runtime bindings come from the
    running bridge; no existing container is implicitly replaced:
 
@@ -156,6 +159,96 @@ This sets only the dashboard's `PAPER_RUNTIME_HANDOFF_SHA256` reader pin. It doe
 not approve a trading release or supply the workflow's manifest body. Verify the
 container's configured digest without printing its environment, then repeat
 owner reads, release/preflight checks and containment acceptance before cutover.
+
+## Paper observability release and second handoff
+
+The September 13 receipt and literal commands above are historical evidence.
+They are not default inputs for a later promotion. In particular, a helper that
+pins the original bridge, first source artifact, or absent handoff variables
+must be reviewed and updated before a second transfer. Existing `/tmp` receipts
+can also describe superseded containers; compare them with current public health,
+the served container and protected environment before using them.
+
+Use this sequence for the release adding explicit cycle results, verified
+runtime generations and the missing-session watchdog. It requires no database
+migration and does not change the separately approved live executor:
+
+1. Finish source review and the canonical validation after every strategy
+   identity input is frozen. Run the full Python and dashboard regression suites,
+   lint/type checks, production build and browser acceptance. Require all seven
+   V11 Release Gate jobs for both the reviewed PR and its **exact final main
+   merge SHA**: dashboard, repository regression, canonical release eligibility,
+   schema/RLS, PostgREST, concurrency and Vault integrity. Confirm the browser
+   suite ran inside the dashboard job. A green engineering check alone is not a
+   trading-promotion gate.
+2. From that clean final merge, build the dashboard image with a matching
+   revision label and record its immutable image ID and source-archive digest.
+   Carry existing public Auth build inputs from the currently served container
+   in memory. Do not reuse a build wrapper's stale source-container constant or
+   pass service-role/GitHub/broker credentials as build arguments.
+3. Recheck the old approved paper release, its external manifest pin and stored
+   body digest, and the newest source artifact/run. Complete the
+   [second-transfer preparation](../docs/PAPER_RUNTIME_HANDOFF.md#bounded-second-transfer)
+   with the existing prior pin as an explicit input. Preserve the original plan,
+   attempts and history; require a fresh, successful source with no newer actual
+   attempt. Retain private inputs in the reviewed protected workspace and print
+   only bounded verification results. The output must target the final merge,
+   not its PR head.
+4. Stage the new dashboard image with writes frozen, the new approved executor
+   SHA and the **new** handoff pin, explicitly supplied together. The old public
+   dashboard remains served. Inspect configuration without printing secrets and
+   run existing-owner read acceptance. Until a genuine target execution exists,
+   unavailable target execution evidence is expected; do not fabricate a target
+   `last_run` or a fresh forward-performance baseline.
+5. Replace the protected paper manifest and digest, verify readback, then update
+   the approved executor SHA last. Use the normal trusted-default-branch
+   `operation=preflight` dispatch and record the exact returned run ID. Verify its
+   event, workflow/path, attempt, orchestration head and approved checkout, then
+   require restore, offline gate, broker preflight and dry-run preview success.
+   Execution, runtime upload and operational incident creation must be skipped.
+   Preflight approval itself does not execute orders.
+6. Repeat staged owner checks and verify the dashboard's release/preflight
+   evidence points to the selected target. Complete the frozen/public then
+   active/public cutover procedure above, recomputing the route digest at each
+   switch. The new reader must be served before the first eleven-file target
+   artifact is produced. Pass the pin again when starting the active container
+   from the frozen one; `start` intentionally never inherits it.
+7. Observe the next real paper cycle or an independently authorized execution.
+   Require a current-run verified generation and exact eleven-file archive with
+   original evidence preserved. Inspect `cycle_outcome` separately from producer
+   health: `pending` is not completion, and a failed or blocked cycle is never
+   repaired by selecting an older PASS. Verify the dashboard agrees with that
+   evidence and retains an explicit explanation for unavailable forward history.
+   Observe watchdog/day-guard behavior without dispatching an extra acceptance
+   cycle. Finish public owner checks, containment `--check-only`, then the next
+   scheduled monitor result and durable sanitized deployment receipts.
+
+For both new dashboard starts, the reusable interface is:
+
+```bash
+: "${NATE_SOURCE_CONTAINER:?Select the currently served or verified frozen source}"
+: "${NATE_PAPER_HANDOFF_SHA256:?Select the newly reviewed manifest digest}"
+sudo python3 ops/deploy_dashboard.py start \
+  --name "$NATE_FROZEN_CONTAINER" --source "$NATE_SOURCE_CONTAINER" \
+  --image "$NATE_IMAGE_ID" --sha "$NATE_RELEASE_SHA" \
+  --approved-trading-sha "$NATE_APPROVED_TRADING_SHA" \
+  --paper-handoff-sha256 "$NATE_PAPER_HANDOFF_SHA256" --freeze on
+```
+
+Use a distinct active name and `--freeze off` for the second start. Preserve the
+existing production owner/account, internal gateway and Auth cookie identity.
+The application image, approved executor SHA and manifest digest are three
+separate bindings; changing any one requires explicit verification of all three.
+An application rollback can retain these executor bindings but must use a reader
+that understands the eleven-file artifact. The old seven-file-only image is not
+a compatible rollback after the second transfer. A paper executor rollback is a
+separate state-continuity decision, not merely restoring an older SHA variable.
+
+The [paper runbook](../docs/PAPER_RUNTIME_HANDOFF.md#cycle-results-and-coherent-publication)
+defines producer health versus cycle progress, legacy evidence without a
+generation proof, strict raw-byte/current-run publication, and the watchdog's
+bounded automatic paper execution. Keep these distinctions in acceptance and
+deployment receipts; a healthy page or process does not prove a filled rebalance.
 
 ## Existing-owner read acceptance
 

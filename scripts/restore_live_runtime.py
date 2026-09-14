@@ -33,6 +33,7 @@ from restore_paper_runtime import (
     NoRedirect,
     RestoreError,
     execution_lineage,
+    generation_run_lineage,
     install_state,
     listing,
     parse_runtime_zip,
@@ -41,6 +42,7 @@ from restore_paper_runtime import (
     timestamp,
 )
 from runtime_handoff import SOURCE_FILES, canonical_digest, digest, read_object
+from runtime_generation import RuntimeGenerationError, validate_runtime_generation
 
 WORKFLOW = "live-production.yml"
 JOB = "Guarded real-money cycle"
@@ -441,6 +443,10 @@ def validate_runtime(
         "live_runtime_lineage",
     )
     timestamp(last_run.get("completed_at"))
+    try:
+        validate_runtime_generation(files)
+    except RuntimeGenerationError:
+        raise RestoreError("live_runtime_generation_invalid") from None
     return last_run
 
 
@@ -568,6 +574,7 @@ def restore(api, broker, context: Context, state_dir: Path, *, now=None) -> str:
         )
         files = checked_archive(api, artifact, context.release_sha)
         execution_lineage(validate_runtime(files, context, account_sha), execute)
+        generation_run_lineage(files, run)
 
         def recheck():
             provenance.latest(run, execute, artifact, context.release_sha)

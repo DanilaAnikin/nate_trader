@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "v11_fixed_strategy_validation",
-  "generated_at": "2026-09-13T16:11:12.684498+00:00",
+  "generated_at": "2026-09-14T20:07:06.988629+00:00",
   "strategy": {
     "version": "v11-adaptive-momentum",
     "parameter_policy": "fixed checked-in parameters; no optimizer or sweep",
@@ -9,12 +9,13 @@
     "identity": {
       "schema_version": 1,
       "algorithm": "sha256",
-      "value": "8a9b41d62a7d870b2f8592fb7967b2dc9c2f4019361f845951e550afff149fc7",
+      "value": "26abf9665948896d031fc94c81bc7007a657e3ccb814797c796616672e6a5e0a",
       "sources": [
         "requirements.txt",
         "requirements.lock",
         "watchlist.json",
         ".github/workflows/paper-production.yml",
+        ".github/workflows/paper-watchdog.yml",
         ".github/workflows/live-production.yml",
         "scripts/adaptive_momentum.py",
         "scripts/risk_policy.py",
@@ -37,6 +38,8 @@
         "scripts/restore_paper_runtime.py",
         "scripts/restore_live_runtime.py",
         "scripts/live_runtime_crypto.py",
+        "scripts/runtime_generation.py",
+        "ops/paper_cadence.py",
         "scripts/strategy_identity.py",
         "scripts/trade.py",
         "scripts/utils.py"
@@ -6051,6 +6054,6 @@
   "contract": {
     "schema_version": 1,
     "algorithm": "sha256",
-    "report_sha256": "8878886249b588a4f39e8eb00ce5e7539164c440004c16830344d4d94ebcc4ec"
+    "report_sha256": "c2623a2f978c476b4467e815ef185774f76a8fe1edf7735b095e1a7e29a581cb"
   }
 }

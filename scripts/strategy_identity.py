@@ -18,6 +18,7 @@ STRATEGY_SOURCE_PATHS = (
     "requirements.lock",
     "watchlist.json",
     ".github/workflows/paper-production.yml",
+    ".github/workflows/paper-watchdog.yml",
     # The live workflow decides what a real-money cycle actually executes, so it
     # binds the identity exactly as the paper one does. Leaving it out would let
     # the executed procedure change while a validation report still claimed to
@@ -44,6 +45,8 @@ STRATEGY_SOURCE_PATHS = (
     "scripts/restore_paper_runtime.py",
     "scripts/restore_live_runtime.py",
     "scripts/live_runtime_crypto.py",
+    "scripts/runtime_generation.py",
+    "ops/paper_cadence.py",
     "scripts/strategy_identity.py",
     "scripts/trade.py",
     "scripts/utils.py",

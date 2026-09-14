@@ -21,6 +21,7 @@ import {
   positionsJson,
   preflightJson,
   REPO_SHA,
+  STRATEGY_IDENTITY,
   TARGET_SYMBOLS,
   tournamentJson,
   UNIVERSE_HASH,
@@ -28,6 +29,8 @@ import {
 } from "@/test/fixtures";
 import { buildZip } from "@/test/zip-builder";
 import { runtimeHandoffFixture } from "@/test/runtime-handoff-fixture";
+import { runtimeGenerationFixture } from "@/test/runtime-generation-fixture";
+import { secondRuntimeHandoffFixture } from "@/test/runtime-handoff-second-fixture";
 
 const NOW = new Date("2026-08-07T17:00:00Z");
 
@@ -757,6 +760,39 @@ describe("cross-tenant isolation", () => {
   });
 });
 
+describe("committed runtime generation in the complete read model", () => {
+  it("publishes verified pending separately from healthy executor status", async () => {
+    const value = runtimeGenerationFixture();
+    const runs = defaultRuns();
+    runs[0].runtimeZip = buildZip(Object.entries(value.raw).map(([name, content]) => ({ name, content })));
+    stubGithub({ runs });
+    const payload = await buildStrategyStatus({ viewer: OWNER, account: PRODUCTION_ACCOUNT, broker: OK_BROKER, now: NOW });
+    expect(payload.execution.data).toMatchObject({ status: "PASS", cycleOutcome: { state: "pending", reason: "orders_pending" }, runtimeGeneration: "VERIFIED" });
+    expect(payload.validationGate.effective).toBe("PASS");
+    expect(JSON.stringify(payload.execution)).not.toContain(value.id);
+  });
+
+  it.each(["torn snapshot", "different run", "different attempt", "missing generation"])("withholds %s without reaching back to older legacy PASS", async (failure) => {
+    const value = runtimeGenerationFixture();
+    if (failure === "torn snapshot") value.raw["positions.json"] += "\n";
+    else {
+      const record = JSON.parse(value.raw["production/last_run.json"]);
+      if (failure === "different run") record.runtime_generation.github_run_id = 800;
+      if (failure === "different attempt") record.runtime_generation.github_run_attempt = 2;
+      if (failure === "missing generation") delete record.runtime_generation;
+      value.raw["production/last_run.json"] = JSON.stringify(record);
+    }
+    const runs = defaultRuns();
+    runs[0].runtimeZip = buildZip(Object.entries(value.raw).map(([name, content]) => ({ name, content })));
+    stubGithub({ runs });
+    const payload = await buildStrategyStatus({ viewer: OWNER, account: PRODUCTION_ACCOUNT, broker: OK_BROKER, now: NOW });
+    expect(payload.execution.data).toBeNull();
+    expect(payload.strategy.data).toBeNull();
+    expect(payload.validationGate.effective).not.toBe("PASS");
+    expect(payload.execution.provenance.detail).toContain("snapshot generation could not be verified");
+  });
+});
+
 describe("healthy production viewer", () => {
   it("separates the dashboard build, repository, approved and trigger SHAs", async () => {
     stubGithub();
@@ -1280,6 +1316,25 @@ describe("verified paper runtime handoff", () => {
       now: NOW,
     });
   }
+
+  it.each([false, true])("reads exact eleven-file second handoff with strict retained evidence (tampered=%s)", async (tampered) => {
+    const fixture = secondRuntimeHandoffFixture({ targetSha: APPROVED_SHA, targetIdentity: STRATEGY_IDENTITY, sourceSha: "c".repeat(40) });
+    if (tampered) fixture.entries["production/handoff/source/production/handoff/source/positions.json"] += "\n";
+    vi.stubEnv("PAPER_RUNTIME_HANDOFF_SHA256", fixture.pin);
+    stubGithub({ runs: [handoffRun(fixture.entries)] });
+    const payload = await status();
+    if (tampered) {
+      expect(payload.strategy.data).toBeNull();
+      expect(payload.execution.data).toBeNull();
+      expect(payload.validationGate.effective).not.toBe("PASS");
+    } else {
+      expect(payload.strategy.data?.plan?.strategyIdentityValue).toBe(fixture.sourceIdentity);
+      expect(payload.validation.data?.strategyIdentityValue).toBe(fixture.targetIdentity);
+      expect(payload.validationGate.effective).toBe("PASS");
+      expect(payload.execution.data?.cycleOutcome).toBeNull();
+      expect(payload.execution.data?.runtimeGeneration).toBe("LEGACY_UNVERIFIED");
+    }
+  });
 
   it("shows the original plan identity while validating its approved target executor", async () => {
     const fixture = runtimeHandoffFixture();

@@ -949,11 +949,11 @@ export async function buildStrategyStatus(input: {
           );
 
   const execution: Section<ExecutionInfo> = !authorized
-    ? withheld<ExecutionInfo>(production.runtimeSource, "last successful executor cycle")
+    ? withheld<ExecutionInfo>(production.runtimeSource, "executor record from last successful workflow")
     : lineageBroken
       ? unavailable<ExecutionInfo>(
           production.runtimeSource,
-          "last successful executor cycle",
+          "executor record from last successful workflow",
           lineage.detail ??
             executionSelection.errors[0] ??
             "the executor record does not belong to the approved production release",
@@ -964,8 +964,8 @@ export async function buildStrategyStatus(input: {
             provenance({
               source: production.runtimeSource,
               scope: executionSelection.run
-                ? `last successful executor cycle · run #${executionSelection.run.runNumber} · release ${(approved.sha ?? "").slice(0, 12)}`
-                : "last successful executor cycle",
+                ? `executor record from last successful workflow · run #${executionSelection.run.runNumber} · release ${(approved.sha ?? "").slice(0, 12)}`
+                : "executor record from last successful workflow",
               asOf: executionSelection.lastRun.completedAt,
               now,
               freshness: classifyAge(
@@ -979,11 +979,12 @@ export async function buildStrategyStatus(input: {
               executionSelection.run
                 ? actionsRunUrl(executionSelection.run.id)
                 : null,
+              executionSelection.runtimeGeneration,
             ),
           )
         : unavailable<ExecutionInfo>(
             production.runtimeSource,
-            "last successful executor cycle",
+            "executor record from last successful workflow",
             executionSelection.errors[0] ?? "no executor run record is available",
           );
 

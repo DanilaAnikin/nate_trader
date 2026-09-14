@@ -23,6 +23,12 @@ from uuid import UUID
 MANIFEST_ENV = "PAPER_RUNTIME_HANDOFF_SHA256"
 HANDOFF_DIR = Path("production/handoff")
 SOURCE_FILES = ("performance.json", "positions.json", "production/last_run.json")
+MANIFEST_PATH = str(HANDOFF_DIR / "manifest.json")
+FIRST_HANDOFF_FILES = (
+    *SOURCE_FILES,
+    MANIFEST_PATH,
+    *(str(HANDOFF_DIR / "source" / name) for name in SOURCE_FILES),
+)
 # A Sunday approval can reach Monday's normal cycle without an order dispatch
 # solely to activate the transfer. Source age/latestness are separate checks.
 MAX_BOOTSTRAP_WINDOW_SECONDS = 48 * 60 * 60
@@ -137,6 +143,8 @@ def validate_manifest(
     """Validate exact external approval, target release, and bootstrap deadline."""
     _require(_sha(pin) and digest(raw) == pin, "manifest_pin")
     manifest = read_object(raw)
+    version = manifest.get("schema_version")
+    extra = {"prior_handoff"} if version == 2 else set()
     _require(
         _keys(
             manifest,
@@ -150,17 +158,24 @@ def validate_manifest(
                 "plan",
                 "issued_at",
                 "expires_at",
-            },
+            }
+            | extra,
         ),
         "manifest_fields",
     )
     _require(
         type(manifest["schema_version"]) is int
-        and manifest["schema_version"] == 1
+        and manifest["schema_version"] in (1, 2)
         and manifest["kind"] == "v11_paper_runtime_handoff",
         "manifest_kind",
     )
     source, target, plan = manifest["source"], manifest["target"], manifest["plan"]
+    if version == 2:
+        _require(
+            _keys(manifest["prior_handoff"], {"manifest_sha256"})
+            and _sha(manifest["prior_handoff"]["manifest_sha256"]),
+            "prior_handoff_pin",
+        )
     _require(
         _keys(
             source,
@@ -223,7 +238,7 @@ def validate_manifest(
         "source_ids",
     )
     _require(
-        _keys(source["files"], set(SOURCE_FILES))
+        _keys(source["files"], set(source_file_names(manifest)))
         and all(_sha(value) for value in source["files"].values()),
         "source_file_digests",
     )
@@ -251,6 +266,66 @@ def validate_manifest(
     return manifest
 
 
+def source_file_names(manifest: dict) -> tuple[str, ...]:
+    """Exactly one prior handoff may be retained; no recursive unbounded chain."""
+    return FIRST_HANDOFF_FILES if manifest.get("schema_version") == 2 else SOURCE_FILES
+
+
+def _attempt_continuity(original: dict, current: dict) -> None:
+    _require(
+        set(original["order_attempts"]) <= set(current["order_attempts"]),
+        "original_attempt_missing",
+    )
+    for key, old in original["order_attempts"].items():
+        new = current["order_attempts"][key]
+        _require(new["attempt"] >= old["attempt"], "attempt_counter_regressed")
+        _require(
+            all(
+                new[field] == old[field]
+                for field in ("symbol", "side", "quantity", "target_weight")
+            ),
+            "changed_existing_intent",
+        )
+        if new["attempt"] == old["attempt"]:
+            _require(
+                new["client_order_id"] == old["client_order_id"]
+                and (not old.get("order_id") or new.get("order_id") == old["order_id"]),
+                "changed_existing_attempt",
+            )
+
+
+def prior_source(manifest: dict, files: dict[str, bytes]) -> tuple[dict, dict] | None:
+    """Verify original first-hop evidence under the new externally bound pin."""
+    if manifest["schema_version"] == 1:
+        return None
+    raw = files[MANIFEST_PATH]
+    candidate = read_object(raw)
+    _require(candidate.get("schema_version") == 1, "handoff_depth_exceeded")
+    prior = validate_manifest(
+        raw,
+        manifest["prior_handoff"]["manifest_sha256"],
+        target_sha=manifest["source"]["release_sha"],
+        target_identity=candidate.get("target", {}).get("strategy_identity", ""),
+        universe_sha=manifest["ranking_universe_sha256"],
+        bootstrap=False,
+    )
+    _require(
+        prior["paper_account_sha256"] == manifest["paper_account_sha256"],
+        "prior_account_binding",
+    )
+    _require(
+        prior["source"]["strategy_identity"] == manifest["source"]["strategy_identity"]
+        and prior["plan"]["immutable_sha256"] == manifest["plan"]["immutable_sha256"]
+        and prior["plan"]["plan_id"] == manifest["plan"]["plan_id"],
+        "prior_plan_binding",
+    )
+    original = validate_source(
+        prior,
+        {name: files[str(HANDOFF_DIR / "source" / name)] for name in SOURCE_FILES},
+    )
+    return prior, original
+
+
 def validate_source(
     manifest: dict,
     files: dict[str, bytes],
@@ -260,15 +335,26 @@ def validate_source(
 ) -> dict:
     """Check original file bytes and every original plan/intent/client-order ID."""
     from execute_trades import _adaptive_pending_plan_structure_valid
+    from runtime_generation import RuntimeGenerationError, validate_runtime_generation
 
-    _require(set(files) == set(SOURCE_FILES), "source_files")
+    names = source_file_names(manifest)
+    _require(set(files) == set(names), "source_files")
     _require(
-        all(
-            digest(files[name]) == manifest["source"]["files"][name]
-            for name in SOURCE_FILES
-        ),
+        all(digest(files[name]) == manifest["source"]["files"][name] for name in names),
         "source_file_integrity",
     )
+    try:
+        generation = validate_runtime_generation(files)
+    except RuntimeGenerationError:
+        raise HandoffError(
+            "paper runtime handoff refused: source_runtime_generation"
+        ) from None
+    if generation is not None:
+        _require(
+            generation["github_run_id"] == manifest["source"]["run_id"]
+            and generation["github_run_attempt"] == 1,
+            "source_generation_run",
+        )
     performance, positions, last_run = (
         read_object(files[name]) for name in SOURCE_FILES
     )
@@ -324,6 +410,9 @@ def validate_source(
         and len({record["client_order_id"] for record in attempts}) == len(attempts),
         "duplicate_source_order",
     )
+    prior = prior_source(manifest, files)
+    if prior is not None:
+        _attempt_continuity(prior[1], plan)
     return plan
 
 
@@ -355,7 +444,10 @@ def load_handoff(
         )
         original = validate_source(
             manifest,
-            {name: (path / "source" / name).read_bytes() for name in SOURCE_FILES},
+            {
+                name: (path / "source" / name).read_bytes()
+                for name in source_file_names(manifest)
+            },
         )
         return manifest, original, _load_state(state_dir)
     except OSError:
@@ -707,7 +799,16 @@ def paper_handoff_context():
             # actual target run may have legitimately completed it or exited.
             _target_run_record(STATE_DIR, manifest)
             _require(_completion_record(performance, original), "carried_plan_missing")
-        reconcile_broker(_get_client(), manifest, original, carried)
+        client = _get_client()
+        if manifest["schema_version"] == 2:
+            sources = {
+                name: (STATE_DIR / HANDOFF_DIR / "source" / name).read_bytes()
+                for name in source_file_names(manifest)
+            }
+            prior = prior_source(manifest, sources)
+            _require(prior is not None, "prior_handoff_required")
+            reconcile_broker(client, prior[0], prior[1], carried)
+        reconcile_broker(client, manifest, original, carried)
         if carried is not None:
             _AUTHORIZATION.set(manifest)
         yield

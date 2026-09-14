@@ -147,9 +147,11 @@ in the public runner log before the encrypted Python output capture starts.
 On 2026-09-13 the `live-production` environment was created and verified with
 DanilaAnikin as required reviewer and protected deployment branches only.
 The live capability switch and explicit spending limits are configured.
-A live account and its separate credentials still have to be connected and
-verified before an immutable live release is approved or a live preflight runs.
-No real-money cycle has been dispatched by this setup.
+The live account was subsequently connected through the authenticated dashboard.
+That connection does not provision the separate workflow credentials or approve
+an immutable live release. Verify those bindings again before any live preflight.
+No real-money cycle has been dispatched by this setup. The capital budget is an
+upper limit, not a required deposit; paper validation can continue without funding.
 
 ### First live state and private records
 

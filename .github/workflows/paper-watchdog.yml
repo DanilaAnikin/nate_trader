@@ -1,0 +1,28 @@
+name: V11 Paper Watchdog
+
+on:
+  schedule:
+    # Independent delayed checks recover a missed primary 15:05 UTC dispatch.
+    - cron: "35 15-19 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: nate-trader-paper-watchdog
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  paper-cadence:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted watchdog source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Recover only a missing paper session
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 ops/paper_cadence.py recover

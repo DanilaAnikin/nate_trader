@@ -211,6 +211,8 @@ export function buildPayload(
       "github-actions artifact paper-runtime-state (server-only)",
       "last successful executor cycle",
       {
+        cycleOutcome: null,
+        runtimeGeneration: "LEGACY_UNVERIFIED" as const,
         status: "PASS" as const,
         completedAt: "2026-08-07T16:05:05Z",
         releaseSha: APPROVED_SHA,
