@@ -1410,6 +1410,9 @@ def test_completed_month_below_sma_preserves_graduated_book_but_hard_gate_exits(
     if floor:
         assert result == []
         assert execute_trades.ADAPTIVE_PENDING_PLAN_KEY not in perf
+        assert execute_trades._EXECUTION_CYCLE_OUTCOME.get() == {
+            "schema_version": 1, "state": "idle", "reason": "no_rebalance_due",
+        }
     else:
         assert any(item["action"] == "DRY_RUN_ADAPTIVE_EXIT" for item in result)
 
@@ -1740,6 +1743,9 @@ def test_pending_plan_freezes_signal_and_completes_only_from_filled_positions(
     assert result[-1]["action"] == "ADAPTIVE_REBALANCE_COMPLETE"
     assert execute_trades.ADAPTIVE_PENDING_PLAN_KEY not in perf
     assert perf["last_momentum_targets"] == {"AAA": 0.09}
+    assert execute_trades._EXECUTION_CYCLE_OUTCOME.get() == {
+        "schema_version": 1, "state": "completed", "reason": "rebalance_complete",
+    }
 
 
 def test_closed_entry_gate_does_not_persist_an_unbuyable_risk_on_plan(monkeypatch):
@@ -1753,6 +1759,9 @@ def test_closed_entry_gate_does_not_persist_an_unbuyable_risk_on_plan(monkeypatc
 
     assert result[0]["action"] == "ADAPTIVE_PLAN_DEFERRED"
     assert execute_trades.ADAPTIVE_PENDING_PLAN_KEY not in perf
+    assert execute_trades._EXECUTION_CYCLE_OUTCOME.get() == {
+        "schema_version": 1, "state": "blocked", "reason": "exposure_gate_closed",
+    }
 
 
 @pytest.mark.parametrize("stale_reason", ["prior_month", "old_identity"])
@@ -2211,6 +2220,9 @@ def test_rejected_buy_keeps_pending_plan_and_never_marks_month_complete(monkeypa
     assert any(item["action"] == "REJECTED" for item in result)
     assert execute_trades.ADAPTIVE_PENDING_PLAN_KEY in perf
     assert "last_momentum_rebal_ym" not in perf
+    assert execute_trades._EXECUTION_CYCLE_OUTCOME.get() == {
+        "schema_version": 1, "state": "blocked", "reason": "exposure_gate_closed",
+    }
 
 
 def test_adaptive_buy_rechecks_fresh_market_clock_after_planning(monkeypatch):
@@ -2376,6 +2388,9 @@ def test_open_order_prevents_completion_until_fill_is_observed(monkeypatch):
         item["action"] == "ADAPTIVE_REBALANCE_COMPLETE" for item in result
     )
     assert execute_trades.ADAPTIVE_PENDING_PLAN_KEY in perf
+    assert execute_trades._EXECUTION_CYCLE_OUTCOME.get() == {
+        "schema_version": 1, "state": "pending", "reason": "orders_pending",
+    }
 
 
 def test_halt_cancels_pending_directional_buy_before_zero_target_exit(monkeypatch):

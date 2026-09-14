@@ -3,6 +3,8 @@
 import { integer } from "@/lib/status/client";
 import type { StrategyStatusPayload, WorkflowAttemptInfo } from "@/lib/status/types";
 import PageState from "./status/PageState";
+import { CycleOutcomeSummary, SnapshotIntegrity } from "./status/CycleOutcomeSummary";
+import PaperCadenceNotice from "./status/PaperCadenceNotice";
 import { Disclosure } from "./status/charts";
 import {
   Dash,
@@ -199,7 +201,7 @@ function SchedulerPanel({ payload }: { payload: StrategyStatusPayload }) {
   return (
     <Panel
       title={payload.accountMode === "live" ? "Manual live workflow" : "Scheduler"}
-      subtitle="The latest attempt and the last successful cycle are separate facts."
+      subtitle="Workflow completion and the executor's cycle outcome are separate facts."
       actions={
         operations && (
           <a
@@ -214,11 +216,12 @@ function SchedulerPanel({ payload }: { payload: StrategyStatusPayload }) {
       }
       provenance={payload.operations.provenance}
     >
+      <PaperCadenceNotice payload={payload} />
       {operations?.latestAttempt || operations?.lastSuccessfulRun ? (
         <TableScroll>
           <table className="data">
             <caption className="sr-only">
-              Latest {payload.accountMode}-production attempt and last successful cycle
+              Latest {payload.accountMode}-production attempt and last successful workflow
             </caption>
             <thead>
               <tr>
@@ -377,8 +380,8 @@ function ExecutionPanel({ payload }: { payload: StrategyStatusPayload }) {
   const convergence = payload.convergence.data;
   return (
     <Panel
-      title="Last successful executor cycle"
-      subtitle="Sanitized action counts. Submission is intent, never proof of a fill."
+      title="Last available executor record"
+      subtitle="The cycle outcome is separate from executor health. Submission is intent, never proof of a fill."
       actions={
         execution?.runUrl && (
           <a
@@ -397,12 +400,16 @@ function ExecutionPanel({ payload }: { payload: StrategyStatusPayload }) {
         <>
           <div className="grid gap-x-8 md:grid-cols-2">
             <FactList>
-              <Fact label="Result">
+              <Fact label="Cycle outcome">
+                <CycleOutcomeSummary execution={execution} />
+              </Fact>
+              <Fact label="Executor health">
                 <StatePill size="xs" state={execution.status} />
               </Fact>
-              <Fact label="Completed">
+              <Fact label="Record written">
                 <Timestamp iso={execution.completedAt} />
               </Fact>
+              <Fact label="Snapshot integrity"><SnapshotIntegrity execution={execution} /></Fact>
               <Fact label="Release SHA of the cycle" mono>
                 <Sha value={execution.releaseSha} />
               </Fact>

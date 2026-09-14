@@ -8,11 +8,14 @@ import {
 import { parsePositionsRuntime } from "./positions";
 import type { AccountMode, FrozenPlanInfo } from "./types";
 import { listZipEntries, readJsonEntries, readZipEntry } from "./zip";
+import { verifyRuntimeGeneration } from "./runtime-generation";
+import type { RuntimeGenerationStatus } from "./cycle-outcome";
 
 const SOURCE_FILES = ["performance.json", "positions.json", "production/last_run.json"] as const;
 const MANIFEST = "production/handoff/manifest.json";
 const SOURCE_PREFIX = "production/handoff/source/";
 const HANDOFF_FILES = [...SOURCE_FILES, MANIFEST, ...SOURCE_FILES.map((name) => SOURCE_PREFIX + name)];
+const SECOND_HANDOFF_FILES = [...SOURCE_FILES, MANIFEST, ...HANDOFF_FILES.map((name) => SOURCE_PREFIX + name)];
 const SHA = /^[0-9a-f]{64}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -186,34 +189,50 @@ export function verifiedCarriedPlanIdentity(
 }
 
 export interface RuntimeArchiveContext {
+  readonly expectedRun?: { readonly id: number; readonly attempt: number };
   readonly approvedReleaseSha: string;
   readonly mode: AccountMode;
   readonly pin?: string;
   readonly validated?: { readonly strategyIdentity: string | null; readonly universeSha256: string | null } | null;
 }
 
-/** Exact legacy three-file archive, or complete externally pinned seven-file
- * archive. The pin is server configuration, never an archive field. */
-export function readRuntimeArchive(zip: Buffer, context: RuntimeArchiveContext): {
+interface RuntimeArchive {
   entries: Record<string, unknown>;
   performance: PerformanceRuntimeSnapshot | null;
   runtimeHandoff: VerifiedRuntimeHandoff | null;
-} {
+  runtimeGeneration: RuntimeGenerationStatus;
+}
+
+/** Exact 3/7/11-file archive. The outer pin is server configuration; a second
+ * handoff additionally authenticates the complete, unchanged prior evidence. */
+export function readRuntimeArchive(zip: Buffer, context: RuntimeArchiveContext): RuntimeArchive {
   const listed = listZipEntries(zip);
   const hasHandoff = listed.some((entry) => entry.name.startsWith("production/handoff/"));
+  // Preserve the established strict three-file ZIP membership/size boundary.
+  if (!hasHandoff) readJsonEntries(zip, SOURCE_FILES);
+  const raw = Object.fromEntries(listed.map((entry) => [entry.name, readZipEntry(zip, entry)]));
+  return readRuntimeObjects(raw, context);
+}
+
+function readRuntimeObjects(raw: Record<string, Buffer>, context: RuntimeArchiveContext): RuntimeArchive {
+  const names = Object.keys(raw);
+  const hasHandoff = names.some((name) => name.startsWith("production/handoff/"));
   if (!hasHandoff) {
     requireThat(!(context.mode === "paper" && context.pin), "handoff_evidence_missing");
-    const entries = readJsonEntries(zip, SOURCE_FILES);
-    return { entries, performance: parsePerformanceRuntime(entries["performance.json"]), runtimeHandoff: null };
+    requireThat(isDeepStrictEqual(names.sort(), [...SOURCE_FILES].sort()), "archive_entries");
+    const entries = Object.fromEntries(SOURCE_FILES.map((name) => [name, strictObject(raw[name])]));
+    const runtimeGeneration = verifyRuntimeGeneration(entries, raw, context.expectedRun);
+    return { entries, performance: parsePerformanceRuntime(entries["performance.json"]), runtimeHandoff: null, runtimeGeneration };
   }
   requireThat(context.mode === "paper", "paper_mode_required");
   requireThat(sha(context.pin), "manifest_pin_missing");
-  requireThat(isDeepStrictEqual(listed.map((entry) => entry.name).sort(), [...HANDOFF_FILES].sort()), "archive_entries");
-  const raw = Object.fromEntries(listed.map((entry) => [entry.name, readZipEntry(zip, entry)]));
+  requireThat(Buffer.isBuffer(raw[MANIFEST]), "archive_entries");
   requireThat(digest(raw[MANIFEST]) === context.pin, "manifest_pin");
   const manifest = strictObject(raw[MANIFEST]);
-  requireThat(keys(manifest, ["schema_version", "kind", "source", "target", "paper_account_sha256", "ranking_universe_sha256", "plan", "issued_at", "expires_at"]) &&
-    manifest.schema_version === 1 && manifest.kind === "v11_paper_runtime_handoff", "manifest_fields");
+  const secondHandoff = manifest.schema_version === 2;
+  requireThat(keys(manifest, ["schema_version", "kind", "source", "target", "paper_account_sha256", "ranking_universe_sha256", "plan", "issued_at", "expires_at", ...(secondHandoff ? ["prior_handoff"] : [])]) &&
+    (manifest.schema_version === 1 || secondHandoff) && manifest.kind === "v11_paper_runtime_handoff", "manifest_fields");
+  requireThat(isDeepStrictEqual(names.sort(), [...(secondHandoff ? SECOND_HANDOFF_FILES : HANDOFF_FILES)].sort()), "archive_entries");
   const { source, target, plan } = manifest;
   requireThat(keys(source, ["release_sha", "strategy_identity", "run_id", "artifact_id", "artifact_sha256", "files"]) &&
     keys(target, ["release_sha", "strategy_identity"]) &&
@@ -234,13 +253,34 @@ export function readRuntimeArchive(zip: Buffer, context: RuntimeArchiveContext):
   requireThat(Number.isFinite(issued) && Number.isFinite(expires) && expires > issued && expires - issued <= 48 * 60 * 60 * 1000, "bootstrap_window");
   // This is an already produced target artifact. Bootstrap expiry/source age
   // must not invalidate its immutable evidence weeks after a valid adoption.
-  requireThat(keys(source.files, SOURCE_FILES), "source_files");
+  const sourceNames = secondHandoff ? HANDOFF_FILES : SOURCE_FILES;
+  requireThat(keys(source.files, sourceNames), "source_files");
   const originals: Record<string, Record<string, unknown>> = {};
-  for (const name of SOURCE_FILES) {
+  const originalRaw: Record<string, Buffer> = {};
+  for (const name of sourceNames) {
     requireThat(sha(source.files[name]) && digest(raw[SOURCE_PREFIX + name]) === source.files[name], "source_file_integrity");
-    originals[name] = strictObject(raw[SOURCE_PREFIX + name]);
+    originalRaw[name] = raw[SOURCE_PREFIX + name];
+    originals[name] = strictObject(originalRaw[name]);
+  }
+  if (secondHandoff) {
+    requireThat(keys(manifest.prior_handoff, ["manifest_sha256"]) && sha(manifest.prior_handoff.manifest_sha256), "prior_handoff_pin");
+    const prior = originals[MANIFEST];
+    requireThat(prior.schema_version === 1 && isRecord(prior.source) && isRecord(prior.target) && isRecord(prior.plan), "prior_handoff_version");
+    requireThat(prior.target.release_sha === source.release_sha && prior.source.strategy_identity === source.strategy_identity &&
+      prior.paper_account_sha256 === manifest.paper_account_sha256 && prior.ranking_universe_sha256 === manifest.ranking_universe_sha256 &&
+      prior.plan.plan_id === plan.plan_id && prior.plan.immutable_sha256 === plan.immutable_sha256 &&
+      prior.plan.rebalance_month === plan.rebalance_month && sha(prior.target.strategy_identity), "prior_handoff_binding");
+    // Exactly one recursive verification is possible: the retained manifest
+    // must be v1, whose exact membership excludes another handoff layer.
+    readRuntimeObjects(originalRaw, {
+      mode: "paper", approvedReleaseSha: source.release_sha,
+      pin: manifest.prior_handoff.manifest_sha256,
+      validated: { strategyIdentity: prior.target.strategy_identity, universeSha256: manifest.ranking_universe_sha256 },
+      expectedRun: { id: source.run_id, attempt: 1 },
+    });
   }
   const sourceRun = originals["production/last_run.json"];
+  verifyRuntimeGeneration(originals, originalRaw, { id: source.run_id, attempt: 1 });
   requireThat(sourceRun.schema_version === 1 && sourceRun.kind === "v11_paper_production_run" &&
     sourceRun.paper_only === true && sourceRun.status === "PASS" && sourceRun.release_sha === source.release_sha &&
     parseLastRun(sourceRun) !== null && parsePositionsRuntime(originals["positions.json"]) !== null, "source_runtime");
@@ -254,6 +294,7 @@ export function readRuntimeArchive(zip: Buffer, context: RuntimeArchiveContext):
   // cannot recompute Python's 23.0/0.0/Unicode representation faithfully.
   attempts(original);
   const entries = Object.fromEntries(SOURCE_FILES.map((name) => [name, strictObject(raw[name])]));
+  const runtimeGeneration = verifyRuntimeGeneration(entries, raw, context.expectedRun);
   const currentRun = entries["production/last_run.json"];
   requireThat(currentRun.schema_version === 1 && currentRun.kind === "v11_paper_production_run" &&
     currentRun.paper_only === true && currentRun.release_sha === target.release_sha &&
@@ -280,5 +321,5 @@ export function readRuntimeArchive(zip: Buffer, context: RuntimeArchiveContext):
     planId: plan.plan_id,
   });
   verified.set(proof, { plan: performance.plan, snapshot: structuredClone(performance.plan), carried });
-  return { entries, performance, runtimeHandoff: proof };
+  return { entries, performance, runtimeHandoff: proof, runtimeGeneration };
 }

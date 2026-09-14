@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from runtime_handoff import (
+    FIRST_HANDOFF_FILES,
     MAX_BOOTSTRAP_WINDOW_SECONDS,
     SOURCE_FILES,
     HandoffError,
@@ -24,6 +25,7 @@ from runtime_handoff import (
     canonical_digest,
     digest,
     immutable_plan_digest,
+    prior_source,
     read_object,
     reconcile_broker,
     validate_manifest,
@@ -42,13 +44,19 @@ def build_manifest(
     target_identity: str,
     universe_sha: str,
     account_sha256: str,
+    prior_manifest_pin: str = "",
     now: datetime | None = None,
 ) -> dict:
     """Derive every frozen-plan field from source bytes, never operator edits."""
     now = now or datetime.now(timezone.utc)
+    if set(files) not in (set(SOURCE_FILES), set(FIRST_HANDOFF_FILES)):
+        raise HandoffError("paper runtime handoff refused: source_file_set")
+    chained = set(files) == set(FIRST_HANDOFF_FILES)
+    if bool(prior_manifest_pin) != chained:
+        raise HandoffError("paper runtime handoff refused: explicit_prior_pin_required")
     plan = read_object(files["performance.json"])["adaptive_rebalance_pending"]
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2 if chained else 1,
         "kind": "v11_paper_runtime_handoff",
         "source": {
             "release_sha": source_sha,
@@ -56,7 +64,7 @@ def build_manifest(
             "run_id": source_run_id,
             "artifact_id": source_artifact_id,
             "artifact_sha256": archive_sha256,
-            "files": {name: digest(files[name]) for name in SOURCE_FILES},
+            "files": {name: digest(files[name]) for name in sorted(files)},
         },
         "target": {"release_sha": target_sha, "strategy_identity": target_identity},
         "paper_account_sha256": account_sha256,
@@ -72,6 +80,8 @@ def build_manifest(
         .isoformat()
         .replace("+00:00", "Z"),
     }
+    if chained:
+        manifest["prior_handoff"] = {"manifest_sha256": prior_manifest_pin}
     raw = serialize_manifest(manifest)
     validate_manifest(
         raw,
@@ -157,8 +167,8 @@ def prepare(args, *, stdin=None) -> dict:
         with path.open("rb") as stream:
             archive = stream.read(20 * 1024 * 1024 + 1)
     files = parse_runtime_zip(archive)
-    if set(files) != set(SOURCE_FILES):
-        raise HandoffError("one original runtime without prior handoff required")
+    if set(files) not in (set(SOURCE_FILES), set(FIRST_HANDOFF_FILES)):
+        raise HandoffError("paper runtime handoff refused: handoff_depth_exceeded")
     identity = str(build_strategy_identity()["value"])
     universe = hash_symbol_universe(load_universe_symbols(held_symbols=[]))
     client = _get_client()
@@ -172,8 +182,12 @@ def prepare(args, *, stdin=None) -> dict:
         target_identity=identity,
         universe_sha=universe,
         account_sha256=account_digest(client.get_account().id),
+        prior_manifest_pin=getattr(args, "prior_manifest_sha256", ""),
     )
     original = validate_source(manifest, files)
+    prior = prior_source(manifest, files)
+    if prior is not None:
+        reconcile_broker(client, prior[0], prior[1], original)
     reconcile_broker(client, manifest, original, original)
     raw = serialize_manifest(manifest)
     descriptor = os.open(
@@ -206,6 +220,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-artifact-id", required=True, type=int)
     parser.add_argument("--target-sha", required=True)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--prior-manifest-sha256",
+        default="",
+        help="Previously externally approved first-hop manifest pin; required only for a second hop",
+    )
     args = parser.parse_args(argv)
     try:
         result = prepare(args)

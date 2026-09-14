@@ -23,11 +23,14 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from runtime_generation import RuntimeGenerationError, validate_runtime_generation
 from runtime_handoff import (
+    FIRST_HANDOFF_FILES,
     HANDOFF_DIR,
     SOURCE_FILES,
     digest,
     read_object,
+    source_file_names,
     validate_manifest,
     validate_source,
 )
@@ -45,6 +48,11 @@ MAX_PAGES = 10
 MANIFEST_PATH = str(HANDOFF_DIR / "manifest.json")
 ORIGINAL_PATHS = {str(HANDOFF_DIR / "source" / name): name for name in SOURCE_FILES}
 RUNTIME_FILES = set(SOURCE_FILES) | {MANIFEST_PATH} | set(ORIGINAL_PATHS)
+CHAINED_RUNTIME_FILES = (
+    set(SOURCE_FILES)
+    | {MANIFEST_PATH}
+    | {str(HANDOFF_DIR / "source" / name) for name in FIRST_HANDOFF_FILES}
+)
 
 
 class RestoreError(RuntimeError):
@@ -214,12 +222,14 @@ def parse_runtime_zip(raw: bytes) -> dict[str, bytes]:
                 if member.is_dir():
                     require(
                         mode in (0, stat.S_IFDIR)
-                        and any(path.startswith(name) for path in RUNTIME_FILES),
+                        and any(
+                            path.startswith(name) for path in CHAINED_RUNTIME_FILES
+                        ),
                         "archive_directory",
                     )
                     continue
                 require(
-                    mode in (0, stat.S_IFREG) and name in RUNTIME_FILES,
+                    mode in (0, stat.S_IFREG) and name in CHAINED_RUNTIME_FILES,
                     "archive_unexpected_file",
                 )
                 total += member.file_size
@@ -234,7 +244,10 @@ def parse_runtime_zip(raw: bytes) -> dict[str, bytes]:
                 files[name] = data
     except (zipfile.BadZipFile, NotImplementedError, RuntimeError, OSError):
         raise RestoreError("archive_invalid") from None
-    require(set(files) in (set(SOURCE_FILES), RUNTIME_FILES), "archive_file_set")
+    require(
+        set(files) in (set(SOURCE_FILES), RUNTIME_FILES, CHAINED_RUNTIME_FILES),
+        "archive_file_set",
+    )
     return files
 
 
@@ -459,7 +472,24 @@ def execution_lineage(last_run: dict, execution: dict) -> None:
     )
 
 
+def generation_run_lineage(files: dict[str, bytes], run: dict) -> None:
+    try:
+        marker = validate_runtime_generation(files)
+    except RuntimeGenerationError:
+        raise RestoreError("runtime_generation_invalid") from None
+    if marker is not None:
+        require(
+            marker["github_run_id"] == run["id"]
+            and marker["github_run_attempt"] == run["run_attempt"],
+            "runtime_generation_run",
+        )
+
+
 def validate_runtime(files: dict[str, bytes], release_sha: str) -> dict:
+    try:
+        validate_runtime_generation(files)
+    except RuntimeGenerationError:
+        raise RestoreError("runtime_generation_invalid") from None
     performance, positions, last_run = (
         read_object(files[name]) for name in SOURCE_FILES
     )
@@ -481,7 +511,10 @@ def validate_runtime(files: dict[str, bytes], release_sha: str) -> dict:
 
 
 def preserved_handoff(files: dict[str, bytes], context: Context, now: datetime) -> dict:
-    require(set(files) == RUNTIME_FILES, "preserved_handoff_incomplete")
+    require(
+        set(files) in (RUNTIME_FILES, CHAINED_RUNTIME_FILES),
+        "preserved_handoff_incomplete",
+    )
     manifest = validate_manifest(
         files[MANIFEST_PATH],
         context.manifest_pin,
@@ -491,7 +524,14 @@ def preserved_handoff(files: dict[str, bytes], context: Context, now: datetime) 
         bootstrap=False,
         now=now,
     )
-    original = {name: files[path] for path, name in ORIGINAL_PATHS.items()}
+    names = source_file_names(manifest)
+    expected = (
+        set(SOURCE_FILES)
+        | {MANIFEST_PATH}
+        | {str(HANDOFF_DIR / "source" / name) for name in names}
+    )
+    require(set(files) == expected, "preserved_handoff_file_set")
+    original = {name: files[str(HANDOFF_DIR / "source" / name)] for name in names}
     validate_source(manifest, original)
     return manifest
 
@@ -551,6 +591,7 @@ def restore(
         last_run = read_object(files["production/last_run.json"])
         if last_run.get("release_sha") == context.release_sha:
             validate_runtime(files, context.release_sha)
+            generation_run_lineage(files, run)
             execution_lineage(last_run, execution)
             if MANIFEST_PATH in files:
                 preserved_handoff(files, context, current)
@@ -587,12 +628,20 @@ def restore(
         run, execution = provenance.artifact(artifact, namespace, successful=True)
         require(run["id"] == manifest["source"]["run_id"], "source_run_id")
         files = checked_archive(api, artifact, manifest["source"]["artifact_sha256"])
-        require(set(files) == set(SOURCE_FILES), "source_nested_handoff")
+        require(set(files) == set(source_file_names(manifest)), "source_nested_handoff")
+        validate_runtime(files, namespace)
+        generation_run_lineage(files, run)
         validate_source(manifest, files, bootstrap=True, now=current)
         execution_lineage(read_object(files["production/last_run.json"]), execution)
         original = dict(files)
+        files = {name: original[name] for name in SOURCE_FILES}
         files[MANIFEST_PATH] = context.manifest_raw
-        files.update({path: original[name] for path, name in ORIGINAL_PATHS.items()})
+        files.update(
+            {
+                str(HANDOFF_DIR / "source" / name): data
+                for name, data in original.items()
+            }
+        )
         mode = "handoff"
 
     def recheck() -> None:

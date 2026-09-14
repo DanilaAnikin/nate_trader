@@ -1,5 +1,6 @@
 """Portfolio management — account, positions, P&L, state persistence."""
 
+import copy
 import math
 import sys
 from collections.abc import Mapping
@@ -19,6 +20,7 @@ from utils import (
     get_now_str,
     get_risk_tier,
     load_json,
+    load_json_object_status,
     save_json,
     setup_logging,
 )
@@ -248,8 +250,11 @@ def get_position_pnl(symbol: str) -> dict | None:
 
 def get_portfolio_performance() -> dict:
     """Get portfolio performance metrics."""
-    acct = get_account()
-    positions = get_positions()
+    return _portfolio_performance(get_account(), get_positions())
+
+
+def _portfolio_performance(acct: dict, positions: list[dict]) -> dict:
+    """Derive metrics from the same observations used for the positions file."""
     total_unrealized = sum(p["unrealized_pl"] for p in positions)
     return {
         "equity": acct["equity"],
@@ -277,8 +282,14 @@ def save_positions_state() -> None:
 
 def update_performance_state() -> None:
     """Update state/performance.json with current metrics."""
-    perf = load_json(PERFORMANCE_STATE)
-    current = get_portfolio_performance()
+    perf = build_performance_state(load_json(PERFORMANCE_STATE), get_portfolio_performance())
+    save_json(PERFORMANCE_STATE, perf)
+    log.info(f"Updated performance state (risk_tier={perf.get('risk_tier', 'NORMAL')})")
+
+
+def build_performance_state(previous: dict, current: dict) -> dict:
+    """Build the next observation while preserving frozen plan/intent metadata."""
+    perf = copy.deepcopy(previous)
 
     perf["equity"] = current["equity"]
     perf["cash"] = current["cash"]
@@ -344,8 +355,19 @@ def update_performance_state() -> None:
     perf["rolling_peak_equity"] = assessment.rolling_peak_equity
     perf["rolling_drawdown_pct"] = assessment.rolling_drawdown_pct
 
-    save_json(PERFORMANCE_STATE, perf)
-    log.info(f"Updated performance state (risk_tier={perf.get('risk_tier', 'NORMAL')})")
+    return perf
+
+
+def capture_portfolio_snapshot() -> tuple[dict, dict]:
+    """Read each broker resource once; prepare both files without publishing."""
+    account = get_account()
+    positions = get_positions()
+    current = _portfolio_performance(account, positions)
+    previous, error = load_json_object_status(PERFORMANCE_STATE)
+    if error is not None or not PERFORMANCE_STATE.is_file():
+        raise ValueError("performance state unavailable for runtime publication")
+    perf = build_performance_state(previous, current)
+    return perf, {"updated_at": current["updated_at"], "positions": positions}
 
 
 def print_account():

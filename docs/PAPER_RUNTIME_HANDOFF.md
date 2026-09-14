@@ -65,6 +65,12 @@ files, disable tracing and core dumps, and never print their contents.
    account identity or an inconsistent broker snapshot. Success prints only
    PASS, the manifest digest and attempt/target counts. It creates a compact JSON
    file without a trailing newline; those exact bytes must survive approval.
+   For the bounded second transfer described below, the source ZIP has exactly
+   seven files and this command also requires
+   `--prior-manifest-sha256 "$PREVIOUS_APPROVED_MANIFEST_SHA256"`. Obtain that
+   digest from the existing external approval and verify its stored manifest
+   body; do not derive a new approval from the archive's own manifest. Passing
+   this option for a three-file first transfer is refused.
 4. Review the resulting manifest against the intended source, final target,
    paper account and unchanged ranking universe. The source run must be no more
    than 96 hours old. Initial adoption has a maximum **48-hour** approval window
@@ -95,6 +101,14 @@ bytes. Verify the stored value's digest without printing the value. Configuring
 these variables is an explicit operator action; neither preparation nor restore
 does it automatically.
 
+Read and retain the expected old release, manifest bytes and digest before any
+update. For a second transfer, replace the existing manifest and digest, verify
+both readbacks, and set `PRODUCTION_RELEASE_SHA` **last**. Preserve every other
+variable. These API updates are not one transaction: an interrupted update must
+be inspected before retrying, and a temporarily mismatched release/pin must fail
+closed. Inspect the actual environment protection rules; branch protection alone
+does not imply a separate required-reviewer approval step.
+
 After approval, dispatch the existing `paper-production.yml` from the trusted
 default branch with **`operation=preflight`**. This checks out the exact approved
 release, restores the state under the shared concurrency lock, performs normal
@@ -104,8 +118,8 @@ preflight failures do not open GitHub incidents. The first actual cycle is the
 normal schedule, or a separately authorized **`operation=execute`** dispatch.
 
 Merging this workflow before promotion can intentionally pause the old approved
-executor: if that old checkout lacks `restore_paper_runtime.py`, restoration
-fails explicitly. There is no legacy seed fallback. Plan this controlled gap and
+executor: a checkout missing the new cadence, restoration or runtime-generation
+helper cannot satisfy the workflow. There is no legacy seed fallback. Plan this controlled gap and
 complete approval within the reviewed bootstrap window. Existing broker orders
 may fill during the gap; preparation and execution reconcile their actual state
 without inventing replacement intent.
@@ -181,15 +195,103 @@ CAUTIOUS halving with the original signal and constituents. Adoption never
 overrides the market gate, CAUTIOUS, HALT, or normal risk-reducing behavior.
 Historical performance/epoch fields and the original evidence remain intact.
 
-This is deliberately one source-to-target handoff. Preparing a second handoff
-from an already nested handoff artifact is refused; it is not an automatic
-multi-release migration mechanism. Do not strip the original evidence to work
-around that refusal.
+## Bounded second transfer
+
+A manifest with `schema_version: 2` can carry the same original unfinished plan
+from a genuine first-target runtime into one further approved release. Its
+source must contain the exact seven-file first-transfer archive above, with a
+truthful source-release `last_run`. The new manifest binds all seven raw files
+and adds `prior_handoff.manifest_sha256`, the separately approved first manifest
+digest. The embedded prior manifest must be version 1; a third transfer is
+refused. A completed or different native successor plan is not a substitute
+source for this procedure.
+
+The original account, ranking universe, plan identity and immutable plan fields
+must remain the same. Original attempt records cannot disappear, regress their
+counters or change their intent. Preparation and adoption reconcile both the
+original and the latest source attempts with fresh broker GETs. An advanced
+attempt requires evidence that the replaced order was canceled, expired or
+rejected; an active or filled original cannot justify that retry.
+
+The new active archive has exactly **eleven files**: the three unchanged current
+source files, the new `production/handoff/manifest.json`, and all seven source
+files preserved under `production/handoff/source/`. This retains the first
+manifest and its original snapshot one level deeper, byte for byte. The new
+external digest is required by both the workflow and the dashboard; it does not
+replace or rewrite the prior digest inside the retained evidence. Subsequent
+native publications keep all eleven files. Missing evidence cannot fall back to
+a seven-file archive or a repository seed.
 
 All files are staged before installation. A final source/latest-attempt check
 runs immediately before the state-directory swap; a failed swap restores the
 previous directory. API tokens stay in memory, Authorization is never forwarded
 to the signed download host, and the CLI prints only a fixed PASS/FAIL result.
+
+## Cycle results and coherent publication
+
+The producer's `status` describes process health. The additive
+`cycle_outcome` explicitly describes the trading cycle; neither a PASS nor a
+submitted-order count proves that orders filled.
+
+| Cycle state | Meaning | Producer health |
+| --- | --- | --- |
+| `completed` | The executor observed rebalance convergence | `PASS` |
+| `idle` | No rebalance is due | `PASS` |
+| `pending` | Orders, cancellation or reconciliation still need a later observation | `PASS` |
+| `blocked` | An exposure gate, incomplete path or execution guard stopped progress | `DEGRADED` |
+| `failed` | Execution, snapshot capture or publication failed | `FAIL` |
+
+Legacy reports without this field remain explicitly unknown; the dashboard does
+not infer completion from their health or action counts. Forward performance
+keeps its original epoch and account/release eligibility checks. A handoff does
+not manufacture an eligible history when those checks cannot establish one.
+
+New publications put a shared `runtime_generation_id` in both snapshot files and
+a `runtime_generation` record in `last_run`. That record binds their exact raw
+SHA-256 digests, release, GitHub run ID and attempt. The producer stages all three
+files and publishes `last_run` last. A partial replacement therefore fails byte
+verification instead of presenting mixed snapshots as a healthy generation.
+This proves file-publication coherence; it does not make separate broker HTTP
+reads atomic. A recovery snapshot is explicitly `FAIL`, preserves available
+intent, and makes no claim of a fresh portfolio observation.
+
+The paper workflow verifies the generation against its own current run before
+uploading runtime state:
+
+```bash
+python scripts/runtime_generation.py verify \
+  --require-generation --require-current-run --state-dir state
+```
+
+An early failure or skipped execution cannot upload a stale restored report.
+Restore and dashboard readers still accept entirely unmarked legacy snapshots
+under their existing lineage rules, with no new coherence proof. Once any new
+generation field appears, the complete contract and all byte hashes are required.
+
+## Missing-session watchdog
+
+The primary paper schedule remains 15:05 UTC on weekdays. A separate watchdog
+checks at 15:35 through 19:35 UTC and permits recovery only inside the weekday
+15:35–19:45 UTC window. It has no broker credentials and can dispatch only the
+existing paper workflow with `operation=execute` and `automated_recovery=true`.
+This is an automatic paper-order path through the ordinary protected release,
+restore, preflight and risk checks; enabling its workflow does not authorize live
+trading.
+
+Both scheduled and recovery executions use the same production concurrency
+group. The day guard runs before restoration and suppresses duplicate automatic
+sessions. Any actual execution attempt counts, including failed or canceled
+ones; the watchdog does not retry it or equate it with filled orders. A trusted,
+completed run whose execution step is explicitly `skipped` may repeat the
+read-only checks. Missing or ambiguous execution metadata stops recovery. This
+lets a late queued cron recover from a preceding read-only restore failure
+without discarding the latest-attempt checks in runtime restoration.
+
+`python ops/paper_cadence.py check` performs GitHub reads only. `recover` can
+dispatch a real paper cycle and is an operational mutation. An intentional
+manual `operation=execute` with `automated_recovery=false` is a separate operator
+decision and bypasses automatic day deduplication; do not use it as an acceptance
+probe.
 
 ## Acceptance evidence
 
@@ -198,7 +300,10 @@ and deployment tests, plus the target's required release checks. Key regressions
 must continue to pass: failed/DEGRADED latest target restoration, newer failed
 attempt without artifact refusal, preserved original source lineage, late
 queued execution detection, expired bootstrap refusal, native handoff after
-bootstrap expiry, source recheck races and ZIP/redirect rejection.
+bootstrap expiry, source recheck races and ZIP/redirect rejection. Also cover
+exact seven-to-eleven preservation, prior-pin and attempt continuity, a refused
+third transfer, partial generation writes, current-run upload binding and the
+late-cron/skipped-execution recovery race.
 
 During the September 13 review, read-only metadata checks passed for source run
 `34632965595`, artifact `10276747594`, repository ID `1219694107` and workflow ID

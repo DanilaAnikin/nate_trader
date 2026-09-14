@@ -11,6 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import { money, percent, points } from "@/lib/status/client";
+import type { PerformanceUnavailableReason } from "@/app/api/accounts/[id]/performance/route";
 import {
   Metric,
   MetricGrid,
@@ -21,7 +22,7 @@ import {
 import { useStrategyStatus } from "./status/StatusProvider";
 
 /**
- * V11 forward paper-validation performance.
+ * Account-scoped V11 forward performance.
  *
  * Shown only from a persisted, auditable V11 epoch baseline, using
  * cash-flow-adjusted time-weighted return over exactly the sessions the
@@ -29,6 +30,56 @@ import { useStrategyStatus } from "./status/StatusProvider";
  * history that predates the V11 cutover is never relabelled as V11 alpha, and
  * a deposit is never presented as profit.
  */
+function unavailableCopy(mode: "paper" | "live", reason: PerformanceUnavailableReason | null) {
+  const name = mode === "live" ? "Live" : "Paper";
+  if (reason === "NOT_PRODUCTION_VIEWER") {
+    return {
+      title: `${name} performance is not available for this account`,
+      guidance: mode === "live"
+        ? "Connecting a live account makes its broker balances available. It does not start a strategy performance record or enable trading. Paper performance belongs to the paper account."
+        : "V11 performance belongs to the verified production account. Select that account to view its measured results; this account's balances remain separate.",
+    };
+  }
+  if (reason === "NO_BASELINE") {
+    return {
+      title: mode === "live"
+        ? "No verified live performance window"
+        : "V11 forward performance unavailable — baseline not persisted",
+      guidance: mode === "live"
+        ? "Returns can be shown only after a verified live measurement window and shared account/benchmark observations exist. Connecting or funding an account alone does not establish that window."
+        : "Only observations inside a verified V11 measurement window count. Earlier account activity must not be relabelled as V11 performance.",
+    };
+  }
+  if (reason?.startsWith("BASELINE_")) {
+    return {
+      title: "Performance reference could not be verified",
+      guidance: "The saved measurement reference must agree with this account, release and observed history. Existing history is retained; no return is shown while that reference is unresolved.",
+    };
+  }
+  if (["NO_EQUITY_HISTORY", "NO_BENCHMARK_HISTORY", "NO_COMMON_SESSIONS"].includes(reason ?? "")) {
+    return {
+      title: "Not enough shared performance observations",
+      guidance: "Returns need account equity and benchmark prices for the same measured sessions, with external cash flows accounted for. Missing observations are not zero returns.",
+    };
+  }
+  if (reason === "APPROVED_RELEASE_UNKNOWN") {
+    return {
+      title: "Performance release could not be verified",
+      guidance: "The approved trading release must be readable before this account's measurement reference can be checked. Existing performance history is retained.",
+    };
+  }
+  if (reason === "NO_CREDENTIALS") {
+    return {
+      title: "Account connection is unavailable",
+      guidance: "Check this account's connection on the Accounts page. A missing connection is not evidence of a zero balance or a zero return.",
+    };
+  }
+  return {
+    title: "Forward performance unavailable",
+    guidance: "The recorded data is currently insufficient or could not be verified. No estimated return is substituted, and the existing measurement history is retained.",
+  };
+}
+
 export default function ForwardPerformancePanel() {
   // The panel does not fetch: it reads the performance slice the shared status
   // provider refreshes in the same cycle, so one Refresh click renews both
@@ -72,6 +123,7 @@ export default function ForwardPerformancePanel() {
 
   const { body } = state;
   if (body.status === "UNAVAILABLE" || !body.performance) {
+    const copy = unavailableCopy(mode, body.reason);
     return (
       <Panel
         title={title}
@@ -79,11 +131,7 @@ export default function ForwardPerformancePanel() {
       >
         <UnavailableBlock
           state="UNAVAILABLE"
-          title={
-            body.reason === "NO_BASELINE"
-              ? "V11 forward performance unavailable — baseline not persisted"
-              : "V11 forward performance unavailable"
-          }
+          title={copy.title}
           detail={body.detail ?? undefined}
           source={body.provenance.source}
         />
@@ -93,10 +141,7 @@ export default function ForwardPerformancePanel() {
           </p>
         )}
         <p className="mt-3 text-xs text-secondary max-w-prose">
-          All-time account equity contains pre-V11 (V10 / TQQQ / UPRO) history
-          and must not be relabelled as V11 performance. Record an epoch
-          baseline containing the approved release SHA, start time, starting
-          equity and the benchmark baseline close to enable this panel.
+          {copy.guidance}
         </p>
       </Panel>
     );

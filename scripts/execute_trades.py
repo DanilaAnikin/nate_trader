@@ -61,6 +61,16 @@ ADAPTIVE_RISK_OFF_LATCH_KEY = "adaptive_risk_off_latched"
 _EXECUTION_RISK_TIER: ContextVar[str | None] = ContextVar(
     "execution_risk_tier", default=None
 )
+_EXECUTION_CYCLE_OUTCOME: ContextVar[dict | None] = ContextVar(
+    "execution_cycle_outcome", default=None
+)
+
+
+def _record_cycle_outcome(state: str, reason: str) -> None:
+    """Record an explicit control-flow observation, never infer fills from counts."""
+    from runtime_generation import cycle_outcome
+
+    _EXECUTION_CYCLE_OUTCOME.set(cycle_outcome(state, reason))
 
 
 def _is_infrastructure(symbol: str) -> bool:
@@ -1253,6 +1263,7 @@ def _cancel_selected_orders_and_wait(
 
     if not selected:
         return []
+    _record_cycle_outcome("pending", "cancellation_pending")
     if dry_run:
         return [
             {
@@ -1378,6 +1389,7 @@ def _cancel_buy_orders_and_wait(
 def _cancel_all_orders_fail_closed(*, dry_run: bool, reason: str) -> list[dict]:
     """Emergency boundary when the broker order book cannot be normalized."""
 
+    _record_cycle_outcome("pending", "cancellation_pending")
     if dry_run:
         return [{"action": "DRY_RUN_CANCEL_ALL_ORDERS", "reason": reason}]
     try:
@@ -2399,6 +2411,7 @@ def _manage_adaptive_momentum_picks(
         open_orders_snapshot=open_orders,
     )
     if short_reconciliation:
+        _record_cycle_outcome("pending", "short_reconciliation")
         return short_reconciliation
 
     try:
@@ -2586,6 +2599,7 @@ def _manage_adaptive_momentum_picks(
             seen_cancel_ids.add(order_id)
 
     if cancellations:
+        _record_cycle_outcome("pending", "cancellation_pending")
         results = []
         if dry_run:
             return [
@@ -2691,6 +2705,7 @@ def _manage_adaptive_momentum_picks(
             or str(order.get("client_order_id")) in plan_client_ids
         ]
         if active_plan_orders:
+            _record_cycle_outcome("pending", "orders_pending")
             return [
                 {
                     "action": "STALE_PLAN_PENDING_ORDERS",
@@ -2783,6 +2798,7 @@ def _manage_adaptive_momentum_picks(
         # signal indefinitely.  Defer the monthly plan until exposure is
         # actually authorized; HALT/SMA risk-off is handled above and remains
         # immediately actionable.
+        _record_cycle_outcome("blocked", "exposure_gate_closed")
         return [
             {
                 "action": "ADAPTIVE_PLAN_DEFERRED",
@@ -2832,6 +2848,10 @@ def _manage_adaptive_momentum_picks(
             and not risk_on_reentry_ready
         ):
             log.info(f"Adaptive momentum rebalance already completed for {today_ym}")
+            _record_cycle_outcome(
+                "pending" if open_orders else "idle",
+                "orders_pending" if open_orders else "no_rebalance_due",
+            )
             return []
         else:
             # Ranking universe is exactly the validated snapshot/fallback.
@@ -2996,6 +3016,8 @@ def _manage_adaptive_momentum_picks(
     submitted_sells = False
     submitted_buys = False
     blocking_failure = False
+    lifecycle_pending = False
+    exposure_blocked = False
 
     # Sell and trim first. These risk-reducing actions remain available even
     # when the market clock blocks new exposure.
@@ -3072,6 +3094,7 @@ def _manage_adaptive_momentum_picks(
             if client_order_id is None:
                 results.append({"symbol": symbol, "action": lifecycle})
                 blocking_failure = True
+                lifecycle_pending = True
                 continue
             order = place_limit_order(
                 symbol,
@@ -3119,6 +3142,7 @@ def _manage_adaptive_momentum_picks(
             }
         )
     elif target_weights and not allow_new_exposure:
+        exposure_blocked = True
         results.extend(_entry_gate_blocked())
     elif target_weights:
         cash_reserve = equity * (float(params.get("min_cash_pct", 10.0)) / 100.0)
@@ -3175,6 +3199,7 @@ def _manage_adaptive_momentum_picks(
                     }
                 )
                 blocking_failure = True
+                exposure_blocked = True
                 continue
             if dry_run:
                 results.append(
@@ -3204,6 +3229,7 @@ def _manage_adaptive_momentum_picks(
                             }
                         )
                         blocking_failure = True
+                        exposure_blocked = True
                         break
                     # Universe/history planning can exceed the original
                     # 120-second clock lease.  Reauthorize every exposure-
@@ -3218,6 +3244,7 @@ def _manage_adaptive_momentum_picks(
                             }
                         )
                         blocking_failure = True
+                        exposure_blocked = True
                         break
                     client_order_id, lifecycle = _reserve_adaptive_client_order_id(
                         perf,
@@ -3230,6 +3257,7 @@ def _manage_adaptive_momentum_picks(
                     if client_order_id is None:
                         results.append({"symbol": symbol, "action": lifecycle})
                         blocking_failure = True
+                        lifecycle_pending = True
                         continue
                     order = place_limit_order(
                         symbol,
@@ -3302,6 +3330,15 @@ def _manage_adaptive_momentum_picks(
                 "plan_id": pending_plan["plan_id"],
             }
         )
+        _record_cycle_outcome("completed", "rebalance_complete")
+    elif exposure_blocked:
+        _record_cycle_outcome("blocked", "exposure_gate_closed")
+    elif orders_pending or lifecycle_pending:
+        _record_cycle_outcome("pending", "orders_pending")
+    elif blocking_failure:
+        _record_cycle_outcome("blocked", "execution_error")
+    else:
+        _record_cycle_outcome("pending", "convergence_pending")
     return results
 
 
@@ -4805,7 +4842,7 @@ def _infrastructure_migration_status() -> dict:
     }
 
 
-def run_execution(dry_run: bool = False) -> dict:
+def run_execution(dry_run: bool = False, *, persist_portfolio: bool = True) -> dict:
     """Capture one fresh risk tier, then use it consistently for this run."""
 
     if not dry_run:
@@ -4813,22 +4850,34 @@ def run_execution(dry_run: bool = False) -> dict:
     from runtime_handoff import paper_handoff_context
 
     # A failed handoff cannot reach even the mutating short/BUY preflights.
-    with paper_handoff_context():
-        risk_snapshot = _capture_execution_risk_snapshot()
-        token = _EXECUTION_RISK_TIER.set(str(risk_snapshot["tier"]))
-        try:
-            return _run_execution_with_risk_snapshot(
-                dry_run=dry_run,
-                risk_snapshot=risk_snapshot,
-            )
-        finally:
-            _EXECUTION_RISK_TIER.reset(token)
+    outcome_token = _EXECUTION_CYCLE_OUTCOME.set(None)
+    try:
+        with paper_handoff_context():
+            risk_snapshot = _capture_execution_risk_snapshot()
+            token = _EXECUTION_RISK_TIER.set(str(risk_snapshot["tier"]))
+            try:
+                result = _run_execution_with_risk_snapshot(
+                    dry_run=dry_run,
+                    risk_snapshot=risk_snapshot,
+                    persist_portfolio=persist_portfolio,
+                )
+                from runtime_generation import cycle_outcome
+
+                result["cycle_outcome"] = _EXECUTION_CYCLE_OUTCOME.get() or cycle_outcome(
+                    "blocked", "execution_incomplete"
+                )
+                return result
+            finally:
+                _EXECUTION_RISK_TIER.reset(token)
+    finally:
+        _EXECUTION_CYCLE_OUTCOME.reset(outcome_token)
 
 
 def _run_execution_with_risk_snapshot(
     *,
     dry_run: bool,
     risk_snapshot: dict,
+    persist_portfolio: bool = True,
 ) -> dict:
     """Main execution routine — full sequence of trade logic.
 
@@ -4849,6 +4898,7 @@ def _run_execution_with_risk_snapshot(
         else []
     )
     if short_preflight:
+        _record_cycle_outcome("pending", "short_reconciliation")
         reason = (
             "V11 short-position reconciliation blocks every other strategy "
             "action until a fresh broker snapshot is flat"
@@ -4958,6 +5008,7 @@ def _run_execution_with_risk_snapshot(
         else []
     )
     if buy_preflight:
+        _record_cycle_outcome("pending", "cancellation_pending")
         reason = (
             "V11 open-BUY reconciliation blocks every other strategy action "
             "until a fresh broker snapshot confirms the boundary"
@@ -4996,6 +5047,7 @@ def _run_execution_with_risk_snapshot(
         else []
     )
     if infrastructure_preflight:
+        _record_cycle_outcome("pending", "infrastructure_reconciliation")
         allow_new_exposure = False
         log.warning(
             "Legacy infrastructure BUY cancellation requires an invocation boundary"
@@ -5171,8 +5223,9 @@ def _run_execution_with_risk_snapshot(
 
     if not dry_run:
         from portfolio import save_positions_state, update_performance_state
-        save_positions_state()
-        update_performance_state()
+        if persist_portfolio:
+            save_positions_state()
+            update_performance_state()
 
         # Sync metadata with reality (in case Alpaca closed positions externally)
         try:

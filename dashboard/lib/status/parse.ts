@@ -24,6 +24,7 @@ import type {
 import { normalizeInstant, runnerZoneDate } from "./vocab";
 import { isCalendarDate } from "@/lib/calendar-date";
 import { ACTION_NAME_PATTERN, classifyAction, isBlockingAction } from "./actions";
+import { outcomeMatchesHealth, parseCycleOutcome, parseRuntimeGeneration, type CycleOutcome, type RuntimeGenerationStatus } from "./cycle-outcome";
 
 const RISK_TIERS = new Set<RiskTier>(["NORMAL", "CAUTIOUS", "HALT"]);
 
@@ -81,6 +82,7 @@ export type LastRunContradiction =
   | "NON_V11_ACTION";
 
 export interface LastRunSnapshot {
+  readonly cycleOutcome: CycleOutcome | null;
   readonly completedAt: string | null;
   readonly releaseSha: string | null;
   readonly strategyVersion: string;
@@ -124,6 +126,12 @@ export function parseLastRun(value: unknown): LastRunSnapshot | null {
   if (status !== "PASS" && status !== "DEGRADED" && status !== "FAIL") {
     return null;
   }
+  const hasOutcome = Object.hasOwn(value, "cycle_outcome") || Object.hasOwn(value, "runtime_generation");
+  const cycleOutcome = parseCycleOutcome(value.cycle_outcome);
+  const generation = parseRuntimeGeneration(value.runtime_generation);
+  if (hasOutcome && (!cycleOutcome || !generation || !outcomeMatchesHealth(cycleOutcome, status) ||
+    generation.releaseSha !== value.release_sha ||
+    (generation.snapshotStatus === "recovery" && cycleOutcome.state !== "failed"))) return null;
   // The flag has to agree with the kind. A record claiming to be a paper cycle
   // while flagged live (or the reverse) is assembled from two different runs,
   // and we do not get to choose which half to believe.
@@ -179,10 +187,10 @@ export function parseLastRun(value: unknown): LastRunSnapshot | null {
     });
   }
 
-  // A run that reached a verdict computed a risk tier on the way. Only the
-  // crash path, which never got that far, may omit it.
+  // A healthy cycle must have measured risk. Explicit blocked/failed outcomes
+  // may stop before that observation; legacy rules otherwise stay unchanged.
   const tier = riskTier(value.risk_tier);
-  if (tier === null && status !== "FAIL") return null;
+  if (tier === null && status !== "FAIL" && cycleOutcome?.state !== "blocked") return null;
 
   const blockingActionNames: string[] = [];
   const unknownActions: string[] = [];
@@ -209,15 +217,21 @@ export function parseLastRun(value: unknown): LastRunSnapshot | null {
         break;
     }
   }
-  if (terminalProofCount === 0) contradictions.add("NO_TERMINAL_PROOF");
-  if (terminalProofCount > 1) contradictions.add("AMBIGUOUS_TERMINAL_PROOF");
+  // Explicit outcomes are recorded at the executor's return boundary. Older
+  // action-count proof remains readable, but cannot establish a user outcome.
+  if (!cycleOutcome) {
+    if (terminalProofCount === 0) contradictions.add("NO_TERMINAL_PROOF");
+    if (terminalProofCount > 1) contradictions.add("AMBIGUOUS_TERMINAL_PROOF");
+  }
 
   // A DEGRADED with nothing in it to explain the degradation is a document we
   // do not understand, and an unexplained downgrade is the same shape as a
   // truncated one.
-  if (status === "DEGRADED" && contradictions.size === 0) return null;
+  if (!cycleOutcome && status === "DEGRADED" && contradictions.size === 0) return null;
+  if (cycleOutcome && status === "PASS" && contradictions.size > 0) return null;
 
   return {
+    cycleOutcome,
     completedAt: normalizeInstant(value.completed_at),
     releaseSha: str(value.release_sha),
     strategyVersion: str(value.strategy_version) ?? "unknown",
@@ -244,6 +258,7 @@ export function parseLastRun(value: unknown): LastRunSnapshot | null {
 export function executionFromLastRun(
   run: LastRunSnapshot,
   runUrl: string | null,
+  runtimeGeneration: RuntimeGenerationStatus = run.cycleOutcome ? "UNVERIFIED" : "LEGACY_UNVERIFIED",
 ): ExecutionInfo {
   // Prefer the producer's own named blockers, which carry symbols. Fall back
   // to the names we derived from the counts — that is the case where the
@@ -267,6 +282,8 @@ export function executionFromLastRun(
       reason === "NON_V11_ACTION",
   );
   return {
+    cycleOutcome: run.cycleOutcome,
+    runtimeGeneration,
     status: run.passWorthy
       ? "PASS"
       : run.status === "FAIL" || hardContradiction

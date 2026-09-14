@@ -1,4 +1,5 @@
 import "server-only";
+import { RuntimeGenerationError } from "./runtime-generation";
 import {
   artifactSizeIsAcceptable,
   downloadArtifactZip,
@@ -237,6 +238,7 @@ export async function namedStepOutcome(
 const COMPLETED = (run: WorkflowRunSummary) => run.status === "completed";
 
 export interface ExecutionSelection {
+  readonly runtimeGeneration?: import("./cycle-outcome").RuntimeGenerationStatus;
   /** Externally pinned provenance; never relabels the stored plan identity. */
   readonly runtimeHandoff?: VerifiedRuntimeHandoff | null;
   readonly performance: PerformanceRuntimeSnapshot | null;
@@ -540,7 +542,8 @@ export async function selectLatestExecution(
     }
 
     try {
-      const { entries, performance, runtimeHandoff } = readRuntimeArchive(zip, {
+      const { entries, performance, runtimeHandoff, runtimeGeneration } = readRuntimeArchive(zip, {
+        expectedRun: { id: run.id, attempt: run.attempt },
         approvedReleaseSha,
         mode,
         validated,
@@ -641,6 +644,7 @@ export async function selectLatestExecution(
         };
       }
       return {
+        runtimeGeneration,
         runtimeHandoff,
         performance,
         positions,
@@ -661,9 +665,9 @@ export async function selectLatestExecution(
         run,
         artifactName: anyRuntime.name,
         artifactCreatedAt: anyRuntime.createdAt,
-        lineageMismatch: caught instanceof RuntimeHandoffError,
+        lineageMismatch: caught instanceof RuntimeHandoffError || caught instanceof RuntimeGenerationError,
         errors: [
-          caught instanceof RuntimeHandoffError
+          caught instanceof RuntimeHandoffError || caught instanceof RuntimeGenerationError
             ? caught.message
             : caught instanceof ZipError
             ? `the private runtime artifact is unreadable: ${caught.message}`

@@ -233,7 +233,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     return respond(
       id,
       "APPROVED_RELEASE_UNKNOWN",
-      "The approved paper release could not be read from an authoritative source, so no baseline can be bound to it.",
+      `The approved ${account.mode} release could not be read from an authoritative source, so no baseline can be bound to it.`,
     );
   }
 
@@ -242,7 +242,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     return respond(
       id,
       "NO_BASELINE",
-      "No auditable V11 forward-validation epoch baseline is persisted. Account history that predates the V11 cutover must not be presented as V11 performance.",
+      `No verified V11 ${account.mode} measurement window is persisted for this production view. Returns require an account-bound reference and shared account/benchmark observations.`,
     );
   }
 

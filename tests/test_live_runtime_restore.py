@@ -240,6 +240,68 @@ def assert_seed_untouched(value):
     assert (value.state / "production/last_run.json").read_bytes() == b"PAPER_RUN"
 
 
+@pytest.mark.parametrize("tamper", [False, True])
+def test_live_restore_requires_complete_matching_new_generation(fixture, tamper):
+    from runtime_generation import cycle_outcome, prepare_runtime_generation
+
+    performance = json.loads(fixture.files["performance.json"])
+    positions = json.loads(fixture.files["positions.json"])
+    last_run = json.loads(fixture.files["production/last_run.json"])
+    performance.update(updated_at=NOW.isoformat(), num_positions=len(positions["positions"]))
+    positions["updated_at"] = NOW.isoformat()
+    last_run["cycle_outcome"] = cycle_outcome("pending", "orders_pending")
+    files = prepare_runtime_generation(performance, positions, last_run,
+                                       execution_context={"release_sha": RELEASE,
+                                                          "github_run_id": 1,
+                                                          "github_run_attempt": 1})
+    if tamper:
+        files["positions.json"] += b" "
+    account_sha = performance["live_runtime_binding"]["account_sha256"]
+    if tamper:
+        with pytest.raises(live.RestoreError, match="live_runtime_generation_invalid"):
+            live.validate_runtime(files, fixture.context, account_sha)
+    else:
+        record = live.validate_runtime(files, fixture.context, account_sha)
+        assert record["cycle_outcome"]["state"] == "pending"
+
+
+def test_live_outcome_without_generation_cannot_be_relabelled_as_legacy(fixture):
+    from runtime_generation import cycle_outcome
+
+    files = deepcopy(fixture.files)
+    run = json.loads(files["production/last_run.json"])
+    run["cycle_outcome"] = cycle_outcome("completed", "rebalance_complete")
+    files["production/last_run.json"] = encoded(run)
+    performance = json.loads(files["performance.json"])
+    with pytest.raises(live.RestoreError, match="live_runtime_generation_invalid"):
+        live.validate_runtime(files, fixture.context,
+                              performance["live_runtime_binding"]["account_sha256"])
+
+
+@pytest.mark.parametrize("run_id,attempt,accepted", [(1, 1, True), (2, 1, False), (1, 2, False)])
+def test_live_generation_must_belong_to_artifact_execution(fixture, run_id, attempt, accepted):
+    from runtime_generation import cycle_outcome, prepare_runtime_generation
+
+    observed = (NOW - timedelta(minutes=10)).isoformat()
+    performance = json.loads(fixture.files["performance.json"])
+    positions = json.loads(fixture.files["positions.json"])
+    record = json.loads(fixture.files["production/last_run.json"])
+    performance.update(updated_at=observed, num_positions=len(positions["positions"]))
+    positions["updated_at"] = observed
+    record.update(completed_at=observed, cycle_outcome=cycle_outcome("pending", "orders_pending"))
+    files = prepare_runtime_generation(performance, positions, record,
+                                       execution_context={"release_sha": RELEASE,
+                                                          "github_run_id": run_id,
+                                                          "github_run_attempt": attempt})
+    fixture.api.add(files)
+    if accepted:
+        assert restore(fixture) == "native"
+    else:
+        with pytest.raises(live.RestoreError, match="runtime_generation_run"):
+            restore(fixture)
+        assert_seed_untouched(fixture)
+
+
 def test_bootstrap_creates_genuine_live_snapshot_without_fake_execution(fixture):
     assert restore(fixture) == "bootstrap"
     performance = json.loads((fixture.state / "performance.json").read_bytes())

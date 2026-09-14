@@ -164,7 +164,7 @@ describe("OverviewClient", () => {
       screen.getByText(/No strategy, preflight or broker execution happened/i),
     ).toBeInTheDocument();
     // The older successful execution is still reported.
-    expect(screen.getByText("Last successful execution")).toBeInTheDocument();
+    expect(screen.getByText("Last available executor record")).toBeInTheDocument();
   });
 
   it("shows the risk-tier source conflict rather than silently picking one", async () => {
