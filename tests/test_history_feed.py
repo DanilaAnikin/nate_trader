@@ -73,3 +73,12 @@ def test_the_request_end_avoids_the_restricted_recent_window():
     source = inspect.getsource(download_history.fetch_bars)
     assert "exclusive_end = min(" in source
     assert "datetime.now() - timedelta(days=1)" in source
+
+
+def test_live_research_uses_the_same_consolidated_sip_feed():
+    """Live ranking must use the same volume basis as the SIP validator."""
+    from pathlib import Path
+
+    source = (Path(__file__).parents[1] / "scripts" / "research.py").read_text()
+    assert "DataFeed.SIP" in source
+    assert "DataFeed.IEX" not in source

@@ -110,6 +110,7 @@ jobs:
         run: python scripts/sanity_check.py
 
       - name: Verify paper broker and deployment health
+        id: market_gate
         if: inputs.operation == 'preflight' || steps.cadence.outputs.allow_execution == 'true'
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
@@ -117,6 +118,8 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/production_preflight.py | tee production-preflight.json
+          market_open=$(python -c 'import json; print(str(bool(json.load(open("production-preflight.json"))["details"].get("market_open", False))).lower())')
+          echo "market_open=$market_open" >> "$GITHUB_OUTPUT"
 
       - name: Read-only strategy preview
         if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'preflight' || steps.cadence.outputs.allow_execution == 'true')
@@ -129,7 +132,7 @@ jobs:
 
       - name: Execute one guarded paper cycle
         id: execute
-        if: (github.event_name == 'schedule' || inputs.operation == 'execute') && steps.cadence.outputs.allow_execution == 'true'
+        if: (github.event_name == 'schedule' || inputs.operation == 'execute') && steps.cadence.outputs.allow_execution == 'true' && steps.market_gate.outputs.market_open == 'true'
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}

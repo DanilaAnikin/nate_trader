@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "v11_fixed_strategy_validation",
-  "generated_at": "2026-10-15T11:39:27.698858+00:00",
+  "generated_at": "2026-10-15T18:19:40.875976+00:00",
   "strategy": {
     "version": "v11-adaptive-momentum",
     "parameter_policy": "fixed checked-in parameters; no optimizer or sweep",
@@ -9,7 +9,7 @@
     "identity": {
       "schema_version": 1,
       "algorithm": "sha256",
-      "value": "6aefdc176f16df077a974829986752fba47757ab50bf0dfad46f9eabd6883d5c",
+      "value": "c028e6baccd145abbbeda1032a7293e7c5427767fa3e10b681287f704a803d0a",
       "sources": [
         "requirements.txt",
         "requirements.lock",
@@ -6189,6 +6189,6 @@
   "contract": {
     "schema_version": 1,
     "algorithm": "sha256",
-    "report_sha256": "2b2774b630e6ce1c5319e5299db36c38bc7ba09bc71dfab6fe3f66c3937d928e"
+    "report_sha256": "0c2606aa5f16cb3de953889a30e4b8dc1781c45467f42035a90a0c8772633936"
   }
 }
