@@ -1780,7 +1780,7 @@ def run_backtest(
                 closes[sym] = bar["close"]
 
         # 1. Mark to market at today's OPEN before any trades fire
-        portfolio.mark_to_market(opens)
+        portfolio.mark_to_market(opens, strict=True)
 
         # v8: asymmetric regime confirmation.
         raw_regime = _spy_regime(provider, signal_date)

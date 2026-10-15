@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 from types import SimpleNamespace
 
 from backtest.data_provider import BarProvider
@@ -10,7 +12,11 @@ from backtest.engine import (
     _execute_adaptive_momentum,
     _risk_tier,
 )
-from backtest.portfolio_sim import DailySnapshot, SimulatedPortfolio
+from backtest.portfolio_sim import (
+    DailySnapshot,
+    MissingPriceError,
+    SimulatedPortfolio,
+)
 
 
 def test_previous_trading_day_is_strictly_before_signal_fill_date(tmp_path):
@@ -94,6 +100,18 @@ def _snapshot(equity: float) -> DailySnapshot:
         regime="BULL",
         risk_tier="NORMAL",
     )
+
+
+def test_strict_mark_to_market_rejects_stale_held_prices():
+    portfolio = SimulatedPortfolio(starting_cash=1_000.0)
+    assert portfolio.open("AAA", 5, 100.0, "2025-01-02")
+    portfolio.mark_to_market({"AAA": 99.0}, strict=True)
+
+    with pytest.raises(MissingPriceError, match="AAA"):
+        portfolio.mark_to_market({}, strict=True)
+
+    # The failed mark must not silently mutate the last known valuation.
+    assert portfolio.get_position("AAA").current_price == 99.0
 
 
 def test_halt_is_one_session_but_deep_drawdown_remains_cautious():

@@ -80,6 +80,10 @@ class DailySnapshot:
     risk_tier: str
 
 
+class MissingPriceError(RuntimeError):
+    """Raised when a held position cannot be valued for a required session."""
+
+
 class SimulatedPortfolio:
     def __init__(self, starting_cash: float = 1_000_000.0):
         self.starting_cash = starting_cash
@@ -186,8 +190,22 @@ class SimulatedPortfolio:
         self._scaled_out_symbols.discard(symbol)
         return trade
 
-    def mark_to_market(self, prices: dict[str, float]) -> None:
-        """Refresh current_price (and high-since-entry) for every position."""
+    def mark_to_market(
+        self, prices: dict[str, float], *, strict: bool = False
+    ) -> None:
+        """Refresh held prices, optionally refusing stale valuation.
+
+        The default remains permissive for isolated helpers that intentionally
+        mark only a subset of symbols. Production backtest loops must pass
+        ``strict=True``: a held symbol without a price is a data-quality
+        failure, never permission to carry forward yesterday's mark through a
+        halt, missing bar, or delisting.
+        """
+        missing = sorted(set(self.positions).difference(prices))
+        if strict and missing:
+            raise MissingPriceError(
+                "missing prices for held symbols: " + ", ".join(missing)
+            )
         for symbol, p in self.positions.items():
             if symbol in prices:
                 p.update_price(prices[symbol])
