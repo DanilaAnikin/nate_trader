@@ -58,7 +58,7 @@ def get_bars(symbol: str, days: int = 80, timeframe: TimeFrame = TimeFrame.Day) 
         timeframe=timeframe,
         start=start,
         end=end,
-        feed=DataFeed.IEX,
+        feed=DataFeed.SIP,
         adjustment="all",
     )
     bars = _get_data_client().get_stock_bars(request)
@@ -107,7 +107,7 @@ def get_bars_batch(
             timeframe=timeframe,
             start=start,
             end=end,
-            feed=DataFeed.IEX,
+            feed=DataFeed.SIP,
             adjustment="all",
         )
         response = _get_data_client().get_stock_bars(request)
@@ -163,7 +163,7 @@ def get_4h_technicals(symbol: str) -> dict:
         request = StockBarsRequest(
             symbol_or_symbols=symbol,
             timeframe=tf,
-            start=start, end=end, feed=DataFeed.IEX,
+            start=start, end=end, feed=DataFeed.SIP,
         )
         bars = _get_data_client().get_stock_bars(request)
         df = bars.df
@@ -189,7 +189,7 @@ def get_4h_technicals(symbol: str) -> dict:
 
 def get_latest_quote(symbol: str) -> dict:
     """Get latest quote for a symbol."""
-    request = StockLatestQuoteRequest(symbol_or_symbols=symbol, feed=DataFeed.IEX)
+    request = StockLatestQuoteRequest(symbol_or_symbols=symbol, feed=DataFeed.SIP)
     quotes = _get_data_client().get_stock_latest_quote(request)
     q = quotes[symbol]
     return {
