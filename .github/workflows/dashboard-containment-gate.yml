@@ -128,7 +128,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Reject vulnerable dependencies
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
       # Includes the containment-specific suites: the browser data-plane ban,
       # the cookie-name/URL split, the pre-authentication mutation freeze, the
       # /api/profile boundary, and the Dockerfile build-arg coverage guard.

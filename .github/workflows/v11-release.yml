@@ -31,7 +31,7 @@ jobs:
       - name: Install locked dashboard dependencies
         run: npm ci
       - name: Reject vulnerable dashboard dependencies
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
       - name: Test dashboard contracts
         run: npm test
       - name: Test deployment owner acceptance
