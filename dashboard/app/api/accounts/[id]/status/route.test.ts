@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearGithubCache } from "@/lib/status/github-api";
 import {
   APPROVED_SHA,
@@ -277,6 +277,9 @@ function privateApiCalls(handler: ReturnType<typeof stubGithub>): string[] {
 }
 
 beforeEach(() => {
+  // Keep the fixture window inside the runtime selector's 45-day contract.
+  // Without a frozen clock this test expires as wall time advances.
+  vi.useFakeTimers({ now: new Date("2026-08-08T12:00:00.000Z") });
   clearGithubCache();
   currentUserId = OWNER_ID;
   vi.stubEnv("GITHUB_TOKEN", "test-token");
@@ -285,6 +288,10 @@ beforeEach(() => {
   vi.stubEnv("PRODUCTION_ACCOUNT_ID", PROD_ACCOUNT_ID);
   // The broker-side identifier is a mandatory AND check.
   vi.stubEnv("PRODUCTION_ALPACA_ACCOUNT_NUMBER", SECRET_BROKER_NUMBER);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("GET /api/accounts/[id]/status", () => {
