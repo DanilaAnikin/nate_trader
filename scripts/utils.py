@@ -17,6 +17,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 # API keys
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "")
 CLICKUP_API_KEY = os.getenv("CLICKUP_API_KEY", "")
 CLICKUP_LIST_ID = os.getenv("CLICKUP_LIST_ID", "901217466513")
 
@@ -311,6 +312,7 @@ if __name__ == "__main__":
     log.info(f"Today: {get_today_str()}")
     log.info(f"Now: {get_now_str()}")
     log.info(f"Alpaca key: {ALPACA_API_KEY[:8]}...")
+    log.info(f"Perplexity key: {PERPLEXITY_API_KEY[:8]}...")
     log.info(f"ClickUp key: {CLICKUP_API_KEY[:8]}...")
     log.info(f"Tradeable symbols: {get_tradeable_symbols()}")
     log.info(f"Risk tier: {get_risk_tier()}")
