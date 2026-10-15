@@ -73,54 +73,29 @@ def get_top_movers(market_type: str = "stocks", limit: int = 20) -> list[dict]:
 
 
 def query_trending_from_perplexity() -> list[str]:
-    """Ask Perplexity for trending stock tickers today."""
-    from utils import PERPLEXITY_API_KEY
+    """Compatibility name; ask local Claude Code for candidate tickers."""
+    from claude_code import ClaudeCodeError, query_claude_code
+    import json
 
-    if not PERPLEXITY_API_KEY:
-        log.warning("No Perplexity API key — skipping trending query")
-        return []
-
-    prompt = """List the top 10 trending US stock tickers today based on news, social media,
-and market activity. Only include stocks listed on NYSE or NASDAQ with market cap > $5B.
-
-Return ONLY a JSON array of ticker symbols, e.g. ["AAPL", "NVDA", "TSLA"]. No other text."""
-
+    prompt = """List up to 10 trending US stock tickers today based only on information you
+can verify. Only include NYSE/NASDAQ stocks with market cap above $5B.
+Return ONLY a JSON array like [\"AAPL\", \"NVDA\"]. If uncertain, return []."""
     try:
-        headers = {
-            "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": "sonar",
-            "messages": [
-                {"role": "system", "content": "You are a financial data assistant. Return only valid JSON."},
-                {"role": "user", "content": prompt},
-            ],
-            "max_tokens": 256,
-            "temperature": 0.1,
-        }
-        resp = requests.post(
-            "https://api.perplexity.ai/chat/completions",
-            headers=headers, json=payload, timeout=30,
-        )
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"].strip()
-
-        # Parse JSON from response
-        import json
+        content = query_claude_code(
+            prompt,
+            system="You are a financial data assistant. Return only valid JSON; never place trades.",
+        ).strip()
         if "```json" in content:
-            content = content.split("```json")[1].split("```")[0].strip()
+            content = content.split("```json", 1)[1].split("```", 1)[0].strip()
         elif "```" in content:
-            content = content.split("```")[1].split("```")[0].strip()
-
+            content = content.split("```", 1)[1].split("```", 1)[0].strip()
         tickers = json.loads(content)
         if isinstance(tickers, list):
-            result = [t.upper() for t in tickers if isinstance(t, str)]
-            log.info(f"Trending from Perplexity: {result}")
-            return result
-    except Exception as e:
-        log.error(f"Perplexity trending query failed: {e}")
-
+            result = [t.upper() for t in tickers if isinstance(t, str) and t.isalpha()]
+            log.info(f"Trending from Claude Code: {result}")
+            return result[:10]
+    except (ClaudeCodeError, json.JSONDecodeError, TypeError) as exc:
+        log.warning(f"Claude Code trending query unavailable: {exc}")
     return []
 
 

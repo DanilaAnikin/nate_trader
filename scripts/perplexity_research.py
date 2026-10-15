@@ -1,38 +1,26 @@
-"""Deep research via Perplexity API — catalyst analysis, market outlook."""
+"""Optional research via the authenticated local Claude Code CLI."""
 
 import sys
 import json
-import requests
-
 from utils import (
-    PERPLEXITY_API_KEY, RESEARCH_STATE,
+    RESEARCH_STATE,
     setup_logging, get_now_str, load_json, save_json,
 )
 
 log = setup_logging("perplexity")
 
-PERPLEXITY_URL = "https://api.perplexity.ai/chat/completions"
-
-
 def query_perplexity(prompt: str, model: str = "sonar") -> str:
-    """Send a query to Perplexity API and return the response text."""
-    headers = {
-        "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "You are a financial research analyst. Provide concise, data-driven analysis. Always include specific numbers, dates, and sources when possible."},
-            {"role": "user", "content": prompt},
-        ],
-        "max_tokens": 1024,
-        "temperature": 0.1,
-    }
-    resp = requests.post(PERPLEXITY_URL, headers=headers, json=payload, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-    return data["choices"][0]["message"]["content"]
+    """Compatibility name for the old helper; it now invokes local Claude."""
+    from claude_code import query_claude_code
+
+    return query_claude_code(
+        prompt,
+        system=(
+            "You are a financial research analyst. Provide concise, data-driven "
+            "analysis with specific numbers, dates, and source names when known. "
+            "Never place trades or claim certainty."
+        ),
+    )
 
 
 def analyze_stock_catalyst(symbol: str) -> dict:
@@ -92,7 +80,7 @@ Format your response as JSON with these exact keys."""
         }
 
     except Exception as e:
-        log.error(f"Perplexity analysis failed for {symbol}: {e}")
+        log.error(f"Claude Code analysis failed for {symbol}: {e}")
         return {
             "symbol": symbol,
             "sentiment": "UNKNOWN",
@@ -123,7 +111,7 @@ Keep it concise and actionable for a swing trader with a 2-10 day horizon."""
             "updated_at": get_now_str(),
         }
     except Exception as e:
-        log.error(f"Market outlook failed: {e}")
+        log.error(f"Claude Code market outlook failed: {e}")
         return {"outlook": f"Error: {e}", "updated_at": get_now_str()}
 
 
@@ -147,12 +135,12 @@ Keep it concise and data-driven."""
             "updated_at": get_now_str(),
         }
     except Exception as e:
-        log.error(f"Sector analysis failed for {sector}: {e}")
+        log.error(f"Claude Code sector analysis failed for {sector}: {e}")
         return {"sector": sector, "analysis": f"Error: {e}", "updated_at": get_now_str()}
 
 
 def enhance_research_with_perplexity() -> dict:
-    """Enhance research.json with Perplexity scores for promising candidates."""
+    """Enhance research.json with Claude Code scores for promising candidates."""
     research = load_json(RESEARCH_STATE)
     if not research or "symbols" not in research:
         log.warning("No research data found. Run research.py report first.")
@@ -173,7 +161,7 @@ def enhance_research_with_perplexity() -> dict:
             log.info(f"Skipping {symbol} — preliminary score {prelim_score} < 25")
             continue
 
-        log.info(f"Enhancing {symbol} with Perplexity (prelim score: {prelim_score})...")
+        log.info(f"Enhancing {symbol} with Claude Code (prelim score: {prelim_score})...")
         catalyst = analyze_stock_catalyst(symbol)
         data["perplexity"] = catalyst
 
@@ -195,12 +183,12 @@ def enhance_research_with_perplexity() -> dict:
 
     research["perplexity_enhanced_at"] = get_now_str()
     save_json(RESEARCH_STATE, research)
-    log.info(f"Enhanced {enhanced_count} symbols with Perplexity data.")
+    log.info(f"Enhanced {enhanced_count} symbols with Claude Code data.")
     return research
 
 
 def enhance_screener_with_perplexity() -> dict:
-    """Enhance screener.json top candidates with Perplexity scores."""
+    """Enhance screener.json top candidates with Claude Code scores."""
     from utils import SCREENER_STATE
     screener = load_json(SCREENER_STATE)
     if not screener or "scored_candidates" not in screener:
@@ -255,7 +243,7 @@ def enhance_screener_with_perplexity() -> dict:
 
     screener["perplexity_enhanced_at"] = get_now_str()
     save_json(SCREENER_STATE, screener)
-    log.info(f"Enhanced {enhanced_count} screener candidates with Perplexity data.")
+    log.info(f"Enhanced {enhanced_count} screener candidates with Claude Code data.")
     return screener
 
 

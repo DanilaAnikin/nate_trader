@@ -5,7 +5,7 @@ overnight on a single number. The momentum engine has no edge over that
 randomness, so we keep it out of fresh trades for the 5 days leading
 up to a known earnings date.
 
-Source of truth is Perplexity — once a week we ask for the next
+Source of truth is the authenticated local Claude Code CLI — once a week we ask for the next
 earnings date of every watchlist + currently-held symbol. The result
 is cached to state/earnings_calendar.json with a TTL of 8 days (one
 week + grace). Gate-score logic reads from the cache; if a symbol's
@@ -31,7 +31,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from utils import (  # noqa: E402
-    PROJECT_ROOT, STATE_DIR, PERPLEXITY_API_KEY,
+    PROJECT_ROOT, STATE_DIR,
     setup_logging, get_today_str, get_now_str, load_json, save_json,
     get_tradeable_symbols,
 )
@@ -47,80 +47,41 @@ EARNINGS_BLOCK_WINDOW_DAYS = 5  # block buys within this many days of earnings
 
 
 def _ask_perplexity_for_earnings(symbols: list[str]) -> dict[str, str | None]:
-    """Ask Perplexity for the next earnings date of each symbol.
-
-    Returns dict {symbol: "YYYY-MM-DD" or None}. None means "unknown,
-    don't block, don't bonus".
-    """
-    if not PERPLEXITY_API_KEY:
-        log.warning("No Perplexity API key — returning unknown dates")
-        return {s: None for s in symbols}
-
-    import requests
+    """Compatibility name; query the local Claude Code CLI for dates."""
+    from claude_code import ClaudeCodeError, query_claude_code
 
     today_str = get_today_str()
     prompt = (
-        f"For each of the following US stock tickers, find the date of "
-        f"their NEXT scheduled quarterly earnings release after today "
-        f"({today_str}). Return a JSON object mapping ticker → date "
-        f"in YYYY-MM-DD format. If unknown, use null.\n\n"
-        f"Tickers: {', '.join(symbols)}\n\n"
-        f"Return ONLY the JSON object, no commentary. Example:\n"
-        f'{{"AAPL": "2026-07-31", "NVDA": "2026-08-20", "FOO": null}}'
+        f"For each US stock ticker below, find the next scheduled quarterly "
+        f"earnings release after {today_str}. Return ONLY a JSON object mapping "
+        f"ticker to YYYY-MM-DD or null. Tickers: {', '.join(symbols)}"
     )
-
     try:
-        resp = requests.post(
-            "https://api.perplexity.ai/chat/completions",
-            headers={
-                "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "sonar",
-                "messages": [
-                    {"role": "system", "content": "You are a financial data assistant. Return only valid JSON."},
-                    {"role": "user", "content": prompt},
-                ],
-                "max_tokens": 2048,
-                "temperature": 0.1,
-            },
-            timeout=60,
-        )
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"].strip()
-
-        # Strip code fences if present
+        content = query_claude_code(
+            prompt,
+            system="You are a financial data assistant. Return only valid JSON; never place trades.",
+        ).strip()
         if "```" in content:
             content = re.sub(r"^```(?:json)?\s*", "", content)
-            content = re.sub(r"\s*```\s*$", "", content)
-
+            content = re.sub(r"\s*```$", "", content)
         parsed = json.loads(content)
         if not isinstance(parsed, dict):
-            log.warning(f"Perplexity returned non-dict: {type(parsed)}")
             return {s: None for s in symbols}
-
-        # Sanitize: only accept YYYY-MM-DD strings or None
-        out = {}
+        out: dict[str, str | None] = {}
         for sym in symbols:
-            v = parsed.get(sym) or parsed.get(sym.upper())
-            if isinstance(v, str) and re.match(r"^\d{4}-\d{2}-\d{2}$", v):
-                # Sanity check: date must be in the future and within next 6 months
-                try:
-                    d = datetime.strptime(v, "%Y-%m-%d").date()
-                    today = date.today()
-                    if today <= d <= today + timedelta(days=180):
-                        out[sym] = v
-                    else:
-                        out[sym] = None
-                except ValueError:
-                    out[sym] = None
-            else:
+            value = parsed.get(sym) or parsed.get(sym.upper())
+            if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
                 out[sym] = None
+                continue
+            try:
+                parsed_date = datetime.strptime(value, "%Y-%m-%d").date()
+            except ValueError:
+                out[sym] = None
+                continue
+            out[sym] = value if date.today() <= parsed_date <= date.today() + timedelta(days=180) else None
         return out
-
-    except Exception as e:
-        log.error(f"Perplexity earnings query failed: {e}")
+    except (ClaudeCodeError, json.JSONDecodeError, TypeError) as exc:
+        log.warning(f"Claude Code earnings query unavailable: {exc}")
         return {s: None for s in symbols}
 
 
