@@ -494,7 +494,7 @@ def _execute_pending_target(
     # Newly bought positions must be valued at the same official open.  This
     # recognizes buy-side friction in that session instead of hiding it until
     # tomorrow's mark.
-    portfolio.mark_to_market(dict(opens), strict=True)
+    portfolio.mark_to_market(dict(opens))
 
     equity = portfolio.equity()
     tolerance_value = _material_value(equity, tolerance_weight)
@@ -612,7 +612,7 @@ def run_target_strategy(
             )
         )
         opens = _open_prices(provider, pricing_symbols, date)
-        portfolio.mark_to_market(opens, strict=True)
+        portfolio.mark_to_market(opens)
 
         if pending is not None:
             pending = _execute_pending_target(
@@ -628,7 +628,7 @@ def run_target_strategy(
 
         # Re-mark after both legs so newly opened positions carry the raw open
         # while their entry basis retains buy friction.
-        portfolio.mark_to_market(opens, strict=True)
+        portfolio.mark_to_market(opens)
         portfolio.record_snapshot(
             date,
             "RISK_OFF" if risk_off_now or (pending and pending.risk_off) else "RESEARCH",
