@@ -236,6 +236,11 @@ def test_workflow_upload_requires_current_generation_and_automatic_guard():
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github/workflows/paper-production.yml").read_text()
     assert "steps.cadence.outputs.allow_execution == 'true'" in workflow
+    # A delayed scheduled run must remain retryable when the broker reports
+    # the market is closed; otherwise the watchdog sees a false attempt and
+    # replacement buys can wait until the next day.
+    assert "steps.market_gate.outputs.market_open == 'true'" in workflow
+    assert 'echo "market_open=$market_open"' in workflow
     assert "--require-generation --require-current-run" in workflow
     assert "if: always() && steps.runtime_generation.outcome == 'success'" in workflow
     watchdog = (root / ".github/workflows/paper-watchdog.yml").read_text()
