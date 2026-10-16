@@ -32,7 +32,7 @@ def test_audit_is_sanitized_and_read_only(monkeypatch):
             )
         ],
     )
-    monkeypatch.setattr("trade._get_client", lambda: client)
+    monkeypatch.setattr(paper_broker_audit, "_client", lambda: client)
 
     result = paper_broker_audit.audit()
 

@@ -25,13 +25,17 @@ def _digest_rows(rows: list[dict[str, Any]]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _client():
+    from trade import _get_client
+
+    return _get_client()
+
+
 def audit() -> dict[str, Any]:
     mode = resolve_broker_mode()
     if not mode.is_paper:
         raise RuntimeError("paper_mode_required")
-    from trade import _get_client
-
-    client = _get_client()
+    client = _client()
     endpoint = str(
         getattr(
             getattr(client, "_base_url", None),
