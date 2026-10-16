@@ -33,7 +33,7 @@ def _client():
 
 def audit() -> dict[str, Any]:
     mode = resolve_broker_mode()
-    if not mode.is_paper:
+    if mode.mode != "paper":
         raise RuntimeError("paper_mode_required")
     client = _client()
     endpoint = str(
