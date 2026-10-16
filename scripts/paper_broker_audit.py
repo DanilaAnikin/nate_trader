@@ -89,6 +89,16 @@ def _source_positions_hash(runtime_dir: Path | None) -> str | None:
     return _digest_rows(sorted(rows, key=lambda row: row["symbol"]))
 
 
+def _number_text(value: Any) -> str:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return "invalid"
+    if not math.isfinite(parsed) or parsed < 0:
+        return "invalid"
+    return format(parsed, ".12g")
+
+
 def _order_view(raw: Any) -> dict[str, Any]:
     return {
         "id": str(getattr(raw, "id", "")),
@@ -96,9 +106,9 @@ def _order_view(raw: Any) -> dict[str, Any]:
         "symbol": str(getattr(raw, "symbol", "")),
         "side": _enum(getattr(raw, "side", "")),
         "status": _enum(getattr(raw, "status", "")),
-        "qty": str(getattr(raw, "qty", "")),
-        "filled_qty": str(getattr(raw, "filled_qty", "")),
-        "remaining_qty": str(getattr(raw, "remaining_qty", "")),
+        "qty": _number_text(getattr(raw, "qty", "")),
+        "filled_qty": _number_text(getattr(raw, "filled_qty", "")),
+        "remaining_qty": _number_text(getattr(raw, "remaining_qty", "")),
     }
 
 
@@ -134,7 +144,7 @@ def _known_order_audit(client: Any, runtime_dir: Path | None) -> dict[str, Any]:
             first["client_order_id"] != client_id
             or first["symbol"] != str(record.get("symbol", ""))
             or first["side"] != str(record.get("side", "")).lower()
-            or first["qty"] != str(record.get("quantity", ""))
+            or first["qty"] != _number_text(record.get("quantity", ""))
         ):
             raise RuntimeError("known_order_mismatch")
         rows.append(
@@ -223,8 +233,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         print(json.dumps(audit(args.runtime_dir), sort_keys=True))
         return 0
-    except Exception:
-        print(json.dumps({"check": "paper_broker_audit", "result": "FAIL"}))
+    except RuntimeError as exc:
+        print(json.dumps({"check": "paper_broker_audit", "result": "FAIL", "reason": str(exc)}))
+        return 1
+    except Exception as exc:
+        print(json.dumps({"check": "paper_broker_audit", "result": "FAIL", "reason": type(exc).__name__}))
         return 1
 
 
