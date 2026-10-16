@@ -33,10 +33,16 @@ class API:
                           "conclusion": conclusion, "run_attempt": attempt,
                           "updated_at": updated})
         self.jobs[run_id] = [{"id": 100 + run_id, "run_id": run_id, "name": cadence.JOB,
-                              "steps": [{"name": cadence.EXECUTE,
-                                         "status": "completed",
-                                         "conclusion": execution,
-                                         "started_at": started}]}]
+                              "steps": [
+                                  {"name": cadence.EXECUTE,
+                                   "status": "completed",
+                                   "conclusion": execution,
+                                   "started_at": started},
+                                  *[{"name": name, "status": "completed",
+                                     "conclusion": "success", "started_at": started}
+                                    for name in (cadence.RESTORE, cadence.SANITY,
+                                                 cadence.BROKER_PREFLIGHT)],
+                              ]}]
 
     def request(self, path, *, body=None):
         self.calls.append((path, body))
@@ -88,6 +94,16 @@ def test_pending_run_prevents_recovery(status):
     api.add(status=status, conclusion=None, started=None)
     assert cadence.guarded_dispatch(api, NOW, HEAD)["state"] == "active"
     assert not any(body for _, body in api.calls)
+
+
+def test_skipped_execution_after_sanity_failure_is_blocked_not_retried():
+    api = API()
+    api.add(conclusion="failure", execution="skipped", started=None)
+    api.jobs[1][0]["steps"][2]["conclusion"] = "failure"
+    result = cadence.assessment(api, NOW)
+    assert result["state"] == "blocked"
+    assert result["failed_run_ids"] == [1]
+    assert result["preflight_failed_run_ids"] == []
 
 
 def test_demonstrably_skipped_execution_can_repeat_read_only_checks():
