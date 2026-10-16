@@ -10,7 +10,7 @@ def test_audit_is_sanitized_and_read_only(monkeypatch):
     monkeypatch.setattr(
         paper_broker_audit,
         "resolve_broker_mode",
-        lambda: SimpleNamespace(is_paper=True),
+        lambda: SimpleNamespace(mode="paper"),
     )
     client = SimpleNamespace(
         _base_url="https://paper-api.alpaca.markets",
