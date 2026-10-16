@@ -89,6 +89,61 @@ def test_limit_delta_has_correct_side_sign_and_notional_weighting_not_claimed_sl
         assert result[reference]["bps"] is None
 
 
+def test_forward_risk_turnover_and_fill_coverage_are_explicitly_account_scoped():
+    rows = [fill()]
+    result = summarize(rows, {"order-1": order()})
+
+    risk = result["equity"]["risk"]
+    assert risk["status"] == "COMPLETE"
+    assert risk["observed_session_count"] == 4
+    assert risk["return_observation_count"] == 3
+    assert risk["sharpe_ratio"] > 0
+    assert risk["sortino_ratio"] > 0
+    assert risk["risk_free_proxy"] == "ZERO"
+
+    turnover = result["turnover"]
+    assert turnover["status"] == "COMPLETE"
+    assert turnover["gross_notional"] == 198
+    assert turnover["average_observed_equity"] == 1035
+    assert turnover["gross_turnover_pct"] == pytest.approx(198 / 1035 * 100)
+
+    coverage = result["fills"]["order_snapshot_coverage"]
+    assert coverage["status"] == "COMPLETE"
+    assert coverage["coverage_pct"] == 100
+    fill_rate = result["fills"]["fill_rate"]
+    assert fill_rate["status"] == "UNAVAILABLE"
+    assert fill_rate["rate_pct"] is None
+    assert "submitted orders" in fill_rate["meaning"]
+
+
+def test_risk_and_turnover_withhold_claims_when_cash_flow_timing_is_unknown():
+    result = summarize(
+        [fill(), activity("CSD", "100", "deposit")],
+        {"order-1": order()},
+    )
+
+    assert result["equity"]["risk"]["status"] == "UNAVAILABLE"
+    assert result["equity"]["risk"]["reason"] == "external_or_unclassified_flow_or_incomplete_coverage"
+    assert result["turnover"]["status"] == "UNAVAILABLE"
+    assert result["turnover"]["gross_notional"] == 198
+    assert result["turnover"]["gross_turnover_pct"] is None
+
+
+def test_risk_withholds_non_consecutive_observed_sessions_instead_of_merging_a_gap():
+    equity = [
+        {"date": day, "observed_at": f"{day}T20:30:00Z", "equity": value}
+        for day, value in [("2026-09-15", 1000), ("2026-09-16", 1010),
+                           ("2026-09-21", 1020)]
+    ]
+    result = metrics.summarize_forward_observations(
+        activities=[], orders_by_id={}, equity_observations=equity,
+        window_start="2026-09-14T21:00:00Z", window_end="2026-09-22T21:00:00Z",
+        activities_complete=True,
+    )
+    assert result["equity"]["risk"]["status"] == "UNAVAILABLE"
+    assert result["equity"]["risk"]["reason"] == "non_consecutive_sessions"
+
+
 @pytest.mark.parametrize("patch", [{"limit_price": None}, {"type": "market"}, {"limit_price": "NaN"}])
 def test_missing_limit_reference_withholds_only_the_limit_metric(patch):
     result = summarize([fill()], {"order-1": order(**patch)})["fills"]

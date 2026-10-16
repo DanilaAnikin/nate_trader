@@ -49,6 +49,18 @@ At least two positive daily observations are needed; it is not the intraday
 maximum. It describes the account. Flow-adjusted drawdown remains unavailable
 without the necessary intraday cashflow valuations and atomic observations.
 
+The observer also records conservative account-level risk and activity
+statistics. Sharpe and Sortino use returns between observed weekday sessions,
+annualized with 252 sessions and an explicit zero risk-free proxy. A missing
+session, an external or unclassified cash movement, or insufficient history
+withholds both ratios rather than treating a gap or deposit as a return. Gross
+turnover is observed fill notional divided by average positive equity in the
+window; it includes both buys and sells and is not strategy-attributed. The
+`fill_rate` field remains `UNAVAILABLE` because this read-only observer does
+not collect submitted orders that have no fill. Its separate
+`order_snapshot_coverage` field says how many observed FILL events had a
+consistent order snapshot; that is coverage, not an execution fill rate.
+
 ## Host installation
 
 The production module is `ops.forward_observer` and uses the Python standard

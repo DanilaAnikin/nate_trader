@@ -155,6 +155,7 @@ def fill_metrics(rows, orders):
         covered += 1
         reference += qty * limit
         delta += qty * (price - limit if side == "buy" else limit - price)
+    matched_fill_count = sum(1 for fill in fills if fill[0] in matched)
     return {
         "event_count": len(fills), "order_count": len({fill[0] for fill in fills}),
         "notional": scalar(notional),
@@ -163,6 +164,21 @@ def fill_metrics(rows, orders):
             for (symbol, side), qty in sorted(quantity.items())],
         "orders_with_observed_fills_by_status": dict(sorted(statuses.items())),
         "missing_order_count": missing, "inconsistent_order_count": inconsistent,
+        "order_snapshot_coverage": {
+            "status": "UNAVAILABLE" if not fills else
+                      "COMPLETE" if matched_fill_count == len(fills) else "PARTIAL",
+            "covered_fill_count": matched_fill_count,
+            "total_fill_count": len(fills),
+            "coverage_pct": scalar(Decimal(matched_fill_count) / Decimal(len(fills)) * 100)
+                if fills else None,
+            "meaning": "consistent order snapshots for observed FILL events; not submitted-order fill rate",
+        },
+        "fill_rate": {
+            "status": "UNAVAILABLE",
+            "rate_pct": None,
+            "reason": "submitted_order_history_not_collected",
+            "meaning": "execution fill rate requires all submitted orders, including orders with no FILL activity",
+        },
         "decision_slippage": {"status": "UNAVAILABLE", "bps": None, "reason": "decision_reference_not_recorded"},
         "arrival_slippage": {"status": "UNAVAILABLE", "bps": None, "reason": "arrival_reference_not_recorded"},
         "fill_vs_limit": {
@@ -173,6 +189,145 @@ def fill_metrics(rows, orders):
             "signed_bps": scalar(delta / reference * 10000) if covered else None,
             "meaning": "positive_is_worse_than_limit_not_arrival_or_decision_slippage",
         },
+    }
+
+
+def _session_return_metrics(values, dates, flow_uncertain):
+    """Compute conservative observed-session Sharpe and Sortino ratios.
+
+    The observer has account equity samples, not an exchange calendar. We only
+    call these *session* statistics when every sample is a weekday and adjacent
+    samples are separated by at most a long weekend (three calendar days). A
+    missing weekday/holiday is therefore fail-closed instead of silently
+    treating a multi-session return as one daily observation. External or
+    unclassified cash activity also withholds the ratios because the sampled
+    equity cannot be made time-weighted without an intraday valuation.
+    """
+    meaning = (
+        "account-level observed-session return ratio; zero risk-free proxy; "
+        "not strategy-attributed and not a guarantee"
+    )
+    if flow_uncertain:
+        return {
+            "status": "UNAVAILABLE",
+            "reason": "external_or_unclassified_flow_or_incomplete_coverage",
+            "observed_session_count": len(values),
+            "return_observation_count": 0,
+            "sharpe_ratio": None,
+            "sortino_ratio": None,
+            "annualization": "252 observed sessions per year",
+            "risk_free_proxy": "ZERO",
+            "meaning": meaning,
+        }
+    if len(values) < 3 or len(values) != len(dates):
+        return {
+            "status": "UNAVAILABLE",
+            "reason": "insufficient_observations",
+            "observed_session_count": len(values),
+            "return_observation_count": 0,
+            "sharpe_ratio": None,
+            "sortino_ratio": None,
+            "annualization": "252 observed sessions per year",
+            "risk_free_proxy": "ZERO",
+            "meaning": meaning,
+        }
+    parsed_dates = [date.fromisoformat(value) for value in dates]
+    if any(day.weekday() > 4 for day in parsed_dates):
+        reason = "non_session_observation"
+    elif any((later - earlier).days not in (1, 2, 3)
+             for earlier, later in zip(parsed_dates, parsed_dates[1:])):
+        reason = "non_consecutive_sessions"
+    elif any(value <= 0 for value in values):
+        reason = "non_positive_equity"
+    else:
+        reason = None
+    if reason is not None:
+        return {
+            "status": "UNAVAILABLE",
+            "reason": reason,
+            "observed_session_count": len(values),
+            "return_observation_count": 0,
+            "sharpe_ratio": None,
+            "sortino_ratio": None,
+            "annualization": "252 observed sessions per year",
+            "risk_free_proxy": "ZERO",
+            "meaning": meaning,
+        }
+
+    returns = [values[index] / values[index - 1] - 1
+               for index in range(1, len(values))]
+    mean = sum(returns, Decimal(0)) / Decimal(len(returns))
+    # Sample standard deviation matches the canonical backtest Sharpe
+    # definition and requires at least two return observations.
+    if len(returns) < 2:
+        return {
+            "status": "UNAVAILABLE",
+            "reason": "insufficient_return_observations",
+            "observed_session_count": len(values),
+            "return_observation_count": len(returns),
+            "sharpe_ratio": None,
+            "sortino_ratio": None,
+            "annualization": "252 observed sessions per year",
+            "risk_free_proxy": "ZERO",
+            "meaning": meaning,
+        }
+    variance = sum((value - mean) ** 2 for value in returns) / Decimal(len(returns) - 1)
+    std = variance.sqrt() if variance >= 0 else Decimal(0)
+    downside = [min(value, Decimal(0)) for value in returns]
+    downside_deviation = (sum(value ** 2 for value in downside) / Decimal(len(downside))).sqrt()
+    annualization = Decimal(252).sqrt()
+    sharpe = mean / std * annualization if std > 0 else None
+    sortino = mean / downside_deviation * annualization if downside_deviation > 0 else None
+    if sharpe is None and sortino is None:
+        status, reason = "UNAVAILABLE", "zero_return_variance_and_no_downside"
+    else:
+        status, reason = "COMPLETE", None
+    return {
+        "status": status,
+        "reason": reason,
+        "observed_session_count": len(values),
+        "return_observation_count": len(returns),
+        "sharpe_ratio": scalar(sharpe) if sharpe is not None else None,
+        "sortino_ratio": scalar(sortino) if sortino is not None else None,
+        "annualization": "252 observed sessions per year",
+        "risk_free_proxy": "ZERO",
+        "meaning": meaning,
+    }
+
+
+def _turnover_metrics(gross, average_equity, flow_uncertain):
+    """Report gross observed notional turnover only with a valid denominator."""
+    meaning = (
+        "gross account fill notional divided by average observed equity; "
+        "includes buys and sells, is not strategy-attributed, and is not a fill rate"
+    )
+    if flow_uncertain:
+        return {
+            "status": "UNAVAILABLE",
+            "reason": "external_or_unclassified_flow_or_incomplete_coverage",
+            "gross_notional": scalar(gross),
+            "average_observed_equity": None,
+            "gross_turnover_pct": None,
+            "meaning": meaning,
+        }
+    if average_equity is None or average_equity <= 0:
+        return {
+            "status": "UNAVAILABLE",
+            "reason": "non_positive_or_missing_equity_denominator",
+            "gross_notional": scalar(gross),
+            "average_observed_equity": None,
+            "gross_turnover_pct": None,
+            "meaning": meaning,
+        }
+    average = average_equity
+    turnover = gross / average * 100
+    return {
+        "status": "COMPLETE",
+        "reason": None,
+        "gross_notional": scalar(gross),
+        "average_observed_equity": scalar(average),
+        "gross_turnover_pct": scalar(turnover),
+        "meaning": meaning,
     }
 
 
@@ -187,8 +342,13 @@ def equity_metrics(observations, start, end, flow_uncertain):
         seen[at] = equity
         if start <= at <= end and (row["date"] not in daily or daily[row["date"]][0] < at):
             daily[row["date"]] = (at, equity)
-    values = [value for _, value in sorted(daily.values())]
+    ordered = sorted(daily.items())
+    values = [value for _, (_at, value) in ordered]
+    dates = [day for day, (_at, _value) in ordered]
     drawdown = None
+    average_equity = None
+    if values and all(value > 0 for value in values):
+        average_equity = sum(values, Decimal(0)) / Decimal(len(values))
     if len(values) >= 2 and all(value > 0 for value in values):
         peak, worst = values[0], Decimal(0)
         for value in values:
@@ -198,12 +358,15 @@ def equity_metrics(observations, start, end, flow_uncertain):
     return {"daily_observation_count": len(values),
             "first_observed_at": min(daily.values())[0].isoformat() if daily else None,
             "last_observed_at": max(daily.values())[0].isoformat() if daily else None,
+            "average_observed_equity": scalar(average_equity) if average_equity is not None else None,
             "observed_account_drawdown_pct": drawdown,
             "flow_adjusted_drawdown_pct": None if flow_uncertain else drawdown,
             "flow_adjustment_status": "UNAVAILABLE" if flow_uncertain or drawdown is None else "NO_EXTERNAL_FLOW_OBSERVED",
             "reason": "external_or_unclassified_flow_or_incomplete_coverage" if flow_uncertain else
-                      "insufficient_positive_daily_observations" if drawdown is None else "complete_activity_walk_as_of_observation",
-            "scope": "sampled_account_equity_not_intraday_maximum_or_strategy_performance"}
+                      "insufficient_positive_daily_observations" if drawdown is None else
+                      "complete_activity_walk_as_of_observation",
+            "scope": "sampled_account_equity_not_intraday_maximum_or_strategy_performance",
+            "risk": _session_return_metrics(values, dates, flow_uncertain)}
 
 
 def summarize_forward_observations(*, activities, orders_by_id, equity_observations,
@@ -245,6 +408,9 @@ def summarize_forward_observations(*, activities, orders_by_id, equity_observati
         elif kind != "FILL" and kind not in INTERNAL:
             unknown += 1
     flow_uncertain = bool(external or unknown or ambiguous or not activities_complete)
+    fills_summary = fill_metrics(rows, orders_by_id)
+    equity_summary = equity_metrics(equity_observations, start, end, flow_uncertain)
+    average_equity = equity_summary["average_observed_equity"]
     return {
         "schema_version": 1, "mode": "paper", "scope": "account_not_strategy_attributed",
         "window_start": start.isoformat(), "window_end": end.isoformat(),
@@ -252,12 +418,17 @@ def summarize_forward_observations(*, activities, orders_by_id, equity_observati
                      "duplicate_count": duplicates, "in_window_activity_count": len(rows),
                      "outside_window_count": outside, "boundary_ambiguous_count": ambiguous,
                      "unclassified_activity_count": unknown, "finality": "as_of_collection_not_settlement_final"},
-        "fills": fill_metrics(rows, orders_by_id),
+        "fills": fills_summary,
+        "turnover": _turnover_metrics(
+            number(fills_summary["notional"]),
+            number(average_equity) if average_equity is not None else None,
+            flow_uncertain,
+        ),
         "fees": {"observed_activity_count": len(fees),
                  "observed_net_debit": scalar(-sum(fees, Decimal(0))) if fees else None,
                  "final_total": None, "status": "OBSERVED_NOT_FINAL" if fees else "UNKNOWN",
                  "reason": "late_posting_possible_and_no_trade_attribution"},
         "external_cash_flows": {"observed_count": len(external),
                                 "observed_net_amount": scalar(sum(external, Decimal(0)))},
-        "equity": equity_metrics(equity_observations, start, end, flow_uncertain),
+        "equity": equity_summary,
     }
