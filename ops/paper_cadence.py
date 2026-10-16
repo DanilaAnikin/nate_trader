@@ -22,6 +22,9 @@ REPOSITORY = "DanilaAnikin/nate_trader"
 WORKFLOW = "paper-production.yml"
 JOB = "Guarded paper forward-validation"
 EXECUTE = "Execute one guarded paper cycle"
+RESTORE = "Restore latest private runtime-state artifact"
+SANITY = "Verify offline release contract"
+BROKER_PREFLIGHT = "Verify paper broker and deployment health"
 ACTIVE = {"queued", "in_progress", "waiting", "pending", "requested"}
 
 
@@ -150,6 +153,16 @@ def assessment(api, now, *, current_run_id=0):
                 execution.get("conclusion") in {
                     "success", "failure", "cancelled", "timed_out", "skipped",
                 }, "execution_step_unreadable")
+        prerequisites = {}
+        for name in (RESTORE, SANITY, BROKER_PREFLIGHT):
+            matches = [step for step in steps if step.get("name") == name]
+            require(len(matches) == 1, "paper_prerequisite_ambiguous")
+            prerequisite = matches[0]
+            require(prerequisite.get("status") == "completed" and
+                    prerequisite.get("conclusion") in {
+                        "success", "failure", "cancelled", "timed_out", "skipped",
+                    }, "paper_prerequisite_unreadable")
+            prerequisites[name] = prerequisite
         started = execution.get("started_at")
         if execution["conclusion"] != "skipped":
             require(isinstance(started, str), "execution_start_required")
@@ -159,7 +172,17 @@ def assessment(api, now, *, current_run_id=0):
                 attempts.append(run["id"])
         if run.get("conclusion") != "success":
             if execution["conclusion"] == "skipped":
-                preflight_failures.append(run["id"])
+                # A skipped executor is retryable only when restore, sanity,
+                # and broker preflight all passed. A failed sanity/handoff
+                # must be blocked; otherwise the watchdog can loop forever
+                # redispatching an invalid release.
+                if all(
+                    step["conclusion"] == "success"
+                    for step in prerequisites.values()
+                ):
+                    preflight_failures.append(run["id"])
+                else:
+                    failures.append(run["id"])
             else:
                 failures.append(run["id"])
     state = "active" if active else "attempted" if attempts else "blocked" if failures else "missing"
