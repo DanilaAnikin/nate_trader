@@ -2,9 +2,21 @@ name: Paper Recovery Audit
 
 on:
   workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Trusted paper-production run containing the runtime artifact"
+        required: true
+        default: "37984458798"
+        type: string
+      source_artifact:
+        description: "Exact runtime artifact name from that run"
+        required: true
+        default: "paper-runtime-state-e138e35898b5cd950e9c2f9a2c75e53673bb1313"
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   audit:
@@ -26,12 +38,24 @@ jobs:
           cache-dependency-path: requirements.lock
       - name: Install hash-locked production dependencies
         run: python -m pip install --require-hashes -r requirements.lock
-      - name: Read-only paper broker audit
+      - name: Download exact runtime source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ARTIFACT: ${{ inputs.source_artifact }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]{1,19}$ ]]
+          [[ "$SOURCE_ARTIFACT" =~ ^paper-runtime-state-[0-9a-f]{40}$ ]]
+          mkdir -p recovery-source
+          gh run download "$SOURCE_RUN_ID" -R "$GITHUB_REPOSITORY" \
+            -n "$SOURCE_ARTIFACT" -D recovery-source
+      - name: Read-only paper broker and known-order audit
         env:
           TRADING_MODE: paper
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-        run: python scripts/paper_broker_audit.py | tee paper-broker-audit.json
+        run: python scripts/paper_broker_audit.py --runtime-dir recovery-source | tee paper-broker-audit.json
       - name: Upload sanitized audit
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
