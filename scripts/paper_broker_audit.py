@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from broker_mode import resolve_broker_mode
-from trade import _get_client
 
 
 def _enum(value: Any) -> str:
@@ -30,6 +29,8 @@ def audit() -> dict[str, Any]:
     mode = resolve_broker_mode()
     if not mode.is_paper:
         raise RuntimeError("paper_mode_required")
+    from trade import _get_client
+
     client = _get_client()
     endpoint = str(
         getattr(
