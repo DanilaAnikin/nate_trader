@@ -293,10 +293,12 @@ def test_manual_preflight_workflow_excludes_executor_and_incident_notifications(
     # Compare the entire condition: a permissive suffix or misplaced grouping
     # must not let a preflight dispatch execute, or let cron bypass deduplication.
     assert condition(execute) == (
-        "if: (github.event_name == 'schedule' || inputs.operation == 'execute') "
+        "if: inputs.operation == 'settle' || ((github.event_name == 'schedule' || inputs.operation == 'execute') "
         "&& steps.cadence.outputs.allow_execution == 'true' "
-        "&& steps.market_gate.outputs.market_open == 'true'"
+        "&& steps.market_gate.outputs.market_open == 'true')"
     )
+    assert "inputs.operation == 'settle'" in condition(execute)
+    assert "steps.market_gate.outputs.market_open == 'true'" in condition(execute)
     assert condition(incident) == (
         "if: failure() && (github.event_name == 'schedule' || inputs.operation == 'execute')"
     )
