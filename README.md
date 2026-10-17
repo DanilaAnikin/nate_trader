@@ -29,7 +29,7 @@ portfolio of ordinary US equities:
 | Single-name cap | 9% of equity |
 | Sector cap | 40% of equity |
 | Normal gross exposure | At most 90%, leaving at least 10% cash |
-| Breadth scaler | 100% / 80% / 55% / 25% of target gross as breadth crosses 60% / 45% / 30% |
+| Breadth signal | Recorded for diagnostics; it does not scale target gross exposure |
 | Rebalance | First trading session of each month, with a 0.5% drift threshold |
 | Below SPY SMA200 | New monthly targets capped at 75% of equity; existing monthly targets remain frozen |
 | Recovery | One fresh target after the first completed SPY close back above SMA200 |
@@ -50,7 +50,7 @@ The risk tier scales the portfolio independently of the ranking:
 
 SPY is checked on every invocation. Below its 200-session SMA, the current
 policy caps newly constructed targets at 75% of equity, retaining any stricter
-breadth, diversification and damage-tier limit. A crossing does not liquidate
+diversification and damage-tier limit. A crossing does not liquidate
 the book or resize an already frozen monthly target. `HALT` still sends the
 directional target to zero without waiting for the next monthly rebalance.
 After that zero target has converged, one persisted recovery latch permits a
@@ -617,12 +617,11 @@ live-money trading or prove future alpha:
 | 15 bps/fill | Development (2022–2024) | 15.89% | 8.82% | +7.07 pp | +9.55% | -19.71% |
 | 15 bps/fill | Reused temporal check (2025–2026) | 19.00% | 18.73% | +0.27 pp | +7.26% | -17.38% |
 
-All eight fixed alpha checks passed. The one-session recovery rule and breadth
-scaler were selected using the development period, then frozen before this
-canonical run. The later segment's 15 bps raw excess is only +0.27 pp and is
-materially weaker than the prior baseline's reused result; its positive Jensen
-alpha reflects the strategy's lower beta. The segment remains reused rather
-than fresh OOS, and no parameter was changed after seeing it. See
+These figures describe the earlier breadth-scaled policy and remain historical
+evidence. The current policy keeps breadth diagnostic-only because extending the
+history through 2026-10-16 made that scaler fail the 15 bps temporal excess-CAGR
+gate. The replacement must pass a fresh canonical validation before paper
+promotion. See
 `state/backtest/v11_validation.json` for the bound report and evidence hashes.
 
 Consequently:
