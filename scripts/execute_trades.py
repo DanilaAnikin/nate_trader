@@ -4892,6 +4892,15 @@ def _run_execution_with_risk_snapshot(
     active_regime = get_market_regime()
     active_params = get_strategy_params(active_regime, get_risk_tier())
     adaptive_mode = bool(active_params.get("adaptive_momentum", False))
+    # The legacy options helper is intentionally paper-only: it posts to the
+    # fixed Alpaca paper endpoint with the paper credential pair. Refuse the
+    # entire live cycle before any stock/ETF action if a future strategy
+    # configuration accidentally enables that sleeve, rather than allowing a
+    # partial live rebalance followed by a paper-only hedge failure.
+    if active_params.get("enable_options_hedge", False) and requested_mode() == LIVE:
+        raise RuntimeError(
+            "live execution refuses the paper-only options hedge; no orders were submitted"
+        )
     short_preflight = (
         _reconcile_v11_short_positions(dry_run=dry_run)
         if adaptive_mode

@@ -188,7 +188,7 @@ export function preflightJson(
       {
         name: "frozen_v11_policy",
         passed: true,
-        detail: "breadth-scaled top-10 policy",
+        detail: "top-10 momentum policy",
       },
       {
         name: "canonical_validation_gate",

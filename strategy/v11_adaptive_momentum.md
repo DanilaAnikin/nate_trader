@@ -146,12 +146,12 @@ constraint. Default weights are transparent and equal:
 - maximum sector: 40%; and
 - minimum cash target: 10%.
 
-The production target is multiplied by a cross-sectional breadth tier. Breadth
-is the percentage of liquid, price-eligible names whose completed close is
-above SMA200: at least 60% keeps 100% of the target, 45–60% keeps 80%, 30–45%
-keeps 55%, and below 30% keeps 25%. Missing breadth fails defensively to 50%.
-This changes gross exposure only; it does not rerank stocks or bypass the SPY,
-portfolio-damage, single-name, or sector gates.
+Cross-sectional breadth is recorded as a diagnostic, but it does not scale the
+production target. The extended 2025–2026 validation showed that the earlier
+breadth multiplier cut exposure during strong index advances and failed the
+15bps temporal excess-CAGR gate. Gross exposure is therefore controlled by the
+SPY trend, diversification, and portfolio-risk gates; breadth cannot bypass
+any of those gates.
 
 With 9% slots, no more than four selected names can share a sector. Any
 allocation that cannot be placed under the caps remains cash. If fewer than
@@ -365,15 +365,13 @@ and +0.27 percentage points; Jensen alpha was +8.05% and +7.26%. Maximum
 drawdown ranged from -17.22% to -19.71% across the four runs. All eight strict
 alpha checks passed, but the 15 bps raw excess is economically thin.
 
-The one-session recovery rule and breadth scaler were selected on the
-development segment and then frozen. The later dates had already been
-inspected in earlier project work, so their positive result remains reused
-evidence, not a fresh holdout. Breadth underperformed the prior baseline's raw
-excess on that reused segment; no parameter was changed in response. The
-checked-in policy must not be retuned against that period while continuing to
-call it OOS. These numbers describe that historical policy and dataset, not
-the current release. Current evidence and its limitations are recorded in
-`state/backtest/v11_validation.json` and `docs/PROJECT_STATUS.md`.
+The one-session recovery rule was retained. The earlier breadth-scaled policy
+was a development-only selection; when the history was extended through
+2026-10-16 it failed the 15bps temporal excess-CAGR check. The current policy
+leaves breadth diagnostic-only and is eligible for paper validation only after
+the fresh canonical artifact passes. These numbers describe historical
+evidence rather than a forward guarantee; current evidence and limitations are
+recorded in `state/backtest/v11_validation.json` and `docs/PROJECT_STATUS.md`.
 
 ### What current backtests cannot establish
 

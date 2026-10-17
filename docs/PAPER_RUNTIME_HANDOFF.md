@@ -206,6 +206,41 @@ digest. The embedded prior manifest must be version 1; a third transfer is
 refused. A completed or different native successor plan is not a substitute
 source for this procedure.
 
+## Read-only recovery settlement after a completed second hop
+
+When a carried plan has reached a changed strategy or ranking universe and the
+schema-2 transfer boundary is exhausted, use the explicit `settle` operation
+instead of creating a third handoff. This retires the old plan only after the
+paper broker proves, using fresh GETs, that every known attempt is stable and
+`filled` across both the preserved first-hop plan and the active successor
+plan, the source positions match exactly, and there are zero open orders. The
+operation never submits, cancels, replaces, or modifies an order.
+
+The settlement source must be the exact 11-file chained runtime artifact: the
+active three snapshots, the active schema-2 manifest, and the seven preserved
+first-hop files (including the nested prior manifest). A historical seven-file
+schema-2 artifact is incomplete evidence and is refused; the missing prior
+manifest must never be reconstructed from its digest.
+
+The workflow runs inside `paper-production.yml`, so the resulting artifact has
+the same run/job/step provenance as an ordinary native runtime. It publishes
+only the three current snapshot files. `last_run.json` carries a target-bound,
+sanitized settlement record containing hashes, counts, and source IDs; it does
+not contain symbols, quantities, account IDs, or order IDs. The old pending
+plan is removed only after the audit passes, allowing the next in-session
+paper cycle to build a new plan from the target release's identity and
+universe.
+
+After the settlement run and its artifact have been independently reviewed,
+the deployment owner must update `PRODUCTION_RELEASE_SHA` to the target merge
+SHA and explicitly clear both `PAPER_RUNTIME_HANDOFF_MANIFEST` and
+`PAPER_RUNTIME_HANDOFF_SHA256`. These protected-variable changes are separate
+operator actions; the workflow does not perform them. If the old pin remains
+temporarily, the target-bound settlement marker permits native preflight but
+the pin should still be cleared before the next scheduled cycle. A target
+release with a fresh validation gate is required because the settlement
+workflow and runtime identity are part of the strategy provenance.
+
 The original account, ranking universe, plan identity and immutable plan fields
 must remain the same. Original attempt records cannot disappear, regress their
 counters or change their intent. Preparation and adoption reconcile both the

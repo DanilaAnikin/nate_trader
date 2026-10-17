@@ -194,12 +194,12 @@ def check_release() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     # Each mirror caught the 2026-09-08 change at a different stage — this one
     # only at the broker preflight, which is the last gate before an order.
     # `_record` carries a single detail string, so the mismatch is named
-    # explicitly: "breadth-scaled top-10 policy" told a reader nothing about
+    # explicitly: a generic policy label told a reader nothing about
     # WHICH field disagreed, and finding that cost a log dive.
     expected_policy = {
         "strategy_version": "v11-adaptive-momentum",
         "adaptive_momentum": True,
-        "momentum_use_breadth_scaling": True,
+        "momentum_use_breadth_scaling": False,
         "momentum_top_n": 10,
         "max_position_pct": 9.0,
         "momentum_max_sector_pct": 40.0,
@@ -218,7 +218,7 @@ def check_release() -> tuple[list[dict[str, Any]], dict[str, Any]]:
         checks,
         "frozen_v11_policy",
         not mismatches,
-        "breadth-scaled top-10 policy"
+        "top-10 momentum policy"
         if not mismatches
         else "policy drift: " + "; ".join(mismatches),
     )

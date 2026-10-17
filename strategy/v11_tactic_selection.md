@@ -1,6 +1,8 @@
 # V11 Development-Only Tactic Selection Contract
 
-Status: frozen before the second-round tactic results are inspected.
+Status: historical development record. Its breadth-scaled winner is retained
+for reproducibility, but it is not the current production policy; the extended
+2025-2026 validation caused the current policy to disable breadth scaling.
 
 ## Claim boundary
 

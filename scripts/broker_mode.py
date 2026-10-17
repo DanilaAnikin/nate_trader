@@ -30,13 +30,18 @@ The rules, in order of how much damage getting them wrong would do:
     be an explicit affirmative. Two independent variables have to be wrong at
     the same time for real money to move by accident.
 
-5.  **Absolute money caps exist outside the strategy.** Every strategy limit in
+5.  **Live also requires an explicit protected arm.** ``LIVE_EXECUTION_ARMED``
+    must equal the long, exact phrase ``I_UNDERSTAND_REAL_MONEY``. This is a
+    deny-by-default deployment latch, separate from the ordinary enable flag;
+    an absent, false, or typoed value always refuses live configuration.
+
+6.  **Absolute money caps exist outside the strategy.** Every strategy limit in
     this repository is a percentage of equity, so a bug in equity or in the
     target weights scales the mistake with the account. ``LIVE_MAX_ORDER_``
     ``NOTIONAL_USD`` and ``LIVE_MAX_CYCLE_NOTIONAL_USD`` are flat dollar
     ceilings that no strategy computation can talk its way past.
 
-6.  **There is an off switch that does not need a deploy.** If the file named
+7.  **There is an off switch that does not need a deploy.** If the file named
     by ``LIVE_TRADING_KILL_SWITCH_FILE`` exists, live entries are refused. It is
     checked at call time, so creating the file stops the next cycle.
 
@@ -58,6 +63,10 @@ PAPER = "paper"
 LIVE = "live"
 
 _AFFIRMATIVE = frozenset({"yes", "true", "1", "on", "enabled"})
+# A protected environment variable must contain this exact phrase before any
+# live configuration can resolve. Keep it absent/false in every environment
+# unless a separately reviewed live deployment is intentionally being armed.
+LIVE_EXECUTION_ARM_TOKEN = "I_UNDERSTAND_REAL_MONEY"
 
 #: Live entries are refused when this file exists. Deleting it re-arms them.
 DEFAULT_KILL_SWITCH_FILE = "state/production/LIVE_TRADING_DISABLED"
@@ -116,6 +125,13 @@ class BrokerMode:
 def _value(env: dict[str, str] | None, name: str) -> str:
     source = os.environ if env is None else env
     return str(source.get(name, "") or "").strip()
+
+
+def _exact_value(env: dict[str, str] | None, name: str) -> str:
+    """Read a deployment latch without normalising whitespace or case."""
+    source = os.environ if env is None else env
+    value = source.get(name, "")
+    return value if isinstance(value, str) else ""
 
 
 def _flag(env: dict[str, str] | None, name: str) -> bool:
@@ -209,6 +225,12 @@ def resolve_broker_mode(env: dict[str, str] | None = None) -> BrokerMode:
         problems.append(
             "LIVE_TRADING_ENABLED is not an explicit affirmative "
             "(yes/true/1/on/enabled)"
+        )
+
+    if _exact_value(env, "LIVE_EXECUTION_ARMED") != LIVE_EXECUTION_ARM_TOKEN:
+        problems.append(
+            "LIVE_EXECUTION_ARMED must exactly equal "
+            f"{LIVE_EXECUTION_ARM_TOKEN!r}; live is deny-by-default"
         )
 
     api_key = _value(env, "ALPACA_LIVE_API_KEY")

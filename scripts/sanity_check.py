@@ -59,7 +59,7 @@ def check_strategy_config() -> list[str]:
         _ok(
             "v11 targets: 10 names, 9% max, 40% sector, 10% cash, "
             "75% gross floor below SMA200, one-shot recovery reentry, "
-            "no leverage"
+            "no breadth scaling, no leverage"
         )
     return failures
 

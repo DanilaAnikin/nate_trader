@@ -353,7 +353,8 @@ function ArchiveNote() {
         <p>
           Those V10 signals no longer appear in the trading UI. V11 authorizes a
           position only through 12-1 momentum ranking, the eligibility filters,
-          the SPY trend gate, breadth scaling and the portfolio-damage tier.
+          the SPY trend gate and the portfolio-damage tier. Cross-sectional
+          breadth remains diagnostic data and does not reduce the target.
         </p>
       </Disclosure>
     </Panel>

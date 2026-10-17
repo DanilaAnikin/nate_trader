@@ -13,7 +13,7 @@
   "maxGrossExposurePct": 90,
   "belowSma200FloorPct": 75,
   "cautiousGrossMultiplier": 0.5,
-  "breadthScalingEnabled": true,
+  "breadthScalingEnabled": false,
   "riskOnReentryDays": 1,
   "productionExecutionMode": "paper-only",
   "riskThresholds": {

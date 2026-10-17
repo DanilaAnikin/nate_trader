@@ -672,6 +672,82 @@ def _target_run_record(state_dir: Path, manifest: dict) -> None:
     )
 
 
+def _recovery_settlement_authorized(
+    state_dir: Path, *, target_sha: str, target_identity: str, universe_sha: str
+) -> bool:
+    """Accept a native artifact that explicitly retired an old handoff.
+
+    A settlement is produced by the paper-production workflow after a fresh
+    broker audit.  It contains no carried plan or handoff files, but the old
+    protected handoff pin can remain configured until the operator clears it.
+    Requiring a complete, target-bound marker prevents a missing handoff from
+    silently becoming an ordinary execution state.
+    """
+    try:
+        performance = read_object((state_dir / "performance.json").read_bytes())
+        last_run = read_object((state_dir / "production/last_run.json").read_bytes())
+    except OSError:
+        return False
+    marker = last_run.get("recovery_settlement")
+    if not isinstance(marker, dict):
+        return False
+    required = {
+        "schema_version", "kind", "source_release_sha", "source_run_id",
+        "source_artifact_id", "source_archive_sha256", "source_handoff_sha256",
+        "source_plan_id", "source_plan_immutable_sha256", "source_ranking_universe_sha256",
+        "settled_plan_id", "settled_plan_immutable_sha256", "settled_ranking_universe_sha256",
+        "target_strategy_identity_sha256", "target_ranking_universe_sha256",
+        "known_order_count", "known_order_status_counts", "source_order_count", "source_order_status_counts",
+        "source_position_snapshot_sha256",
+        "broker_position_snapshot_sha256", "open_order_count", "settled_at",
+    }
+    if set(marker) != required:
+        return False
+    if (
+        marker["schema_version"] != 1
+        or marker["kind"] != "v11_paper_recovery_settlement"
+        or not _commit(target_sha)
+        or last_run.get("release_sha") != target_sha
+        or last_run.get("kind") != "v11_paper_production_run"
+        or last_run.get("paper_only") is not True
+        or last_run.get("status") != "DEGRADED"
+        or "adaptive_rebalance_pending" in performance
+        or marker["target_strategy_identity_sha256"] != target_identity
+        or marker["target_ranking_universe_sha256"] != universe_sha
+        or not _commit(marker["source_release_sha"])
+        or not all(_sha(marker[key]) for key in (
+            "source_archive_sha256", "source_handoff_sha256",
+            "source_plan_immutable_sha256", "source_ranking_universe_sha256",
+            "source_position_snapshot_sha256", "broker_position_snapshot_sha256",
+        ))
+        or not isinstance(marker["source_plan_id"], str)
+        or not re.fullmatch(r"[0-9a-f]{16}", marker["source_plan_id"])
+        or not isinstance(marker["settled_plan_id"], str)
+        or not re.fullmatch(r"[0-9a-f]{16}", marker["settled_plan_id"])
+        or not all(_sha(marker[key]) for key in (
+            "settled_plan_immutable_sha256", "settled_ranking_universe_sha256",
+        ))
+        or type(marker["source_run_id"]) is not int
+        or marker["source_run_id"] <= 0
+        or type(marker["source_artifact_id"]) is not int
+        or marker["source_artifact_id"] <= 0
+        or type(marker["known_order_count"]) is not int
+        or marker["known_order_count"] <= 0
+        or marker["known_order_status_counts"] != {"filled": marker["known_order_count"]}
+        or type(marker["source_order_count"]) is not int
+        or marker["source_order_count"] <= 0
+        or marker["source_order_status_counts"] != {"filled": marker["source_order_count"]}
+        or marker["open_order_count"] != 0
+        or not isinstance(marker["settled_at"], str)
+    ):
+        return False
+    try:
+        _timestamp(marker["settled_at"])
+    except HandoffError:
+        return False
+    return True
+
+
 def _completion_record(performance: dict, original: dict) -> bool:
     completed_month = performance.get("last_momentum_rebal_ym")
     return bool(
@@ -753,6 +829,18 @@ def paper_handoff_context():
                     )
             yield
             return
+        if pin and not evidence_exists:
+            from strategy_identity import build_strategy_identity, hash_symbol_universe
+            from universe import load_universe_symbols
+
+            if _recovery_settlement_authorized(
+                STATE_DIR,
+                target_sha=os.getenv("APPROVED_RELEASE_SHA", ""),
+                target_identity=str(build_strategy_identity()["value"]),
+                universe_sha=hash_symbol_universe(load_universe_symbols(held_symbols=[])),
+            ):
+                yield
+                return
         from broker_mode import resolve_broker_mode
         from execute_trades import _adaptive_pending_plan_structure_valid
         from strategy_identity import build_strategy_identity, hash_symbol_universe

@@ -43,7 +43,7 @@ describe("V11 dashboard policy contract", () => {
       // the published policy because "gate engaged" no longer means "flat".
       belowSma200FloorPct: 75,
       cautiousGrossMultiplier: 0.5,
-      breadthScalingEnabled: true,
+      breadthScalingEnabled: false,
       riskOnReentryDays: 1,
       productionExecutionMode: "paper-only",
       legacyOverlaysEnabled: false,

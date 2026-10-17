@@ -337,11 +337,12 @@ _V11_POLICY = {
     "momentum_target_market_vol_pct": 15.0,
     "momentum_weighting_scheme": "equal",
     "momentum_use_market_volatility_scaling": False,
-    # Frozen second-round development selection: reduce gross exposure when
-    # fewer liquid names are above their SMA200. This was the only candidate
-    # to improve CAGR, Jensen alpha, Sharpe, and maximum drawdown together at
-    # 15 bps while passing the standalone-year robustness contract.
-    "momentum_use_breadth_scaling": True,
+    # The earlier development-only selection enabled breadth scaling, but the
+    # extended 2025-2026 validation showed that it cut exposure during strong
+    # index advances and failed the 15 bps temporal excess-CAGR gate. Keep the
+    # breadth measurement in diagnostics while leaving target gross exposure
+    # to the SPY trend, diversification, and portfolio-risk gates.
+    "momentum_use_breadth_scaling": False,
     # Preserve the hard daily exit below SPY's SMA200, but do not remain in
     # cash until the next month after the completed close recovers. Exactly
     # one fresh 12-1 target is formed after one confirmed risk-on close, then
