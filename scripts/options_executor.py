@@ -169,6 +169,15 @@ def _place_option_order(contract_symbol: str, qty: int, side: str) -> dict | Non
 
 def execute_options_hedge(dry_run: bool = False) -> list[dict]:
     """Read decide_action and translate into actual orders."""
+    # This helper is deliberately wired to Alpaca's paper endpoint and the
+    # legacy paper credential pair. A live stock cycle must never silently
+    # combine real-money equity orders with a paper-only options hedge.
+    from broker_mode import LIVE, requested_mode
+    if requested_mode() == LIVE:
+        raise RuntimeError(
+            "options hedge is paper-only; refusing to run in live mode"
+        )
+
     from strategy_config import get_market_regime
     from utils import get_risk_tier as _grt
     regime = get_market_regime()

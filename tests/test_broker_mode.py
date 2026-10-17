@@ -13,6 +13,7 @@ import pytest
 from broker_mode import (
     DRY_RUN,
     LIVE,
+    LIVE_EXECUTION_ARM_TOKEN,
     PAPER,
     BrokerModeError,
     kill_switch_engaged,
@@ -28,6 +29,7 @@ def _live_env(**overrides: str) -> dict[str, str]:
     env = {
         "TRADING_MODE": "live",
         "LIVE_TRADING_ENABLED": "yes",
+        "LIVE_EXECUTION_ARMED": LIVE_EXECUTION_ARM_TOKEN,
         "ALPACA_LIVE_API_KEY": "live-key",
         "ALPACA_LIVE_SECRET_KEY": "live-secret",
         "ALPACA_API_KEY": "paper-key",
@@ -122,6 +124,7 @@ def test_fully_configured_live_resolves():
     "missing, fragment",
     [
         ("LIVE_TRADING_ENABLED", "LIVE_TRADING_ENABLED"),
+        ("LIVE_EXECUTION_ARMED", "LIVE_EXECUTION_ARMED"),
         ("ALPACA_LIVE_API_KEY", "never falls back"),
         ("ALPACA_LIVE_SECRET_KEY", "never falls back"),
         ("LIVE_TRADING_ACCOUNT_NUMBER", "LIVE_TRADING_ACCOUNT_NUMBER"),
@@ -142,6 +145,21 @@ def test_live_refuses_when_any_single_condition_is_missing(missing, fragment):
 def test_live_enable_flag_must_be_an_explicit_affirmative(value):
     with pytest.raises(BrokerModeError, match="LIVE_TRADING_ENABLED"):
         resolve_broker_mode(_live_env(LIVE_TRADING_ENABLED=value))
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", "false", "yes", "I_UNDERSTAND_REAL_MONEY ", "i_understand_real_money"],
+)
+def test_live_execution_arm_is_an_exact_deny_by_default_latch(value):
+    with pytest.raises(BrokerModeError, match="LIVE_EXECUTION_ARMED"):
+        resolve_broker_mode(_live_env(LIVE_EXECUTION_ARMED=value))
+
+
+def test_live_execution_arm_accepts_only_the_reviewed_token():
+    assert resolve_broker_mode(
+        _live_env(LIVE_EXECUTION_ARMED=LIVE_EXECUTION_ARM_TOKEN)
+    ).is_live
 
 
 @pytest.mark.parametrize("value", ["yes", "YES", "true", "1", "on", "enabled"])

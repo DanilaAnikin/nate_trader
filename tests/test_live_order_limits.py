@@ -70,6 +70,7 @@ class _FakeClient:
 LIVE_ENV = {
     "TRADING_MODE": "live",
     "LIVE_TRADING_ENABLED": "yes",
+    "LIVE_EXECUTION_ARMED": "I_UNDERSTAND_REAL_MONEY",
     "ALPACA_LIVE_API_KEY": "live-key",
     "ALPACA_LIVE_SECRET_KEY": "live-secret",
     "ALPACA_API_KEY": "paper-key",
@@ -103,6 +104,7 @@ def paper(monkeypatch, tmp_path):
     monkeypatch.setenv("ALPACA_SECRET_KEY", "paper-secret")
     for key in (
         "LIVE_TRADING_ENABLED",
+        "LIVE_EXECUTION_ARMED",
         "ALPACA_LIVE_API_KEY",
         "ALPACA_LIVE_SECRET_KEY",
         "LIVE_TRADING_ACCOUNT_NUMBER",
