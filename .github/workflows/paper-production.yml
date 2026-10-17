@@ -14,11 +14,36 @@ on:
         options:
           - preflight
           - execute
+          - settle
       automated_recovery:
         description: "Watchdog recovery; skips a session that was already attempted"
         required: false
         default: false
         type: boolean
+      target_sha:
+        description: "Current release SHA for an audited paper recovery settlement"
+        required: false
+        type: string
+      source_sha:
+        description: "Release SHA owning the exact old paper runtime artifact"
+        required: false
+        type: string
+      source_run_id:
+        description: "Exact paper-production run containing the old runtime artifact"
+        required: false
+        type: string
+      source_artifact_id:
+        description: "Exact Actions artifact ID for the old runtime state"
+        required: false
+        type: string
+      source_artifact:
+        description: "Exact old runtime artifact name"
+        required: false
+        type: string
+      source_archive_sha256:
+        description: "SHA-256 of the exact downloaded old runtime ZIP"
+        required: false
+        type: string
 
 concurrency:
   group: nate-trader-v11-paper-production
@@ -54,6 +79,7 @@ jobs:
       - name: Verify immutable release approval
         env:
           GH_TOKEN: ${{ github.token }}
+        if: inputs.operation != 'settle'
         run: |
           set -euo pipefail
           if [[ ! "$APPROVED_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
@@ -73,6 +99,23 @@ jobs:
             exit 1
           fi
 
+      - name: Verify settlement target release
+        if: inputs.operation == 'settle'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags --depth=1 origin "$TARGET_SHA"
+          git checkout --detach "$TARGET_SHA"
+          test -f scripts/recovery_settlement.py
+          successful_gate_count=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/v11-release.yml/runs?event=push&status=success&per_page=100" \
+            --jq "[.workflow_runs[] | select(.head_sha == \"$TARGET_SHA\")] | length")
+          test "$successful_gate_count" -ge 1
+          echo "APPROVED_RELEASE_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+
       - name: Set up pinned Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
@@ -85,11 +128,53 @@ jobs:
 
       - name: Prevent duplicate automatic paper sessions
         id: cadence
-        if: github.event_name == 'schedule' || inputs.operation == 'execute'
+        if: (github.event_name == 'schedule' || inputs.operation == 'execute')
         env:
           GH_TOKEN: ${{ github.token }}
           PAPER_AUTOMATED_CYCLE: ${{ github.event_name == 'schedule' || inputs.automated_recovery }}
         run: python ops/paper_cadence.py guard
+
+      - name: Download exact source runtime for settlement
+        if: inputs.operation == 'settle'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ARTIFACT_ID: ${{ inputs.source_artifact_id }}
+          SOURCE_ARTIFACT: ${{ inputs.source_artifact }}
+          SOURCE_ARCHIVE_SHA256: ${{ inputs.source_archive_sha256 }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$SOURCE_ARTIFACT_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$SOURCE_ARTIFACT" =~ ^paper-runtime-state-[0-9a-f]{40}$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          source_run=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}")
+          test "$(jq -r '.path' <<<"$source_run")" = '.github/workflows/paper-production.yml'
+          test "$(jq -r '.head_branch' <<<"$source_run")" = 'main'
+          [[ "$(jq -r '.head_sha' <<<"$source_run")" =~ ^[0-9a-f]{40}$ ]]
+          test "$(jq -r '.run_attempt' <<<"$source_run")" = '1'
+          mapfile -t matches < <(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100" \
+            --jq ".artifacts[] | select(.name == \"$SOURCE_ARTIFACT\") | .id")
+          test "${#matches[@]}" -eq 1
+          test "${matches[0]}" = "$SOURCE_ARTIFACT_ID"
+          [[ "$SOURCE_ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" \
+            > source-runtime.zip
+          printf '%s  %s\n' "$SOURCE_ARCHIVE_SHA256" source-runtime.zip | sha256sum -c -
+          mkdir -p recovery-source
+          PYTHONPATH=scripts python - <<'PY'
+          from pathlib import Path
+          from restore_paper_runtime import parse_runtime_zip
+          files = parse_runtime_zip(Path("source-runtime.zip").read_bytes())
+          root = Path("recovery-source")
+          for name, data in files.items():
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(data)
+          PY
 
       - name: Restore latest private runtime-state artifact
         id: restore_runtime
@@ -108,6 +193,31 @@ jobs:
       - name: Verify offline release contract
         if: inputs.operation == 'preflight' || steps.cadence.outputs.allow_execution == 'true'
         run: python scripts/sanity_check.py
+
+      - name: Verify old paper state and settle handoff read-only
+        id: settlement_source
+        if: inputs.operation == 'settle'
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ARTIFACT_ID: ${{ inputs.source_artifact_id }}
+          SOURCE_ARCHIVE_SHA256: ${{ inputs.source_archive_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SOURCE_ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          python scripts/recovery_settlement.py \
+            --source-dir recovery-source \
+            --output-dir state \
+            --target-sha "$TARGET_SHA" \
+            --source-sha "$SOURCE_SHA" \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --source-artifact-id "$SOURCE_ARTIFACT_ID" \
+            --source-archive-sha256 "$SOURCE_ARCHIVE_SHA256"
+          test ! -e state/production/handoff
 
       - name: Verify paper broker and deployment health
         id: market_gate
@@ -132,24 +242,28 @@ jobs:
 
       - name: Execute one guarded paper cycle
         id: execute
-        if: (github.event_name == 'schedule' || inputs.operation == 'execute') && steps.cadence.outputs.allow_execution == 'true' && steps.market_gate.outputs.market_open == 'true'
+        if: inputs.operation == 'settle' || ((github.event_name == 'schedule' || inputs.operation == 'execute') && steps.cadence.outputs.allow_execution == 'true' && steps.market_gate.outputs.market_open == 'true')
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
         run: |
           set -euo pipefail
-          python scripts/production_run.py | tee production-execution.json
+          if [ "${{ inputs.operation }}" = "settle" ]; then
+            test -f state/production/last_run.json
+          else
+            python scripts/production_run.py | tee production-execution.json
+          fi
 
       - name: Verify this execution runtime generation
         id: runtime_generation
-        if: always() && steps.restore_runtime.outcome == 'success' && (steps.execute.outcome == 'success' || steps.execute.outcome == 'failure' || steps.execute.outcome == 'cancelled')
+        if: always() && ((inputs.operation == 'settle' && steps.settlement_source.outcome == 'success') || steps.restore_runtime.outcome == 'success') && (steps.execute.outcome == 'success' || steps.execute.outcome == 'failure' || steps.execute.outcome == 'cancelled')
         run: python scripts/runtime_generation.py verify --require-generation --require-current-run --state-dir state
 
       - name: Preserve private runtime state
         if: always() && steps.runtime_generation.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: paper-runtime-state-${{ vars.PRODUCTION_RELEASE_SHA }}
+          name: paper-runtime-state-${{ inputs.operation == 'settle' && inputs.target_sha || vars.PRODUCTION_RELEASE_SHA }}
           path: |
             state/performance.json
             state/positions.json

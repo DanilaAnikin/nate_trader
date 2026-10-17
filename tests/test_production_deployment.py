@@ -55,7 +55,8 @@ def test_paper_workflow_pins_release_and_runtime_artifact_lineage():
     ).read_text(encoding="utf-8")
 
     assert "ref: ${{ vars.PRODUCTION_RELEASE_SHA }}" in workflow
-    assert "paper-runtime-state-${{ vars.PRODUCTION_RELEASE_SHA }}" in workflow
+    assert "paper-runtime-state-${{ inputs.operation == 'settle' && inputs.target_sha || vars.PRODUCTION_RELEASE_SHA }}" in workflow
+    assert "vars.PRODUCTION_RELEASE_SHA" in workflow
     assert "python scripts/restore_paper_runtime.py" in workflow
     assert "PAPER_RUNTIME_HANDOFF_SHA256: ${{ vars.PAPER_RUNTIME_HANDOFF_SHA256 }}" in workflow
     assert "PAPER_RUNTIME_HANDOFF_MANIFEST: ${{ vars.PAPER_RUNTIME_HANDOFF_MANIFEST }}" in workflow
