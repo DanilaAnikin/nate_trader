@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "v11_fixed_strategy_validation",
-  "generated_at": "2026-10-16T08:42:39.844516+00:00",
+  "generated_at": "2026-10-17T15:26:35.658825+00:00",
   "strategy": {
     "version": "v11-adaptive-momentum",
     "parameter_policy": "fixed checked-in parameters; no optimizer or sweep",
@@ -9,7 +9,7 @@
     "identity": {
       "schema_version": 1,
       "algorithm": "sha256",
-      "value": "58154fbb37463064cb04db1bba87cf2f6646ab8faff7d70cd39f695f524fbc86",
+      "value": "1326924ce54d8d5814ff5ae31faa07bbaaa8b860a9288baad0862b889aa8879a",
       "sources": [
         "requirements.txt",
         "requirements.lock",
@@ -66,8 +66,8 @@
     "temporal_check": {
       "label": "REUSED TEMPORAL CHECK / not fresh OOS",
       "start_date": "2025-01-02",
-      "end_date": "2026-10-15",
-      "sessions": 448
+      "end_date": "2026-10-16",
+      "sessions": 449
     }
   },
   "promotion_profile": {
@@ -95,10 +95,10 @@
   "bar_coverage": {
     "reference_symbol": "SPY",
     "reference_start": "2020-01-02",
-    "reference_end": "2026-10-15",
-    "reference_sessions": 1706,
+    "reference_end": "2026-10-16",
+    "reference_sessions": 1707,
     "validation_start": "2021-01-04",
-    "validation_end": "2026-10-15",
+    "validation_end": "2026-10-16",
     "required_warmup_sessions": 253,
     "required_auxiliary_symbols": [
       "BIL",
@@ -195,11 +195,11 @@
     "schema_version": 1,
     "ranking_universe_count": 530,
     "ranking_universe_sha256": "d83b5156c59a405d1793a81cd5024899f5a88b65a71dba793993bf281a2b7c88",
-    "bar_snapshot_sha256": "809f47d2544676c158c1a6b8ae38bd5fd7e72888014fd74d5ef2be6c8bda58c0",
-    "bar_snapshot_through_date": "2026-10-15",
+    "bar_snapshot_sha256": "b9bce02d7dd3edd0d3a1cc85125751b2dc05e5ebf8a5a6a4baf8aa4b8d1987b1",
+    "bar_snapshot_through_date": "2026-10-16",
     "bar_symbols_requested": 542,
     "bar_symbols_observed": 542,
-    "bar_rows_hashed": 916003
+    "bar_rows_hashed": 916545
   },
   "warnings": [
     {
@@ -237,7 +237,7 @@
         "metric": "excess_cagr_pct",
         "operator": ">",
         "threshold": 0.0,
-        "value": 20.1342,
+        "value": 22.6582,
         "passed": true
       },
       {
@@ -247,7 +247,7 @@
         "metric": "jensen_alpha_annual_pct",
         "operator": ">",
         "threshold": 0.0,
-        "value": 18.5661,
+        "value": 19.4675,
         "passed": true
       },
       {
@@ -257,7 +257,7 @@
         "metric": "excess_cagr_pct",
         "operator": ">",
         "threshold": 0.0,
-        "value": 1.0125,
+        "value": 3.8331,
         "passed": true
       },
       {
@@ -267,7 +267,7 @@
         "metric": "jensen_alpha_annual_pct",
         "operator": ">",
         "threshold": 0.0,
-        "value": 3.9665,
+        "value": 4.2492,
         "passed": true
       },
       {
@@ -277,7 +277,7 @@
         "metric": "excess_cagr_pct",
         "operator": ">",
         "threshold": 0.0,
-        "value": 19.1619,
+        "value": 21.6236,
         "passed": true
       },
       {
@@ -287,7 +287,7 @@
         "metric": "jensen_alpha_annual_pct",
         "operator": ">",
         "threshold": 0.0,
-        "value": 17.8348,
+        "value": 18.7058,
         "passed": true
       },
       {
@@ -297,7 +297,7 @@
         "metric": "excess_cagr_pct",
         "operator": ">",
         "threshold": 0.0,
-        "value": 0.2356,
+        "value": 2.9355,
         "passed": true
       },
       {
@@ -307,7 +307,7 @@
         "metric": "jensen_alpha_annual_pct",
         "operator": ">",
         "threshold": 0.0,
-        "value": 3.3093,
+        "value": 3.515,
         "passed": true
       }
     ],
@@ -371,46 +371,46 @@
             "param_overrides": null
           },
           "starting_cash": 1000000.0,
-          "final_equity": 3187588.8188288906,
+          "final_equity": 3434037.0637514996,
           "metrics": {
-            "total_return_pct": 218.7589,
-            "annual_return_pct": 33.7726,
+            "total_return_pct": 243.4037,
+            "annual_return_pct": 36.2966,
             "spy_total_return_pct": 66.425,
             "spy_annual_return_pct": 13.6384,
-            "alpha_total_pct": 152.3339,
-            "alpha_annual_pct": 20.1342,
-            "excess_cagr_pct": 20.1342,
-            "jensen_alpha_annual_pct": 18.5661,
-            "beta_to_spy": 1.0072,
+            "alpha_total_pct": 176.9787,
+            "alpha_annual_pct": 22.6582,
+            "excess_cagr_pct": 22.6582,
+            "jensen_alpha_annual_pct": 19.4675,
+            "beta_to_spy": 1.1228,
             "risk_free_proxy": "BIL",
             "risk_free_total_return_pct": 11.8132,
             "risk_free_annual_return_pct": 2.8422,
             "risk_free_fallback_zero": false,
             "risk_free_observed_sessions": 1005,
             "spy_observed_sessions": 1005,
-            "tracking_error_annual_pct": 21.5157,
-            "information_ratio": 0.8667,
-            "annual_vol_pct": 27.1135,
-            "sharpe_ratio": 1.1047,
-            "max_drawdown_pct": -24.239,
+            "tracking_error_annual_pct": 21.6465,
+            "information_ratio": 0.9636,
+            "annual_vol_pct": 28.3368,
+            "sharpe_ratio": 1.135,
+            "max_drawdown_pct": -23.4963,
             "max_drawdown_peak_date": "2021-11-09",
-            "max_drawdown_trough_date": "2023-03-16",
+            "max_drawdown_trough_date": "2022-01-24",
             "n_trading_days": 1005,
             "n_return_intervals": 1004,
-            "n_trades": 317,
-            "win_rate_pct": 62.78,
-            "avg_win_pct": 26.7048,
-            "avg_loss_pct": -8.6484,
-            "profit_factor": 2.8459,
+            "n_trades": 313,
+            "win_rate_pct": 65.18,
+            "avg_win_pct": 28.5368,
+            "avg_loss_pct": -8.7892,
+            "profit_factor": 2.9732,
             "best_trade": {
               "symbol": "ANF",
-              "entry_date": "2023-08-03",
+              "entry_date": "2023-08-07",
               "exit_date": "2024-07-02",
-              "qty": 93,
-              "entry_price": 56.72081394562969,
+              "qty": 99,
+              "entry_price": 46.13984539252336,
               "exit_price": 184.460787,
-              "pnl": 11879.81749405644,
-              "pnl_pct": 225.20828628590687,
+              "pnl": 13693.773219140188,
+              "pnl_pct": 299.78631360973435,
               "reason": "adaptive_rebalance_trim",
               "is_hedge": false,
               "is_base": false
@@ -419,10 +419,10 @@
               "symbol": "PI",
               "entry_date": "2023-03-03",
               "exit_date": "2023-05-01",
-              "qty": 820,
+              "qty": 857,
               "entry_price": 132.402617,
               "exit_price": 88.348113,
-              "pnl": -36124.69327999999,
+              "pnl": -37754.709928,
               "pnl_pct": -33.273136889733834,
               "reason": "adaptive_rebalance_exit",
               "is_hedge": false,
@@ -432,20 +432,20 @@
               "BULL": {
                 "days": 526,
                 "pct_of_time": 52.33830845771145,
-                "avg_daily_pnl_pct": 0.1274697216237468,
-                "total_pnl_pct": 80.22609384740878
+                "avg_daily_pnl_pct": 0.1279776883320547,
+                "total_pnl_pct": 80.43092450225926
               },
               "NEUTRAL": {
                 "days": 341,
                 "pct_of_time": 33.930348258706466,
-                "avg_daily_pnl_pct": 0.09120456933319104,
-                "total_pnl_pct": 29.43492089867337
+                "avg_daily_pnl_pct": 0.10283661865887823,
+                "total_pnl_pct": 33.90140660320973
               },
               "BEAR": {
                 "days": 138,
                 "pct_of_time": 13.73134328358209,
-                "avg_daily_pnl_pct": 0.23572782115518406,
-                "total_pnl_pct": 36.64481659501648
+                "avg_daily_pnl_pct": 0.2689108314586384,
+                "total_pnl_pct": 42.137562866220655
               }
             },
             "per_symbol": [
@@ -453,120 +453,148 @@
                 "symbol": "APP",
                 "trades": 7,
                 "wins": 7,
-                "pnl_total": 472775.5785560001,
-                "avg_pnl_per_trade": 67539.37
+                "pnl_total": 506747.53087600006,
+                "avg_pnl_per_trade": 72392.5
               },
               {
                 "symbol": "SMCI",
                 "trades": 5,
-                "wins": 2,
-                "pnl_total": 234314.969088,
-                "avg_pnl_per_trade": 46862.99
-              },
-              {
-                "symbol": "VRT",
-                "trades": 9,
-                "wins": 9,
-                "pnl_total": 151733.22497700003,
-                "avg_pnl_per_trade": 16859.25
+                "wins": 3,
+                "pnl_total": 251871.10357900002,
+                "avg_pnl_per_trade": 50374.22
               },
               {
                 "symbol": "ANF",
                 "trades": 10,
                 "wins": 8,
-                "pnl_total": 146407.34378499992,
-                "avg_pnl_per_trade": 14640.73
+                "pnl_total": 168521.4293609999,
+                "avg_pnl_per_trade": 16852.14
+              },
+              {
+                "symbol": "VRT",
+                "trades": 9,
+                "wins": 9,
+                "pnl_total": 167565.75884000002,
+                "avg_pnl_per_trade": 18618.42
               },
               {
                 "symbol": "MSTR",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": 111341.80032999998,
-                "avg_pnl_per_trade": 55670.9
-              },
-              {
-                "symbol": "NVDA",
-                "trades": 12,
-                "wins": 9,
-                "pnl_total": 79059.50078831174,
-                "avg_pnl_per_trade": 6588.29
+                "pnl_total": 122160.35192599997,
+                "avg_pnl_per_trade": 61080.18
               },
               {
                 "symbol": "EAT",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 72358.63859000003,
-                "avg_pnl_per_trade": 72358.64
-              },
-              {
-                "symbol": "COIN",
-                "trades": 3,
-                "wins": 2,
-                "pnl_total": 67226.27640999996,
-                "avg_pnl_per_trade": 22408.76
+                "pnl_total": 77959.30723000003,
+                "avg_pnl_per_trade": 77959.31
               },
               {
                 "symbol": "MTDR",
                 "trades": 7,
                 "wins": 7,
-                "pnl_total": 66113.590971,
-                "avg_pnl_per_trade": 9444.8
+                "pnl_total": 71254.10719600003,
+                "avg_pnl_per_trade": 10179.16
+              },
+              {
+                "symbol": "NVDA",
+                "trades": 9,
+                "wins": 7,
+                "pnl_total": 67711.64826282075,
+                "avg_pnl_per_trade": 7523.52
+              },
+              {
+                "symbol": "COIN",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 67053.74308800002,
+                "avg_pnl_per_trade": 22351.25
               },
               {
                 "symbol": "AR",
                 "trades": 10,
                 "wins": 9,
-                "pnl_total": 59044.26475600002,
-                "avg_pnl_per_trade": 5904.43
+                "pnl_total": 66835.41330000001,
+                "avg_pnl_per_trade": 6683.54
+              },
+              {
+                "symbol": "DVN",
+                "trades": 10,
+                "wins": 10,
+                "pnl_total": 62883.996507,
+                "avg_pnl_per_trade": 6288.4
               },
               {
                 "symbol": "HOOD",
                 "trades": 2,
                 "wins": 2,
-                "pnl_total": 56238.351861200004,
-                "avg_pnl_per_trade": 28119.18
-              },
-              {
-                "symbol": "DVN",
-                "trades": 9,
-                "wins": 9,
-                "pnl_total": 53700.21659599999,
-                "avg_pnl_per_trade": 5966.69
+                "pnl_total": 60578.225104159996,
+                "avg_pnl_per_trade": 30289.11
               },
               {
                 "symbol": "SFM",
                 "trades": 3,
                 "wins": 3,
-                "pnl_total": 40097.441275999976,
-                "avg_pnl_per_trade": 13365.81
-              },
-              {
-                "symbol": "OVV",
-                "trades": 5,
-                "wins": 5,
-                "pnl_total": 36754.05863099999,
-                "avg_pnl_per_trade": 7350.81
+                "pnl_total": 43180.83977399998,
+                "avg_pnl_per_trade": 14393.61
               },
               {
                 "symbol": "PHM",
                 "trades": 3,
                 "wins": 2,
-                "pnl_total": 36056.53190300003,
-                "avg_pnl_per_trade": 12018.84
-              },
-              {
-                "symbol": "FSLR",
-                "trades": 5,
-                "wins": 5,
-                "pnl_total": 29774.52455500001,
-                "avg_pnl_per_trade": 5954.9
+                "pnl_total": 39394.44572700006,
+                "avg_pnl_per_trade": 13131.48
               },
               {
                 "symbol": "LLY",
                 "trades": 5,
                 "wins": 2,
-                "pnl_total": 27932.15682800003,
-                "avg_pnl_per_trade": 5586.43
+                "pnl_total": 31656.034709000036,
+                "avg_pnl_per_trade": 6331.21
+              },
+              {
+                "symbol": "FSLR",
+                "trades": 5,
+                "wins": 5,
+                "pnl_total": 30312.91416600001,
+                "avg_pnl_per_trade": 6062.58
+              },
+              {
+                "symbol": "OVV",
+                "trades": 5,
+                "wins": 5,
+                "pnl_total": 30198.474556999998,
+                "avg_pnl_per_trade": 6039.69
+              },
+              {
+                "symbol": "VLO",
+                "trades": 2,
+                "wins": 2,
+                "pnl_total": 27259.86534399999,
+                "avg_pnl_per_trade": 13629.93
+              },
+              {
+                "symbol": "DECK",
+                "trades": 3,
+                "wins": 3,
+                "pnl_total": 26928.538789,
+                "avg_pnl_per_trade": 8976.18
+              },
+              {
+                "symbol": "OLN",
+                "trades": 4,
+                "wins": 3,
+                "pnl_total": 26042.859921000025,
+                "avg_pnl_per_trade": 6510.71
+              },
+              {
+                "symbol": "SLG",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 26037.026727999986,
+                "avg_pnl_per_trade": 8679.01
               },
               {
                 "symbol": "BILL",
@@ -576,18 +604,11 @@
                 "avg_pnl_per_trade": 24897.55
               },
               {
-                "symbol": "OLN",
-                "trades": 4,
-                "wins": 3,
-                "pnl_total": 24851.855285000023,
-                "avg_pnl_per_trade": 6212.96
-              },
-              {
-                "symbol": "SLG",
-                "trades": 3,
+                "symbol": "NTNX",
+                "trades": 2,
                 "wins": 2,
-                "pnl_total": 24160.73619399999,
-                "avg_pnl_per_trade": 8053.58
+                "pnl_total": 24614.016916,
+                "avg_pnl_per_trade": 12307.01
               },
               {
                 "symbol": "CZR",
@@ -604,18 +625,18 @@
                 "avg_pnl_per_trade": 5930.75
               },
               {
-                "symbol": "DECK",
-                "trades": 4,
-                "wins": 4,
-                "pnl_total": 23207.308834000003,
-                "avg_pnl_per_trade": 5801.83
+                "symbol": "KKR",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 23429.267753999986,
+                "avg_pnl_per_trade": 23429.27
               },
               {
-                "symbol": "NTNX",
+                "symbol": "TKO",
                 "trades": 2,
                 "wins": 2,
-                "pnl_total": 23053.574201,
-                "avg_pnl_per_trade": 11526.79
+                "pnl_total": 23266.513485000007,
+                "avg_pnl_per_trade": 11633.26
               },
               {
                 "symbol": "WCC",
@@ -625,25 +646,11 @@
                 "avg_pnl_per_trade": 11035.86
               },
               {
-                "symbol": "KKR",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 21741.670654999987,
-                "avg_pnl_per_trade": 21741.67
-              },
-              {
-                "symbol": "TKO",
+                "symbol": "GE",
                 "trades": 2,
                 "wins": 2,
-                "pnl_total": 21518.902323000006,
-                "avg_pnl_per_trade": 10759.45
-              },
-              {
-                "symbol": "VLO",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 21123.44264600001,
-                "avg_pnl_per_trade": 10561.72
+                "pnl_total": 21698.807883999998,
+                "avg_pnl_per_trade": 10849.4
               },
               {
                 "symbol": "PENN",
@@ -663,29 +670,22 @@
                 "symbol": "GAP",
                 "trades": 4,
                 "wins": 3,
-                "pnl_total": 16951.666957000016,
-                "avg_pnl_per_trade": 4237.92
+                "pnl_total": 17778.833987000005,
+                "avg_pnl_per_trade": 4444.71
               },
               {
                 "symbol": "SMTC",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 16489.494567000005,
-                "avg_pnl_per_trade": 16489.49
-              },
-              {
-                "symbol": "GE",
-                "trades": 3,
-                "wins": 3,
-                "pnl_total": 16383.896522000008,
-                "avg_pnl_per_trade": 5461.3
+                "pnl_total": 17757.91722600001,
+                "avg_pnl_per_trade": 17757.92
               },
               {
                 "symbol": "POWL",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": 16284.542728000059,
-                "avg_pnl_per_trade": 8142.27
+                "pnl_total": 17542.735243000043,
+                "avg_pnl_per_trade": 8771.37
               },
               {
                 "symbol": "ETSY",
@@ -695,6 +695,13 @@
                 "avg_pnl_per_trade": 3995.71
               },
               {
+                "symbol": "MCK",
+                "trades": 4,
+                "wins": 4,
+                "pnl_total": 15158.90355400003,
+                "avg_pnl_per_trade": 3789.73
+              },
+              {
                 "symbol": "TWLO",
                 "trades": 3,
                 "wins": 2,
@@ -702,18 +709,32 @@
                 "avg_pnl_per_trade": 4990.04
               },
               {
-                "symbol": "LVS",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 13995.033051000006,
-                "avg_pnl_per_trade": 6997.52
+                "symbol": "EXTR",
+                "trades": 3,
+                "wins": 3,
+                "pnl_total": 14956.42187550001,
+                "avg_pnl_per_trade": 4985.47
               },
               {
-                "symbol": "EXTR",
+                "symbol": "META",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 14455.456798000005,
+                "avg_pnl_per_trade": 4818.49
+              },
+              {
+                "symbol": "PR",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 13216.224870000016,
-                "avg_pnl_per_trade": 13216.22
+                "pnl_total": 13489.530930000003,
+                "avg_pnl_per_trade": 13489.53
+              },
+              {
+                "symbol": "ARM",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 13136.401935999982,
+                "avg_pnl_per_trade": 13136.4
               },
               {
                 "symbol": "FCX",
@@ -723,32 +744,39 @@
                 "avg_pnl_per_trade": 4338.58
               },
               {
-                "symbol": "ATKR",
-                "trades": 4,
-                "wins": 1,
-                "pnl_total": 12552.41796000001,
-                "avg_pnl_per_trade": 3138.1
-              },
-              {
-                "symbol": "ARM",
+                "symbol": "AZO",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 12193.879823999983,
-                "avg_pnl_per_trade": 12193.88
-              },
-              {
-                "symbol": "HRI",
-                "trades": 6,
-                "wins": 3,
-                "pnl_total": 12094.442297000023,
-                "avg_pnl_per_trade": 2015.74
+                "pnl_total": 12901.244948000005,
+                "avg_pnl_per_trade": 12901.24
               },
               {
                 "symbol": "XOM",
                 "trades": 2,
                 "wins": 2,
-                "pnl_total": 11707.309147000009,
-                "avg_pnl_per_trade": 5853.65
+                "pnl_total": 12589.57529600001,
+                "avg_pnl_per_trade": 6294.79
+              },
+              {
+                "symbol": "HRI",
+                "trades": 6,
+                "wins": 2,
+                "pnl_total": 12139.528440000033,
+                "avg_pnl_per_trade": 2023.25
+              },
+              {
+                "symbol": "LVS",
+                "trades": 2,
+                "wins": 1,
+                "pnl_total": 12063.337656999995,
+                "avg_pnl_per_trade": 6031.67
+              },
+              {
+                "symbol": "ANET",
+                "trades": 2,
+                "wins": 1,
+                "pnl_total": 11877.860926999996,
+                "avg_pnl_per_trade": 5938.93
               },
               {
                 "symbol": "WAL",
@@ -768,71 +796,71 @@
                 "symbol": "WSM",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": 9942.014221999973,
-                "avg_pnl_per_trade": 4971.01
+                "pnl_total": 10707.562484000016,
+                "avg_pnl_per_trade": 5353.78
               },
               {
-                "symbol": "META",
+                "symbol": "ATKR",
                 "trades": 3,
                 "wins": 1,
-                "pnl_total": 9675.613769000009,
-                "avg_pnl_per_trade": 3225.2
+                "pnl_total": 10647.41277600001,
+                "avg_pnl_per_trade": 3549.14
               },
               {
-                "symbol": "PR",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 9346.680680000014,
-                "avg_pnl_per_trade": 9346.68
+                "symbol": "PI",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 10479.946454,
+                "avg_pnl_per_trade": 3493.32
               },
               {
-                "symbol": "RRC",
-                "trades": 4,
-                "wins": 3,
-                "pnl_total": 8654.869489000015,
-                "avg_pnl_per_trade": 2163.72
-              },
-              {
-                "symbol": "AZO",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 8276.270344000004,
-                "avg_pnl_per_trade": 8276.27
+                "symbol": "RCL",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 10284.320295000027,
+                "avg_pnl_per_trade": 3428.11
               },
               {
                 "symbol": "BOOT",
                 "trades": 3,
                 "wins": 2,
-                "pnl_total": 8143.9665950000235,
-                "avg_pnl_per_trade": 2714.66
+                "pnl_total": 8174.696759000024,
+                "avg_pnl_per_trade": 2724.9
               },
               {
                 "symbol": "UBER",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 7662.0279279999795,
-                "avg_pnl_per_trade": 7662.03
+                "pnl_total": 8052.287663999969,
+                "avg_pnl_per_trade": 8052.29
               },
               {
-                "symbol": "MCK",
+                "symbol": "RRC",
                 "trades": 4,
-                "wins": 4,
-                "pnl_total": 6251.004013000027,
-                "avg_pnl_per_trade": 1562.75
+                "wins": 3,
+                "pnl_total": 7361.915265999994,
+                "avg_pnl_per_trade": 1840.48
               },
               {
-                "symbol": "ANET",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": 6175.40483,
-                "avg_pnl_per_trade": 3087.7
+                "symbol": "NUE",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 7015.603781000002,
+                "avg_pnl_per_trade": 2338.53
               },
               {
                 "symbol": "PLTR",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": 4888.820822000015,
-                "avg_pnl_per_trade": 2444.41
+                "pnl_total": 5052.003981000016,
+                "avg_pnl_per_trade": 2526.0
+              },
+              {
+                "symbol": "FTNT",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 4797.727044000007,
+                "avg_pnl_per_trade": 1599.24
               },
               {
                 "symbol": "XYZ",
@@ -842,18 +870,11 @@
                 "avg_pnl_per_trade": 2389.28
               },
               {
-                "symbol": "FTNT",
-                "trades": 3,
-                "wins": 2,
-                "pnl_total": 4512.184780000009,
-                "avg_pnl_per_trade": 1504.06
-              },
-              {
                 "symbol": "NFLX",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": 3842.961995000034,
-                "avg_pnl_per_trade": 1921.48
+                "pnl_total": 3981.9190720000224,
+                "avg_pnl_per_trade": 1990.96
               },
               {
                 "symbol": "GNRC",
@@ -863,144 +884,158 @@
                 "avg_pnl_per_trade": 3379.64
               },
               {
-                "symbol": "RCL",
-                "trades": 4,
-                "wins": 2,
-                "pnl_total": 2609.4398200000537,
-                "avg_pnl_per_trade": 652.36
-              },
-              {
-                "symbol": "NUE",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": 2470.578735000022,
-                "avg_pnl_per_trade": 1235.29
-              },
-              {
                 "symbol": "CI",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 1868.9318560000181,
-                "avg_pnl_per_trade": 1868.93
+                "pnl_total": 1948.886160000019,
+                "avg_pnl_per_trade": 1948.89
               },
               {
-                "symbol": "CRWD",
-                "trades": 4,
-                "wins": 3,
-                "pnl_total": 697.1503130000574,
-                "avg_pnl_per_trade": 174.29
-              },
-              {
-                "symbol": "COR",
+                "symbol": "OPCH",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 591.140071999999,
-                "avg_pnl_per_trade": 591.14
-              },
-              {
-                "symbol": "ED",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 480.7288780000026,
-                "avg_pnl_per_trade": 480.73
-              },
-              {
-                "symbol": "NOC",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 185.7864720000034,
-                "avg_pnl_per_trade": 185.79
+                "pnl_total": 1745.7250379999928,
+                "avg_pnl_per_trade": 1745.73
               },
               {
                 "symbol": "NVO",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": -345.5621050000293,
-                "avg_pnl_per_trade": -172.78
+                "pnl_total": 1663.6541929999817,
+                "avg_pnl_per_trade": 831.83
               },
               {
-                "symbol": "OPCH",
+                "symbol": "NOC",
                 "trades": 1,
-                "wins": 0,
-                "pnl_total": -429.11542099999883,
-                "avg_pnl_per_trade": -429.12
+                "wins": 1,
+                "pnl_total": 1395.9535520000093,
+                "avg_pnl_per_trade": 1395.95
+              },
+              {
+                "symbol": "COR",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 1161.7950919999982,
+                "avg_pnl_per_trade": 1161.8
+              },
+              {
+                "symbol": "ED",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 943.9235720000052,
+                "avg_pnl_per_trade": 943.92
               },
               {
                 "symbol": "BTU",
                 "trades": 2,
+                "wins": 2,
+                "pnl_total": 926.1984879999923,
+                "avg_pnl_per_trade": 463.1
+              },
+              {
+                "symbol": "CRWD",
+                "trades": 4,
+                "wins": 3,
+                "pnl_total": 843.4515270000607,
+                "avg_pnl_per_trade": 210.86
+              },
+              {
+                "symbol": "PARR",
+                "trades": 1,
                 "wins": 0,
-                "pnl_total": -2144.069056999994,
-                "avg_pnl_per_trade": -1072.03
+                "pnl_total": -2114.4168479999985,
+                "avg_pnl_per_trade": -2114.42
+              },
+              {
+                "symbol": "ACI",
+                "trades": 3,
+                "wins": 0,
+                "pnl_total": -2283.965630999988,
+                "avg_pnl_per_trade": -761.32
               },
               {
                 "symbol": "MPC",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": -2783.2482630000072,
-                "avg_pnl_per_trade": -1391.62
-              },
-              {
-                "symbol": "ACI",
-                "trades": 2,
-                "wins": 0,
-                "pnl_total": -2949.6040189999976,
-                "avg_pnl_per_trade": -1474.8
-              },
-              {
-                "symbol": "BMRN",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -3579.412889999996,
-                "avg_pnl_per_trade": -3579.41
-              },
-              {
-                "symbol": "FWONK",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -3645.832512,
-                "avg_pnl_per_trade": -3645.83
-              },
-              {
-                "symbol": "EXLS",
-                "trades": 2,
-                "wins": 0,
-                "pnl_total": -3722.060443999995,
-                "avg_pnl_per_trade": -1861.03
-              },
-              {
-                "symbol": "BCC",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": -3740.6351800000048,
-                "avg_pnl_per_trade": -1870.32
-              },
-              {
-                "symbol": "ARCB",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -3837.305550000004,
-                "avg_pnl_per_trade": -3837.31
+                "pnl_total": -2477.3998200000087,
+                "avg_pnl_per_trade": -1238.7
               },
               {
                 "symbol": "AAON",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -3913.7266950000026,
-                "avg_pnl_per_trade": -3913.73
+                "pnl_total": -3405.461168000004,
+                "avg_pnl_per_trade": -3405.46
+              },
+              {
+                "symbol": "MUSA",
+                "trades": 4,
+                "wins": 2,
+                "pnl_total": -3446.408405999984,
+                "avg_pnl_per_trade": -861.6
+              },
+              {
+                "symbol": "VRTX",
+                "trades": 2,
+                "wins": 1,
+                "pnl_total": -3465.45183899997,
+                "avg_pnl_per_trade": -1732.73
+              },
+              {
+                "symbol": "BCC",
+                "trades": 2,
+                "wins": 1,
+                "pnl_total": -3703.482229999964,
+                "avg_pnl_per_trade": -1851.74
+              },
+              {
+                "symbol": "BMRN",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -3741.5119949999957,
+                "avg_pnl_per_trade": -3741.51
+              },
+              {
+                "symbol": "EXLS",
+                "trades": 2,
+                "wins": 0,
+                "pnl_total": -4005.7797119999987,
+                "avg_pnl_per_trade": -2002.89
               },
               {
                 "symbol": "APA",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": -4223.8472689999935,
-                "avg_pnl_per_trade": -2111.92
+                "pnl_total": -4304.27526699999,
+                "avg_pnl_per_trade": -2152.14
               },
               {
-                "symbol": "KR",
+                "symbol": "ARCB",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -5192.846425000004,
-                "avg_pnl_per_trade": -5192.85
+                "pnl_total": -4802.690841000005,
+                "avg_pnl_per_trade": -4802.69
+              },
+              {
+                "symbol": "ROKU",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": -5032.160880999998,
+                "avg_pnl_per_trade": -1677.39
+              },
+              {
+                "symbol": "PEN",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -5082.689890000019,
+                "avg_pnl_per_trade": -5082.69
+              },
+              {
+                "symbol": "FWONK",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -5560.660512,
+                "avg_pnl_per_trade": -5560.66
               },
               {
                 "symbol": "RH",
@@ -1010,74 +1045,32 @@
                 "avg_pnl_per_trade": -5873.82
               },
               {
-                "symbol": "PARR",
+                "symbol": "WYNN",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -6151.528016999977,
-                "avg_pnl_per_trade": -6151.53
-              },
-              {
-                "symbol": "ON",
-                "trades": 2,
-                "wins": 0,
-                "pnl_total": -6258.097223999994,
-                "avg_pnl_per_trade": -3129.05
-              },
-              {
-                "symbol": "ROKU",
-                "trades": 3,
-                "wins": 2,
-                "pnl_total": -6564.926252999988,
-                "avg_pnl_per_trade": -2188.31
-              },
-              {
-                "symbol": "VRTX",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": -7154.191478999966,
-                "avg_pnl_per_trade": -3577.1
-              },
-              {
-                "symbol": "PEN",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": -7894.288889999991,
-                "avg_pnl_per_trade": -3947.14
+                "pnl_total": -6963.228267999992,
+                "avg_pnl_per_trade": -6963.23
               },
               {
                 "symbol": "SANM",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": -7906.486869859986,
-                "avg_pnl_per_trade": -3953.24
+                "pnl_total": -7932.68902470999,
+                "avg_pnl_per_trade": -3966.34
               },
               {
-                "symbol": "WYNN",
+                "symbol": "KR",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -8005.14558399999,
-                "avg_pnl_per_trade": -8005.15
+                "pnl_total": -7992.727675000006,
+                "avg_pnl_per_trade": -7992.73
               },
               {
-                "symbol": "CMC",
+                "symbol": "IOT",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -8293.377920000004,
-                "avg_pnl_per_trade": -8293.38
-              },
-              {
-                "symbol": "DELL",
-                "trades": 4,
-                "wins": 3,
-                "pnl_total": -8340.480097999958,
-                "avg_pnl_per_trade": -2085.12
-              },
-              {
-                "symbol": "PI",
-                "trades": 3,
-                "wins": 2,
-                "pnl_total": -8525.087697999988,
-                "avg_pnl_per_trade": -2841.7
+                "pnl_total": -8161.4308079999955,
+                "avg_pnl_per_trade": -8161.43
               },
               {
                 "symbol": "CHWY",
@@ -1087,6 +1080,13 @@
                 "avg_pnl_per_trade": -2872.04
               },
               {
+                "symbol": "CMC",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -8668.591380000005,
+                "avg_pnl_per_trade": -8668.59
+              },
+              {
                 "symbol": "BYD",
                 "trades": 1,
                 "wins": 0,
@@ -1094,130 +1094,130 @@
                 "avg_pnl_per_trade": -8753.06
               },
               {
-                "symbol": "IOT",
+                "symbol": "DELL",
+                "trades": 4,
+                "wins": 3,
+                "pnl_total": -9012.62582299998,
+                "avg_pnl_per_trade": -2253.16
+              },
+              {
+                "symbol": "ON",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -9459.474687999997,
-                "avg_pnl_per_trade": -9459.47
+                "pnl_total": -9831.66871199999,
+                "avg_pnl_per_trade": -9831.67
               },
               {
                 "symbol": "HALO",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -9512.8236,
-                "avg_pnl_per_trade": -9512.82
+                "pnl_total": -9943.16562,
+                "avg_pnl_per_trade": -9943.17
               },
               {
                 "symbol": "LPLA",
                 "trades": 3,
                 "wins": 1,
-                "pnl_total": -11731.151576999986,
-                "avg_pnl_per_trade": -3910.38
+                "pnl_total": -11264.499551999987,
+                "avg_pnl_per_trade": -3754.83
               },
               {
-                "symbol": "MUSA",
-                "trades": 4,
-                "wins": 1,
-                "pnl_total": -11994.832332,
-                "avg_pnl_per_trade": -2998.71
-              },
-              {
-                "symbol": "IONS",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -12033.375243999983,
-                "avg_pnl_per_trade": -12033.38
+                "symbol": "ENPH",
+                "trades": 7,
+                "wins": 3,
+                "pnl_total": -12093.12316503998,
+                "avg_pnl_per_trade": -1727.59
               },
               {
                 "symbol": "MGY",
                 "trades": 2,
                 "wins": 0,
-                "pnl_total": -13013.951052999982,
-                "avg_pnl_per_trade": -6506.98
+                "pnl_total": -13350.715152999985,
+                "avg_pnl_per_trade": -6675.36
               },
               {
                 "symbol": "AXON",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -13291.439072999987,
-                "avg_pnl_per_trade": -13291.44
-              },
-              {
-                "symbol": "CROX",
-                "trades": 4,
-                "wins": 2,
-                "pnl_total": -14859.738994999978,
-                "avg_pnl_per_trade": -3714.93
-              },
-              {
-                "symbol": "FOUR",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -15010.647343999994,
-                "avg_pnl_per_trade": -15010.65
+                "pnl_total": -13765.62492199997,
+                "avg_pnl_per_trade": -13765.62
               },
               {
                 "symbol": "NTLA",
                 "trades": 2,
                 "wins": 0,
-                "pnl_total": -15076.943448999995,
-                "avg_pnl_per_trade": -7538.47
+                "pnl_total": -14842.267836999992,
+                "avg_pnl_per_trade": -7421.13
+              },
+              {
+                "symbol": "IONS",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -15172.79862899997,
+                "avg_pnl_per_trade": -15172.8
+              },
+              {
+                "symbol": "FOUR",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -15261.57350199999,
+                "avg_pnl_per_trade": -15261.57
               },
               {
                 "symbol": "PANW",
-                "trades": 2,
+                "trades": 3,
                 "wins": 0,
-                "pnl_total": -15142.123526999982,
-                "avg_pnl_per_trade": -7571.06
+                "pnl_total": -16514.076098999976,
+                "avg_pnl_per_trade": -5504.69
               },
               {
-                "symbol": "BX",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -18193.38655200001,
-                "avg_pnl_per_trade": -18193.39
+                "symbol": "CROX",
+                "trades": 4,
+                "wins": 2,
+                "pnl_total": -16677.57485799995,
+                "avg_pnl_per_trade": -4169.39
               },
               {
                 "symbol": "INMD",
                 "trades": 4,
                 "wins": 3,
-                "pnl_total": -18339.840851999987,
-                "avg_pnl_per_trade": -4584.96
+                "pnl_total": -20088.559004999996,
+                "avg_pnl_per_trade": -5022.14
               },
               {
                 "symbol": "AFRM",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -20175.009399999988,
-                "avg_pnl_per_trade": -20175.01
+                "pnl_total": -21723.934049999985,
+                "avg_pnl_per_trade": -21723.93
               },
               {
-                "symbol": "ENPH",
-                "trades": 7,
-                "wins": 2,
-                "pnl_total": -20960.423456039975,
-                "avg_pnl_per_trade": -2994.35
-              },
-              {
-                "symbol": "EQT",
+                "symbol": "OXY",
                 "trades": 4,
-                "wins": 2,
-                "pnl_total": -23023.43556300001,
-                "avg_pnl_per_trade": -5755.86
+                "wins": 1,
+                "pnl_total": -22817.551373999995,
+                "avg_pnl_per_trade": -5704.39
               },
               {
                 "symbol": "SYNA",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -23912.556062999975,
-                "avg_pnl_per_trade": -23912.56
+                "pnl_total": -22910.430338999984,
+                "avg_pnl_per_trade": -22910.43
               },
               {
-                "symbol": "OXY",
-                "trades": 4,
+                "symbol": "BX",
+                "trades": 1,
                 "wins": 0,
-                "pnl_total": -26431.32186799998,
-                "avg_pnl_per_trade": -6607.83
+                "pnl_total": -23280.751544000013,
+                "avg_pnl_per_trade": -23280.75
+              },
+              {
+                "symbol": "EQT",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": -23965.643572000004,
+                "avg_pnl_per_trade": -7988.55
               },
               {
                 "symbol": "ASAN",
@@ -1230,15 +1230,15 @@
                 "symbol": "TSLA",
                 "trades": 5,
                 "wins": 1,
-                "pnl_total": -35520.091738999996,
-                "avg_pnl_per_trade": -7104.02
+                "pnl_total": -35668.50962899999,
+                "avg_pnl_per_trade": -7133.7
               },
               {
                 "symbol": "IRTC",
                 "trades": 3,
                 "wins": 0,
-                "pnl_total": -46055.119088999985,
-                "avg_pnl_per_trade": -15351.71
+                "pnl_total": -60687.199117999975,
+                "avg_pnl_per_trade": -20229.07
               }
             ],
             "hedge_trades": 0,
@@ -2256,7 +2256,7 @@
           "label": "REUSED TEMPORAL CHECK / not fresh OOS",
           "config": {
             "start_date": "2025-01-02",
-            "end_date": "2026-10-15",
+            "end_date": "2026-10-16",
             "starting_cash": 1000000.0,
             "slippage_bps": 7.0,
             "universe_size": 530,
@@ -2266,552 +2266,538 @@
             "param_overrides": null
           },
           "starting_cash": 1000000.0,
-          "final_equity": 1346047.2884767016,
+          "final_equity": 1416136.1792276008,
           "metrics": {
-            "total_return_pct": 34.6047,
-            "annual_return_pct": 18.2385,
-            "spy_total_return_pct": 32.5669,
-            "spy_annual_return_pct": 17.226,
-            "alpha_total_pct": 2.0378,
-            "alpha_annual_pct": 1.0125,
-            "excess_cagr_pct": 1.0125,
-            "jensen_alpha_annual_pct": 3.9665,
-            "beta_to_spy": 0.9353,
+            "total_return_pct": 41.6136,
+            "annual_return_pct": 21.6176,
+            "spy_total_return_pct": 33.7762,
+            "spy_annual_return_pct": 17.7845,
+            "alpha_total_pct": 7.8374,
+            "alpha_annual_pct": 3.8331,
+            "excess_cagr_pct": 3.8331,
+            "jensen_alpha_annual_pct": 4.2492,
+            "beta_to_spy": 1.1608,
             "risk_free_proxy": "BIL",
-            "risk_free_total_return_pct": 7.0777,
-            "risk_free_annual_return_pct": 3.9305,
+            "risk_free_total_return_pct": 7.1128,
+            "risk_free_annual_return_pct": 3.9407,
             "risk_free_fallback_zero": false,
-            "risk_free_observed_sessions": 448,
-            "spy_observed_sessions": 448,
-            "tracking_error_annual_pct": 21.9789,
-            "information_ratio": 0.1407,
-            "annual_vol_pct": 27.2391,
-            "sharpe_ratio": 0.6085,
-            "max_drawdown_pct": -20.2752,
+            "risk_free_observed_sessions": 449,
+            "spy_observed_sessions": 449,
+            "tracking_error_annual_pct": 23.6824,
+            "information_ratio": 0.2742,
+            "annual_vol_pct": 30.8822,
+            "sharpe_ratio": 0.6617,
+            "max_drawdown_pct": -23.8514,
             "max_drawdown_peak_date": "2025-02-07",
             "max_drawdown_trough_date": "2025-04-07",
-            "n_trading_days": 448,
-            "n_return_intervals": 447,
-            "n_trades": 147,
-            "win_rate_pct": 64.63,
-            "avg_win_pct": 35.0195,
-            "avg_loss_pct": -11.8495,
-            "profit_factor": 1.6355,
+            "n_trading_days": 449,
+            "n_return_intervals": 448,
+            "n_trades": 145,
+            "win_rate_pct": 64.83,
+            "avg_win_pct": 29.0361,
+            "avg_loss_pct": -12.4138,
+            "profit_factor": 1.6727,
             "best_trade": {
               "symbol": "MU",
               "entry_date": "2025-12-02",
               "exit_date": "2026-06-01",
-              "qty": 141,
-              "entry_price": 238.63692899999998,
+              "qty": 260,
+              "entry_price": 251.25545678737538,
               "exit_price": 1008.703413,
-              "pnl": 108579.37424399999,
-              "pnl_pct": 322.6937621209498,
+              "pnl": 196936.46861528239,
+              "pnl_pct": 301.46527597751395,
               "reason": "adaptive_rebalance_exit",
               "is_hedge": false,
               "is_base": false
             },
             "worst_trade": {
               "symbol": "LBRT",
-              "entry_date": "2026-06-02",
+              "entry_date": "2026-06-04",
               "exit_date": "2026-08-03",
-              "qty": 5924,
-              "entry_price": 28.2722260730925,
+              "qty": 6392,
+              "entry_price": 28.843267528160197,
               "exit_price": 17.857491,
-              "pnl": -61696.890572999975,
-              "pnl_pct": -36.83733656545888,
+              "pnl": -70221.08356799999,
+              "pnl_pct": -38.08783632934302,
               "reason": "adaptive_rebalance_exit",
               "is_hedge": false,
               "is_base": false
             },
             "regime_breakdown": {
               "BULL": {
-                "days": 266,
-                "pct_of_time": 59.375,
-                "avg_daily_pnl_pct": -0.03916875310689669,
-                "total_pnl_pct": -12.631568225702594
+                "days": 267,
+                "pct_of_time": 59.46547884187082,
+                "avg_daily_pnl_pct": -0.030059027342100267,
+                "total_pnl_pct": -11.3229412650235
               },
               "NEUTRAL": {
                 "days": 125,
-                "pct_of_time": 27.901785714285715,
-                "avg_daily_pnl_pct": 0.290116409613031,
-                "total_pnl_pct": 40.122264171015146
+                "pct_of_time": 27.839643652561247,
+                "avg_daily_pnl_pct": 0.3142733049239121,
+                "total_pnl_pct": 43.78312090295309
               },
               "BEAR": {
                 "days": 57,
-                "pct_of_time": 12.723214285714285,
-                "avg_daily_pnl_pct": 0.18397837775606846,
-                "total_pnl_pct": 9.950860061544242
+                "pct_of_time": 12.694877505567929,
+                "avg_daily_pnl_pct": 0.2115350050422697,
+                "total_pnl_pct": 11.067202266388998
               }
             },
             "per_symbol": [
               {
                 "symbol": "MU",
-                "trades": 9,
-                "wins": 9,
-                "pnl_total": 153812.554995,
-                "avg_pnl_per_trade": 17090.28
-              },
-              {
-                "symbol": "GLW",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 66164.53243199999,
-                "avg_pnl_per_trade": 33082.27
+                "trades": 6,
+                "wins": 6,
+                "pnl_total": 221962.08478,
+                "avg_pnl_per_trade": 36993.68
               },
               {
                 "symbol": "LRCX",
-                "trades": 6,
-                "wins": 6,
-                "pnl_total": 60401.35024200002,
-                "avg_pnl_per_trade": 10066.89
+                "trades": 9,
+                "wins": 9,
+                "pnl_total": 84241.34028300003,
+                "avg_pnl_per_trade": 9360.15
+              },
+              {
+                "symbol": "GLW",
+                "trades": 3,
+                "wins": 3,
+                "pnl_total": 75220.40238600002,
+                "avg_pnl_per_trade": 25073.47
               },
               {
                 "symbol": "LITE",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 55047.712397999996,
-                "avg_pnl_per_trade": 55047.71
+                "pnl_total": 71156.144367,
+                "avg_pnl_per_trade": 71156.14
+              },
+              {
+                "symbol": "RVMD",
+                "trades": 2,
+                "wins": 2,
+                "pnl_total": 54622.940998000005,
+                "avg_pnl_per_trade": 27311.47
               },
               {
                 "symbol": "FORM",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 53527.83781500003,
-                "avg_pnl_per_trade": 26763.92
-              },
-              {
-                "symbol": "PARR",
-                "trades": 7,
-                "wins": 7,
-                "pnl_total": 49146.51800100004,
-                "avg_pnl_per_trade": 7020.93
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 54398.62507700003,
+                "avg_pnl_per_trade": 54398.63
               },
               {
                 "symbol": "APP",
                 "trades": 3,
                 "wins": 3,
-                "pnl_total": 47197.5220275,
-                "avg_pnl_per_trade": 15732.51
+                "pnl_total": 53423.67783850001,
+                "avg_pnl_per_trade": 17807.89
               },
               {
-                "symbol": "RVMD",
-                "trades": 3,
-                "wins": 2,
-                "pnl_total": 46777.07743887321,
-                "avg_pnl_per_trade": 15592.36
+                "symbol": "PARR",
+                "trades": 7,
+                "wins": 7,
+                "pnl_total": 47410.62127900003,
+                "avg_pnl_per_trade": 6772.95
               },
               {
                 "symbol": "PLTR",
-                "trades": 6,
-                "wins": 6,
-                "pnl_total": 31637.18636249999,
-                "avg_pnl_per_trade": 5272.86
-              },
-              {
-                "symbol": "HOOD",
-                "trades": 5,
-                "wins": 3,
-                "pnl_total": 25942.227156800014,
-                "avg_pnl_per_trade": 5188.45
+                "trades": 7,
+                "wins": 7,
+                "pnl_total": 33514.6051835,
+                "avg_pnl_per_trade": 4787.8
               },
               {
                 "symbol": "EYE",
-                "trades": 4,
-                "wins": 4,
-                "pnl_total": 21156.202051000007,
-                "avg_pnl_per_trade": 5289.05
-              },
-              {
-                "symbol": "ILMN",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 19855.63408949999,
-                "avg_pnl_per_trade": 19855.63
+                "trades": 2,
+                "wins": 2,
+                "pnl_total": 22720.830198000025,
+                "avg_pnl_per_trade": 11360.42
               },
               {
                 "symbol": "DELL",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 19718.46198000001,
-                "avg_pnl_per_trade": 19718.46
+                "pnl_total": 21205.17141500001,
+                "avg_pnl_per_trade": 21205.17
               },
               {
-                "symbol": "AMD",
-                "trades": 3,
-                "wins": 2,
-                "pnl_total": 17721.083470500027,
-                "avg_pnl_per_trade": 5907.03
-              },
-              {
-                "symbol": "SNOW",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 15236.37164300001,
-                "avg_pnl_per_trade": 15236.37
-              },
-              {
-                "symbol": "IBKR",
+                "symbol": "HOOD",
                 "trades": 5,
                 "wins": 3,
-                "pnl_total": 12919.206685000034,
-                "avg_pnl_per_trade": 2583.84
-              },
-              {
-                "symbol": "FIVE",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 10447.858420000002,
-                "avg_pnl_per_trade": 5223.93
+                "pnl_total": 20660.509505000013,
+                "avg_pnl_per_trade": 4132.1
               },
               {
                 "symbol": "CHWY",
                 "trades": 2,
                 "wins": 2,
-                "pnl_total": 9704.457817999986,
-                "avg_pnl_per_trade": 4852.23
+                "pnl_total": 17148.728149,
+                "avg_pnl_per_trade": 8574.36
+              },
+              {
+                "symbol": "SNOW",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 15794.22506700001,
+                "avg_pnl_per_trade": 15794.23
               },
               {
                 "symbol": "SFM",
-                "trades": 3,
-                "wins": 3,
-                "pnl_total": 9608.515779000016,
-                "avg_pnl_per_trade": 3202.84
+                "trades": 4,
+                "wins": 4,
+                "pnl_total": 15192.664266000005,
+                "avg_pnl_per_trade": 3798.17
+              },
+              {
+                "symbol": "IBKR",
+                "trades": 6,
+                "wins": 4,
+                "pnl_total": 13168.566829000038,
+                "avg_pnl_per_trade": 2194.76
+              },
+              {
+                "symbol": "FIVE",
+                "trades": 2,
+                "wins": 1,
+                "pnl_total": 10748.364762500012,
+                "avg_pnl_per_trade": 5374.18
               },
               {
                 "symbol": "ARWR",
                 "trades": 5,
                 "wins": 3,
-                "pnl_total": 7712.045605000021,
-                "avg_pnl_per_trade": 1542.41
+                "pnl_total": 10350.774247500034,
+                "avg_pnl_per_trade": 2070.15
               },
               {
                 "symbol": "NEM",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 6244.897059000035,
-                "avg_pnl_per_trade": 3122.45
+                "trades": 3,
+                "wins": 3,
+                "pnl_total": 9105.075964000025,
+                "avg_pnl_per_trade": 3035.03
               },
               {
-                "symbol": "IRTC",
+                "symbol": "AFRM",
                 "trades": 2,
                 "wins": 2,
-                "pnl_total": 5181.772142000014,
-                "avg_pnl_per_trade": 2590.89
+                "pnl_total": 7477.171649000013,
+                "avg_pnl_per_trade": 3738.59
+              },
+              {
+                "symbol": "ILMN",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 7132.606420499996,
+                "avg_pnl_per_trade": 7132.61
+              },
+              {
+                "symbol": "EAT",
+                "trades": 4,
+                "wins": 3,
+                "pnl_total": 6971.648993999992,
+                "avg_pnl_per_trade": 1742.91
+              },
+              {
+                "symbol": "POWL",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 6415.315290000001,
+                "avg_pnl_per_trade": 2138.44
+              },
+              {
+                "symbol": "RBLX",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 6037.599067000023,
+                "avg_pnl_per_trade": 2012.53
               },
               {
                 "symbol": "FLEX",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 4878.247919999995,
-                "avg_pnl_per_trade": 4878.25
-              },
-              {
-                "symbol": "POWL",
-                "trades": 5,
-                "wins": 3,
-                "pnl_total": 4737.136622000005,
-                "avg_pnl_per_trade": 947.43
-              },
-              {
-                "symbol": "ASML",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 4598.555246999997,
-                "avg_pnl_per_trade": 4598.56
-              },
-              {
-                "symbol": "VLO",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 3940.626207000001,
-                "avg_pnl_per_trade": 3940.63
-              },
-              {
-                "symbol": "NFLX",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 3832.368367000016,
-                "avg_pnl_per_trade": 1916.18
-              },
-              {
-                "symbol": "VRSN",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 3823.8295120000007,
-                "avg_pnl_per_trade": 3823.83
-              },
-              {
-                "symbol": "T",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 3357.1148970000218,
-                "avg_pnl_per_trade": 3357.11
+                "pnl_total": 5235.628719999995,
+                "avg_pnl_per_trade": 5235.63
               },
               {
                 "symbol": "TKO",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 3241.9478740000095,
-                "avg_pnl_per_trade": 3241.95
+                "pnl_total": 4949.306002000015,
+                "avg_pnl_per_trade": 4949.31
               },
               {
-                "symbol": "AFRM",
+                "symbol": "VRSN",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 2572.8310700000156,
-                "avg_pnl_per_trade": 2572.83
+                "pnl_total": 4938.525200000001,
+                "avg_pnl_per_trade": 4938.53
               },
               {
-                "symbol": "FTNT",
+                "symbol": "ASML",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 2123.762039999999,
-                "avg_pnl_per_trade": 2123.76
+                "pnl_total": 4858.201982000008,
+                "avg_pnl_per_trade": 4858.2
               },
               {
-                "symbol": "RBLX",
-                "trades": 4,
-                "wins": 3,
-                "pnl_total": 1877.7637800000175,
-                "avg_pnl_per_trade": 469.44
+                "symbol": "IRTC",
+                "trades": 2,
+                "wins": 2,
+                "pnl_total": 4463.021436000011,
+                "avg_pnl_per_trade": 2231.51
+              },
+              {
+                "symbol": "NFLX",
+                "trades": 2,
+                "wins": 2,
+                "pnl_total": 4416.370824999996,
+                "avg_pnl_per_trade": 2208.19
+              },
+              {
+                "symbol": "T",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 4392.412580000006,
+                "avg_pnl_per_trade": 4392.41
               },
               {
                 "symbol": "TWLO",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": 1775.3472010000014,
-                "avg_pnl_per_trade": 887.67
+                "pnl_total": 2879.2185860000254,
+                "avg_pnl_per_trade": 1439.61
               },
               {
-                "symbol": "WELL",
+                "symbol": "FTNT",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 835.0506300000036,
-                "avg_pnl_per_trade": 835.05
+                "pnl_total": 2746.1423044999988,
+                "avg_pnl_per_trade": 2746.14
+              },
+              {
+                "symbol": "AMD",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 1550.350686000018,
+                "avg_pnl_per_trade": 516.78
               },
               {
                 "symbol": "SMTC",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 715.2551500000069,
-                "avg_pnl_per_trade": 715.26
+                "pnl_total": 894.3799180000086,
+                "avg_pnl_per_trade": 894.38
+              },
+              {
+                "symbol": "WELL",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 802.198319999998,
+                "avg_pnl_per_trade": 802.2
               },
               {
                 "symbol": "FOXA",
                 "trades": 1,
-                "wins": 1,
-                "pnl_total": 18.161721000010175,
-                "avg_pnl_per_trade": 18.16
-              },
-              {
-                "symbol": "JBHT",
-                "trades": 1,
                 "wins": 0,
-                "pnl_total": -858.9832860000023,
-                "avg_pnl_per_trade": -858.98
+                "pnl_total": -291.8975689999976,
+                "avg_pnl_per_trade": -291.9
               },
               {
                 "symbol": "ETR",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -1068.0348779999958,
-                "avg_pnl_per_trade": -1068.03
+                "pnl_total": -507.12155999998504,
+                "avg_pnl_per_trade": -507.12
               },
               {
-                "symbol": "EAT",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": -1899.036456000009,
-                "avg_pnl_per_trade": -949.52
-              },
-              {
-                "symbol": "BJRI",
+                "symbol": "JBHT",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -2713.6545919999976,
-                "avg_pnl_per_trade": -2713.65
-              },
-              {
-                "symbol": "MMM",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -3634.840604999988,
-                "avg_pnl_per_trade": -3634.84
-              },
-              {
-                "symbol": "HALO",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -3968.1653849999984,
-                "avg_pnl_per_trade": -3968.17
-              },
-              {
-                "symbol": "BTU",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -4529.9155969999865,
-                "avg_pnl_per_trade": -4529.92
-              },
-              {
-                "symbol": "ROG",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -5069.482542999997,
-                "avg_pnl_per_trade": -5069.48
-              },
-              {
-                "symbol": "CGNX",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -6150.032069999993,
-                "avg_pnl_per_trade": -6150.03
+                "pnl_total": -923.5970730000024,
+                "avg_pnl_per_trade": -923.6
               },
               {
                 "symbol": "AXON",
                 "trades": 3,
                 "wins": 1,
-                "pnl_total": -8992.505943999986,
-                "avg_pnl_per_trade": -2997.5
+                "pnl_total": -3514.0710679999793,
+                "avg_pnl_per_trade": -1171.36
+              },
+              {
+                "symbol": "BTU",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -4800.923734999986,
+                "avg_pnl_per_trade": -4800.92
+              },
+              {
+                "symbol": "MMM",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -5259.308400999991,
+                "avg_pnl_per_trade": -5259.31
+              },
+              {
+                "symbol": "ROG",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -5442.072573999997,
+                "avg_pnl_per_trade": -5442.07
+              },
+              {
+                "symbol": "CGNX",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -6602.836628999993,
+                "avg_pnl_per_trade": -6602.84
+              },
+              {
+                "symbol": "HALO",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -6645.021130000004,
+                "avg_pnl_per_trade": -6645.02
               },
               {
                 "symbol": "IONS",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -9104.054593999992,
-                "avg_pnl_per_trade": -9104.05
-              },
-              {
-                "symbol": "MSTR",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -9489.081065999995,
-                "avg_pnl_per_trade": -9489.08
-              },
-              {
-                "symbol": "JEF",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -10459.829351999982,
-                "avg_pnl_per_trade": -10459.83
-              },
-              {
-                "symbol": "INSM",
-                "trades": 4,
-                "wins": 3,
-                "pnl_total": -10723.73340599997,
-                "avg_pnl_per_trade": -2680.93
+                "pnl_total": -9167.385599999998,
+                "avg_pnl_per_trade": -9167.39
               },
               {
                 "symbol": "MGNI",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -10800.419580999995,
-                "avg_pnl_per_trade": -10800.42
+                "pnl_total": -11207.672118999993,
+                "avg_pnl_per_trade": -11207.67
               },
               {
-                "symbol": "UPST",
+                "symbol": "JEF",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -10976.640503999999,
-                "avg_pnl_per_trade": -10976.64
-              },
-              {
-                "symbol": "EXEL",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -11273.295899999997,
-                "avg_pnl_per_trade": -11273.3
-              },
-              {
-                "symbol": "NVDA",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -11328.787100000005,
-                "avg_pnl_per_trade": -11328.79
+                "pnl_total": -11712.249890999998,
+                "avg_pnl_per_trade": -11712.25
               },
               {
                 "symbol": "RCL",
                 "trades": 2,
                 "wins": 0,
-                "pnl_total": -13570.582815000012,
-                "avg_pnl_per_trade": -6785.29
+                "pnl_total": -13452.862546000002,
+                "avg_pnl_per_trade": -6726.43
               },
               {
-                "symbol": "AVGO",
-                "trades": 2,
+                "symbol": "UPST",
+                "trades": 1,
                 "wins": 0,
-                "pnl_total": -14870.079090999998,
-                "avg_pnl_per_trade": -7435.04
+                "pnl_total": -14164.925152,
+                "avg_pnl_per_trade": -14164.93
+              },
+              {
+                "symbol": "NVDA",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -14171.671410000004,
+                "avg_pnl_per_trade": -14171.67
+              },
+              {
+                "symbol": "INSM",
+                "trades": 4,
+                "wins": 3,
+                "pnl_total": -14325.243597000012,
+                "avg_pnl_per_trade": -3581.31
+              },
+              {
+                "symbol": "EXEL",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -14567.058875999997,
+                "avg_pnl_per_trade": -14567.06
               },
               {
                 "symbol": "BOOT",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -16034.382695999995,
-                "avg_pnl_per_trade": -16034.38
+                "pnl_total": -14929.922770999994,
+                "avg_pnl_per_trade": -14929.92
               },
               {
-                "symbol": "SANM",
-                "trades": 3,
+                "symbol": "MSTR",
+                "trades": 1,
                 "wins": 0,
-                "pnl_total": -20566.705424999986,
-                "avg_pnl_per_trade": -6855.57
+                "pnl_total": -16744.041869999997,
+                "avg_pnl_per_trade": -16744.04
               },
               {
                 "symbol": "TSLA",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -21519.70054,
-                "avg_pnl_per_trade": -21519.7
+                "pnl_total": -23139.994680000003,
+                "avg_pnl_per_trade": -23139.99
               },
               {
-                "symbol": "VRT",
-                "trades": 3,
-                "wins": 1,
-                "pnl_total": -22643.91079900002,
-                "avg_pnl_per_trade": -7547.97
-              },
-              {
-                "symbol": "MTRN",
-                "trades": 4,
-                "wins": 1,
-                "pnl_total": -22795.436121999966,
-                "avg_pnl_per_trade": -5698.86
-              },
-              {
-                "symbol": "CAT",
-                "trades": 3,
+                "symbol": "AVGO",
+                "trades": 2,
                 "wins": 0,
-                "pnl_total": -24465.890387999993,
-                "avg_pnl_per_trade": -8155.3
-              },
-              {
-                "symbol": "AMAT",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -29016.46428800001,
-                "avg_pnl_per_trade": -29016.46
+                "pnl_total": -23379.63679299999,
+                "avg_pnl_per_trade": -11689.82
               },
               {
                 "symbol": "FROG",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -30236.7399301,
-                "avg_pnl_per_trade": -30236.74
+                "pnl_total": -24861.047369399996,
+                "avg_pnl_per_trade": -24861.05
+              },
+              {
+                "symbol": "VRT",
+                "trades": 2,
+                "wins": 0,
+                "pnl_total": -25430.68808499999,
+                "avg_pnl_per_trade": -12715.34
+              },
+              {
+                "symbol": "CAT",
+                "trades": 3,
+                "wins": 0,
+                "pnl_total": -30018.390636999982,
+                "avg_pnl_per_trade": -10006.13
+              },
+              {
+                "symbol": "MTRN",
+                "trades": 4,
+                "wins": 1,
+                "pnl_total": -32299.030459999984,
+                "avg_pnl_per_trade": -8074.76
+              },
+              {
+                "symbol": "SANM",
+                "trades": 3,
+                "wins": 0,
+                "pnl_total": -36113.925563999976,
+                "avg_pnl_per_trade": -12037.98
+              },
+              {
+                "symbol": "AMAT",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -37398.45366399999,
+                "avg_pnl_per_trade": -37398.45
               },
               {
                 "symbol": "ALB",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": -40800.74955399998,
-                "avg_pnl_per_trade": -20400.37
+                "pnl_total": -42275.05109699999,
+                "avg_pnl_per_trade": -21137.53
               },
               {
                 "symbol": "LBRT",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -61696.890572999975,
-                "avg_pnl_per_trade": -61696.89
+                "pnl_total": -70221.08356799999,
+                "avg_pnl_per_trade": -70221.08
               }
             ],
             "hedge_trades": 0,
@@ -3264,7 +3250,8 @@
               1347346.93,
               1344855.63,
               1340668.85,
-              1325669.11
+              1325669.11,
+              1337762.32
             ]
           }
         }
@@ -3288,46 +3275,46 @@
             "param_overrides": null
           },
           "starting_cash": 1000000.0,
-          "final_equity": 3096276.8499694513,
+          "final_equity": 3331350.94685685,
           "metrics": {
-            "total_return_pct": 209.6277,
-            "annual_return_pct": 32.8002,
+            "total_return_pct": 233.1351,
+            "annual_return_pct": 35.2619,
             "spy_total_return_pct": 66.425,
             "spy_annual_return_pct": 13.6384,
-            "alpha_total_pct": 143.2027,
-            "alpha_annual_pct": 19.1619,
-            "excess_cagr_pct": 19.1619,
-            "jensen_alpha_annual_pct": 17.8348,
-            "beta_to_spy": 1.0073,
+            "alpha_total_pct": 166.7101,
+            "alpha_annual_pct": 21.6236,
+            "excess_cagr_pct": 21.6236,
+            "jensen_alpha_annual_pct": 18.7058,
+            "beta_to_spy": 1.1227,
             "risk_free_proxy": "BIL",
             "risk_free_total_return_pct": 11.8132,
             "risk_free_annual_return_pct": 2.8422,
             "risk_free_fallback_zero": false,
             "risk_free_observed_sessions": 1005,
             "spy_observed_sessions": 1005,
-            "tracking_error_annual_pct": 21.5095,
-            "information_ratio": 0.833,
-            "annual_vol_pct": 27.1094,
-            "sharpe_ratio": 1.0779,
-            "max_drawdown_pct": -24.8787,
+            "tracking_error_annual_pct": 21.6437,
+            "information_ratio": 0.9284,
+            "annual_vol_pct": 28.3337,
+            "sharpe_ratio": 1.1082,
+            "max_drawdown_pct": -23.5964,
             "max_drawdown_peak_date": "2021-11-09",
-            "max_drawdown_trough_date": "2023-03-16",
+            "max_drawdown_trough_date": "2022-01-24",
             "n_trading_days": 1005,
             "n_return_intervals": 1004,
-            "n_trades": 317,
-            "win_rate_pct": 62.15,
-            "avg_win_pct": 26.7806,
-            "avg_loss_pct": -8.6497,
-            "profit_factor": 2.7602,
+            "n_trades": 313,
+            "win_rate_pct": 64.54,
+            "avg_win_pct": 28.6295,
+            "avg_loss_pct": -8.7766,
+            "profit_factor": 2.8814,
             "best_trade": {
               "symbol": "ANF",
-              "entry_date": "2023-08-03",
+              "entry_date": "2023-08-07",
               "exit_date": "2024-07-02",
-              "qty": 90,
-              "entry_price": 56.696869454179,
+              "qty": 97,
+              "entry_price": 46.06292060702876,
               "exit_price": 184.313115,
-              "pnl": 11485.462099123892,
-              "pnl_pct": 225.08517097043125,
+              "pnl": 13410.268856118211,
+              "pnl_pct": 300.1333666451788,
               "reason": "adaptive_rebalance_trim",
               "is_hedge": false,
               "is_base": false
@@ -3336,10 +3323,10 @@
               "symbol": "PI",
               "entry_date": "2023-03-03",
               "exit_date": "2023-05-01",
-              "qty": 806,
+              "qty": 841,
               "entry_price": 132.508465,
               "exit_price": 88.277385,
-              "pnl": -35650.25048,
+              "pnl": -37198.33828,
               "pnl_pct": -33.379814640521275,
               "reason": "adaptive_rebalance_exit",
               "is_hedge": false,
@@ -3349,20 +3336,20 @@
               "BULL": {
                 "days": 526,
                 "pct_of_time": 52.33830845771145,
-                "avg_daily_pnl_pct": 0.12443641748028507,
-                "total_pnl_pct": 77.38076534714035
+                "avg_daily_pnl_pct": 0.12503430437223143,
+                "total_pnl_pct": 77.66335117441352
               },
               "NEUTRAL": {
                 "days": 341,
                 "pct_of_time": 33.930348258706466,
-                "avg_daily_pnl_pct": 0.08827661665125862,
-                "total_pnl_pct": 28.1487486064931
+                "avg_daily_pnl_pct": 0.09960564572717091,
+                "total_pnl_pct": 32.434592994564305
               },
               "BEAR": {
                 "days": 138,
                 "pct_of_time": 13.73134328358209,
-                "avg_daily_pnl_pct": 0.23341442031508317,
-                "total_pnl_pct": 36.213104628288775
+                "avg_daily_pnl_pct": 0.26606965741402905,
+                "total_pnl_pct": 41.5862553267812
               }
             },
             "per_symbol": [
@@ -3370,120 +3357,141 @@
                 "symbol": "APP",
                 "trades": 7,
                 "wins": 7,
-                "pnl_total": 459069.81021,
-                "avg_pnl_per_trade": 65581.4
+                "pnl_total": 491504.77682500007,
+                "avg_pnl_per_trade": 70214.97
               },
               {
                 "symbol": "SMCI",
                 "trades": 5,
-                "wins": 2,
-                "pnl_total": 228814.25583,
-                "avg_pnl_per_trade": 45762.85
-              },
-              {
-                "symbol": "VRT",
-                "trades": 9,
-                "wins": 9,
-                "pnl_total": 148031.14497000002,
-                "avg_pnl_per_trade": 16447.9
+                "wins": 3,
+                "pnl_total": 245683.986,
+                "avg_pnl_per_trade": 49136.8
               },
               {
                 "symbol": "ANF",
                 "trades": 10,
                 "wins": 8,
-                "pnl_total": 142074.44891,
-                "avg_pnl_per_trade": 14207.44
+                "pnl_total": 163441.839305,
+                "avg_pnl_per_trade": 16344.18
+              },
+              {
+                "symbol": "VRT",
+                "trades": 9,
+                "wins": 9,
+                "pnl_total": 163374.24553,
+                "avg_pnl_per_trade": 18152.69
               },
               {
                 "symbol": "MSTR",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": 108188.87964,
-                "avg_pnl_per_trade": 54094.44
-              },
-              {
-                "symbol": "NVDA",
-                "trades": 12,
-                "wins": 9,
-                "pnl_total": 76000.52287909447,
-                "avg_pnl_per_trade": 6333.38
+                "pnl_total": 118581.075815,
+                "avg_pnl_per_trade": 59290.54
               },
               {
                 "symbol": "EAT",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 69925.06172500002,
-                "avg_pnl_per_trade": 69925.06
+                "pnl_total": 75244.63627500001,
+                "avg_pnl_per_trade": 75244.64
               },
               {
                 "symbol": "MTDR",
                 "trades": 7,
                 "wins": 7,
-                "pnl_total": 65067.01573000002,
-                "avg_pnl_per_trade": 9295.29
-              },
-              {
-                "symbol": "COIN",
-                "trades": 3,
-                "wins": 2,
-                "pnl_total": 64786.32124999998,
-                "avg_pnl_per_trade": 21595.44
+                "pnl_total": 70174.70263000001,
+                "avg_pnl_per_trade": 10024.96
               },
               {
                 "symbol": "AR",
                 "trades": 10,
                 "wins": 9,
-                "pnl_total": 58045.49584999999,
-                "avg_pnl_per_trade": 5804.55
+                "pnl_total": 65834.03526500001,
+                "avg_pnl_per_trade": 6583.4
+              },
+              {
+                "symbol": "NVDA",
+                "trades": 9,
+                "wins": 7,
+                "pnl_total": 64622.73265937773,
+                "avg_pnl_per_trade": 7180.3
+              },
+              {
+                "symbol": "COIN",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 64443.739019999965,
+                "avg_pnl_per_trade": 21481.25
+              },
+              {
+                "symbol": "DVN",
+                "trades": 10,
+                "wins": 10,
+                "pnl_total": 61695.66703499999,
+                "avg_pnl_per_trade": 6169.57
               },
               {
                 "symbol": "HOOD",
                 "trades": 2,
                 "wins": 2,
-                "pnl_total": 54206.49004864997,
-                "avg_pnl_per_trade": 27103.25
-              },
-              {
-                "symbol": "DVN",
-                "trades": 9,
-                "wins": 9,
-                "pnl_total": 52622.95676499998,
-                "avg_pnl_per_trade": 5847.0
+                "pnl_total": 58333.63271929996,
+                "avg_pnl_per_trade": 29166.82
               },
               {
                 "symbol": "SFM",
                 "trades": 3,
                 "wins": 3,
-                "pnl_total": 38747.72752999997,
-                "avg_pnl_per_trade": 12915.91
-              },
-              {
-                "symbol": "OVV",
-                "trades": 5,
-                "wins": 5,
-                "pnl_total": 35986.38333499997,
-                "avg_pnl_per_trade": 7197.28
+                "pnl_total": 41676.87631999996,
+                "avg_pnl_per_trade": 13892.29
               },
               {
                 "symbol": "PHM",
                 "trades": 3,
                 "wins": 2,
-                "pnl_total": 34569.125000000015,
-                "avg_pnl_per_trade": 11523.04
+                "pnl_total": 37716.976839999974,
+                "avg_pnl_per_trade": 12572.33
               },
               {
                 "symbol": "FSLR",
                 "trades": 5,
                 "wins": 5,
-                "pnl_total": 29030.362579999994,
-                "avg_pnl_per_trade": 5806.07
+                "pnl_total": 29637.971469999997,
+                "avg_pnl_per_trade": 5927.59
+              },
+              {
+                "symbol": "OVV",
+                "trades": 5,
+                "wins": 5,
+                "pnl_total": 29520.669999999973,
+                "avg_pnl_per_trade": 5904.13
               },
               {
                 "symbol": "LLY",
                 "trades": 5,
                 "wins": 2,
-                "pnl_total": 25855.30892000001,
-                "avg_pnl_per_trade": 5171.06
+                "pnl_total": 29325.173245000005,
+                "avg_pnl_per_trade": 5865.03
+              },
+              {
+                "symbol": "VLO",
+                "trades": 2,
+                "wins": 2,
+                "pnl_total": 26469.227539999996,
+                "avg_pnl_per_trade": 13234.61
+              },
+              {
+                "symbol": "DECK",
+                "trades": 3,
+                "wins": 3,
+                "pnl_total": 26208.698989999975,
+                "avg_pnl_per_trade": 8736.23
+              },
+              {
+                "symbol": "OLN",
+                "trades": 4,
+                "wins": 2,
+                "pnl_total": 25355.47390499997,
+                "avg_pnl_per_trade": 6338.87
               },
               {
                 "symbol": "BILL",
@@ -3493,11 +3501,11 @@
                 "avg_pnl_per_trade": 24721.57
               },
               {
-                "symbol": "OLN",
-                "trades": 4,
+                "symbol": "SLG",
+                "trades": 3,
                 "wins": 2,
-                "pnl_total": 24233.69193499997,
-                "avg_pnl_per_trade": 6058.42
+                "pnl_total": 24182.97947999993,
+                "avg_pnl_per_trade": 8060.99
               },
               {
                 "symbol": "CZR",
@@ -3507,6 +3515,13 @@
                 "avg_pnl_per_trade": 11818.97
               },
               {
+                "symbol": "NTNX",
+                "trades": 2,
+                "wins": 2,
+                "pnl_total": 23442.649289999976,
+                "avg_pnl_per_trade": 11721.32
+              },
+              {
                 "symbol": "PINS",
                 "trades": 4,
                 "wins": 3,
@@ -3514,25 +3529,18 @@
                 "avg_pnl_per_trade": 5810.33
               },
               {
-                "symbol": "DECK",
-                "trades": 4,
-                "wins": 4,
-                "pnl_total": 22621.660989999993,
-                "avg_pnl_per_trade": 5655.42
-              },
-              {
-                "symbol": "SLG",
-                "trades": 3,
-                "wins": 2,
-                "pnl_total": 22473.328829999933,
-                "avg_pnl_per_trade": 7491.11
-              },
-              {
-                "symbol": "NTNX",
+                "symbol": "TKO",
                 "trades": 2,
                 "wins": 2,
-                "pnl_total": 21989.221364999976,
-                "avg_pnl_per_trade": 10994.61
+                "pnl_total": 22524.268690000008,
+                "avg_pnl_per_trade": 11262.13
+              },
+              {
+                "symbol": "KKR",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 22389.177004999976,
+                "avg_pnl_per_trade": 22389.18
               },
               {
                 "symbol": "WCC",
@@ -3542,25 +3550,11 @@
                 "avg_pnl_per_trade": 10810.98
               },
               {
-                "symbol": "TKO",
+                "symbol": "GE",
                 "trades": 2,
                 "wins": 2,
-                "pnl_total": 20862.845280000005,
-                "avg_pnl_per_trade": 10431.42
-              },
-              {
-                "symbol": "KKR",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 20813.328054999976,
-                "avg_pnl_per_trade": 20813.33
-              },
-              {
-                "symbol": "VLO",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 20591.534789999987,
-                "avg_pnl_per_trade": 10295.77
+                "pnl_total": 20987.150695000015,
+                "avg_pnl_per_trade": 10493.58
               },
               {
                 "symbol": "PENN",
@@ -3580,22 +3574,22 @@
                 "symbol": "SMTC",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 15896.862605000004,
-                "avg_pnl_per_trade": 15896.86
-              },
-              {
-                "symbol": "GE",
-                "trades": 3,
-                "wins": 3,
-                "pnl_total": 15771.981765,
-                "avg_pnl_per_trade": 5257.33
+                "pnl_total": 17119.698190000003,
+                "avg_pnl_per_trade": 17119.7
               },
               {
                 "symbol": "GAP",
                 "trades": 4,
                 "wins": 3,
-                "pnl_total": 15753.387959999933,
-                "avg_pnl_per_trade": 3938.35
+                "pnl_total": 16492.21941499996,
+                "avg_pnl_per_trade": 4123.05
+              },
+              {
+                "symbol": "POWL",
+                "trades": 2,
+                "wins": 1,
+                "pnl_total": 16303.518109999957,
+                "avg_pnl_per_trade": 8151.76
               },
               {
                 "symbol": "ETSY",
@@ -3605,11 +3599,11 @@
                 "avg_pnl_per_trade": 3897.67
               },
               {
-                "symbol": "POWL",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": 15152.094639999983,
-                "avg_pnl_per_trade": 7576.05
+                "symbol": "MCK",
+                "trades": 4,
+                "wins": 4,
+                "pnl_total": 14699.985314999996,
+                "avg_pnl_per_trade": 3675.0
               },
               {
                 "symbol": "TWLO",
@@ -3619,18 +3613,25 @@
                 "avg_pnl_per_trade": 4877.33
               },
               {
-                "symbol": "LVS",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 13424.013849999994,
-                "avg_pnl_per_trade": 6712.01
+                "symbol": "EXTR",
+                "trades": 3,
+                "wins": 3,
+                "pnl_total": 14451.15242499999,
+                "avg_pnl_per_trade": 4817.05
               },
               {
-                "symbol": "EXTR",
+                "symbol": "META",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 13574.075150000006,
+                "avg_pnl_per_trade": 4524.69
+              },
+              {
+                "symbol": "PR",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 12809.733535000008,
-                "avg_pnl_per_trade": 12809.73
+                "pnl_total": 12981.369799999986,
+                "avg_pnl_per_trade": 12981.37
               },
               {
                 "symbol": "FCX",
@@ -3640,25 +3641,46 @@
                 "avg_pnl_per_trade": 4255.37
               },
               {
-                "symbol": "ATKR",
-                "trades": 4,
+                "symbol": "AZO",
+                "trades": 1,
                 "wins": 1,
-                "pnl_total": 11948.024564999985,
-                "avg_pnl_per_trade": 2987.01
-              },
-              {
-                "symbol": "HRI",
-                "trades": 6,
-                "wins": 3,
-                "pnl_total": 11530.417325000004,
-                "avg_pnl_per_trade": 1921.74
+                "pnl_total": 12496.162640000008,
+                "avg_pnl_per_trade": 12496.16
               },
               {
                 "symbol": "ARM",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 11486.377469999976,
-                "avg_pnl_per_trade": 11486.38
+                "pnl_total": 12357.314729999973,
+                "avg_pnl_per_trade": 12357.31
+              },
+              {
+                "symbol": "XOM",
+                "trades": 2,
+                "wins": 2,
+                "pnl_total": 12046.743730000006,
+                "avg_pnl_per_trade": 6023.37
+              },
+              {
+                "symbol": "HRI",
+                "trades": 6,
+                "wins": 2,
+                "pnl_total": 11592.861394999998,
+                "avg_pnl_per_trade": 1932.14
+              },
+              {
+                "symbol": "ANET",
+                "trades": 2,
+                "wins": 1,
+                "pnl_total": 11492.660259999999,
+                "avg_pnl_per_trade": 5746.33
+              },
+              {
+                "symbol": "LVS",
+                "trades": 2,
+                "wins": 1,
+                "pnl_total": 11459.736744999987,
+                "avg_pnl_per_trade": 5729.87
               },
               {
                 "symbol": "WAL",
@@ -3668,13 +3690,6 @@
                 "avg_pnl_per_trade": 11379.01
               },
               {
-                "symbol": "XOM",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 11211.417905000006,
-                "avg_pnl_per_trade": 5605.71
-              },
-              {
                 "symbol": "SNAP",
                 "trades": 4,
                 "wins": 3,
@@ -3682,67 +3697,60 @@
                 "avg_pnl_per_trade": 2637.48
               },
               {
-                "symbol": "PR",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 8990.019389999994,
-                "avg_pnl_per_trade": 8990.02
-              },
-              {
-                "symbol": "META",
+                "symbol": "ATKR",
                 "trades": 3,
                 "wins": 1,
-                "pnl_total": 8973.905879999988,
-                "avg_pnl_per_trade": 2991.3
+                "pnl_total": 10054.225829999987,
+                "avg_pnl_per_trade": 3351.41
+              },
+              {
+                "symbol": "PI",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 9875.91706,
+                "avg_pnl_per_trade": 3291.97
               },
               {
                 "symbol": "WSM",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": 8954.03395999993,
-                "avg_pnl_per_trade": 4477.02
+                "pnl_total": 9659.571789999967,
+                "avg_pnl_per_trade": 4829.79
               },
               {
-                "symbol": "RRC",
-                "trades": 4,
-                "wins": 3,
-                "pnl_total": 8259.578020000008,
-                "avg_pnl_per_trade": 2064.89
-              },
-              {
-                "symbol": "AZO",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 8170.567880000005,
-                "avg_pnl_per_trade": 8170.57
+                "symbol": "RCL",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 9551.55096500001,
+                "avg_pnl_per_trade": 3183.85
               },
               {
                 "symbol": "BOOT",
                 "trades": 3,
                 "wins": 2,
-                "pnl_total": 7848.245940000004,
-                "avg_pnl_per_trade": 2616.08
+                "pnl_total": 7879.1477200000045,
+                "avg_pnl_per_trade": 2626.38
               },
               {
                 "symbol": "UBER",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 7286.6312300000245,
-                "avg_pnl_per_trade": 7286.63
+                "pnl_total": 7629.298480000036,
+                "avg_pnl_per_trade": 7629.3
               },
               {
-                "symbol": "ANET",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": 5909.964585,
-                "avg_pnl_per_trade": 2954.98
-              },
-              {
-                "symbol": "MCK",
+                "symbol": "RRC",
                 "trades": 4,
-                "wins": 4,
-                "pnl_total": 5844.7724050000215,
-                "avg_pnl_per_trade": 1461.19
+                "wins": 3,
+                "pnl_total": 6907.927029999984,
+                "avg_pnl_per_trade": 1726.98
+              },
+              {
+                "symbol": "NUE",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 6751.477114999991,
+                "avg_pnl_per_trade": 2250.49
               },
               {
                 "symbol": "XYZ",
@@ -3755,22 +3763,22 @@
                 "symbol": "PLTR",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": 4299.437304999996,
-                "avg_pnl_per_trade": 2149.72
+                "pnl_total": 4420.323724999995,
+                "avg_pnl_per_trade": 2210.16
               },
               {
                 "symbol": "FTNT",
                 "trades": 3,
                 "wins": 2,
-                "pnl_total": 4106.263895,
-                "avg_pnl_per_trade": 1368.75
+                "pnl_total": 4310.293410000002,
+                "avg_pnl_per_trade": 1436.76
               },
               {
                 "symbol": "NFLX",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": 3431.036260000019,
-                "avg_pnl_per_trade": 1715.52
+                "pnl_total": 3554.6961200000333,
+                "avg_pnl_per_trade": 1777.35
               },
               {
                 "symbol": "GNRC",
@@ -3780,144 +3788,158 @@
                 "avg_pnl_per_trade": 3200.44
               },
               {
-                "symbol": "NUE",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": 2310.821154999996,
-                "avg_pnl_per_trade": 1155.41
-              },
-              {
-                "symbol": "RCL",
-                "trades": 4,
-                "wins": 2,
-                "pnl_total": 2119.128060000019,
-                "avg_pnl_per_trade": 529.78
-              },
-              {
                 "symbol": "CI",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 1665.6217200000106,
-                "avg_pnl_per_trade": 1665.62
-              },
-              {
-                "symbol": "COR",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 541.0440000000051,
-                "avg_pnl_per_trade": 541.04
-              },
-              {
-                "symbol": "ED",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 430.75174999999956,
-                "avg_pnl_per_trade": 430.75
-              },
-              {
-                "symbol": "NOC",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 84.94981999999789,
-                "avg_pnl_per_trade": 84.95
-              },
-              {
-                "symbol": "CRWD",
-                "trades": 4,
-                "wins": 3,
-                "pnl_total": 75.99271000001909,
-                "avg_pnl_per_trade": 19.0
+                "pnl_total": 1733.329920000011,
+                "avg_pnl_per_trade": 1733.33
               },
               {
                 "symbol": "OPCH",
                 "trades": 1,
-                "wins": 0,
-                "pnl_total": -515.3119100000021,
-                "avg_pnl_per_trade": -515.31
+                "wins": 1,
+                "pnl_total": 1589.1384349999907,
+                "avg_pnl_per_trade": 1589.14
               },
               {
                 "symbol": "NVO",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": -648.900480000013,
-                "avg_pnl_per_trade": -324.45
+                "pnl_total": 1236.3899899999724,
+                "avg_pnl_per_trade": 618.19
+              },
+              {
+                "symbol": "NOC",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 1220.674819999993,
+                "avg_pnl_per_trade": 1220.67
+              },
+              {
+                "symbol": "COR",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 1057.74102000001,
+                "avg_pnl_per_trade": 1057.74
+              },
+              {
+                "symbol": "ED",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 844.2734299999992,
+                "avg_pnl_per_trade": 844.27
               },
               {
                 "symbol": "BTU",
                 "trades": 2,
+                "wins": 2,
+                "pnl_total": 739.913324999995,
+                "avg_pnl_per_trade": 369.96
+              },
+              {
+                "symbol": "CRWD",
+                "trades": 4,
+                "wins": 3,
+                "pnl_total": 194.42233000002034,
+                "avg_pnl_per_trade": 48.61
+              },
+              {
+                "symbol": "PARR",
+                "trades": 1,
                 "wins": 0,
-                "pnl_total": -2287.6933200000044,
-                "avg_pnl_per_trade": -1143.85
+                "pnl_total": -2260.957439999995,
+                "avg_pnl_per_trade": -2260.96
+              },
+              {
+                "symbol": "ACI",
+                "trades": 3,
+                "wins": 0,
+                "pnl_total": -2443.1579550000074,
+                "avg_pnl_per_trade": -814.39
               },
               {
                 "symbol": "MPC",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": -2886.5128699999914,
-                "avg_pnl_per_trade": -1443.26
-              },
-              {
-                "symbol": "ACI",
-                "trades": 2,
-                "wins": 0,
-                "pnl_total": -3060.366915000001,
-                "avg_pnl_per_trade": -1530.18
-              },
-              {
-                "symbol": "BMRN",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -3687.850600000002,
-                "avg_pnl_per_trade": -3687.85
-              },
-              {
-                "symbol": "FWONK",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -3692.2606799999976,
-                "avg_pnl_per_trade": -3692.26
-              },
-              {
-                "symbol": "EXLS",
-                "trades": 2,
-                "wins": 0,
-                "pnl_total": -3932.256650000013,
-                "avg_pnl_per_trade": -1966.13
-              },
-              {
-                "symbol": "ARCB",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -3935.7847000000124,
-                "avg_pnl_per_trade": -3935.78
-              },
-              {
-                "symbol": "BCC",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": -3951.110709999956,
-                "avg_pnl_per_trade": -1975.56
+                "pnl_total": -2574.3584400000036,
+                "avg_pnl_per_trade": -1287.18
               },
               {
                 "symbol": "AAON",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -4002.33868,
-                "avg_pnl_per_trade": -4002.34
+                "pnl_total": -3534.2042949999895,
+                "avg_pnl_per_trade": -3534.2
+              },
+              {
+                "symbol": "MUSA",
+                "trades": 4,
+                "wins": 2,
+                "pnl_total": -3659.6345899999906,
+                "avg_pnl_per_trade": -914.91
+              },
+              {
+                "symbol": "VRTX",
+                "trades": 2,
+                "wins": 1,
+                "pnl_total": -3757.9040550000136,
+                "avg_pnl_per_trade": -1878.95
+              },
+              {
+                "symbol": "BMRN",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -3847.2877500000022,
+                "avg_pnl_per_trade": -3847.29
+              },
+              {
+                "symbol": "BCC",
+                "trades": 2,
+                "wins": 1,
+                "pnl_total": -3941.663079999996,
+                "avg_pnl_per_trade": -1970.83
+              },
+              {
+                "symbol": "EXLS",
+                "trades": 2,
+                "wins": 0,
+                "pnl_total": -4264.534990000021,
+                "avg_pnl_per_trade": -2132.27
               },
               {
                 "symbol": "APA",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": -4372.322049999988,
-                "avg_pnl_per_trade": -2186.16
+                "pnl_total": -4543.623864999987,
+                "avg_pnl_per_trade": -2271.81
               },
               {
-                "symbol": "KR",
+                "symbol": "ARCB",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -5228.585250000007,
-                "avg_pnl_per_trade": -5228.59
+                "pnl_total": -4923.917880000015,
+                "avg_pnl_per_trade": -4923.92
+              },
+              {
+                "symbol": "PEN",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -5195.277600000008,
+                "avg_pnl_per_trade": -5195.28
+              },
+              {
+                "symbol": "ROKU",
+                "trades": 3,
+                "wins": 1,
+                "pnl_total": -5487.226295000041,
+                "avg_pnl_per_trade": -1829.08
+              },
+              {
+                "symbol": "FWONK",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -5630.795839999997,
+                "avg_pnl_per_trade": -5630.8
               },
               {
                 "symbol": "RH",
@@ -3927,67 +3949,39 @@
                 "avg_pnl_per_trade": -6023.57
               },
               {
-                "symbol": "PARR",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -6170.83121999998,
-                "avg_pnl_per_trade": -6170.83
-              },
-              {
-                "symbol": "ON",
-                "trades": 2,
-                "wins": 0,
-                "pnl_total": -6271.2008999999925,
-                "avg_pnl_per_trade": -3135.6
-              },
-              {
-                "symbol": "ROKU",
-                "trades": 3,
-                "wins": 1,
-                "pnl_total": -6961.369945000018,
-                "avg_pnl_per_trade": -2320.46
-              },
-              {
-                "symbol": "VRTX",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": -7312.024485000011,
-                "avg_pnl_per_trade": -3656.01
-              },
-              {
-                "symbol": "PEN",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": -7930.249350000016,
-                "avg_pnl_per_trade": -3965.12
-              },
-              {
                 "symbol": "WYNN",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -8015.162099999994,
-                "avg_pnl_per_trade": -8015.16
+                "pnl_total": -7030.206700000007,
+                "avg_pnl_per_trade": -7030.21
+              },
+              {
+                "symbol": "KR",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -8040.757375000011,
+                "avg_pnl_per_trade": -8040.76
               },
               {
                 "symbol": "SANM",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": -8088.868434099997,
-                "avg_pnl_per_trade": -4044.43
+                "pnl_total": -8106.382842349998,
+                "avg_pnl_per_trade": -4053.19
+              },
+              {
+                "symbol": "IOT",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -8167.647360000016,
+                "avg_pnl_per_trade": -8167.65
               },
               {
                 "symbol": "CMC",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -8318.378800000017,
-                "avg_pnl_per_trade": -8318.38
-              },
-              {
-                "symbol": "PI",
-                "trades": 3,
-                "wins": 2,
-                "pnl_total": -8703.692630000005,
-                "avg_pnl_per_trade": -2901.23
+                "pnl_total": -8681.420000000018,
+                "avg_pnl_per_trade": -8681.42
               },
               {
                 "symbol": "BYD",
@@ -3997,13 +3991,6 @@
                 "avg_pnl_per_trade": -8861.87
               },
               {
-                "symbol": "DELL",
-                "trades": 4,
-                "wins": 3,
-                "pnl_total": -8869.512460000018,
-                "avg_pnl_per_trade": -2217.38
-              },
-              {
                 "symbol": "CHWY",
                 "trades": 3,
                 "wins": 1,
@@ -4011,130 +3998,130 @@
                 "avg_pnl_per_trade": -2968.06
               },
               {
-                "symbol": "IOT",
+                "symbol": "DELL",
+                "trades": 4,
+                "wins": 3,
+                "pnl_total": -9519.30670500002,
+                "avg_pnl_per_trade": -2379.83
+              },
+              {
+                "symbol": "ON",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -9405.826560000007,
-                "avg_pnl_per_trade": -9405.83
+                "pnl_total": -9831.47789999999,
+                "avg_pnl_per_trade": -9831.48
               },
               {
                 "symbol": "HALO",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -9523.888120000012,
-                "avg_pnl_per_trade": -9523.89
+                "pnl_total": -9943.381740000013,
+                "avg_pnl_per_trade": -9943.38
               },
               {
                 "symbol": "LPLA",
                 "trades": 3,
                 "wins": 1,
-                "pnl_total": -11891.564979999992,
-                "avg_pnl_per_trade": -3963.85
+                "pnl_total": -11472.81785500001,
+                "avg_pnl_per_trade": -3824.27
               },
               {
-                "symbol": "IONS",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -12041.327099999999,
-                "avg_pnl_per_trade": -12041.33
-              },
-              {
-                "symbol": "MUSA",
-                "trades": 4,
-                "wins": 1,
-                "pnl_total": -12123.069849999998,
-                "avg_pnl_per_trade": -3030.77
+                "symbol": "ENPH",
+                "trades": 7,
+                "wins": 3,
+                "pnl_total": -12788.625109100007,
+                "avg_pnl_per_trade": -1826.95
               },
               {
                 "symbol": "MGY",
                 "trades": 2,
                 "wins": 0,
-                "pnl_total": -13092.429039999983,
-                "avg_pnl_per_trade": -6546.21
+                "pnl_total": -13426.427289999983,
+                "avg_pnl_per_trade": -6713.21
               },
               {
                 "symbol": "AXON",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -13206.367199999995,
-                "avg_pnl_per_trade": -13206.37
-              },
-              {
-                "symbol": "FOUR",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -14891.281919999998,
-                "avg_pnl_per_trade": -14891.28
-              },
-              {
-                "symbol": "PANW",
-                "trades": 2,
-                "wins": 0,
-                "pnl_total": -15110.072869999989,
-                "avg_pnl_per_trade": -7555.04
+                "pnl_total": -13694.613529999999,
+                "avg_pnl_per_trade": -13694.61
               },
               {
                 "symbol": "NTLA",
                 "trades": 2,
                 "wins": 0,
-                "pnl_total": -15131.654155000022,
-                "avg_pnl_per_trade": -7565.83
+                "pnl_total": -14901.719575000021,
+                "avg_pnl_per_trade": -7450.86
+              },
+              {
+                "symbol": "FOUR",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -15119.228924999989,
+                "avg_pnl_per_trade": -15119.23
+              },
+              {
+                "symbol": "IONS",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -15122.248380000003,
+                "avg_pnl_per_trade": -15122.25
+              },
+              {
+                "symbol": "PANW",
+                "trades": 3,
+                "wins": 0,
+                "pnl_total": -16497.33216999999,
+                "avg_pnl_per_trade": -5499.11
               },
               {
                 "symbol": "CROX",
                 "trades": 4,
                 "wins": 2,
-                "pnl_total": -15174.845160000004,
-                "avg_pnl_per_trade": -3793.71
-              },
-              {
-                "symbol": "BX",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -18148.52552000001,
-                "avg_pnl_per_trade": -18148.53
+                "pnl_total": -16995.752020000025,
+                "avg_pnl_per_trade": -4248.94
               },
               {
                 "symbol": "INMD",
                 "trades": 4,
                 "wins": 3,
-                "pnl_total": -18389.980744999986,
-                "avg_pnl_per_trade": -4597.5
+                "pnl_total": -20126.400599999997,
+                "avg_pnl_per_trade": -5031.6
               },
               {
                 "symbol": "AFRM",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -19975.20900000002,
-                "avg_pnl_per_trade": -19975.21
+                "pnl_total": -21481.618750000023,
+                "avg_pnl_per_trade": -21481.62
               },
               {
-                "symbol": "ENPH",
-                "trades": 7,
-                "wins": 2,
-                "pnl_total": -21432.591049100003,
-                "avg_pnl_per_trade": -3061.8
-              },
-              {
-                "symbol": "EQT",
+                "symbol": "OXY",
                 "trades": 4,
-                "wins": 2,
-                "pnl_total": -22995.32946000001,
-                "avg_pnl_per_trade": -5748.83
+                "wins": 1,
+                "pnl_total": -22877.776529999992,
+                "avg_pnl_per_trade": -5719.44
               },
               {
                 "symbol": "SYNA",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -23844.826915,
-                "avg_pnl_per_trade": -23844.83
+                "pnl_total": -22888.913425000006,
+                "avg_pnl_per_trade": -22888.91
               },
               {
-                "symbol": "OXY",
-                "trades": 4,
+                "symbol": "BX",
+                "trades": 1,
                 "wins": 0,
-                "pnl_total": -26495.30864499999,
-                "avg_pnl_per_trade": -6623.83
+                "pnl_total": -23199.582159999994,
+                "avg_pnl_per_trade": -23199.58
+              },
+              {
+                "symbol": "EQT",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": -23869.355775,
+                "avg_pnl_per_trade": -7956.45
               },
               {
                 "symbol": "ASAN",
@@ -4147,15 +4134,15 @@
                 "symbol": "TSLA",
                 "trades": 5,
                 "wins": 1,
-                "pnl_total": -35444.92446000001,
-                "avg_pnl_per_trade": -7088.98
+                "pnl_total": -35578.5284,
+                "avg_pnl_per_trade": -7115.71
               },
               {
                 "symbol": "IRTC",
                 "trades": 3,
                 "wins": 0,
-                "pnl_total": -46071.330675,
-                "avg_pnl_per_trade": -15357.11
+                "pnl_total": -60611.09017000001,
+                "avg_pnl_per_trade": -20203.7
               }
             ],
             "hedge_trades": 0,
@@ -5173,7 +5160,7 @@
           "label": "REUSED TEMPORAL CHECK / not fresh OOS",
           "config": {
             "start_date": "2025-01-02",
-            "end_date": "2026-10-15",
+            "end_date": "2026-10-16",
             "starting_cash": 1000000.0,
             "slippage_bps": 15.0,
             "universe_size": 530,
@@ -5183,552 +5170,538 @@
             "param_overrides": null
           },
           "starting_cash": 1000000.0,
-          "final_equity": 1330397.9040319996,
+          "final_equity": 1397607.7669085008,
           "metrics": {
-            "total_return_pct": 33.0398,
-            "annual_return_pct": 17.4615,
-            "spy_total_return_pct": 32.5669,
-            "spy_annual_return_pct": 17.226,
-            "alpha_total_pct": 0.4729,
-            "alpha_annual_pct": 0.2356,
-            "excess_cagr_pct": 0.2356,
-            "jensen_alpha_annual_pct": 3.3093,
-            "beta_to_spy": 0.9353,
+            "total_return_pct": 39.7608,
+            "annual_return_pct": 20.72,
+            "spy_total_return_pct": 33.7762,
+            "spy_annual_return_pct": 17.7845,
+            "alpha_total_pct": 5.9845,
+            "alpha_annual_pct": 2.9355,
+            "excess_cagr_pct": 2.9355,
+            "jensen_alpha_annual_pct": 3.515,
+            "beta_to_spy": 1.1603,
             "risk_free_proxy": "BIL",
-            "risk_free_total_return_pct": 7.0777,
-            "risk_free_annual_return_pct": 3.9305,
+            "risk_free_total_return_pct": 7.1128,
+            "risk_free_annual_return_pct": 3.9407,
             "risk_free_fallback_zero": false,
-            "risk_free_observed_sessions": 448,
-            "spy_observed_sessions": 448,
-            "tracking_error_annual_pct": 21.9825,
-            "information_ratio": 0.1108,
-            "annual_vol_pct": 27.2419,
-            "sharpe_ratio": 0.5844,
-            "max_drawdown_pct": -20.3511,
+            "risk_free_observed_sessions": 449,
+            "spy_observed_sessions": 449,
+            "tracking_error_annual_pct": 23.6819,
+            "information_ratio": 0.2429,
+            "annual_vol_pct": 30.8769,
+            "sharpe_ratio": 0.6379,
+            "max_drawdown_pct": -23.9356,
             "max_drawdown_peak_date": "2025-02-07",
             "max_drawdown_trough_date": "2025-04-07",
-            "n_trading_days": 448,
-            "n_return_intervals": 447,
-            "n_trades": 147,
-            "win_rate_pct": 63.95,
-            "avg_win_pct": 35.1856,
-            "avg_loss_pct": -11.7639,
-            "profit_factor": 1.6052,
+            "n_trading_days": 449,
+            "n_return_intervals": 448,
+            "n_trades": 145,
+            "win_rate_pct": 64.83,
+            "avg_win_pct": 28.8325,
+            "avg_loss_pct": -12.55,
+            "profit_factor": 1.6428,
             "best_trade": {
               "symbol": "MU",
               "entry_date": "2025-12-02",
               "exit_date": "2026-06-01",
-              "qty": 140,
-              "entry_price": 238.827705,
+              "qty": 257,
+              "entry_price": 251.5407928929766,
               "exit_price": 1007.895885,
-              "pnl": 107669.5452,
-              "pnl_pct": 322.01799200808796,
+              "pnl": 194383.25867150503,
+              "pnl_pct": 300.6888399325476,
               "reason": "adaptive_rebalance_exit",
               "is_hedge": false,
               "is_base": false
             },
             "worst_trade": {
               "symbol": "LBRT",
-              "entry_date": "2026-06-02",
+              "entry_date": "2026-06-04",
               "exit_date": "2026-08-03",
-              "qty": 5868,
-              "entry_price": 28.294776347137013,
+              "qty": 6323,
+              "entry_price": 28.86622198718963,
               "exit_price": 17.843195,
-              "pnl": -61329.87934499999,
-              "pnl_pct": -36.93820095593209,
+              "pnl": -69698.59964000001,
+              "pnl_pct": -38.18659397853128,
               "reason": "adaptive_rebalance_exit",
               "is_hedge": false,
               "is_base": false
             },
             "regime_breakdown": {
               "BULL": {
-                "days": 266,
-                "pct_of_time": 59.375,
-                "avg_daily_pnl_pct": -0.0414417934225681,
-                "total_pnl_pct": -13.160249621604303
+                "days": 267,
+                "pct_of_time": 59.46547884187082,
+                "avg_daily_pnl_pct": -0.03251896508161892,
+                "total_pnl_pct": -11.903696843820699
               },
               "NEUTRAL": {
                 "days": 125,
-                "pct_of_time": 27.901785714285715,
-                "avg_daily_pnl_pct": 0.28678372209150726,
-                "total_pnl_pct": 39.53947935097997
+                "pct_of_time": 27.839643652561247,
+                "avg_daily_pnl_pct": 0.31023450695596805,
+                "total_pnl_pct": 43.06154574156602
               },
               "BEAR": {
                 "days": 57,
-                "pct_of_time": 12.723214285714285,
-                "avg_daily_pnl_pct": 0.18139494019728925,
-                "total_pnl_pct": 9.790784270358932
+                "pct_of_time": 12.694877505567929,
+                "avg_daily_pnl_pct": 0.20874683269090366,
+                "total_pnl_pct": 10.89314693798913
               }
             },
             "per_symbol": [
               {
                 "symbol": "MU",
-                "trades": 9,
-                "wins": 9,
-                "pnl_total": 152438.54309,
-                "avg_pnl_per_trade": 16937.62
-              },
-              {
-                "symbol": "GLW",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 65342.798320000016,
-                "avg_pnl_per_trade": 32671.4
+                "trades": 6,
+                "wins": 6,
+                "pnl_total": 219275.185445,
+                "avg_pnl_per_trade": 36545.86
               },
               {
                 "symbol": "LRCX",
-                "trades": 6,
-                "wins": 6,
-                "pnl_total": 59763.588670000005,
-                "avg_pnl_per_trade": 9960.6
+                "trades": 9,
+                "wins": 9,
+                "pnl_total": 83218.00372500002,
+                "avg_pnl_per_trade": 9246.44
+              },
+              {
+                "symbol": "GLW",
+                "trades": 3,
+                "wins": 3,
+                "pnl_total": 74184.53449000002,
+                "avg_pnl_per_trade": 24728.18
               },
               {
                 "symbol": "LITE",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 54493.836265,
-                "avg_pnl_per_trade": 54493.84
+                "pnl_total": 70424.74895499999,
+                "avg_pnl_per_trade": 70424.75
+              },
+              {
+                "symbol": "RVMD",
+                "trades": 2,
+                "wins": 2,
+                "pnl_total": 53718.72060999999,
+                "avg_pnl_per_trade": 26859.36
               },
               {
                 "symbol": "FORM",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 52808.01807999999,
-                "avg_pnl_per_trade": 26404.01
-              },
-              {
-                "symbol": "PARR",
-                "trades": 7,
-                "wins": 7,
-                "pnl_total": 48384.62194500001,
-                "avg_pnl_per_trade": 6912.09
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 53570.03247749999,
+                "avg_pnl_per_trade": 53570.03
               },
               {
                 "symbol": "APP",
                 "trades": 3,
                 "wins": 3,
-                "pnl_total": 46835.878197499995,
-                "avg_pnl_per_trade": 15611.96
+                "pnl_total": 53008.977792499994,
+                "avg_pnl_per_trade": 17669.66
               },
               {
-                "symbol": "RVMD",
-                "trades": 3,
-                "wins": 2,
-                "pnl_total": 45951.96410608059,
-                "avg_pnl_per_trade": 15317.32
+                "symbol": "PARR",
+                "trades": 7,
+                "wins": 7,
+                "pnl_total": 46678.48937499999,
+                "avg_pnl_per_trade": 6668.36
               },
               {
                 "symbol": "PLTR",
-                "trades": 6,
-                "wins": 6,
-                "pnl_total": 31219.649559999994,
-                "avg_pnl_per_trade": 5203.27
-              },
-              {
-                "symbol": "HOOD",
-                "trades": 5,
-                "wins": 3,
-                "pnl_total": 25528.986381499995,
-                "avg_pnl_per_trade": 5105.8
+                "trades": 7,
+                "wins": 7,
+                "pnl_total": 33117.094777499995,
+                "avg_pnl_per_trade": 4731.01
               },
               {
                 "symbol": "EYE",
-                "trades": 4,
-                "wins": 4,
-                "pnl_total": 20835.452725000003,
-                "avg_pnl_per_trade": 5208.86
-              },
-              {
-                "symbol": "ILMN",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 19481.035487499998,
-                "avg_pnl_per_trade": 19481.04
+                "trades": 2,
+                "wins": 2,
+                "pnl_total": 22388.94377500003,
+                "avg_pnl_per_trade": 11194.47
               },
               {
                 "symbol": "DELL",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 19283.910824999984,
-                "avg_pnl_per_trade": 19283.91
+                "pnl_total": 20677.928474999986,
+                "avg_pnl_per_trade": 20677.93
               },
               {
-                "symbol": "AMD",
-                "trades": 3,
-                "wins": 2,
-                "pnl_total": 17079.577095000008,
-                "avg_pnl_per_trade": 5693.19
-              },
-              {
-                "symbol": "SNOW",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 14951.150270000015,
-                "avg_pnl_per_trade": 14951.15
-              },
-              {
-                "symbol": "IBKR",
+                "symbol": "HOOD",
                 "trades": 5,
                 "wins": 3,
-                "pnl_total": 12323.907324999995,
-                "avg_pnl_per_trade": 2464.78
-              },
-              {
-                "symbol": "FIVE",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 9984.124007500019,
-                "avg_pnl_per_trade": 4992.06
+                "pnl_total": 20292.029002500007,
+                "avg_pnl_per_trade": 4058.41
               },
               {
                 "symbol": "CHWY",
                 "trades": 2,
                 "wins": 2,
-                "pnl_total": 9585.306679999994,
-                "avg_pnl_per_trade": 4792.65
+                "pnl_total": 16973.109584999984,
+                "avg_pnl_per_trade": 8486.55
+              },
+              {
+                "symbol": "SNOW",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 15502.344750000017,
+                "avg_pnl_per_trade": 15502.34
               },
               {
                 "symbol": "SFM",
-                "trades": 3,
-                "wins": 3,
-                "pnl_total": 9399.627190000003,
-                "avg_pnl_per_trade": 3133.21
+                "trades": 4,
+                "wins": 4,
+                "pnl_total": 14950.995274999994,
+                "avg_pnl_per_trade": 3737.75
+              },
+              {
+                "symbol": "IBKR",
+                "trades": 6,
+                "wins": 4,
+                "pnl_total": 12471.947244999978,
+                "avg_pnl_per_trade": 2078.66
+              },
+              {
+                "symbol": "FIVE",
+                "trades": 2,
+                "wins": 1,
+                "pnl_total": 10250.761242500006,
+                "avg_pnl_per_trade": 5125.38
               },
               {
                 "symbol": "ARWR",
                 "trades": 5,
                 "wins": 3,
-                "pnl_total": 7261.556630000026,
-                "avg_pnl_per_trade": 1452.31
+                "pnl_total": 9785.587959999995,
+                "avg_pnl_per_trade": 1957.12
               },
               {
                 "symbol": "NEM",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 6043.930735,
-                "avg_pnl_per_trade": 3021.97
+                "trades": 3,
+                "wins": 3,
+                "pnl_total": 8840.783890000002,
+                "avg_pnl_per_trade": 2946.93
               },
               {
-                "symbol": "IRTC",
+                "symbol": "AFRM",
                 "trades": 2,
                 "wins": 2,
-                "pnl_total": 4992.03609000001,
-                "avg_pnl_per_trade": 2496.02
+                "pnl_total": 7239.839890000005,
+                "avg_pnl_per_trade": 3619.92
+              },
+              {
+                "symbol": "ILMN",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 7025.947224999998,
+                "avg_pnl_per_trade": 7025.95
+              },
+              {
+                "symbol": "EAT",
+                "trades": 4,
+                "wins": 3,
+                "pnl_total": 6802.897334999987,
+                "avg_pnl_per_trade": 1700.72
+              },
+              {
+                "symbol": "POWL",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 6256.130129999999,
+                "avg_pnl_per_trade": 2085.38
+              },
+              {
+                "symbol": "RBLX",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 5865.7772300000115,
+                "avg_pnl_per_trade": 1955.26
               },
               {
                 "symbol": "FLEX",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 4636.115999999981,
-                "avg_pnl_per_trade": 4636.12
-              },
-              {
-                "symbol": "POWL",
-                "trades": 5,
-                "wins": 3,
-                "pnl_total": 4603.484735000004,
-                "avg_pnl_per_trade": 920.7
-              },
-              {
-                "symbol": "ASML",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 4403.749815000001,
-                "avg_pnl_per_trade": 4403.75
-              },
-              {
-                "symbol": "VLO",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 3800.3405249999932,
-                "avg_pnl_per_trade": 3800.34
-              },
-              {
-                "symbol": "VRSN",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 3689.3988000000036,
-                "avg_pnl_per_trade": 3689.4
-              },
-              {
-                "symbol": "NFLX",
-                "trades": 2,
-                "wins": 2,
-                "pnl_total": 3685.1304600000185,
-                "avg_pnl_per_trade": 1842.57
-              },
-              {
-                "symbol": "T",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 3227.0242050000006,
-                "avg_pnl_per_trade": 3227.02
+                "pnl_total": 4966.653899999979,
+                "avg_pnl_per_trade": 4966.65
               },
               {
                 "symbol": "TKO",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 3152.865060000009,
-                "avg_pnl_per_trade": 3152.87
+                "pnl_total": 4808.614950000015,
+                "avg_pnl_per_trade": 4808.61
               },
               {
-                "symbol": "AFRM",
+                "symbol": "VRSN",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 2413.2331399999916,
-                "avg_pnl_per_trade": 2413.23
+                "pnl_total": 4768.889560000005,
+                "avg_pnl_per_trade": 4768.89
+              },
+              {
+                "symbol": "ASML",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 4648.519555000009,
+                "avg_pnl_per_trade": 4648.52
+              },
+              {
+                "symbol": "IRTC",
+                "trades": 2,
+                "wins": 2,
+                "pnl_total": 4261.162219999994,
+                "avg_pnl_per_trade": 2130.58
+              },
+              {
+                "symbol": "NFLX",
+                "trades": 2,
+                "wins": 2,
+                "pnl_total": 4250.798259999999,
+                "avg_pnl_per_trade": 2125.4
+              },
+              {
+                "symbol": "T",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 4222.656910000004,
+                "avg_pnl_per_trade": 4222.66
               },
               {
                 "symbol": "FTNT",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 1995.825067500005,
-                "avg_pnl_per_trade": 1995.83
-              },
-              {
-                "symbol": "RBLX",
-                "trades": 4,
-                "wins": 3,
-                "pnl_total": 1755.0981900000043,
-                "avg_pnl_per_trade": 438.77
+                "pnl_total": 2580.3763425000066,
+                "avg_pnl_per_trade": 2580.38
               },
               {
                 "symbol": "TWLO",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": 1556.7322250000034,
-                "avg_pnl_per_trade": 778.37
+                "pnl_total": 2569.064239999995,
+                "avg_pnl_per_trade": 1284.53
               },
               {
-                "symbol": "WELL",
-                "trades": 1,
-                "wins": 1,
-                "pnl_total": 755.0481250000025,
-                "avg_pnl_per_trade": 755.05
+                "symbol": "AMD",
+                "trades": 3,
+                "wins": 2,
+                "pnl_total": 1162.7532449999935,
+                "avg_pnl_per_trade": 387.58
               },
               {
                 "symbol": "SMTC",
                 "trades": 1,
                 "wins": 1,
-                "pnl_total": 599.0254050000043,
-                "avg_pnl_per_trade": 599.03
+                "pnl_total": 749.1727650000054,
+                "avg_pnl_per_trade": 749.17
+              },
+              {
+                "symbol": "WELL",
+                "trades": 1,
+                "wins": 1,
+                "pnl_total": 680.4128000000037,
+                "avg_pnl_per_trade": 680.41
               },
               {
                 "symbol": "FOXA",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -72.74458000000294,
-                "avg_pnl_per_trade": -72.74
-              },
-              {
-                "symbol": "JBHT",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -946.309280000005,
-                "avg_pnl_per_trade": -946.31
+                "pnl_total": -418.88806499999123,
+                "avg_pnl_per_trade": -418.89
               },
               {
                 "symbol": "ETR",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -1140.4177300000013,
-                "avg_pnl_per_trade": -1140.42
+                "pnl_total": -623.0235000000075,
+                "avg_pnl_per_trade": -623.02
               },
               {
-                "symbol": "EAT",
-                "trades": 2,
-                "wins": 1,
-                "pnl_total": -2023.2976650000019,
-                "avg_pnl_per_trade": -1011.65
-              },
-              {
-                "symbol": "BJRI",
+                "symbol": "JBHT",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -2754.080495,
-                "avg_pnl_per_trade": -2754.08
-              },
-              {
-                "symbol": "MMM",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -3705.545734999985,
-                "avg_pnl_per_trade": -3705.55
-              },
-              {
-                "symbol": "HALO",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -4026.872520000005,
-                "avg_pnl_per_trade": -4026.87
-              },
-              {
-                "symbol": "BTU",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -4659.260939999996,
-                "avg_pnl_per_trade": -4659.26
-              },
-              {
-                "symbol": "ROG",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -5104.674659999996,
-                "avg_pnl_per_trade": -5104.67
-              },
-              {
-                "symbol": "CGNX",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -6173.248500000004,
-                "avg_pnl_per_trade": -6173.25
-              },
-              {
-                "symbol": "IONS",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -9206.998189999997,
-                "avg_pnl_per_trade": -9207.0
+                "pnl_total": -1013.9028000000053,
+                "avg_pnl_per_trade": -1013.9
               },
               {
                 "symbol": "AXON",
                 "trades": 3,
                 "wins": 1,
-                "pnl_total": -9379.835045000025,
-                "avg_pnl_per_trade": -3126.61
+                "pnl_total": -3868.829629999982,
+                "avg_pnl_per_trade": -1289.61
               },
               {
-                "symbol": "MSTR",
+                "symbol": "BTU",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -9551.069164999994,
-                "avg_pnl_per_trade": -9551.07
+                "pnl_total": -4932.7130249999955,
+                "avg_pnl_per_trade": -4932.71
               },
               {
-                "symbol": "JEF",
+                "symbol": "MMM",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -10588.574880000007,
-                "avg_pnl_per_trade": -10588.57
+                "pnl_total": -5361.943839999985,
+                "avg_pnl_per_trade": -5361.94
+              },
+              {
+                "symbol": "ROG",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -5472.579139999995,
+                "avg_pnl_per_trade": -5472.58
+              },
+              {
+                "symbol": "CGNX",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -6619.094225000004,
+                "avg_pnl_per_trade": -6619.09
+              },
+              {
+                "symbol": "HALO",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -6735.733110000003,
+                "avg_pnl_per_trade": -6735.73
+              },
+              {
+                "symbol": "IONS",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -9268.940799999977,
+                "avg_pnl_per_trade": -9268.94
               },
               {
                 "symbol": "MGNI",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -10898.811395000002,
-                "avg_pnl_per_trade": -10898.81
+                "pnl_total": -11299.610435000002,
+                "avg_pnl_per_trade": -11299.61
               },
               {
-                "symbol": "INSM",
-                "trades": 4,
-                "wins": 3,
-                "pnl_total": -10948.812167500027,
-                "avg_pnl_per_trade": -2737.2
-              },
-              {
-                "symbol": "UPST",
+                "symbol": "JEF",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -11040.94204,
-                "avg_pnl_per_trade": -11040.94
-              },
-              {
-                "symbol": "EXEL",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -11342.61522000001,
-                "avg_pnl_per_trade": -11342.62
-              },
-              {
-                "symbol": "NVDA",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -11413.254349999997,
-                "avg_pnl_per_trade": -11413.25
+                "pnl_total": -11850.47550499999,
+                "avg_pnl_per_trade": -11850.48
               },
               {
                 "symbol": "RCL",
                 "trades": 2,
                 "wins": 0,
-                "pnl_total": -13708.648435000014,
-                "avg_pnl_per_trade": -6854.32
+                "pnl_total": -13653.487815000011,
+                "avg_pnl_per_trade": -6826.74
               },
               {
-                "symbol": "AVGO",
-                "trades": 2,
+                "symbol": "UPST",
+                "trades": 1,
                 "wins": 0,
-                "pnl_total": -15066.970479999994,
-                "avg_pnl_per_trade": -7533.49
+                "pnl_total": -14226.05772,
+                "avg_pnl_per_trade": -14226.06
+              },
+              {
+                "symbol": "NVDA",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -14282.749299999996,
+                "avg_pnl_per_trade": -14282.75
+              },
+              {
+                "symbol": "INSM",
+                "trades": 4,
+                "wins": 3,
+                "pnl_total": -14534.27809999998,
+                "avg_pnl_per_trade": -3633.57
+              },
+              {
+                "symbol": "EXEL",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -14648.403600000012,
+                "avg_pnl_per_trade": -14648.4
               },
               {
                 "symbol": "BOOT",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -16157.37678,
-                "avg_pnl_per_trade": -16157.38
+                "pnl_total": -15060.75654,
+                "avg_pnl_per_trade": -15060.76
               },
               {
-                "symbol": "SANM",
-                "trades": 3,
+                "symbol": "MSTR",
+                "trades": 1,
                 "wins": 0,
-                "pnl_total": -20573.036924999993,
-                "avg_pnl_per_trade": -6857.68
+                "pnl_total": -16829.61745,
+                "avg_pnl_per_trade": -16829.62
               },
               {
                 "symbol": "TSLA",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -21661.758300000016,
-                "avg_pnl_per_trade": -21661.76
+                "pnl_total": -23285.268600000014,
+                "avg_pnl_per_trade": -23285.27
               },
               {
-                "symbol": "MTRN",
-                "trades": 4,
-                "wins": 1,
-                "pnl_total": -22781.48998999999,
-                "avg_pnl_per_trade": -5695.37
-              },
-              {
-                "symbol": "VRT",
-                "trades": 3,
-                "wins": 1,
-                "pnl_total": -22791.41901000002,
-                "avg_pnl_per_trade": -7597.14
-              },
-              {
-                "symbol": "CAT",
-                "trades": 3,
+                "symbol": "AVGO",
+                "trades": 2,
                 "wins": 0,
-                "pnl_total": -24479.013020000002,
-                "avg_pnl_per_trade": -8159.67
-              },
-              {
-                "symbol": "AMAT",
-                "trades": 1,
-                "wins": 0,
-                "pnl_total": -28826.82341500002,
-                "avg_pnl_per_trade": -28826.82
+                "pnl_total": -23601.369699999996,
+                "avg_pnl_per_trade": -11800.68
               },
               {
                 "symbol": "FROG",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -30157.862062,
-                "avg_pnl_per_trade": -30157.86
+                "pnl_total": -24801.153026499996,
+                "avg_pnl_per_trade": -24801.15
+              },
+              {
+                "symbol": "VRT",
+                "trades": 2,
+                "wins": 0,
+                "pnl_total": -25522.718565000054,
+                "avg_pnl_per_trade": -12761.36
+              },
+              {
+                "symbol": "CAT",
+                "trades": 3,
+                "wins": 0,
+                "pnl_total": -29838.592385000004,
+                "avg_pnl_per_trade": -9946.2
+              },
+              {
+                "symbol": "MTRN",
+                "trades": 4,
+                "wins": 1,
+                "pnl_total": -32180.62428500002,
+                "avg_pnl_per_trade": -8045.16
+              },
+              {
+                "symbol": "SANM",
+                "trades": 3,
+                "wins": 0,
+                "pnl_total": -35923.86766999999,
+                "avg_pnl_per_trade": -11974.62
+              },
+              {
+                "symbol": "AMAT",
+                "trades": 1,
+                "wins": 0,
+                "pnl_total": -37138.214840000015,
+                "avg_pnl_per_trade": -37138.21
               },
               {
                 "symbol": "ALB",
                 "trades": 2,
                 "wins": 1,
-                "pnl_total": -40816.982875,
-                "avg_pnl_per_trade": -20408.49
+                "pnl_total": -42241.67954499999,
+                "avg_pnl_per_trade": -21120.84
               },
               {
                 "symbol": "LBRT",
                 "trades": 1,
                 "wins": 0,
-                "pnl_total": -61329.87934499999,
-                "avg_pnl_per_trade": -61329.88
+                "pnl_total": -69698.59964000001,
+                "avg_pnl_per_trade": -69698.6
               }
             ],
             "hedge_trades": 0,
@@ -6181,7 +6154,8 @@
               1347346.93,
               1344855.63,
               1340668.85,
-              1325669.11
+              1325669.11,
+              1337762.32
             ]
           }
         }
@@ -6191,6 +6165,6 @@
   "contract": {
     "schema_version": 1,
     "algorithm": "sha256",
-    "report_sha256": "33e824f06a664020061c1f61d2cfff703e22de4a1a5645292c27f43f03e193fb"
+    "report_sha256": "4a8e78f623be5ddb6ee0384dcefa1b818943d53afac48003de6514ad344aabca"
   }
 }
