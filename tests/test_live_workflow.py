@@ -57,6 +57,7 @@ def test_live_offline_sanity_receives_the_same_required_configuration_as_preflig
         "ALPACA_LIVE_API_KEY": "secrets.ALPACA_LIVE_API_KEY",
         "ALPACA_LIVE_SECRET_KEY": "secrets.ALPACA_LIVE_SECRET_KEY",
         "LIVE_TRADING_ENABLED": "vars.LIVE_TRADING_ENABLED",
+        "LIVE_EXECUTION_ARMED": "vars.LIVE_EXECUTION_ARMED",
         "LIVE_TRADING_ACCOUNT_NUMBER": "secrets.LIVE_TRADING_ACCOUNT_NUMBER",
         "LIVE_CAPITAL_BUDGET_USD": "vars.LIVE_CAPITAL_BUDGET_USD",
         "LIVE_RUNTIME_KEY": "secrets.LIVE_RUNTIME_KEY",
@@ -69,6 +70,17 @@ def test_live_offline_sanity_receives_the_same_required_configuration_as_preflig
         assert binding in broker
     assert "run: python scripts/live_runtime_crypto.py run-step sanity" in offline
     assert re.search(r"^  TRADING_MODE: live$", WORKFLOW, re.MULTILINE)
+
+
+def test_live_workflow_requires_the_protected_deny_by_default_arm():
+    """The ordinary enable flag can never arm a live workflow by itself."""
+    assert "LIVE_EXECUTION_ARMED: ${{ vars.LIVE_EXECUTION_ARMED }}" in WORKFLOW
+    assert WORKFLOW.count("LIVE_EXECUTION_ARMED: ${{ vars.LIVE_EXECUTION_ARMED }}") >= 6
+    paper = (
+        Path(__file__).resolve().parents[1]
+        / ".github/workflows/paper-production.yml"
+    ).read_text(encoding="utf-8")
+    assert "LIVE_EXECUTION_ARMED" not in paper
 
 
 def test_live_account_number_is_secret_masked_in_every_broker_step():
