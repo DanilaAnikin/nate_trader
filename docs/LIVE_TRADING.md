@@ -30,6 +30,7 @@ missing; nothing has a default and nothing falls back to the paper values.
 | `TRADING_MODE=live` | The word, in full. Anything unrecognised — including a typo like `Live!` — is a dry run, never a fallback to paper. |
 | `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_SECRET_KEY` | Separate names from the paper pair. A misfiled paper key fails to authenticate instead of quietly trading the wrong book, and a live key can never be picked up by a paper run. Refused if identical to `ALPACA_API_KEY`. |
 | `LIVE_TRADING_ENABLED` | A second, independent switch. Two variables have to be wrong at once for real money to move by accident. |
+| `LIVE_EXECUTION_ARMED` | A separate protected deployment latch. It must equal `I_UNDERSTAND_REAL_MONEY` exactly; an absent, false, or typoed value keeps live deny-by-default. |
 | `LIVE_TRADING_ACCOUNT_NUMBER` | The account this run may trade, declared out of band and checked against a fresh `GET /v2/account` before the first order. Credentials prove *an* account; only this proves *the* account. |
 | `LIVE_CAPITAL_BUDGET_USD` | Total capital the live strategy may use across runs; caps sizing equity and checks holdings plus pending buys before new exposure. |
 | `LIVE_MAX_ORDER_NOTIONAL_USD` | An absolute per-order dollar ceiling. |
@@ -135,7 +136,7 @@ In the `live-production` environment:
 - **Secrets:** `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_SECRET_KEY`,
   `LIVE_TRADING_ACCOUNT_NUMBER`, `LIVE_RUNTIME_KEY`
 - **Variables:** `PRODUCTION_RELEASE_SHA` (the approved full 40-character SHA),
-  `LIVE_TRADING_ENABLED`,
+  `LIVE_TRADING_ENABLED`, `LIVE_EXECUTION_ARMED`,
   `LIVE_CAPITAL_BUDGET_USD`, `LIVE_MAX_ORDER_NOTIONAL_USD`,
   `LIVE_MAX_CYCLE_NOTIONAL_USD`
 - **Protection:** at least one required reviewer and protected deployment branches
@@ -146,8 +147,10 @@ in the public runner log before the encrypted Python output capture starts.
 
 On 2026-09-13 the `live-production` environment was created and verified with
 DanilaAnikin as required reviewer and protected deployment branches only.
-The live capability switch and explicit spending limits are configured.
-The live account was subsequently connected through the authenticated dashboard.
+The live capability switch remains disabled by default; the separate protected
+arm is intentionally absent until a separately reviewed real-money launch.
+Explicit spending limits may be present without arming execution. The live
+account was subsequently connected through the authenticated dashboard.
 That connection does not provision the separate workflow credentials or approve
 an immutable live release. Verify those bindings again before any live preflight.
 No real-money cycle has been dispatched by this setup. The capital budget is an
