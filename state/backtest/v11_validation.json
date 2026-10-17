@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "v11_fixed_strategy_validation",
-  "generated_at": "2026-10-16T08:42:39.844516+00:00",
+  "generated_at": "2026-10-17T14:56:51.405866+00:00",
   "strategy": {
     "version": "v11-adaptive-momentum",
     "parameter_policy": "fixed checked-in parameters; no optimizer or sweep",
@@ -9,7 +9,7 @@
     "identity": {
       "schema_version": 1,
       "algorithm": "sha256",
-      "value": "58154fbb37463064cb04db1bba87cf2f6646ab8faff7d70cd39f695f524fbc86",
+      "value": "cb96e2ae4d4bc18178c8367192393143354c9f4aa99f15d35c685221b522917f",
       "sources": [
         "requirements.txt",
         "requirements.lock",
@@ -66,8 +66,8 @@
     "temporal_check": {
       "label": "REUSED TEMPORAL CHECK / not fresh OOS",
       "start_date": "2025-01-02",
-      "end_date": "2026-10-15",
-      "sessions": 448
+      "end_date": "2026-10-16",
+      "sessions": 449
     }
   },
   "promotion_profile": {
@@ -95,10 +95,10 @@
   "bar_coverage": {
     "reference_symbol": "SPY",
     "reference_start": "2020-01-02",
-    "reference_end": "2026-10-15",
-    "reference_sessions": 1706,
+    "reference_end": "2026-10-16",
+    "reference_sessions": 1707,
     "validation_start": "2021-01-04",
-    "validation_end": "2026-10-15",
+    "validation_end": "2026-10-16",
     "required_warmup_sessions": 253,
     "required_auxiliary_symbols": [
       "BIL",
@@ -195,11 +195,11 @@
     "schema_version": 1,
     "ranking_universe_count": 530,
     "ranking_universe_sha256": "d83b5156c59a405d1793a81cd5024899f5a88b65a71dba793993bf281a2b7c88",
-    "bar_snapshot_sha256": "809f47d2544676c158c1a6b8ae38bd5fd7e72888014fd74d5ef2be6c8bda58c0",
-    "bar_snapshot_through_date": "2026-10-15",
+    "bar_snapshot_sha256": "b9bce02d7dd3edd0d3a1cc85125751b2dc05e5ebf8a5a6a4baf8aa4b8d1987b1",
+    "bar_snapshot_through_date": "2026-10-16",
     "bar_symbols_requested": 542,
     "bar_symbols_observed": 542,
-    "bar_rows_hashed": 916003
+    "bar_rows_hashed": 916545
   },
   "warnings": [
     {
@@ -224,11 +224,11 @@
     }
   ],
   "assessment": {
-    "status": "PASS",
-    "allowed_mode": "paper-validation-eligible",
+    "status": "FAIL",
+    "allowed_mode": "dry-run/shadow-research-only",
     "rule": "Every slippage scenario and both segments require excess_cagr_pct > 0 and jensen_alpha_annual_pct > 0.",
     "checks_evaluated": 8,
-    "checks_passed": 8,
+    "checks_passed": 7,
     "checks": [
       {
         "scenario": "slippage_7_bps",
@@ -257,7 +257,7 @@
         "metric": "excess_cagr_pct",
         "operator": ">",
         "threshold": 0.0,
-        "value": 1.0125,
+        "value": 0.4431,
         "passed": true
       },
       {
@@ -267,7 +267,7 @@
         "metric": "jensen_alpha_annual_pct",
         "operator": ">",
         "threshold": 0.0,
-        "value": 3.9665,
+        "value": 3.5236,
         "passed": true
       },
       {
@@ -297,8 +297,9 @@
         "metric": "excess_cagr_pct",
         "operator": ">",
         "threshold": 0.0,
-        "value": 0.2356,
-        "passed": true
+        "value": -0.3324,
+        "passed": false,
+        "reason": "not_strictly_positive"
       },
       {
         "scenario": "slippage_15_bps",
@@ -307,12 +308,24 @@
         "metric": "jensen_alpha_annual_pct",
         "operator": ">",
         "threshold": 0.0,
-        "value": 3.3093,
+        "value": 2.8675,
         "passed": true
       }
     ],
-    "failed_checks": [],
-    "alpha_claim": "All historical alpha checks passed; this permits paper validation only, not a claim of guaranteed or fresh-OOS alpha.",
+    "failed_checks": [
+      {
+        "scenario": "slippage_15_bps",
+        "slippage_bps": 15.0,
+        "segment": "temporal_check",
+        "metric": "excess_cagr_pct",
+        "operator": ">",
+        "threshold": 0.0,
+        "value": -0.3324,
+        "passed": false,
+        "reason": "not_strictly_positive"
+      }
+    ],
+    "alpha_claim": "Validated-alpha claims are prohibited; continue only in dry-run/shadow research.",
     "data_integrity_check": {
       "category": "ranking_and_auxiliary_bar_coverage",
       "schema_errors": [],
@@ -2256,7 +2269,7 @@
           "label": "REUSED TEMPORAL CHECK / not fresh OOS",
           "config": {
             "start_date": "2025-01-02",
-            "end_date": "2026-10-15",
+            "end_date": "2026-10-16",
             "starting_cash": 1000000.0,
             "slippage_bps": 7.0,
             "universe_size": 530,
@@ -2266,32 +2279,32 @@
             "param_overrides": null
           },
           "starting_cash": 1000000.0,
-          "final_equity": 1346047.2884767016,
+          "final_equity": 1346723.0384767016,
           "metrics": {
-            "total_return_pct": 34.6047,
-            "annual_return_pct": 18.2385,
-            "spy_total_return_pct": 32.5669,
-            "spy_annual_return_pct": 17.226,
-            "alpha_total_pct": 2.0378,
-            "alpha_annual_pct": 1.0125,
-            "excess_cagr_pct": 1.0125,
-            "jensen_alpha_annual_pct": 3.9665,
-            "beta_to_spy": 0.9353,
+            "total_return_pct": 34.6723,
+            "annual_return_pct": 18.2276,
+            "spy_total_return_pct": 33.7762,
+            "spy_annual_return_pct": 17.7845,
+            "alpha_total_pct": 0.8961,
+            "alpha_annual_pct": 0.4431,
+            "excess_cagr_pct": 0.4431,
+            "jensen_alpha_annual_pct": 3.5236,
+            "beta_to_spy": 0.934,
             "risk_free_proxy": "BIL",
-            "risk_free_total_return_pct": 7.0777,
-            "risk_free_annual_return_pct": 3.9305,
+            "risk_free_total_return_pct": 7.1128,
+            "risk_free_annual_return_pct": 3.9407,
             "risk_free_fallback_zero": false,
-            "risk_free_observed_sessions": 448,
-            "spy_observed_sessions": 448,
-            "tracking_error_annual_pct": 21.9789,
-            "information_ratio": 0.1407,
-            "annual_vol_pct": 27.2391,
-            "sharpe_ratio": 0.6085,
+            "risk_free_observed_sessions": 449,
+            "spy_observed_sessions": 449,
+            "tracking_error_annual_pct": 21.9641,
+            "information_ratio": 0.1185,
+            "annual_vol_pct": 27.2087,
+            "sharpe_ratio": 0.6082,
             "max_drawdown_pct": -20.2752,
             "max_drawdown_peak_date": "2025-02-07",
             "max_drawdown_trough_date": "2025-04-07",
-            "n_trading_days": 448,
-            "n_return_intervals": 447,
+            "n_trading_days": 449,
+            "n_return_intervals": 448,
             "n_trades": 147,
             "win_rate_pct": 64.63,
             "avg_win_pct": 35.0195,
@@ -2325,20 +2338,20 @@
             },
             "regime_breakdown": {
               "BULL": {
-                "days": 266,
-                "pct_of_time": 59.375,
-                "avg_daily_pnl_pct": -0.03916875310689669,
-                "total_pnl_pct": -12.631568225702594
+                "days": 267,
+                "pct_of_time": 59.46547884187082,
+                "avg_daily_pnl_pct": -0.03883402914275828,
+                "total_pnl_pct": -12.587707049147411
               },
               "NEUTRAL": {
                 "days": 125,
-                "pct_of_time": 27.901785714285715,
+                "pct_of_time": 27.839643652561247,
                 "avg_daily_pnl_pct": 0.290116409613031,
                 "total_pnl_pct": 40.122264171015146
               },
               "BEAR": {
                 "days": 57,
-                "pct_of_time": 12.723214285714285,
+                "pct_of_time": 12.694877505567929,
                 "avg_daily_pnl_pct": 0.18397837775606846,
                 "total_pnl_pct": 9.950860061544242
               }
@@ -3264,7 +3277,8 @@
               1347346.93,
               1344855.63,
               1340668.85,
-              1325669.11
+              1325669.11,
+              1337762.32
             ]
           }
         }
@@ -5173,7 +5187,7 @@
           "label": "REUSED TEMPORAL CHECK / not fresh OOS",
           "config": {
             "start_date": "2025-01-02",
-            "end_date": "2026-10-15",
+            "end_date": "2026-10-16",
             "starting_cash": 1000000.0,
             "slippage_bps": 15.0,
             "universe_size": 530,
@@ -5183,32 +5197,32 @@
             "param_overrides": null
           },
           "starting_cash": 1000000.0,
-          "final_equity": 1330397.9040319996,
+          "final_equity": 1331057.3890319997,
           "metrics": {
-            "total_return_pct": 33.0398,
-            "annual_return_pct": 17.4615,
-            "spy_total_return_pct": 32.5669,
-            "spy_annual_return_pct": 17.226,
-            "alpha_total_pct": 0.4729,
-            "alpha_annual_pct": 0.2356,
-            "excess_cagr_pct": 0.2356,
-            "jensen_alpha_annual_pct": 3.3093,
-            "beta_to_spy": 0.9353,
+            "total_return_pct": 33.1057,
+            "annual_return_pct": 17.4521,
+            "spy_total_return_pct": 33.7762,
+            "spy_annual_return_pct": 17.7845,
+            "alpha_total_pct": -0.6705,
+            "alpha_annual_pct": -0.3324,
+            "excess_cagr_pct": -0.3324,
+            "jensen_alpha_annual_pct": 2.8675,
+            "beta_to_spy": 0.934,
             "risk_free_proxy": "BIL",
-            "risk_free_total_return_pct": 7.0777,
-            "risk_free_annual_return_pct": 3.9305,
+            "risk_free_total_return_pct": 7.1128,
+            "risk_free_annual_return_pct": 3.9407,
             "risk_free_fallback_zero": false,
-            "risk_free_observed_sessions": 448,
-            "spy_observed_sessions": 448,
-            "tracking_error_annual_pct": 21.9825,
-            "information_ratio": 0.1108,
-            "annual_vol_pct": 27.2419,
-            "sharpe_ratio": 0.5844,
+            "risk_free_observed_sessions": 449,
+            "spy_observed_sessions": 449,
+            "tracking_error_annual_pct": 21.9677,
+            "information_ratio": 0.0886,
+            "annual_vol_pct": 27.2115,
+            "sharpe_ratio": 0.5841,
             "max_drawdown_pct": -20.3511,
             "max_drawdown_peak_date": "2025-02-07",
             "max_drawdown_trough_date": "2025-04-07",
-            "n_trading_days": 448,
-            "n_return_intervals": 447,
+            "n_trading_days": 449,
+            "n_return_intervals": 448,
             "n_trades": 147,
             "win_rate_pct": 63.95,
             "avg_win_pct": 35.1856,
@@ -5242,20 +5256,20 @@
             },
             "regime_breakdown": {
               "BULL": {
-                "days": 266,
-                "pct_of_time": 59.375,
-                "avg_daily_pnl_pct": -0.0414417934225681,
-                "total_pnl_pct": -13.160249621604303
+                "days": 267,
+                "pct_of_time": 59.46547884187082,
+                "avg_daily_pnl_pct": -0.04110092337963209,
+                "total_pnl_pct": -13.117202716159893
               },
               "NEUTRAL": {
                 "days": 125,
-                "pct_of_time": 27.901785714285715,
+                "pct_of_time": 27.839643652561247,
                 "avg_daily_pnl_pct": 0.28678372209150726,
                 "total_pnl_pct": 39.53947935097997
               },
               "BEAR": {
                 "days": 57,
-                "pct_of_time": 12.723214285714285,
+                "pct_of_time": 12.694877505567929,
                 "avg_daily_pnl_pct": 0.18139494019728925,
                 "total_pnl_pct": 9.790784270358932
               }
@@ -6181,7 +6195,8 @@
               1347346.93,
               1344855.63,
               1340668.85,
-              1325669.11
+              1325669.11,
+              1337762.32
             ]
           }
         }
@@ -6191,6 +6206,6 @@
   "contract": {
     "schema_version": 1,
     "algorithm": "sha256",
-    "report_sha256": "33e824f06a664020061c1f61d2cfff703e22de4a1a5645292c27f43f03e193fb"
+    "report_sha256": "041ee93577843fe56964df48aa41291c3eac4a42b95970ccee9b2a939e047ba3"
   }
 }
