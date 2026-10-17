@@ -138,6 +138,7 @@ def test_environment_accepts_a_fully_configured_live_run(tmp_path):
         {
             "TRADING_MODE": "live",
             "LIVE_TRADING_ENABLED": "yes",
+            "LIVE_EXECUTION_ARMED": "I_UNDERSTAND_REAL_MONEY",
             "ALPACA_LIVE_API_KEY": "top-secret-live-key",
             "ALPACA_LIVE_SECRET_KEY": "top-secret-live-secret",
             "ALPACA_API_KEY": "paper-key",
@@ -198,6 +199,7 @@ def test_preflight_reports_the_broker_mode_it_checked(monkeypatch, tmp_path, mod
         "ALPACA_API_KEY": "fixture-paper-key",
         "ALPACA_SECRET_KEY": "fixture-paper-secret",
         "LIVE_TRADING_ENABLED": "yes",
+        "LIVE_EXECUTION_ARMED": "I_UNDERSTAND_REAL_MONEY",
         "ALPACA_LIVE_API_KEY": "fixture-live-key",
         "ALPACA_LIVE_SECRET_KEY": "fixture-live-secret",
         "LIVE_TRADING_ACCOUNT_NUMBER": "123456789",

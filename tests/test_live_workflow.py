@@ -71,6 +71,17 @@ def test_live_offline_sanity_receives_the_same_required_configuration_as_preflig
     assert re.search(r"^  TRADING_MODE: live$", WORKFLOW, re.MULTILINE)
 
 
+def test_live_workflow_requires_the_protected_deny_by_default_arm():
+    """The ordinary enable flag can never arm a live workflow by itself."""
+    assert "LIVE_EXECUTION_ARMED: ${{ vars.LIVE_EXECUTION_ARMED }}" in WORKFLOW
+    assert WORKFLOW.count("LIVE_EXECUTION_ARMED: ${{ vars.LIVE_EXECUTION_ARMED }}") >= 6
+    paper = (
+        Path(__file__).resolve().parents[1]
+        / ".github/workflows/paper-production.yml"
+    ).read_text(encoding="utf-8")
+    assert "LIVE_EXECUTION_ARMED" not in paper
+
+
 def test_live_account_number_is_secret_masked_in_every_broker_step():
     # The runner prints step env before Python can capture or mask its output.
     binding = "LIVE_TRADING_ACCOUNT_NUMBER: ${{ secrets.LIVE_TRADING_ACCOUNT_NUMBER }}"
