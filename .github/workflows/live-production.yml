@@ -62,6 +62,9 @@ env:
   PYTHON_VERSION: "3.12.11"
   APPROVED_RELEASE_SHA: ${{ vars.PRODUCTION_RELEASE_SHA }}
   TRADING_MODE: live
+  # A protected, exact phrase is required in addition to LIVE_TRADING_ENABLED.
+  # It is intentionally absent until a separately reviewed real-money launch.
+  LIVE_EXECUTION_ARMED: ${{ vars.LIVE_EXECUTION_ARMED }}
   PYTHONDONTWRITEBYTECODE: "1"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
@@ -129,6 +132,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           LIVE_RUNTIME_KEY: ${{ secrets.LIVE_RUNTIME_KEY }}
           LIVE_RUNTIME_BOOTSTRAP: ${{ vars.LIVE_RUNTIME_BOOTSTRAP }}
+          LIVE_EXECUTION_ARMED: ${{ vars.LIVE_EXECUTION_ARMED }}
           ALPACA_LIVE_API_KEY: ${{ secrets.ALPACA_LIVE_API_KEY }}
           ALPACA_LIVE_SECRET_KEY: ${{ secrets.ALPACA_LIVE_SECRET_KEY }}
           LIVE_TRADING_ENABLED: ${{ vars.LIVE_TRADING_ENABLED }}
@@ -154,6 +158,7 @@ jobs:
           LIVE_MAX_ORDER_NOTIONAL_USD: ${{ vars.LIVE_MAX_ORDER_NOTIONAL_USD }}
           LIVE_MAX_CYCLE_NOTIONAL_USD: ${{ vars.LIVE_MAX_CYCLE_NOTIONAL_USD }}
           LIVE_RUNTIME_KEY: ${{ secrets.LIVE_RUNTIME_KEY }}
+          LIVE_EXECUTION_ARMED: ${{ vars.LIVE_EXECUTION_ARMED }}
         run: python scripts/live_runtime_crypto.py run-step sanity
 
       - name: Verify live broker and deployment health
@@ -166,6 +171,7 @@ jobs:
           LIVE_MAX_ORDER_NOTIONAL_USD: ${{ vars.LIVE_MAX_ORDER_NOTIONAL_USD }}
           LIVE_MAX_CYCLE_NOTIONAL_USD: ${{ vars.LIVE_MAX_CYCLE_NOTIONAL_USD }}
           LIVE_RUNTIME_KEY: ${{ secrets.LIVE_RUNTIME_KEY }}
+          LIVE_EXECUTION_ARMED: ${{ vars.LIVE_EXECUTION_ARMED }}
         run: |
           set -euo pipefail
           python scripts/live_runtime_crypto.py run-step preflight
@@ -180,6 +186,7 @@ jobs:
           LIVE_MAX_ORDER_NOTIONAL_USD: ${{ vars.LIVE_MAX_ORDER_NOTIONAL_USD }}
           LIVE_MAX_CYCLE_NOTIONAL_USD: ${{ vars.LIVE_MAX_CYCLE_NOTIONAL_USD }}
           LIVE_RUNTIME_KEY: ${{ secrets.LIVE_RUNTIME_KEY }}
+          LIVE_EXECUTION_ARMED: ${{ vars.LIVE_EXECUTION_ARMED }}
         run: |
           set -euo pipefail
           python scripts/live_runtime_crypto.py run-step preview
@@ -196,6 +203,7 @@ jobs:
           LIVE_MAX_ORDER_NOTIONAL_USD: ${{ vars.LIVE_MAX_ORDER_NOTIONAL_USD }}
           LIVE_MAX_CYCLE_NOTIONAL_USD: ${{ vars.LIVE_MAX_CYCLE_NOTIONAL_USD }}
           LIVE_RUNTIME_KEY: ${{ secrets.LIVE_RUNTIME_KEY }}
+          LIVE_EXECUTION_ARMED: ${{ vars.LIVE_EXECUTION_ARMED }}
         run: |
           set -euo pipefail
           python scripts/live_runtime_crypto.py run-step execute
